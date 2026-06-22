@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  BUSINESS
+  ARCHITECT
+}
+
+enum ArchitectStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ProjectStatus {
+  OPEN
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  WAITING_APPROVAL
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id             String            @id @default(cuid())
+  email          String            @unique
+  passwordHash   String
+  role           UserRole
+  fullName       String
+  isSuspended    Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  businessMember BusinessMember[]
+  architect      ArchitectProfile?
+  proposals      ProjectProposal[]
+  approvals      HumanApproval[]   @relation("ApprovalActor")
+  auditLogs      AuditLog[]
+}
+
+model Workspace {
+  id                 String              @id @default(cuid())
+  name               String
+  slug               String              @unique
+  ownerUserId        String
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  members            BusinessMember[]
+  projects           Project[]
+  connectors         WorkspaceConnector[]
+  workflows          WorkflowDefinition[]
+  installations      AgentInstallation[]
+  llmKeys            WorkspaceLlmKey[]
+}
+
+model BusinessMember {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  userId       String
+  role         String
+  createdAt    DateTime  @default(now())
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id])
+  user         User      @relation(fields: [userId], references: [id])
+
+  @@unique([workspaceId, userId])
+}
+
+model ArchitectProfile {
+  id              String          @id @default(cuid())
+  userId           String          @unique
+  title            String
+  bio              String
+  portfolioUrl     String?
+  approvalStatus   ArchitectStatus @default(PENDING)
+  rating           Float           @default(0)
+  completedJobs    Int             @default(0)
+  createdAt        DateTime        @default(now())
+
+  user             User            @relation(fields: [userId], references: [id])
+  listings         AgentListing[]
+}
+
+model Category {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  slug        String         @unique
+  listings    AgentListing[]
+}
+
+model AgentListing {
+  id               String          @id @default(cuid())
+  architectId      String
+  categoryId       String
+  name             String
+  shortDescription String
+  priceCents       Int
+  isFree           Boolean         @default(false)
+  status           ListingStatus   @default(PENDING_REVIEW)
+  workflowJson     Json
+  tags             String[]
+  createdAt        DateTime        @default(now())
+
+  architect        ArchitectProfile @relation(fields: [architectId], references: [id])
+  category         Category         @relation(fields: [categoryId], references: [id])
+  installations    AgentInstallation[]
+}
+
+model Project {
+  id                 String            @id @default(cuid())
+  workspaceId        String
+  title              String
+  requirementBrief   String
+  budgetMinCents     Int
+  budgetMaxCents     Int
+  status             ProjectStatus     @default(OPEN)
+  createdAt          DateTime          @default(now())
+
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id])
+  proposals          ProjectProposal[]
+}
+
+model ProjectProposal {
+  id                 String    @id @default(cuid())
+  projectId          String
+  architectUserId    String
+  coverLetter        String
+  bidAmountCents     Int
+  etaDays            Int
+  createdAt          DateTime  @default(now())
+
+  project            Project   @relation(fields: [projectId], references: [id])
+  architect          User      @relation(fields: [architectUserId], references: [id])
+}
+
+model WorkflowDefinition {
+  id                  String         @id @default(cuid())
+  workspaceId         String
+  name                String
+  version             Int            @default(1)
+  workflowJson        Json
+  createdByUserId     String
+  createdAt           DateTime       @default(now())
+
+  workspace           Workspace      @relation(fields: [workspaceId], references: [id])
+  runs                WorkflowRun[]
+}
+
+model WorkflowRun {
+  id                 String        @id @default(cuid())
+  workflowId         String
+  status             RunStatus     @default(QUEUED)
+  triggerType        String
+  inputJson          Json
+  outputJson         Json?
+  errorMessage       String?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  createdAt          DateTime      @default(now())
+
+  workflow           WorkflowDefinition @relation(fields: [workflowId], references: [id])
+  nodeLogs           WorkflowNodeLog[]
+  approvals          HumanApproval[]
+}
+
+model WorkflowNodeLog {
+  id                 String      @id @default(cuid())
+  runId              String
+  nodeId             String
+  nodeType           String
+  status             RunStatus
+  inputJson          Json?
+  outputJson         Json?
+  errorMessage       String?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+
+  run                WorkflowRun @relation(fields: [runId], references: [id])
+}
+
+model HumanApproval {
+  id                 String      @id @default(cuid())
+  runId              String
+  actionLabel        String
+  riskLevel          String
+  status             String
+  actorUserId        String?
+  decisionAt         DateTime?
+  createdAt          DateTime    @default(now())
+
+  run                WorkflowRun @relation(fields: [runId], references: [id])
+  actor              User?       @relation("ApprovalActor", fields: [actorUserId], references: [id])
+}
+
+model WorkspaceConnector {
+  id                 String      @id @default(cuid())
+  workspaceId        String
+  connectorKey       String
+  displayName        String
+  encryptedConfig    String
+  isActive           Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+
+  workspace          Workspace   @relation(fields: [workspaceId], references: [id])
+}
+
+model WorkspaceLlmKey {
+  id                 String      @id @default(cuid())
+  workspaceId        String
+  provider           String
+  encryptedApiKey    String
+  keyLast4           String
+  createdAt          DateTime    @default(now())
+
+  workspace          Workspace   @relation(fields: [workspaceId], references: [id])
+}
+
+model AgentInstallation {
+  id                 String      @id @default(cuid())
+  workspaceId        String
+  listingId          String
+  installedVersion   Int         @default(1)
+  isEnabled          Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+
+  workspace          Workspace   @relation(fields: [workspaceId], references: [id])
+  listing            AgentListing @relation(fields: [listingId], references: [id])
+}
+
+model PaymentTransaction {
+  id                 String      @id @default(cuid())
+  workspaceId        String
+  provider           String
+  providerRef        String      @unique
+  grossAmountCents   Int
+  commissionCents    Int
+  architectPayoutCents Int
+  status             String
+  metadata           Json?
+  createdAt          DateTime    @default(now())
+}
+
+model AuditLog {
+  id                 String      @id @default(cuid())
+  actorUserId        String?
+  workspaceId        String?
+  action             String
+  resourceType       String
+  resourceId         String?
+  metadata           Json?
+  ipAddress          String?
+  createdAt          DateTime    @default(now())
+
+  actor              User?       @relation(fields: [actorUserId], references: [id])
+}

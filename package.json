@@ -1,0 +1,15 @@
+{
+  "name": "coreai-marketplace",
+  "private": true,
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @coreai/backend & npm run dev --workspace @coreai/frontend",
+    "dev:frontend": "npm run dev --workspace @coreai/frontend",
+    "dev:backend": "npm run dev --workspace @coreai/backend",
+    "build": "npm run build --workspace @coreai/backend && npm run build --workspace @coreai/frontend",
+    "lint": "npm run lint --workspace @coreai/frontend"
+  }
+}

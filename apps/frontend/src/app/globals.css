@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #fffaf2;
+  --fg: #2f1c06;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.brand-gradient {
+  background: linear-gradient(135deg, #ffd166 0%, #ff9f1c 55%, #f77f00 100%);
+}
+
+.orb-3d {
+  width: 92px;
+  height: 92px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 30% 30%, #fff4d6 0%, #ffba49 45%, #e97800 100%);
+  transform-style: preserve-3d;
+  animation: spin3d 6s linear infinite;
+}
+
+@keyframes spin3d {
+  0% {
+    transform: rotateX(20deg) rotateY(0deg);
+  }
+  100% {
+    transform: rotateX(20deg) rotateY(360deg);
+  }
+}
