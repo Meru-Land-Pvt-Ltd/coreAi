@@ -1,7 +1,7 @@
 "use client";
 
-import ReactFlow, { Background, Controls, type Edge, type Node } from "reactflow";
-import "reactflow/dist/style.css";
+import { Background, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 
 const nodes: Node[] = [
   { id: "1", position: { x: 100, y: 100 }, data: { label: "Webhook Trigger" }, type: "input" },
@@ -17,7 +17,7 @@ const edges: Edge[] = [
 export function WorkflowBuilder() {
   return (
     <div className="h-[70vh] rounded-2xl border border-orange-200 bg-white">
-      <ReactFlow nodes={nodes} edges={edges} fitView>
+      <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
         <Background />
         <Controls />
       </ReactFlow>

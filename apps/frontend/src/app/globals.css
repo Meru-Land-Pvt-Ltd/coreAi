@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   --bg: #fffaf2;
@@ -25,11 +23,27 @@ body {
   animation: spin3d 6s linear infinite;
 }
 
+.landing-3d-card {
+  background: linear-gradient(145deg, #fff7e8, #ffeccf);
+  transform-style: preserve-3d;
+  animation: floatCard 5s ease-in-out infinite;
+}
+
 @keyframes spin3d {
   0% {
     transform: rotateX(20deg) rotateY(0deg);
   }
   100% {
     transform: rotateX(20deg) rotateY(360deg);
+  }
+}
+
+@keyframes floatCard {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
   }
 }
