@@ -17,9 +17,9 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  ArchitectCard,
   ArchitectEmptyState,
-  ArchitectPageHeader
+  ArchitectField,
+  ArchitectTextarea
 } from "@/components/architect/ui/architect-ui";
 import {
   getArchitectWorkflow,
@@ -55,36 +55,43 @@ const nodeLibrary: {
   nodeKind: NodeKind;
   label: string;
   helper: string;
+  icon: string;
 }[] = [
   {
     nodeKind: "trigger",
     label: "Trigger",
-    helper: "Start workflow"
+    helper: "Start workflow",
+    icon: "⚡"
   },
   {
     nodeKind: "ai",
     label: "AI Prompt",
-    helper: "Use AI step"
+    helper: "Use AI step",
+    icon: "✨"
   },
   {
     nodeKind: "condition",
     label: "Condition",
-    helper: "Add logic"
+    helper: "Add logic",
+    icon: "◆"
   },
   {
     nodeKind: "connector",
     label: "Connector",
-    helper: "External action"
+    helper: "External action",
+    icon: "⌁"
   },
   {
     nodeKind: "approval",
     label: "Approval",
-    helper: "Human check"
+    helper: "Human check",
+    icon: "✓"
   },
   {
     nodeKind: "output",
     label: "Output",
-    helper: "Final result"
+    helper: "Final result",
+    icon: "↗"
   }
 ];
 
@@ -189,6 +196,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(emptyNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(emptyEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -197,12 +205,18 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return nodes.find((node) => node.id === selectedNodeId) ?? null;
   }, [nodes, selectedNodeId]);
 
-  const summary = useMemo(() => {
-    return {
-      nodes: nodes.length,
-      edges: edges.length
-    };
-  }, [nodes.length, edges.length]);
+  const filteredNodes = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    if (!query) return nodeLibrary;
+
+    return nodeLibrary.filter((node) => {
+      return (
+        node.label.toLowerCase().includes(query) ||
+        node.helper.toLowerCase().includes(query)
+      );
+    });
+  }, [searchTerm]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -240,8 +254,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       id,
       type: getNodeType(nodeKind),
       position: {
-        x: 120 + nodes.length * 40,
-        y: 120 + nodes.length * 30
+        x: 140 + nodes.length * 36,
+        y: 140 + nodes.length * 28
       },
       data: getNodeDefaultData(nodeKind)
     };
@@ -292,174 +306,256 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     });
 
     if (!result.success) {
-      setMessage(result.error ?? "Could not save workflow");
+      setMessage(result.error ?? "Could not save agent");
       setSaving(false);
       return;
     }
 
-    setMessage("Workflow saved successfully");
+    setMessage("Agent saved successfully");
     setSaving(false);
   }
 
   if (loading) {
-    return <ArchitectCard>Loading builder...</ArchitectCard>;
+    return (
+      <div className="flex h-[calc(100vh-104px)] items-center justify-center">
+        <div className="rounded-2xl border border-orange-100 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow-sm">
+          Loading builder...
+        </div>
+      </div>
+    );
   }
 
   if (!workflow) {
     return (
       <ArchitectEmptyState
-        title="Workflow not found"
-        text="This workflow may not exist or may not belong to this architect account."
-        actionLabel="Back to Workflows"
+        title="Agent not found"
+        text="This agent canvas may not exist or may not belong to this architect account."
+        actionLabel="Back to Builder"
         actionHref="/architect/workflows"
       />
     );
   }
 
   return (
-    <div>
-      <ArchitectPageHeader
-        eyebrow="Workflow Builder"
-        title={workflow.name}
-        description="Start with an empty canvas. Add nodes, connect them, configure steps, and save the workflow."
-      />
+    <div className="-mx-5 -my-6 flex h-[calc(100vh-73px)] overflow-hidden bg-[#f2f3f7]">
+      <aside className="flex w-[304px] shrink-0 flex-col border-r border-orange-100 bg-white">
+        <div className="border-b border-orange-100 p-3">
+          <div className="flex h-12 items-center gap-2 rounded-2xl border border-orange-100 bg-white px-3 shadow-sm">
+            <span className="text-xl font-light text-orange-950">+</span>
 
-      {message ? (
-        <div className="mb-5 rounded-[24px] border border-orange-100 bg-white px-5 py-4 text-sm font-black text-orange-700">
-          {message}
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search nodes"
+              className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-orange-950 outline-none placeholder:text-orange-950/40"
+            />
+
+            <span className="flex h-7 w-7 items-center justify-center rounded-full text-orange-700">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path
+                  d="M18 11a6 6 0 0 1-12 0M12 17v4M9 21h6"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="rounded-xl border border-orange-100 bg-white px-3 py-2.5 text-sm font-black text-orange-950 transition hover:bg-yellow-50"
+            >
+              ✨ Generate
+            </button>
+
+            <button
+              type="button"
+              className="rounded-xl bg-gradient-to-br from-orange-500 to-yellow-400 px-3 py-2.5 text-sm font-black text-white shadow-sm shadow-orange-200 transition hover:scale-[1.01]"
+            >
+              Search
+            </button>
+          </div>
         </div>
-      ) : null}
 
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-orange-100 bg-white p-4 shadow-sm">
-        <div>
-          <p className="text-sm font-black text-orange-950">
-            {summary.nodes} nodes · {summary.edges} connections
+        <div className="flex-1 overflow-y-auto p-3">
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-orange-500">
+            Nodes
           </p>
-          <p className="mt-1 text-xs font-semibold text-orange-700/70">
-            Add nodes from the left and connect them on the canvas.
-          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            {filteredNodes.map((item) => (
+              <button
+                key={item.nodeKind}
+                type="button"
+                onClick={() => addBuilderNode(item.nodeKind)}
+                className="group min-h-[112px] rounded-2xl border border-orange-100 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-yellow-50 text-sm font-black text-orange-700 group-hover:bg-orange-100">
+                  {item.icon}
+                </div>
+
+                <p className="mt-3 text-sm font-black text-orange-950">
+                  + {item.label}
+                </p>
+
+                <p className="mt-1 text-xs font-semibold leading-4 text-orange-900/55">
+                  {item.helper}
+                </p>
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="border-t border-orange-100 p-3">
           <Link
             href="/architect/workflows"
-            className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-black text-orange-800"
+            className="flex w-full items-center justify-center rounded-xl border border-orange-100 bg-white px-4 py-2.5 text-sm font-black text-orange-800 transition hover:bg-yellow-50"
           >
             Back
           </Link>
+        </div>
+      </aside>
 
+      <section className="relative flex min-w-0 flex-1 flex-col">
+        <div className="absolute left-5 top-5 z-20 flex items-center gap-2">
+          <div className="max-w-[360px] truncate rounded-xl border border-orange-100 bg-white px-4 py-2 text-sm font-black text-orange-950 shadow-sm">
+            {workflow.name}
+          </div>
+
+          {message ? (
+            <div className="rounded-xl border border-orange-100 bg-white px-4 py-2 text-xs font-black text-orange-700 shadow-sm">
+              {message}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="absolute right-5 top-5 z-20 flex items-center gap-2">
           <Link
-            href={"/architect/listings/new" as Route}
-            className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-black text-orange-800"
+            href={`/architect/agents/publish?workflowId=${workflowId}` as Route}
+            className="rounded-xl border border-orange-100 bg-white px-4 py-2 text-sm font-black text-orange-800 shadow-sm transition hover:bg-yellow-50"
           >
-            Publish Agent
+            Publish
           </Link>
 
           <button
             type="button"
             onClick={saveWorkflow}
             disabled={saving}
-            className="rounded-full bg-orange-500 px-5 py-2 text-sm font-black text-white disabled:opacity-60"
+            className="rounded-xl bg-gradient-to-br from-orange-500 to-yellow-400 px-5 py-2 text-sm font-black text-white shadow-sm shadow-orange-200 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "Saving..." : "Save Workflow"}
+            {saving ? "Saving..." : "Save"}
           </button>
         </div>
-      </div>
 
-      <div className="grid gap-5 xl:grid-cols-[220px_1fr_300px]">
-        <ArchitectCard title="Nodes">
-          <div className="grid gap-2">
-            {nodeLibrary.map((item) => (
-              <button
-                key={item.nodeKind}
-                type="button"
-                onClick={() => addBuilderNode(item.nodeKind)}
-                className="rounded-xl border border-orange-100 bg-white px-3 py-3 text-left transition hover:border-orange-300 hover:bg-orange-50"
-              >
-                <p className="text-sm font-black text-orange-950">+ {item.label}</p>
-                <p className="mt-1 text-xs font-semibold text-orange-800/60">
-                  {item.helper}
-                </p>
-              </button>
-            ))}
+        <div className="h-full p-6 pt-20">
+          <div className="h-full overflow-hidden rounded-sm border-2 border-orange-400 bg-white shadow-sm">
+            <ReactFlow<BuilderNode, Edge>
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onPaneClick={() => setSelectedNodeId(null)}
+              fitView
+              proOptions={{
+                hideAttribution: true
+              }}
+            >
+              <Background color="#fed7aa" gap={22} />
+              <Controls />
+              <MiniMap />
+            </ReactFlow>
           </div>
-        </ArchitectCard>
-
-        <div className="h-[72vh] overflow-hidden rounded-[24px] border border-orange-100 bg-white shadow-sm">
-          <ReactFlow<BuilderNode, Edge>
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            fitView
-            proOptions={{
-              hideAttribution: true
-            }}
-          >
-            <Background color="#fed7aa" gap={20} />
-            <Controls />
-            <MiniMap />
-          </ReactFlow>
         </div>
 
-        <ArchitectCard title="Settings">
-          {selectedNode ? (
-            <div className="grid gap-4">
+        {selectedNode ? (
+          <aside className="absolute bottom-5 right-5 top-20 z-30 w-[320px] overflow-y-auto rounded-2xl border border-orange-100 bg-white p-4 shadow-xl shadow-orange-950/10">
+            <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-orange-600">
-                  Selected
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-500">
+                  Settings
                 </p>
                 <h3 className="mt-1 text-lg font-black text-orange-950">
                   {selectedNode.data.label}
                 </h3>
               </div>
 
-              <label className="grid gap-2 text-sm font-black text-orange-950">
+              <button
+                type="button"
+                onClick={() => setSelectedNodeId(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-xl bg-yellow-50 text-sm font-black text-orange-700"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              <ArchitectField
+                name="label"
+                label="Label"
+                defaultValue={selectedNode.data.label}
+                key={`${selectedNode.id}-label`}
+              />
+
+              <label className="grid gap-2 text-sm font-bold text-orange-950">
                 Label
                 <input
                   value={selectedNode.data.label}
                   onChange={(event) =>
                     updateSelectedNodeData("label", event.target.value)
                   }
-                  className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500"
+                  className="rounded-xl border border-orange-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
                 />
               </label>
 
-              <label className="grid gap-2 text-sm font-black text-orange-950">
+              <ArchitectTextarea
+                name="description-hidden"
+                label="Description"
+                defaultValue={String(selectedNode.data.description ?? "")}
+                key={`${selectedNode.id}-description-hidden`}
+              />
+
+              <label className="grid gap-2 text-sm font-bold text-orange-950">
                 Description
                 <textarea
                   value={String(selectedNode.data.description ?? "")}
                   onChange={(event) =>
                     updateSelectedNodeData("description", event.target.value)
                   }
-                  className="min-h-20 rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500"
+                  className="min-h-24 resize-y rounded-xl border border-orange-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
                 />
               </label>
 
               {selectedNode.data.nodeKind === "ai" ? (
-                <label className="grid gap-2 text-sm font-black text-orange-950">
+                <label className="grid gap-2 text-sm font-bold text-orange-950">
                   AI Prompt
                   <textarea
                     value={String(selectedNode.data.prompt ?? "")}
                     onChange={(event) =>
                       updateSelectedNodeData("prompt", event.target.value)
                     }
-                    className="min-h-28 rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500"
+                    className="min-h-32 resize-y rounded-xl border border-orange-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
                   />
                 </label>
               ) : null}
 
               {selectedNode.data.nodeKind === "connector" ? (
-                <label className="grid gap-2 text-sm font-black text-orange-950">
+                <label className="grid gap-2 text-sm font-bold text-orange-950">
                   Connector
                   <select
                     value={String(selectedNode.data.connector ?? "Gmail")}
                     onChange={(event) =>
                       updateSelectedNodeData("connector", event.target.value)
                     }
-                    className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500"
+                    className="rounded-xl border border-orange-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
                   >
                     <option value="Gmail">Gmail</option>
                     <option value="Google Sheets">Google Sheets</option>
@@ -471,27 +567,27 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               ) : null}
 
               {selectedNode.data.nodeKind === "condition" ? (
-                <label className="grid gap-2 text-sm font-black text-orange-950">
+                <label className="grid gap-2 text-sm font-bold text-orange-950">
                   Condition
                   <input
                     value={String(selectedNode.data.condition ?? "")}
                     onChange={(event) =>
                       updateSelectedNodeData("condition", event.target.value)
                     }
-                    className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500"
+                    className="rounded-xl border border-orange-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
                   />
                 </label>
               ) : null}
 
               {selectedNode.data.nodeKind === "output" ? (
-                <label className="grid gap-2 text-sm font-black text-orange-950">
+                <label className="grid gap-2 text-sm font-bold text-orange-950">
                   Output Key
                   <input
                     value={String(selectedNode.data.outputKey ?? "")}
                     onChange={(event) =>
                       updateSelectedNodeData("outputKey", event.target.value)
                     }
-                    className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500"
+                    className="rounded-xl border border-orange-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
                   />
                 </label>
               ) : null}
@@ -499,18 +595,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               <button
                 type="button"
                 onClick={deleteSelectedNode}
-                className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-black text-red-700"
+                className="rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-black text-red-600 transition hover:bg-red-100"
               >
                 Delete Node
               </button>
             </div>
-          ) : (
-            <p className="text-sm font-semibold leading-6 text-orange-900/70">
-              Select a node to edit settings.
-            </p>
-          )}
-        </ArchitectCard>
-      </div>
+          </aside>
+        ) : null}
+      </section>
     </div>
   );
 }

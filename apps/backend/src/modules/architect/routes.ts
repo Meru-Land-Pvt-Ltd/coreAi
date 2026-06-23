@@ -532,3 +532,27 @@ architectRoutes.get("/proposals", async (c) => {
     proposals
   });
 });
+
+architectRoutes.delete("/workflows/:workflowId", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  const existingWorkflow = await prisma.workflowDefinition.findFirst({
+    where: {
+      id: workflowId,
+      architectUserId: authUser.id
+    }
+  });
+
+  if (!existingWorkflow) {
+    return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+  }
+
+  await prisma.workflowDefinition.delete({
+    where: {
+      id: workflowId
+    }
+  });
+
+  return successResponse(c, { workflowId }, "Workflow deleted");
+});

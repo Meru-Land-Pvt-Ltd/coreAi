@@ -10,7 +10,7 @@ export default function ArchitectLoginPage() {
         subtitle="Login to build agents, create workflows, publish marketplace listings, and send project proposals."
         switchHref="/architect/signup"
         switchText="Need an architect account?"
-        dashboardPath="/architect/dashboard"
+        dashboardPath="/architect/agents"
       />
     </main>
   );
