@@ -2,108 +2,169 @@
 
 import {
   Background,
+  BackgroundVariant,
+  ConnectionLineType,
   Controls,
-  Handle,
   MarkerType,
-  Position,
+  MiniMap,
+  Panel,
   ReactFlow,
   type Edge,
+  type FitViewOptions,
   type Node,
-  type NodeProps,
+  type ProOptions,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-type MarketplaceNodeData = {
-  title: string;
-  subtitle: string;
-};
-
-function MarketplaceNode({ data }: NodeProps<Node<MarketplaceNodeData>>) {
-  return (
-    <div className="min-w-[180px] rounded-xl border border-orange-200 bg-white px-3 py-2 shadow-sm">
-      <div className="text-sm font-semibold text-orange-900">{data.title}</div>
-      <div className="text-xs text-orange-700">{data.subtitle}</div>
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
-    </div>
-  );
-}
-
-const nodeTypes = {
-  marketplace: MarketplaceNode,
-};
-
-const nodes: Node<MarketplaceNodeData>[] = [
+const nodes: Node[] = [
   {
-    id: "1",
+    id: "trigger",
     position: { x: 20, y: 90 },
-    data: { title: "Business Need", subtitle: "Post project or install agent" },
-    type: "marketplace",
+    data: { label: "Webhook Trigger" },
+    style: {
+      borderRadius: 14,
+      border: "1px solid #fdba74",
+      background: "#fff7ed",
+      color: "#7c2d12",
+      fontWeight: 600,
+    },
   },
   {
-    id: "2",
-    position: { x: 300, y: 20 },
-    data: { title: "AI Architect", subtitle: "Build workflow in builder" },
-    type: "marketplace",
+    id: "router",
+    position: { x: 260, y: 90 },
+    data: { label: "Condition Router" },
+    style: {
+      borderRadius: 14,
+      border: "1px solid #fdba74",
+      background: "#fff7ed",
+      color: "#7c2d12",
+      fontWeight: 600,
+    },
   },
   {
-    id: "3",
-    position: { x: 300, y: 170 },
-    data: { title: "Marketplace Agent", subtitle: "Install ready template" },
-    type: "marketplace",
+    id: "llm",
+    position: { x: 500, y: 20 },
+    data: { label: "LLM Node" },
+    style: {
+      borderRadius: 14,
+      border: "1px solid #fdba74",
+      background: "#fff7ed",
+      color: "#7c2d12",
+      fontWeight: 600,
+    },
   },
   {
-    id: "4",
-    position: { x: 600, y: 90 },
-    data: { title: "Custom Engine", subtitle: "Execute with logs + approvals" },
-    type: "marketplace",
+    id: "approval",
+    position: { x: 500, y: 170 },
+    data: { label: "Human Approval" },
+    style: {
+      borderRadius: 14,
+      border: "1px solid #fdba74",
+      background: "#fff7ed",
+      color: "#7c2d12",
+      fontWeight: 600,
+    },
+  },
+  {
+    id: "connector",
+    position: { x: 760, y: 90 },
+    data: { label: "Connector Action" },
+    style: {
+      borderRadius: 14,
+      border: "1px solid #fdba74",
+      background: "#fff7ed",
+      color: "#7c2d12",
+      fontWeight: 600,
+    },
   },
 ];
 
 const edges: Edge[] = [
   {
-    id: "e1-2",
-    source: "1",
-    target: "2",
-    markerEnd: { type: MarkerType.ArrowClosed },
+    id: "e1",
+    source: "trigger",
+    target: "router",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#f97316" },
+    animated: true,
+    style: { stroke: "#f97316", strokeWidth: 2.2 },
+  },
+  {
+    id: "e2",
+    source: "router",
+    target: "llm",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#f97316" },
+    label: "auto path",
+    labelStyle: { fill: "#9a3412", fontSize: 11 },
     style: { stroke: "#f97316", strokeWidth: 2 },
   },
   {
-    id: "e1-3",
-    source: "1",
-    target: "3",
-    markerEnd: { type: MarkerType.ArrowClosed },
+    id: "e3",
+    source: "router",
+    target: "approval",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#f97316" },
+    label: "risky path",
+    labelStyle: { fill: "#9a3412", fontSize: 11 },
     style: { stroke: "#f97316", strokeWidth: 2 },
   },
   {
-    id: "e2-4",
-    source: "2",
-    target: "4",
-    markerEnd: { type: MarkerType.ArrowClosed },
+    id: "e4",
+    source: "llm",
+    target: "connector",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#f97316" },
     style: { stroke: "#f97316", strokeWidth: 2 },
   },
   {
-    id: "e3-4",
-    source: "3",
-    target: "4",
-    markerEnd: { type: MarkerType.ArrowClosed },
+    id: "e5",
+    source: "approval",
+    target: "connector",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#f97316" },
     style: { stroke: "#f97316", strokeWidth: 2 },
   },
 ];
 
+const fitViewOptions: FitViewOptions = { padding: 0.2, minZoom: 0.4, maxZoom: 1.2 };
+const proOptions: ProOptions = { hideAttribution: true };
+
 export function LandingWorkflowPreview() {
   return (
-    <div className="h-[320px] w-full rounded-2xl border border-orange-200 bg-orange-50/40">
+    <div className="h-[380px] w-full overflow-hidden rounded-2xl border border-orange-300 bg-gradient-to-br from-orange-50 to-amber-100">
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.1 }}
-        proOptions={{ hideAttribution: true }}
+        fitViewOptions={fitViewOptions}
+        proOptions={proOptions}
+        defaultEdgeOptions={{ type: "smoothstep", style: { stroke: "#f97316", strokeWidth: 2 } }}
+        connectionLineType={ConnectionLineType.SmoothStep}
+        colorMode="light"
+        attributionPosition="bottom-left"
+        minZoom={0.35}
+        maxZoom={1.6}
+        zoomOnScroll={false}
+        zoomOnDoubleClick={false}
+        panOnDrag
+        panOnScroll
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable
+        snapToGrid
+        snapGrid={[16, 16]}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.72 }}
       >
-        <Background color="#fed7aa" />
-        <Controls showInteractive={false} />
+        <MiniMap
+          nodeColor={() => "#f97316"}
+          maskColor="rgba(255,240,220,0.45)"
+          pannable
+          zoomable
+          position="bottom-right"
+          nodeStrokeWidth={3}
+          style={{ background: "#ffedd5", border: "1px solid #fdba74" }}
+        />
+        <Controls showInteractive={false} position="top-right" />
+        <Panel position="top-left" className="rounded-full border border-orange-300 bg-white/80 px-3 py-1 text-xs text-orange-900">
+          Engine Graph Preview
+        </Panel>
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#fdba74" />
       </ReactFlow>
     </div>
   );
