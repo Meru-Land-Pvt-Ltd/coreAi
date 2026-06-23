@@ -30,6 +30,10 @@ export function getArchitectWorkflows() {
   return apiGet<{ workflows: ArchitectWorkflow[] }>("/architect/workflows");
 }
 
+export function getArchitectWorkflow(workflowId: string) {
+  return apiGet<{ workflow: ArchitectWorkflow }>(`/architect/workflows/${workflowId}`);
+}
+
 export function createArchitectWorkflow(body: {
   name: string;
   description?: string;
@@ -40,6 +44,21 @@ export function createArchitectWorkflow(body: {
   };
 }) {
   return apiPost<{ workflow: ArchitectWorkflow }>("/architect/workflows", body);
+}
+
+export function updateArchitectWorkflow(
+  workflowId: string,
+  body: {
+    name?: string;
+    description?: string;
+    isTemplate?: boolean;
+    workflowJson?: {
+      nodes: unknown[];
+      edges: unknown[];
+    };
+  }
+) {
+  return apiPut<{ workflow: ArchitectWorkflow }>(`/architect/workflows/${workflowId}`, body);
 }
 
 export function getArchitectListings() {

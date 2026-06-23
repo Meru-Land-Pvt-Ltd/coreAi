@@ -8,25 +8,42 @@ import {
   ArchitectPageHeader,
   ArchitectPrimaryButton,
   ArchitectTextarea
-} from "./architect-ui";
-import { createArchitectWorkflow } from "../features/api";
+} from "@/components/architect/ui/architect-ui";
+import { createArchitectWorkflow } from "@/components/architect/features/api";
 
 const starterWorkflowJson = {
   nodes: [
     {
       id: "manual-trigger",
-      type: "manual_trigger",
-      label: "Manual Trigger"
+      type: "input",
+      position: {
+        x: 80,
+        y: 120
+      },
+      data: {
+        label: "Manual Trigger"
+      }
     },
     {
       id: "ai-prompt",
-      type: "ai_prompt",
-      label: "AI Prompt"
+      position: {
+        x: 360,
+        y: 120
+      },
+      data: {
+        label: "AI Prompt"
+      }
     },
     {
       id: "human-approval",
-      type: "human_approval",
-      label: "Human Approval"
+      type: "output",
+      position: {
+        x: 640,
+        y: 120
+      },
+      data: {
+        label: "Human Approval"
+      }
     }
   ],
   edges: [
@@ -60,12 +77,12 @@ export function ArchitectWorkflowCreateView() {
       workflowJson: starterWorkflowJson
     });
 
-    if (!result.success) {
+    if (!result.success || !result.data) {
       setMessage(result.error ?? "Workflow creation failed");
       return;
     }
 
-    router.push("/architect/workflows");
+    router.push(`/architect/workflows/${result.data.workflow.id}/builder`);
   }
 
   return (
@@ -73,7 +90,7 @@ export function ArchitectWorkflowCreateView() {
       <ArchitectPageHeader
         eyebrow="New Workflow"
         title="Create Workflow"
-        description="Start with a simple working workflow structure. The visual builder will be connected after this."
+        description="Create the workflow first, then continue inside the visual ReactFlow builder."
       />
 
       {message ? (
@@ -103,7 +120,7 @@ export function ArchitectWorkflowCreateView() {
               Save as reusable template
             </label>
 
-            <ArchitectPrimaryButton>Create Workflow</ArchitectPrimaryButton>
+            <ArchitectPrimaryButton>Create and Open Builder</ArchitectPrimaryButton>
           </form>
         </ArchitectCard>
 
@@ -114,7 +131,7 @@ export function ArchitectWorkflowCreateView() {
                 <p className="text-xs font-black uppercase tracking-wide text-orange-600">
                   Step {index + 1}
                 </p>
-                <h3 className="mt-1 font-black">{node.label}</h3>
+                <h3 className="mt-1 font-black">{String(node.data.label)}</h3>
               </div>
             ))}
           </div>

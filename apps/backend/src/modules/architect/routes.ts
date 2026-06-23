@@ -27,6 +27,18 @@ const workflowSchema = z.object({
   })
 });
 
+const workflowUpdateSchema = z.object({
+  name: z.string().trim().min(2).optional(),
+  description: z.string().trim().optional().or(z.literal("")),
+  isTemplate: z.boolean().optional(),
+  workflowJson: z
+    .object({
+      nodes: z.array(z.any()).default([]),
+      edges: z.array(z.any()).default([])
+    })
+    .optional()
+});
+
 const listingSchema = z.object({
   workflowId: z.string().optional().or(z.literal("")),
   name: z.string().trim().min(2, "Agent name is required"),
@@ -262,6 +274,80 @@ architectRoutes.post("/workflows", async (c) => {
     }
 
     return errorResponse(c, "Could not create workflow", 500, "WORKFLOW_CREATE_FAILED");
+  }
+});
+
+architectRoutes.get("/workflows/:workflowId", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: {
+      id: workflowId,
+      architectUserId: authUser.id
+    }
+  });
+
+  if (!workflow) {
+    return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+  }
+
+  return successResponse(c, {
+    workflow
+  });
+});
+
+architectRoutes.put("/workflows/:workflowId", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const workflowId = c.req.param("workflowId");
+    const input = workflowUpdateSchema.parse(await c.req.json());
+
+    const existingWorkflow = await prisma.workflowDefinition.findFirst({
+      where: {
+        id: workflowId,
+        architectUserId: authUser.id
+      }
+    });
+
+    if (!existingWorkflow) {
+      return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+    }
+
+    const workflow = await prisma.workflowDefinition.update({
+      where: {
+        id: workflowId
+      },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.description !== undefined
+          ? { description: input.description || null }
+          : {}),
+        ...(input.isTemplate !== undefined ? { isTemplate: input.isTemplate } : {}),
+        ...(input.workflowJson !== undefined
+          ? { workflowJson: input.workflowJson as never }
+          : {})
+      }
+    });
+
+    return successResponse(
+      c,
+      {
+        workflow
+      },
+      "Workflow saved"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid workflow input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    return errorResponse(c, "Could not save workflow", 500, "WORKFLOW_UPDATE_FAILED");
   }
 });
 
