@@ -1,9 +1,5 @@
-import { RoleLoginCard } from "@/components/ui/role-login-card";
+import { redirect } from "next/navigation";
 
-export default function ArchitectLoginPage() {
-  return (
-    <main className="min-h-screen p-6 md:p-12">
-      <RoleLoginCard role="architect" dashboardPath="/dashboard/architect" />
-    </main>
-  );
+export default function LegacyArchitectLoginRedirect() {
+  redirect("/login");
 }
