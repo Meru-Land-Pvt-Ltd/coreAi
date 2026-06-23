@@ -1,72 +1,29 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArchitectCard,
   ArchitectField,
-  ArchitectPageHeader,
   ArchitectPrimaryButton,
   ArchitectTextarea
 } from "@/components/architect/ui/architect-ui";
 import { createArchitectWorkflow } from "@/components/architect/features/api";
 
-const starterWorkflowJson = {
-  nodes: [
-    {
-      id: "manual-trigger",
-      type: "input",
-      position: {
-        x: 80,
-        y: 120
-      },
-      data: {
-        label: "Manual Trigger"
-      }
-    },
-    {
-      id: "ai-prompt",
-      position: {
-        x: 360,
-        y: 120
-      },
-      data: {
-        label: "AI Prompt"
-      }
-    },
-    {
-      id: "human-approval",
-      type: "output",
-      position: {
-        x: 640,
-        y: 120
-      },
-      data: {
-        label: "Human Approval"
-      }
-    }
-  ],
-  edges: [
-    {
-      id: "manual-trigger-ai-prompt",
-      source: "manual-trigger",
-      target: "ai-prompt"
-    },
-    {
-      id: "ai-prompt-human-approval",
-      source: "ai-prompt",
-      target: "human-approval"
-    }
-  ]
+const emptyAgentCanvas = {
+  nodes: [],
+  edges: []
 };
 
 export function ArchitectWorkflowCreateView() {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
+    setSaving(true);
 
     const formData = new FormData(event.currentTarget);
 
@@ -74,11 +31,12 @@ export function ArchitectWorkflowCreateView() {
       name: String(formData.get("name") ?? ""),
       description: String(formData.get("description") ?? ""),
       isTemplate: formData.get("isTemplate") === "on",
-      workflowJson: starterWorkflowJson
+      workflowJson: emptyAgentCanvas
     });
 
     if (!result.success || !result.data) {
-      setMessage(result.error ?? "Workflow creation failed");
+      setMessage(result.error ?? "Agent creation failed");
+      setSaving(false);
       return;
     }
 
@@ -87,55 +45,62 @@ export function ArchitectWorkflowCreateView() {
 
   return (
     <div>
-      <ArchitectPageHeader
-        eyebrow="New Workflow"
-        title="Create Workflow"
-        description="Create the workflow first, then continue inside the visual ReactFlow builder."
-      />
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-black text-orange-950">Create New Agent</h1>
+
+          <div className="group relative">
+            <span className="flex h-6 w-6 cursor-help items-center justify-center rounded-full border border-orange-200 bg-white text-xs font-black text-orange-700">
+              i
+            </span>
+
+            <div className="pointer-events-none absolute left-0 top-8 z-20 hidden w-72 rounded-2xl border border-orange-100 bg-white p-4 text-sm font-semibold leading-6 text-orange-900/70 shadow-xl shadow-orange-950/10 group-hover:block">
+              This creates an empty agent canvas. After this, you will add nodes and connections inside the visual builder.
+            </div>
+          </div>
+        </div>
+
+        <Link
+          href="/architect/workflows"
+          className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-black text-orange-800 transition hover:bg-yellow-50"
+        >
+          Back
+        </Link>
+      </div>
 
       {message ? (
-        <div className="mb-5 rounded-[24px] border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
+        <div className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
           {message}
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
-        <ArchitectCard title="Workflow Details">
-          <form onSubmit={handleSubmit} className="grid gap-4">
-            <ArchitectField
-              name="name"
-              label="Workflow Name"
-              placeholder="Customer Support Reply Workflow"
-              required
-            />
+      <div className="max-w-2xl rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+        <form onSubmit={handleSubmit} className="grid gap-4">
+          <ArchitectField
+            name="name"
+            label="Agent Name"
+            placeholder="AI Customer Support Agent"
+            required
+            minLength={2}
+          />
 
-            <ArchitectTextarea
-              name="description"
-              label="Description"
-              placeholder="Explain what this workflow automates."
-            />
+          <ArchitectTextarea
+            name="description"
+            label="Short Description"
+            placeholder="What will this agent automate?"
+          />
 
-            <label className="flex items-center gap-3 rounded-2xl bg-orange-50 px-4 py-3 text-sm font-black text-orange-900">
-              <input name="isTemplate" type="checkbox" />
-              Save as reusable template
-            </label>
+          <label className="flex items-center gap-3 rounded-xl bg-yellow-50 px-4 py-3 text-sm font-black text-orange-900">
+            <input name="isTemplate" type="checkbox" />
+            Save as reusable template
+          </label>
 
-            <ArchitectPrimaryButton>Create and Open Builder</ArchitectPrimaryButton>
-          </form>
-        </ArchitectCard>
-
-        <ArchitectCard title="Starter Flow">
-          <div className="grid gap-3">
-            {starterWorkflowJson.nodes.map((node, index) => (
-              <div key={node.id} className="rounded-2xl bg-orange-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-orange-600">
-                  Step {index + 1}
-                </p>
-                <h3 className="mt-1 font-black">{String(node.data.label)}</h3>
-              </div>
-            ))}
+          <div className="flex justify-end">
+            <ArchitectPrimaryButton disabled={saving}>
+              {saving ? "Creating..." : "Create & Open Builder"}
+            </ArchitectPrimaryButton>
           </div>
-        </ArchitectCard>
+        </form>
       </div>
     </div>
   );

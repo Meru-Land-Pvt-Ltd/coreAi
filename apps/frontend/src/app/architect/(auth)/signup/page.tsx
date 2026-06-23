@@ -10,7 +10,7 @@ export default function ArchitectSignupPage() {
         subtitle="Create your architect account and start building AI agents for businesses."
         switchHref="/architect/login"
         switchText="Already have an architect account?"
-        dashboardPath="/architect/dashboard"
+        dashboardPath="/architect/agents"
       />
     </main>
   );

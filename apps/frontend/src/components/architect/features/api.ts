@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
 import type {
   ArchitectListing,
   ArchitectProfile,
@@ -98,4 +98,8 @@ export function submitProjectProposal(
 
 export function getArchitectProposals() {
   return apiGet<{ proposals: ArchitectProposal[] }>("/architect/proposals");
+}
+
+export function deleteArchitectWorkflow(workflowId: string) {
+  return apiDelete<{ workflowId: string }>(`/architect/workflows/${workflowId}`);
 }
