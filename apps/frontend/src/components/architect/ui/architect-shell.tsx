@@ -33,31 +33,31 @@ const navSections: NavSection[] = [
     ]
   },
   {
-    title: "Workflows",
+    title: "Builder",
     items: [
       {
-        label: "All Workflows",
+        label: "Workflows",
         href: "/architect/workflows",
         matchPrefix: "/architect/workflows",
         excludePrefixes: ["/architect/workflows/new"]
       },
       {
-        label: "Create Workflow",
+        label: "New Workflow",
         href: "/architect/workflows/new"
       }
     ]
   },
   {
-    title: "Marketplace",
+    title: "Agents",
     items: [
       {
-        label: "Listings",
+        label: "My Agents",
         href: "/architect/listings",
         matchPrefix: "/architect/listings",
         excludePrefixes: ["/architect/listings/new"]
       },
       {
-        label: "Create Listing",
+        label: "Publish Agent",
         href: "/architect/listings/new"
       }
     ]
@@ -197,7 +197,7 @@ export function ArchitectShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <section className="lg:pl-72">
-        <header className="sticky top-0 z-30 border-b border-orange-100 bg-[#fff8ef]/90 px-5 py-4 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-orange-100 bg-white px-5 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-orange-600">
