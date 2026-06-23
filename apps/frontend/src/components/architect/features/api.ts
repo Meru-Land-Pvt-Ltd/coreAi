@@ -12,6 +12,10 @@ export function getArchitectSummary() {
   return apiGet<ArchitectSummary>("/architect/summary");
 }
 
+export function getArchitectProfile() {
+  return apiGet<{ profile: ArchitectProfile | null }>("/architect/profile");
+}
+
 export function saveArchitectProfile(body: {
   title?: string;
   bio?: string;

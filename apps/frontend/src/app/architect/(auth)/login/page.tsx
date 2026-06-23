@@ -7,7 +7,7 @@ export default function ArchitectLoginPage() {
         role="ARCHITECT"
         mode="login"
         title="AI Architect Login"
-        subtitle="Login to build agents, create workflows, and work on business projects."
+        subtitle="Login to build agents, create workflows, publish marketplace listings, and send project proposals."
         switchHref="/architect/signup"
         switchText="Need an architect account?"
         dashboardPath="/architect/dashboard"
