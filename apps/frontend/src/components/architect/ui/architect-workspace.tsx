@@ -10,13 +10,13 @@ import {
   getArchitectWorkflows,
   saveArchitectProfile,
   submitProjectProposal }
-  from "../architect/api"
+  from "../features/api"
 import type {
   ArchitectListing,
   ArchitectProject,
   ArchitectSummary,
   ArchitectWorkflow
-} from "../architect/types";
+} from "../features/types";
 
 type Tab = "overview" | "profile" | "workflows" | "marketplace" | "projects";
 

@@ -25,6 +25,7 @@ export type ArchitectWorkflow = {
 
 export type ArchitectListing = {
   id: string;
+  workflowId: string | null;
   name: string;
   shortDescription: string;
   description: string | null;
