@@ -1,0 +1,263 @@
+.
+├── ._.git
+├── ._.gitignore
+├── ._README.md
+├── ._apps
+├── ._docker-compose.yml
+├── ._docs
+├── ._infra
+├── ._node_modules
+├── ._package-lock.json
+├── ._package.json
+├── ._packages
+├── .gitignore
+├── README.md
+├── apps
+│   ├── ._backend
+│   ├── ._frontend
+│   ├── backend
+│   │   ├── ._.env
+│   │   ├── ._.env.example
+│   │   ├── ._Dockerfile
+│   │   ├── ._dist
+│   │   ├── ._node_modules
+│   │   ├── ._package.json
+│   │   ├── ._prisma
+│   │   ├── ._src
+│   │   ├── ._tsconfig.json
+│   │   ├── .env
+│   │   ├── .env.example
+│   │   ├── Dockerfile
+│   │   ├── package.json
+│   │   ├── prisma
+│   │   │   ├── ._schema.prisma
+│   │   │   └── schema.prisma
+│   │   ├── src
+│   │   │   ├── ._app.ts
+│   │   │   ├── ._common
+│   │   │   ├── ._index.ts
+│   │   │   ├── ._modules
+│   │   │   ├── app.ts
+│   │   │   ├── config
+│   │   │   │   └── env.ts
+│   │   │   ├── index.ts
+│   │   │   ├── lib
+│   │   │   │   ├── prisma.ts
+│   │   │   │   ├── queue.ts
+│   │   │   │   └── redis.ts
+│   │   │   ├── middleware
+│   │   │   │   └── auth.ts
+│   │   │   └── modules
+│   │   │       ├── admin
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── approvals
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── auth
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── connectors
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── llm
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── logs
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── marketplace
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── payments
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── projects
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       ├── users
+│   │   │       │   ├── ._routes.ts
+│   │   │       │   └── routes.ts
+│   │   │       └── workflows
+│   │   │           ├── ._engine
+│   │   │           ├── ._routes.ts
+│   │   │           ├── engine
+│   │   │           │   ├── ._compiler.ts
+│   │   │           │   ├── ._runner.ts
+│   │   │           │   ├── ._types.ts
+│   │   │           │   ├── ._worker.ts
+│   │   │           │   ├── compiler.ts
+│   │   │           │   ├── runner.ts
+│   │   │           │   ├── types.ts
+│   │   │           │   └── worker.ts
+│   │   │           └── routes.ts
+│   │   └── tsconfig.json
+│   └── frontend
+│       ├── ._.env.example
+│       ├── ._.env.local
+│       ├── ._.next
+│       ├── ._Dockerfile
+│       ├── ._next-env.d.ts
+│       ├── ._next.config.mjs
+│       ├── ._node_modules
+│       ├── ._package.json
+│       ├── ._postcss.config.mjs
+│       ├── ._src
+│       ├── ._tailwind.config.ts
+│       ├── ._tsconfig.json
+│       ├── ._tsconfig.tsbuildinfo
+│       ├── .env.example
+│       ├── .env.local
+│       ├── Dockerfile
+│       ├── next-env.d.ts
+│       ├── next.config.mjs
+│       ├── package.json
+│       ├── postcss.config.mjs
+│       ├── src
+│       │   ├── ._app
+│       │   ├── ._components
+│       │   ├── ._features
+│       │   ├── ._lib
+│       │   ├── ._store
+│       │   ├── ._types
+│       │   ├── app
+│       │   │   ├── (auth)
+│       │   │   │   ├── ._admin
+│       │   │   │   ├── ._architect
+│       │   │   │   ├── ._business
+│       │   │   │   ├── admin
+│       │   │   │   │   ├── ._login
+│       │   │   │   │   └── login
+│       │   │   │   │       ├── ._page.tsx
+│       │   │   │   │       └── page.tsx
+│       │   │   │   ├── architect
+│       │   │   │   │   ├── ._login
+│       │   │   │   │   └── login
+│       │   │   │   │       ├── ._page.tsx
+│       │   │   │   │       └── page.tsx
+│       │   │   │   └── business
+│       │   │   │       ├── ._login
+│       │   │   │       └── login
+│       │   │   │           ├── ._page.tsx
+│       │   │   │           └── page.tsx
+│       │   │   ├── (dashboard)
+│       │   │   │   ├── ._admin
+│       │   │   │   ├── ._architect
+│       │   │   │   ├── ._business
+│       │   │   │   └── architect
+│       │   │   │       └── ._workflow-builder
+│       │   │   ├── admin
+│       │   │   │   ├── ._dashboard
+│       │   │   │   ├── ._login
+│       │   │   │   ├── dashboard
+│       │   │   │   │   ├── ._page.tsx
+│       │   │   │   │   └── page.tsx
+│       │   │   │   └── login
+│       │   │   │       ├── ._page.tsx
+│       │   │   │       └── page.tsx
+│       │   │   ├── architect
+│       │   │   │   ├── ._dashboard
+│       │   │   │   ├── ._workflow-builder
+│       │   │   │   ├── dashboard
+│       │   │   │   │   ├── ._page.tsx
+│       │   │   │   │   └── page.tsx
+│       │   │   │   └── workflow-builder
+│       │   │   │       ├── ._page.tsx
+│       │   │   │       └── page.tsx
+│       │   │   ├── business
+│       │   │   │   ├── ._dashboard
+│       │   │   │   ├── ._login
+│       │   │   │   ├── dashboard
+│       │   │   │   │   ├── ._page.tsx
+│       │   │   │   │   └── page.tsx
+│       │   │   │   └── login
+│       │   │   │       ├── ._page.tsx
+│       │   │   │       └── page.tsx
+│       │   │   ├── dashboard
+│       │   │   │   ├── ._admin
+│       │   │   │   ├── ._architect
+│       │   │   │   ├── ._business
+│       │   │   │   ├── admin
+│       │   │   │   │   ├── ._page.tsx
+│       │   │   │   │   └── page.tsx
+│       │   │   │   ├── architect
+│       │   │   │   │   ├── ._page.tsx
+│       │   │   │   │   ├── ._workflow-builder
+│       │   │   │   │   ├── page.tsx
+│       │   │   │   │   └── workflow-builder
+│       │   │   │   │       ├── ._page.tsx
+│       │   │   │   │       └── page.tsx
+│       │   │   │   └── business
+│       │   │   │       ├── ._page.tsx
+│       │   │   │       └── page.tsx
+│       │   │   ├── globals.css
+│       │   │   ├── layout.tsx
+│       │   │   ├── login
+│       │   │   │   ├── ._page.tsx
+│       │   │   │   └── page.tsx
+│       │   │   ├── marketplace
+│       │   │   │   ├── ._page.tsx
+│       │   │   │   └── page.tsx
+│       │   │   ├── page.tsx
+│       │   │   └── projects
+│       │   │       ├── ._page.tsx
+│       │   │       └── page.tsx
+│       │   ├── components
+│       │   │   ├── ._landing
+│       │   │   ├── ._ui
+│       │   │   ├── ._workflow
+│       │   │   ├── landing
+│       │   │   │   ├── ._workflow-preview.tsx
+│       │   │   │   └── workflow-preview.tsx
+│       │   │   ├── ui
+│       │   │   │   ├── ._role-login-card.tsx
+│       │   │   │   └── role-login-card.tsx
+│       │   │   └── workflow
+│       │   │       ├── ._workflow-builder.tsx
+│       │   │       └── workflow-builder.tsx
+│       │   ├── features
+│       │   │   ├── ._admin
+│       │   │   ├── ._architect
+│       │   │   ├── ._business
+│       │   │   ├── admin
+│       │   │   │   ├── ._components
+│       │   │   │   └── components
+│       │   │   │       ├── ._admin-dashboard-view.tsx
+│       │   │   │       ├── ._admin-login-view.tsx
+│       │   │   │       ├── admin-dashboard-view.tsx
+│       │   │   │       └── admin-login-view.tsx
+│       │   │   ├── architect
+│       │   │   │   ├── ._components
+│       │   │   │   └── components
+│       │   │   │       ├── ._architect-dashboard-view.tsx
+│       │   │   │       ├── ._architect-login-view.tsx
+│       │   │   │       ├── architect-dashboard-view.tsx
+│       │   │   │       └── architect-login-view.tsx
+│       │   │   └── business
+│       │   │       ├── ._components
+│       │   │       └── components
+│       │   │           ├── ._business-dashboard-view.tsx
+│       │   │           ├── ._business-login-view.tsx
+│       │   │           ├── business-dashboard-view.tsx
+│       │   │           └── business-login-view.tsx
+│       │   └── lib
+│       │       ├── ._firebase.ts
+│       │       └── firebase.ts
+│       ├── tailwind.config.ts
+│       ├── tsconfig.json
+│       └── tsconfig.tsbuildinfo
+├── docker-compose.yml
+├── docs
+│   ├── ._system-design.md
+│   └── system-design.md
+├── infra
+│   └── ._nginx
+├── package-lock.json
+├── package.json
+├── packages
+│   ├── ._shared
+│   └── shared
+│       └── ._src
+└── project-structure.txt
+
+66 directories, 195 files

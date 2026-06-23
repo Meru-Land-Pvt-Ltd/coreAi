@@ -1,33 +1,52 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
-import { adminRoutes } from "./modules/admin/routes.js";
-import { authRoutes } from "./modules/auth/routes.js";
-import { marketplaceRoutes } from "./modules/marketplace/routes.js";
-import { projectRoutes } from "./modules/projects/routes.js";
-import { workflowRoutes } from "./modules/workflows/routes.js";
-import { connectorRoutes } from "./modules/connectors/routes.js";
-import { llmRoutes } from "./modules/llm/routes.js";
-import { paymentRoutes } from "./modules/payments/routes.js";
-import { approvalRoutes } from "./modules/approvals/routes.js";
-import { logRoutes } from "./modules/logs/routes.js";
-import { userRoutes } from "./modules/users/routes.js";
+import { env, isProduction } from "./config/env";
+import { AppError } from "./lib/app-error";
+import { errorResponse } from "./lib/api-response";
+import { requestIdMiddleware } from "./middleware/request-id";
+import { authRoutes } from "./modules/auth/routes";
+import { healthRoutes } from "./modules/health/routes";
+import { architectRoutes } from "./modules/architect/routes";
 
 export const app = new Hono();
 
-app.use("*", logger());
-app.use("*", cors());
+app.use("*", requestIdMiddleware);
 
-app.get("/health", (c) => c.json({ ok: true, service: "coreai-backend" }));
+app.use(
+  "*",
+  cors({
+    origin: env.FRONTEND_URL,
+    allowHeaders: ["Content-Type", "Authorization", "x-request-id"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    credentials: true
+  })
+);
 
-app.route("/api/auth", authRoutes);
-app.route("/api/users", userRoutes);
-app.route("/api/admin", adminRoutes);
-app.route("/api/marketplace", marketplaceRoutes);
-app.route("/api/projects", projectRoutes);
-app.route("/api/workflows", workflowRoutes);
-app.route("/api/connectors", connectorRoutes);
-app.route("/api/llm", llmRoutes);
-app.route("/api/payments", paymentRoutes);
-app.route("/api/approvals", approvalRoutes);
-app.route("/api/logs", logRoutes);
+app.route("/health", healthRoutes);
+app.route("/auth", authRoutes);
+app.route("/architect", architectRoutes);
+
+app.notFound((c) => {
+  return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");
+});
+
+app.onError((error, c) => {
+  const requestId = c.get("requestId");
+
+  console.error({
+    requestId,
+    error: error.message,
+    stack: isProduction ? undefined : error.stack
+  });
+
+  if (error instanceof AppError) {
+    return errorResponse(
+      c,
+      error.message,
+      error.statusCode as 400 | 401 | 403 | 404 | 409 | 422 | 500,
+      error.code
+    );
+  }
+
+  return errorResponse(c, "Internal server error", 500, "INTERNAL_SERVER_ERROR");
+});

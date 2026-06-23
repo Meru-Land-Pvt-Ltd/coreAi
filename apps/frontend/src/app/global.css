@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fff8ef;
+  --foreground: #4a2400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+a {
+  text-decoration: none;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+.brand-gradient {
+  background: linear-gradient(135deg, #f97316, #ffb347);
+}
+
+.brand-ring {
+  height: 38px;
+  width: 38px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 35%, #fff7ed 0, #fff7ed 20%, transparent 21%),
+    conic-gradient(from 120deg, #ff9f1c, #f97316, #facc15, #ff9f1c);
+  box-shadow: 0 12px 30px rgba(249, 115, 22, 0.28);
+}
+
+.soft-card {
+  border: 1px solid rgba(253, 186, 116, 0.7);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 20px 60px rgba(154, 52, 18, 0.08);
+}
+
+.hero-bg {
+  background:
+    radial-gradient(circle at 20% 10%, rgba(249, 115, 22, 0.16), transparent 28%),
+    radial-gradient(circle at 80% 20%, rgba(250, 204, 21, 0.18), transparent 28%),
+    linear-gradient(180deg, #fff8ef, #ffedd5);
+}
+
+.flow-node {
+  border-radius: 18px;
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+  color: #7c2d12;
+  font-weight: 700;
+}

@@ -1,10 +1,33 @@
 import { serve } from "@hono/node-server";
-import { app } from "./app.js";
-import { env } from "./common/lib/env.js";
+import { env } from "./config/env";
+import { app } from "./app";
+import { prisma } from "./lib/prisma";
 
-serve({
-  fetch: app.fetch,
-  port: env.PORT,
+const server = serve(
+  {
+    fetch: app.fetch,
+    port: env.PORT
+  },
+  (info) => {
+    console.log(`CoreAI backend running on http://localhost:${info.port}`);
+  }
+);
+
+async function shutdown(signal: string) {
+  console.log(`${signal} received. Shutting down gracefully...`);
+
+  await prisma.$disconnect();
+
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
 });
 
-console.log(`backend listening on http://localhost:${env.PORT}`);
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});

@@ -1,5 +1,5 @@
-import { ArchitectDashboardView } from "@/features/architect/components/architect-dashboard-view";
+import { ArchitectWorkspace } from "@/app/features/components/architect-workspace";
 
 export default function ArchitectDashboardPage() {
-  return <ArchitectDashboardView />;
+  return <ArchitectWorkspace />;
 }

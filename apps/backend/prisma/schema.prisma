@@ -22,10 +22,18 @@ enum ArchitectStatus {
 
 enum ProjectStatus {
   OPEN
+  PROPOSAL_REVIEW
   IN_PROGRESS
-  REVIEW
+  IN_REVIEW
   COMPLETED
   CANCELLED
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
 }
 
 enum ListingStatus {
@@ -36,245 +44,118 @@ enum ListingStatus {
   SUSPENDED
 }
 
-enum RunStatus {
-  QUEUED
-  RUNNING
-  WAITING_APPROVAL
-  SUCCESS
-  FAILED
-  CANCELLED
-}
-
 model User {
-  id             String            @id @default(cuid())
-  email          String            @unique
-  passwordHash   String
-  role           UserRole
-  fullName       String
-  isSuspended    Boolean           @default(false)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String?
+  role         UserRole
+  fullName     String?
+  isSuspended  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  businessMember BusinessMember[]
-  architect      ArchitectProfile?
-  proposals      ProjectProposal[]
-  approvals      HumanApproval[]   @relation("ApprovalActor")
-  auditLogs      AuditLog[]
-}
+  architectProfile ArchitectProfile?
+  workflows        WorkflowDefinition[]
+  listings         AgentListing[]
+  proposals        ProjectProposal[]
 
-model Workspace {
-  id                 String              @id @default(cuid())
-  name               String
-  slug               String              @unique
-  ownerUserId        String
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-
-  members            BusinessMember[]
-  projects           Project[]
-  connectors         WorkspaceConnector[]
-  workflows          WorkflowDefinition[]
-  installations      AgentInstallation[]
-  llmKeys            WorkspaceLlmKey[]
-}
-
-model BusinessMember {
-  id           String    @id @default(cuid())
-  workspaceId  String
-  userId       String
-  role         String
-  createdAt    DateTime  @default(now())
-
-  workspace    Workspace @relation(fields: [workspaceId], references: [id])
-  user         User      @relation(fields: [userId], references: [id])
-
-  @@unique([workspaceId, userId])
+  @@index([role])
+  @@index([createdAt])
 }
 
 model ArchitectProfile {
   id              String          @id @default(cuid())
-  userId           String          @unique
-  title            String
-  bio              String
-  portfolioUrl     String?
-  approvalStatus   ArchitectStatus @default(PENDING)
-  rating           Float           @default(0)
-  completedJobs    Int             @default(0)
-  createdAt        DateTime        @default(now())
+  userId          String          @unique
+  title           String?
+  bio             String?
+  portfolioUrl    String?
+  skills          String[]
+  hourlyRateCents Int?
+  approvalStatus  ArchitectStatus @default(PENDING)
+  rating          Float           @default(0)
+  completedJobs   Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  user             User            @relation(fields: [userId], references: [id])
-  listings         AgentListing[]
-}
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-model Category {
-  id          String         @id @default(cuid())
-  name        String         @unique
-  slug        String         @unique
-  listings    AgentListing[]
-}
-
-model AgentListing {
-  id               String          @id @default(cuid())
-  architectId      String
-  categoryId       String
-  name             String
-  shortDescription String
-  priceCents       Int
-  isFree           Boolean         @default(false)
-  status           ListingStatus   @default(PENDING_REVIEW)
-  workflowJson     Json
-  tags             String[]
-  createdAt        DateTime        @default(now())
-
-  architect        ArchitectProfile @relation(fields: [architectId], references: [id])
-  category         Category         @relation(fields: [categoryId], references: [id])
-  installations    AgentInstallation[]
-}
-
-model Project {
-  id                 String            @id @default(cuid())
-  workspaceId        String
-  title              String
-  requirementBrief   String
-  budgetMinCents     Int
-  budgetMaxCents     Int
-  status             ProjectStatus     @default(OPEN)
-  createdAt          DateTime          @default(now())
-
-  workspace          Workspace         @relation(fields: [workspaceId], references: [id])
-  proposals          ProjectProposal[]
-}
-
-model ProjectProposal {
-  id                 String    @id @default(cuid())
-  projectId          String
-  architectUserId    String
-  coverLetter        String
-  bidAmountCents     Int
-  etaDays            Int
-  createdAt          DateTime  @default(now())
-
-  project            Project   @relation(fields: [projectId], references: [id])
-  architect          User      @relation(fields: [architectUserId], references: [id])
+  @@index([approvalStatus])
 }
 
 model WorkflowDefinition {
-  id                  String         @id @default(cuid())
-  workspaceId         String
-  name                String
-  version             Int            @default(1)
-  workflowJson        Json
-  createdByUserId     String
-  createdAt           DateTime       @default(now())
+  id              String   @id @default(cuid())
+  architectUserId String
+  name            String
+  description     String?
+  workflowJson    Json
+  isTemplate      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  workspace           Workspace      @relation(fields: [workspaceId], references: [id])
-  runs                WorkflowRun[]
+  architect        User           @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  listings         AgentListing[]
+
+  @@index([architectUserId])
+  @@index([createdAt])
 }
 
-model WorkflowRun {
+model AgentListing {
   id                 String        @id @default(cuid())
-  workflowId         String
-  status             RunStatus     @default(QUEUED)
-  triggerType        String
-  inputJson          Json
-  outputJson         Json?
-  errorMessage       String?
-  startedAt          DateTime?
-  finishedAt         DateTime?
+  architectUserId    String
+  workflowId         String?
+  name               String
+  shortDescription   String
+  description        String?
+  priceCents         Int           @default(0)
+  status             ListingStatus @default(DRAFT)
+  tags               String[]
+  requiredConnectors String[]
+  supportedLlms      String[]
   createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  workflow           WorkflowDefinition @relation(fields: [workflowId], references: [id])
-  nodeLogs           WorkflowNodeLog[]
-  approvals          HumanApproval[]
+  architect          User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  workflow           WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+
+  @@index([architectUserId])
+  @@index([workflowId])
+  @@index([status])
 }
 
-model WorkflowNodeLog {
-  id                 String      @id @default(cuid())
-  runId              String
-  nodeId             String
-  nodeType           String
-  status             RunStatus
-  inputJson          Json?
-  outputJson         Json?
-  errorMessage       String?
-  startedAt          DateTime?
-  finishedAt         DateTime?
+model Project {
+  id                 String        @id @default(cuid())
+  title              String
+  requirementBrief   String
+  requiredConnectors String[]
+  preferredLlms      String[]
+  budgetMinCents     Int?
+  budgetMaxCents     Int?
+  status             ProjectStatus @default(OPEN)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  run                WorkflowRun @relation(fields: [runId], references: [id])
+  proposals          ProjectProposal[]
+
+  @@index([status])
+  @@index([createdAt])
 }
 
-model HumanApproval {
-  id                 String      @id @default(cuid())
-  runId              String
-  actionLabel        String
-  riskLevel          String
-  status             String
-  actorUserId        String?
-  decisionAt         DateTime?
-  createdAt          DateTime    @default(now())
+model ProjectProposal {
+  id              String         @id @default(cuid())
+  projectId       String
+  architectUserId String
+  coverLetter     String
+  bidAmountCents  Int?
+  etaDays         Int?
+  status          ProposalStatus @default(PENDING)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  run                WorkflowRun @relation(fields: [runId], references: [id])
-  actor              User?       @relation("ApprovalActor", fields: [actorUserId], references: [id])
-}
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  architect       User           @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
-model WorkspaceConnector {
-  id                 String      @id @default(cuid())
-  workspaceId        String
-  connectorKey       String
-  displayName        String
-  encryptedConfig    String
-  isActive           Boolean     @default(true)
-  createdAt          DateTime    @default(now())
-
-  workspace          Workspace   @relation(fields: [workspaceId], references: [id])
-}
-
-model WorkspaceLlmKey {
-  id                 String      @id @default(cuid())
-  workspaceId        String
-  provider           String
-  encryptedApiKey    String
-  keyLast4           String
-  createdAt          DateTime    @default(now())
-
-  workspace          Workspace   @relation(fields: [workspaceId], references: [id])
-}
-
-model AgentInstallation {
-  id                 String      @id @default(cuid())
-  workspaceId        String
-  listingId          String
-  installedVersion   Int         @default(1)
-  isEnabled          Boolean     @default(true)
-  createdAt          DateTime    @default(now())
-
-  workspace          Workspace   @relation(fields: [workspaceId], references: [id])
-  listing            AgentListing @relation(fields: [listingId], references: [id])
-}
-
-model PaymentTransaction {
-  id                 String      @id @default(cuid())
-  workspaceId        String
-  provider           String
-  providerRef        String      @unique
-  grossAmountCents   Int
-  commissionCents    Int
-  architectPayoutCents Int
-  status             String
-  metadata           Json?
-  createdAt          DateTime    @default(now())
-}
-
-model AuditLog {
-  id                 String      @id @default(cuid())
-  actorUserId        String?
-  workspaceId        String?
-  action             String
-  resourceType       String
-  resourceId         String?
-  metadata           Json?
-  ipAddress          String?
-  createdAt          DateTime    @default(now())
-
-  actor              User?       @relation(fields: [actorUserId], references: [id])
+  @@unique([projectId, architectUserId])
+  @@index([architectUserId])
+  @@index([projectId])
+  @@index([status])
 }

@@ -1,165 +1,158 @@
 import Link from "next/link";
-import { LandingWorkflowPreview } from "@/components/landing/workflow-preview";
+import type { Route } from "next";
 
-const highlights = [
-  "Custom workflow engine with queue workers",
-  "Marketplace + custom architect hiring",
-  "Business approvals for risky actions",
-  "Multi-LLM routing and usage visibility",
-];
-
-const cards: {
+type LoginCard = {
   title: string;
   text: string;
-  link: "/login" | "/businedd/login" | "/asmin/login";
-  action: string;
-}[] = [
+  loginHref: Route;
+  signupHref: Route;
+};
+
+const loginCards: LoginCard[] = [
   {
-    title: "For Architects",
-    text: "Design and test workflows visually, package templates, and ship reusable automation products.",
-    link: "/login",
-    action: "Architect Login",
+    title: "AI Architect",
+    text: "Create AI agents, design workflows, and submit automation systems for businesses.",
+    loginHref: "/architect/login",
+    signupHref: "/architect/signup"
   },
   {
-    title: "For Business",
-    text: "Install prebuilt agents or hire architects to deliver custom automations tied to your workflows.",
-    link: "/businedd/login",
-    action: "Business Login",
+    title: "Business",
+    text: "Hire AI Architects, install AI agents, and automate your business workflows.",
+    loginHref: "/business/login",
+    signupHref: "/business/signup"
   },
   {
-    title: "For Admin",
-    text: "Moderate users, approve listings, monitor logs, and protect platform security and trust.",
-    link: "/asmin/login",
-    action: "Admin Login",
-  },
+    title: "Admin",
+    text: "Manage users, approvals, platform trust, agents, projects, and marketplace quality.",
+    loginHref: "/admin/login",
+    signupHref: "/admin/signup"
+  }
 ];
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-[#fff8ef] text-[#4a2400]">
-      <div className="hero-noise" />
-      <div className="hero-spotlight" />
-
-      <header className="sticky top-0 z-30 border-b border-orange-200/70 bg-[#fff8ef]/85 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 md:px-10">
-          <div className="flex items-center gap-3">
+    <main className="min-h-screen hero-bg text-orange-950">
+      <header className="border-b border-orange-200 bg-white/70 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+          <Link href="/" className="flex items-center gap-3">
             <div className="brand-ring" />
-            <span className="text-base font-semibold tracking-wide text-orange-900">CoreAI Marketplace</span>
-          </div>
-
-          <nav className="hidden items-center gap-6 text-sm text-orange-800 md:flex">
-            <a href="#about" className="transition hover:text-orange-900">About</a>
-            <a href="#flow" className="transition hover:text-orange-900">Flow</a>
-            <a href="#roles" className="transition hover:text-orange-900">Roles</a>
-            <a href="#contact" className="transition hover:text-orange-900">Contact</a>
-          </nav>
-
-          <Link href="/businedd/login" className="rounded-full border border-orange-300 px-4 py-2 text-sm font-medium text-orange-900 transition hover:border-orange-500">
-            Start Now
+            <span className="text-lg font-bold">CoreAI Marketplace</span>
           </Link>
+
+          <nav className="hidden gap-6 text-sm text-orange-800 md:flex">
+            <a href="#roles">Roles</a>
+            <a href="#platform">Platform</a>
+            <Link href="/marketplace">Marketplace</Link>
+            <Link href="/projects">Projects</Link>
+          </nav>
         </div>
       </header>
 
-      <section className="relative mx-auto grid max-w-7xl gap-10 px-6 pb-16 pt-14 md:grid-cols-[1.1fr_1fr] md:px-10">
+      <section className="mx-auto grid max-w-7xl gap-10 px-6 py-16 md:grid-cols-[1.1fr_0.9fr]">
         <div>
-          <p className="inline-flex rounded-full border border-orange-300 bg-orange-100/70 px-3 py-1 text-xs uppercase tracking-[0.2em] text-orange-800">
-            AI Automation Platform
+          <p className="inline-flex rounded-full border border-orange-300 bg-orange-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-orange-700">
+            AI Agent Marketplace
           </p>
-          <h1 className="mt-5 text-4xl font-semibold leading-tight text-orange-950 md:text-6xl">
-            Build AI Agents
+
+          <h1 className="mt-6 text-4xl font-bold leading-tight md:text-6xl">
+            Build, Hire, and Run
             <br />
-            and Workflow Systems
-            <br />
-            with Full Control
+            AI Agents for Any Business
           </h1>
-          <p className="mt-5 max-w-xl text-base text-orange-900/80">
-            A simple and aesthetic AI agent marketplace where businesses install ready agents or hire architects to create custom workflows powered by your own execution engine.
+
+          <p className="mt-5 max-w-2xl text-base leading-7 text-orange-900/75">
+            CoreAI is a marketplace where businesses can hire AI Architects or install ready-made
+            agents. AI Architects can build automation workflows with minimal coding knowledge.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/login" className="rounded-full bg-[#ff9f1c] px-5 py-3 text-sm font-semibold text-[#1c1204] transition hover:bg-[#ffb347]">
-              Architect Login
+            <Link
+              href="/business/signup"
+              className="rounded-full bg-orange-500 px-6 py-3 text-sm font-semibold text-white hover:bg-orange-600"
+            >
+              Start as Business
             </Link>
-            <Link href="/businedd/login" className="rounded-full border border-orange-300 bg-white px-5 py-3 text-sm font-semibold text-orange-800 transition hover:border-orange-500">
-              Business Login
-            </Link>
-            <Link href="/asmin/login" className="rounded-full border border-orange-300 bg-white px-5 py-3 text-sm font-semibold text-orange-800 transition hover:border-orange-500">
-              Admin Login
+
+            <Link
+              href="/architect/signup"
+              className="rounded-full border border-orange-300 bg-white px-6 py-3 text-sm font-semibold text-orange-900 hover:border-orange-500"
+            >
+              Become AI Architect
             </Link>
           </div>
+        </div>
 
-          <ul className="mt-7 grid gap-2 text-sm text-orange-900/80">
-            {highlights.map((item) => (
-              <li key={item} className="flex items-start gap-2">
-                <span className="mt-1 h-2 w-2 rounded-full bg-[#ff9f1c]" />
-                <span>{item}</span>
-              </li>
+        <div className="rounded-3xl soft-card p-6">
+          <h2 className="text-xl font-bold">Prototype Flow</h2>
+
+          <div className="mt-5 space-y-3">
+            {[
+              "Business posts AI agent requirement",
+              "AI Architect creates custom workflow",
+              "Admin approves architect and marketplace listing",
+              "Business installs and runs the AI agent"
+            ].map((item, index) => (
+              <div key={item} className="flex items-center gap-3 rounded-2xl bg-orange-50 p-4">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-500 text-sm font-bold text-white">
+                  {index + 1}
+                </div>
+                <p className="text-sm font-medium text-orange-900">{item}</p>
+              </div>
             ))}
-          </ul>
-        </div>
-
-        <div className="landing-panel-3d">
-          <div className="floating-chip chip-one">Live Runs + Costs</div>
-          <div className="floating-chip chip-two">Human Approval Gate</div>
-          <div className="floating-chip chip-three">LLM Router</div>
-          <div className="orb-3d mx-auto" />
-          <p className="mt-6 text-center text-sm text-orange-950/80">
-            Clean cinematic layout with your yellow-orange brand palette and subtle 3D motion.
-          </p>
+          </div>
         </div>
       </section>
 
-      <section id="flow" className="mx-auto max-w-7xl px-6 pb-14 md:px-10">
-        <h2 className="mb-4 text-2xl font-semibold text-orange-950">Workflow Engine Preview</h2>
-        <p className="mb-5 max-w-3xl text-sm text-orange-900/75">
-          React Flow visualization for trigger, routing, approval, and connector execution path with extended flow controls and viewport settings.
+      <section id="roles" className="mx-auto max-w-7xl px-6 pb-16">
+        <h2 className="text-2xl font-bold">Choose Your Login</h2>
+        <p className="mt-2 text-sm text-orange-800/75">
+          Each role has a separate login and signup page.
         </p>
-        <LandingWorkflowPreview />
-      </section>
 
-      <section id="roles" className="mx-auto max-w-7xl px-6 pb-14 md:px-10">
-        <div className="grid gap-4 md:grid-cols-3">
-          {cards.map((card) => (
-            <article key={card.title} className="rounded-2xl border border-orange-200 bg-white/85 p-5 backdrop-blur">
-              <h3 className="text-lg font-semibold text-orange-950">{card.title}</h3>
-              <p className="mt-2 text-sm text-orange-900/75">{card.text}</p>
-              <Link href={card.link} className="mt-4 inline-block rounded-full bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-200">
-                {card.action}
-              </Link>
+        <div className="mt-6 grid gap-5 md:grid-cols-3">
+          {loginCards.map((card) => (
+            <article key={card.title} className="rounded-3xl soft-card p-6">
+              <h3 className="text-xl font-bold">{card.title}</h3>
+              <p className="mt-2 min-h-16 text-sm text-orange-800/75">{card.text}</p>
+
+              <div className="mt-5 flex gap-3">
+                <Link
+                  href={card.loginHref}
+                  className="rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Login
+                </Link>
+
+                <Link
+                  href={card.signupHref}
+                  className="rounded-full border border-orange-300 px-4 py-2 text-sm font-semibold text-orange-900"
+                >
+                  Signup
+                </Link>
+              </div>
             </article>
           ))}
         </div>
       </section>
 
-      <section id="about" className="mx-auto max-w-7xl px-6 pb-14 md:px-10">
-        <div className="rounded-3xl border border-orange-200 bg-white/85 p-7 backdrop-blur">
-          <h2 className="text-2xl font-semibold text-orange-950">About CoreAI</h2>
-          <p className="mt-3 max-w-4xl text-sm text-orange-900/75">
-            CoreAI connects businesses and AI architects in one marketplace while keeping workflow runtime in your own product architecture. You get traceable execution, role-specific governance, and scalable automation delivery.
-          </p>
-        </div>
-      </section>
+      <section id="platform" className="mx-auto max-w-7xl px-6 pb-16">
+        <div className="rounded-3xl soft-card p-6">
+          <h2 className="text-2xl font-bold">Platform Modules</h2>
 
-      <section id="contact" className="mx-auto max-w-7xl px-6 pb-16 md:px-10">
-        <div className="rounded-3xl border border-orange-200 bg-white/85 p-7 backdrop-blur">
-          <h2 className="text-2xl font-semibold text-orange-950">Contact</h2>
-          <p className="mt-2 text-sm text-orange-900/75">For partnerships, implementation support, or enterprise onboarding:</p>
-          <div className="mt-4 text-sm text-orange-900/85">
-            <p>support@coreai.app</p>
-            <p>sales@coreai.app</p>
-            <p>security@coreai.app</p>
+          <div className="mt-5 grid gap-3 text-sm text-orange-900 md:grid-cols-3">
+            <p>Marketplace for ready-made AI agents</p>
+            <p>Hiring flow for custom AI agents</p>
+            <p>Workflow builder for AI Architects</p>
+            <p>Business dashboard for installed agents</p>
+            <p>Admin approval and moderation system</p>
+            <p>Multi-LLM and connector-ready architecture</p>
           </div>
         </div>
       </section>
 
-      <footer className="border-t border-orange-200 py-7">
-        <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-3 px-6 text-xs text-orange-900/60 md:flex-row md:items-center md:px-10">
-          <p>© {new Date().getFullYear()} CoreAI Agent Marketplace</p>
-          <div className="flex gap-4">
-            <a href="#about">About</a>
-            <a href="#roles">Roles</a>
-            <a href="#contact">Contact</a>
-          </div>
+      <footer className="border-t border-orange-200 py-6">
+        <div className="mx-auto max-w-7xl px-6 text-sm text-orange-700">
+          © {new Date().getFullYear()} CoreAI Agent Marketplace
         </div>
       </footer>
     </main>
