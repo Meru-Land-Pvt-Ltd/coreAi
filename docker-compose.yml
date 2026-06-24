@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: coreai
       POSTGRES_PASSWORD: Priyanshu30
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,11 +23,11 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,6 +44,7 @@ services:
       DATABASE_URL: postgresql://coreai:Priyanshu30@postgres:5432/coreai
       REDIS_URL: redis://redis:6379
       FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:8787
       PORT: 8787
     depends_on:
       postgres:

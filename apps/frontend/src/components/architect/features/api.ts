@@ -5,7 +5,9 @@ import type {
   ArchitectProject,
   ArchitectProposal,
   ArchitectSummary,
-  ArchitectWorkflow
+  ArchitectWorkflow,
+  GmailConnectorStatus,
+  WorkflowRunResult
 } from "./types";
 
 export function getArchitectSummary() {
@@ -102,4 +104,23 @@ export function getArchitectProposals() {
 
 export function deleteArchitectWorkflow(workflowId: string) {
   return apiDelete<{ workflowId: string }>(`/architect/workflows/${workflowId}`);
+}
+
+export function runArchitectWorkflowTest(workflowId: string) {
+  return apiPost<{ run: WorkflowRunResult }>(
+    `/architect/workflows/${workflowId}/run-test`,
+    {}
+  );
+}
+
+export function getGmailConnectorStatus() {
+  return apiGet<GmailConnectorStatus>("/architect/connectors/gmail/status");
+}
+
+export function getGmailOAuthUrl() {
+  return apiGet<{ url: string }>("/architect/connectors/gmail/oauth-url");
+}
+
+export function disconnectGmailConnector() {
+  return apiDelete<null>("/architect/connectors/gmail");
 }

@@ -1,10 +1,43 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { prisma } from "../../lib/prisma";
+import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
+import {
+  createGmailOAuthUrl,
+  disconnectGmail,
+  getGmailConnectionStatus,
+  handleGmailOAuthCallback
+} from "./gmail-connector";
+import { runWorkflowTest } from "./workflow-runner";
 
 export const architectRoutes = new Hono();
+
+/**
+ * Gmail OAuth callback must stay PUBLIC.
+ * Do not place it after requireAuth, because Google redirects here without your app JWT.
+ */
+architectRoutes.get("/connectors/gmail/callback", async (c) => {
+  try {
+    const code = c.req.query("code");
+    const state = c.req.query("state");
+
+    if (!code || !state) {
+      return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
+    }
+
+    await handleGmailOAuthCallback({
+      code,
+      state
+    });
+
+    return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=connected`);
+  } catch (error) {
+    console.error(error);
+    return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
+  }
+});
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));
@@ -18,7 +51,7 @@ const profileSchema = z.object({
 });
 
 const workflowSchema = z.object({
-  name: z.string().trim().min(2, "Workflow name is required"),
+  name: z.string().trim().min(2, "Agent name is required"),
   description: z.string().trim().optional().or(z.literal("")),
   isTemplate: z.boolean().default(false),
   workflowJson: z.object({
@@ -202,13 +235,7 @@ architectRoutes.put("/profile", async (c) => {
       }
     });
 
-    return successResponse(
-      c,
-      {
-        profile
-      },
-      "Architect profile saved"
-    );
+    return successResponse(c, { profile }, "Architect profile saved");
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
@@ -221,6 +248,39 @@ architectRoutes.put("/profile", async (c) => {
 
     return errorResponse(c, "Could not save profile", 500, "PROFILE_SAVE_FAILED");
   }
+});
+
+architectRoutes.get("/connectors/gmail/status", async (c) => {
+  const authUser = c.get("authUser");
+  const status = await getGmailConnectionStatus(authUser.id);
+
+  return successResponse(c, status);
+});
+
+architectRoutes.get("/connectors/gmail/oauth-url", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const url = createGmailOAuthUrl(authUser.id);
+
+    return successResponse(c, {
+      url
+    });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not create Gmail OAuth URL",
+      500,
+      "GMAIL_OAUTH_URL_FAILED"
+    );
+  }
+});
+
+architectRoutes.delete("/connectors/gmail", async (c) => {
+  const authUser = c.get("authUser");
+
+  await disconnectGmail(authUser.id);
+
+  return successResponse(c, null, "Gmail disconnected");
 });
 
 architectRoutes.get("/workflows", async (c) => {
@@ -255,25 +315,18 @@ architectRoutes.post("/workflows", async (c) => {
       }
     });
 
-    return successResponse(
-      c,
-      {
-        workflow
-      },
-      "Workflow created",
-      201
-    );
+    return successResponse(c, { workflow }, "Agent created", 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
         c,
-        error.issues[0]?.message ?? "Invalid workflow input",
+        error.issues[0]?.message ?? "Invalid agent input",
         422,
         "VALIDATION_ERROR"
       );
     }
 
-    return errorResponse(c, "Could not create workflow", 500, "WORKFLOW_CREATE_FAILED");
+    return errorResponse(c, "Could not create agent", 500, "WORKFLOW_CREATE_FAILED");
   }
 });
 
@@ -289,7 +342,7 @@ architectRoutes.get("/workflows/:workflowId", async (c) => {
   });
 
   if (!workflow) {
-    return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+    return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
   }
 
   return successResponse(c, {
@@ -311,7 +364,7 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
     });
 
     if (!existingWorkflow) {
-      return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+      return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
     }
 
     const workflow = await prisma.workflowDefinition.update({
@@ -330,25 +383,67 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
       }
     });
 
-    return successResponse(
-      c,
-      {
-        workflow
-      },
-      "Workflow saved"
-    );
+    return successResponse(c, { workflow }, "Agent saved");
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
         c,
-        error.issues[0]?.message ?? "Invalid workflow input",
+        error.issues[0]?.message ?? "Invalid agent input",
         422,
         "VALIDATION_ERROR"
       );
     }
 
-    return errorResponse(c, "Could not save workflow", 500, "WORKFLOW_UPDATE_FAILED");
+    return errorResponse(c, "Could not save agent", 500, "WORKFLOW_UPDATE_FAILED");
   }
+});
+
+architectRoutes.delete("/workflows/:workflowId", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  const existingWorkflow = await prisma.workflowDefinition.findFirst({
+    where: {
+      id: workflowId,
+      architectUserId: authUser.id
+    }
+  });
+
+  if (!existingWorkflow) {
+    return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+  }
+
+  await prisma.workflowDefinition.delete({
+    where: {
+      id: workflowId
+    }
+  });
+
+  return successResponse(c, { workflowId }, "Agent deleted");
+});
+
+architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: {
+      id: workflowId,
+      architectUserId: authUser.id
+    }
+  });
+
+  if (!workflow) {
+    return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+  }
+
+  const run = await runWorkflowTest({
+    userId: authUser.id,
+    workflowId,
+    workflowJson: workflow.workflowJson
+  });
+
+  return successResponse(c, { run }, "Workflow test completed");
 });
 
 architectRoutes.get("/listings", async (c) => {
@@ -386,7 +481,7 @@ architectRoutes.post("/listings", async (c) => {
       });
 
       if (!workflow) {
-        return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+        return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
       }
     }
 
@@ -405,25 +500,18 @@ architectRoutes.post("/listings", async (c) => {
       }
     });
 
-    return successResponse(
-      c,
-      {
-        listing
-      },
-      "Agent listing submitted for review",
-      201
-    );
+    return successResponse(c, { listing }, "Agent submitted for review", 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
         c,
-        error.issues[0]?.message ?? "Invalid listing input",
+        error.issues[0]?.message ?? "Invalid agent listing input",
         422,
         "VALIDATION_ERROR"
       );
     }
 
-    return errorResponse(c, "Could not create listing", 500, "LISTING_CREATE_FAILED");
+    return errorResponse(c, "Could not create agent listing", 500, "LISTING_CREATE_FAILED");
   }
 });
 
@@ -482,14 +570,7 @@ architectRoutes.post("/projects/:projectId/proposals", async (c) => {
       }
     });
 
-    return successResponse(
-      c,
-      {
-        proposal
-      },
-      "Proposal submitted",
-      201
-    );
+    return successResponse(c, { proposal }, "Proposal submitted", 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
@@ -531,28 +612,4 @@ architectRoutes.get("/proposals", async (c) => {
   return successResponse(c, {
     proposals
   });
-});
-
-architectRoutes.delete("/workflows/:workflowId", async (c) => {
-  const authUser = c.get("authUser");
-  const workflowId = c.req.param("workflowId");
-
-  const existingWorkflow = await prisma.workflowDefinition.findFirst({
-    where: {
-      id: workflowId,
-      architectUserId: authUser.id
-    }
-  });
-
-  if (!existingWorkflow) {
-    return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
-  }
-
-  await prisma.workflowDefinition.delete({
-    where: {
-      id: workflowId
-    }
-  });
-
-  return successResponse(c, { workflowId }, "Workflow deleted");
 });
