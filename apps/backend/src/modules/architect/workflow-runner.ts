@@ -1,3 +1,4 @@
+import { env } from "../../config/env";
 import {
   createGmailDraft,
   readGmailEmail,
@@ -12,9 +13,22 @@ export type WorkflowRunLog = {
   output?: unknown;
 };
 
+type WorkflowRunMode = "test" | "live";
+
+type WorkflowRunInput = {
+  callerNumber?: string;
+  callerName?: string;
+  businessName?: string;
+  callStatus?: string;
+  callTimestamp?: string;
+  missedCallReason?: string;
+};
+
 type RunnerNodeData = {
   label?: unknown;
+  title?: unknown;
   nodeKind?: unknown;
+  kind?: unknown;
   description?: unknown;
   prompt?: unknown;
   connector?: unknown;
@@ -23,6 +37,9 @@ type RunnerNodeData = {
   gmailTo?: unknown;
   gmailSubject?: unknown;
   gmailBody?: unknown;
+  smsTo?: unknown;
+  smsBody?: unknown;
+  sendAt?: unknown;
   condition?: unknown;
   outputKey?: unknown;
 };
@@ -40,9 +57,23 @@ type RunnerEdge = {
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string | null;
 };
 
 type RunnerContext = {
+  caller_number?: string;
+  caller_name?: string;
+  business?: {
+    name: string;
+  };
+  missedCall?: {
+    callerNumber: string;
+    callerName?: string;
+    businessName: string;
+    status: string;
+    timestamp: string;
+    reason: string;
+  };
   gmail?: {
     emails?: {
       id: string;
@@ -58,7 +89,10 @@ type RunnerContext = {
   ai?: {
     output?: string;
   };
-  approved?: boolean;
+  condition?: {
+    passed: boolean;
+    label: string;
+  };
   sentEmail?: {
     id: string | null;
     to: string;
@@ -71,12 +105,38 @@ type RunnerContext = {
     subject: string;
     body: string;
   };
+  sentSms?: {
+    id: string | null;
+    to: string;
+    body: string;
+    mode: WorkflowRunMode;
+    providerCalled: boolean;
+    twilioTestMode: boolean;
+  };
+  queuedSms?: {
+    to: string;
+    body: string;
+    sendAt: string;
+    mode: WorkflowRunMode;
+  };
+  capturedLead?: {
+    callerNumber: string;
+    callerName?: string;
+    businessName: string;
+    status: string;
+    capturedAt: string;
+  };
   output?: unknown;
   [key: string]: unknown;
 };
 
 function asString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
+}
+
+function optionalString(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function isRunnerNode(value: unknown): value is RunnerNode {
@@ -160,34 +220,272 @@ function createLog(
 ): WorkflowRunLog {
   return {
     nodeId: node.id,
-    label: asString(node.data?.label, node.id),
+    label: asString(node.data?.label ?? node.data?.title, node.id),
     status,
     message,
     output
   };
 }
 
-function runTriggerNode(node: RunnerNode, logs: WorkflowRunLog[]) {
-  logs.push(createLog(node, "success", "Trigger started the workflow."));
+function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
+  const callerNumber = optionalString(input?.callerNumber);
+  const callerName = optionalString(input?.callerName);
+  const businessName =
+    optionalString(input?.businessName) ??
+    optionalString(env.TWILIO_DEFAULT_BUSINESS_NAME) ??
+    "the business";
+  const timestamp = optionalString(input?.callTimestamp) ?? new Date().toISOString();
+  const status = optionalString(input?.callStatus) ?? "no-answer";
+  const reason = optionalString(input?.missedCallReason) ?? "No one picked up the customer call.";
+
+  const context: RunnerContext = {
+    business: {
+      name: businessName
+    },
+    missedCall: {
+      callerNumber: callerNumber ?? "",
+      callerName,
+      businessName,
+      status,
+      timestamp,
+      reason
+    }
+  };
+
+  if (callerNumber) context.caller_number = callerNumber;
+  if (callerName) context.caller_name = callerName;
+
+  return context;
+}
+
+function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  const callerNumber = context.missedCall?.callerNumber;
+
+  if (!callerNumber) {
+    logs.push(
+      createLog(node, "error", "Missing caller phone number. Use Twilio webhook From or enter a verified test recipient.")
+    );
+    return;
+  }
+
+  logs.push(
+    createLog(node, "success", "Twilio missed-call event received.", {
+      callerNumber,
+      timestamp: context.missedCall?.timestamp,
+      status: context.missedCall?.status
+    })
+  );
 }
 
 function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
-  const prompt = asString(node.data?.prompt, "Draft a professional response.");
+  const prompt = asString(
+    node.data?.prompt,
+    "Write a friendly missed-call text-back message."
+  );
 
-  const emailSubject = context.gmail?.subject ?? "Customer email";
-  const emailBody = context.gmail?.body ?? "No email body available.";
+  const businessName = context.business?.name ?? "the business";
+  const callerName = context.caller_name ? `${context.caller_name}, ` : "";
 
-  const output = `Draft reply for "${emailSubject}": Thanks for reaching out. We reviewed your message: "${emailBody}". We will help you with this and get back shortly.`;
+  const output = `Hi ${callerName}this is ${businessName}. Sorry we missed your call. We can help by text right now. Would you like to book an appointment or ask a quick question?`;
 
   context.ai = {
     output
   };
 
   logs.push(
-    createLog(node, "success", "AI generated a draft response.", {
+    createLog(node, "success", "Text-back message generated.", {
       prompt,
       output
     })
+  );
+}
+
+function runConditionNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  const condition = asString(node.data?.condition, "Business hours check");
+  const now = new Date(context.missedCall?.timestamp ?? Date.now());
+  const hour = now.getHours();
+  const day = now.getDay();
+  const isBusinessHours = day >= 1 && day <= 5 && hour >= 8 && hour < 18;
+
+  context.condition = {
+    passed: isBusinessHours,
+    label: condition
+  };
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      isBusinessHours
+        ? `Condition passed: ${condition}`
+        : `Condition failed: ${condition}`,
+      context.condition
+    )
+  );
+}
+
+async function sendTwilioSms({
+  to,
+  body
+}: {
+  to: string;
+  body: string;
+}) {
+  const accountSid = env.TWILIO_ACCOUNT_SID;
+  const authToken = env.TWILIO_AUTH_TOKEN;
+  const isTwilioTestMode = env.TWILIO_TEST_MODE;
+  const from = isTwilioTestMode ? "+15005550006" : env.TWILIO_PHONE_NUMBER;
+  const messagingServiceSid = isTwilioTestMode ? undefined : env.TWILIO_MESSAGING_SERVICE_SID;
+
+  if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
+    throw new Error(
+      "Twilio is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER or TWILIO_MESSAGING_SERVICE_SID. For Twilio test credentials, set TWILIO_TEST_MODE=true."
+    );
+  }
+
+  const bodyParams = new URLSearchParams({
+    To: to,
+    Body: body
+  });
+
+  if (messagingServiceSid) {
+    bodyParams.set("MessagingServiceSid", messagingServiceSid);
+  } else if (from) {
+    bodyParams.set("From", from);
+  }
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: bodyParams
+    }
+  );
+
+  const responseJson = (await response.json()) as {
+    sid?: string;
+    message?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(responseJson.message ?? "Twilio SMS failed");
+  }
+
+  return {
+    id: responseJson.sid ?? null,
+    to,
+    body,
+    providerCalled: true,
+    twilioTestMode: isTwilioTestMode
+  };
+}
+
+async function runSmsConnectorNode({
+  node,
+  context,
+  logs,
+  mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const action = asString(node.data?.connectorAction, "send_sms");
+
+  if (action === "capture_lead") {
+    if (!context.missedCall?.callerNumber) {
+      logs.push(createLog(node, "error", "Lead capture failed because caller number is missing."));
+      return;
+    }
+
+    context.capturedLead = {
+      callerNumber: context.missedCall.callerNumber,
+      callerName: context.missedCall.callerName,
+      businessName: context.missedCall.businessName,
+      status: "captured",
+      capturedAt: new Date().toISOString()
+    };
+
+    logs.push(
+      createLog(
+        node,
+        "success",
+        "Lead captured. Conversation can continue by SMS, booking, FAQ, or team routing.",
+        context.capturedLead
+      )
+    );
+    return;
+  }
+
+  const defaultBody = context.ai?.output ?? `Hi, this is ${context.business?.name ?? "the business"}. Sorry we missed your call. We can help by text right now.`;
+  const actionTo = renderTemplate(node.data?.smsTo, context) || context.caller_number || "";
+  const actionBody = renderTemplate(node.data?.smsBody, context) || defaultBody;
+  const sendAt = renderTemplate(node.data?.sendAt, context) || "8:00 AM next business day";
+
+  if (!actionTo || !actionBody) {
+    logs.push(createLog(node, "error", "SMS failed because To or Message is empty."));
+    return;
+  }
+
+  if (action === "queue_sms") {
+    context.queuedSms = {
+      to: actionTo,
+      body: actionBody,
+      sendAt,
+      mode
+    };
+
+    logs.push(
+      createLog(node, "waiting", `SMS queued for ${sendAt}.`, context.queuedSms)
+    );
+    return;
+  }
+
+  if (mode === "live") {
+    const sentSms = await sendTwilioSms({
+      to: actionTo,
+      body: actionBody
+    });
+
+    context.sentSms = {
+      ...sentSms,
+      mode
+    };
+
+    logs.push(
+      createLog(
+        node,
+        "success",
+        sentSms.twilioTestMode
+          ? "Twilio test credentials accepted the SMS request. No real SMS was delivered."
+          : "Twilio SMS sent successfully.",
+        context.sentSms
+      )
+    );
+    return;
+  }
+
+  context.sentSms = {
+    id: null,
+    to: actionTo,
+    body: actionBody,
+    mode,
+    providerCalled: false,
+    twilioTestMode: false
+  };
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      "Dry run passed. No Twilio request was made.",
+      context.sentSms
+    )
   );
 }
 
@@ -238,13 +536,7 @@ async function runGmailConnectorNode({
     const body = renderTemplate(node.data?.gmailBody, context);
 
     if (!to || !subject || !body) {
-      logs.push(
-        createLog(
-          node,
-          "error",
-          "Gmail send failed because To, Subject, or Body is empty."
-        )
-      );
+      logs.push(createLog(node, "error", "Gmail send failed because To, Subject, or Body is empty."));
       return;
     }
 
@@ -267,13 +559,7 @@ async function runGmailConnectorNode({
     const body = renderTemplate(node.data?.gmailBody, context);
 
     if (!to || !subject || !body) {
-      logs.push(
-        createLog(
-          node,
-          "error",
-          "Gmail draft failed because To, Subject, or Body is empty."
-        )
-      );
+      logs.push(createLog(node, "error", "Gmail draft failed because To, Subject, or Body is empty."));
       return;
     }
 
@@ -297,16 +583,18 @@ async function runConnectorNode({
   userId,
   node,
   context,
-  logs
+  logs,
+  mode
 }: {
   userId: string;
   node: RunnerNode;
   context: RunnerContext;
   logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
 }) {
-  const connector = asString(node.data?.connector, "Gmail");
+  const connector = asString(node.data?.connector, "SMS").toLowerCase();
 
-  if (connector === "Gmail") {
+  if (connector === "gmail") {
     await runGmailConnectorNode({
       userId,
       node,
@@ -316,25 +604,34 @@ async function runConnectorNode({
     return;
   }
 
-  logs.push(createLog(node, "success", `${connector} connector simulated.`));
-}
+  if (connector === "sms" || connector === "twilio") {
+    await runSmsConnectorNode({
+      node,
+      context,
+      logs,
+      mode
+    });
+    return;
+  }
 
-function runConditionNode(node: RunnerNode, logs: WorkflowRunLog[]) {
-  const condition = asString(node.data?.condition, "No condition configured");
-  logs.push(createLog(node, "success", `Condition passed: ${condition}`));
-}
-
-function runApprovalNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
-  context.approved = true;
-  logs.push(createLog(node, "waiting", "Human approval simulated as approved."));
+  logs.push(createLog(node, "error", `Unsupported connector: ${connector}`));
 }
 
 function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
-  const outputKey = asString(node.data?.outputKey, "result");
+  const outputKey = asString(node.data?.outputKey, "missedCallTextBackResult");
 
   context.output = {
     key: outputKey,
-    value: context.sentEmail ?? context.draftEmail ?? context.ai ?? context.gmail ?? null
+    value:
+      context.capturedLead ??
+      context.sentSms ??
+      context.queuedSms ??
+      context.sentEmail ??
+      context.draftEmail ??
+      context.ai ??
+      context.gmail ??
+      context.missedCall ??
+      null
   };
 
   logs.push(createLog(node, "success", `Output saved as ${outputKey}.`, context.output));
@@ -343,15 +640,19 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
 export async function runWorkflowTest({
   userId,
   workflowId,
-  workflowJson
+  workflowJson,
+  input,
+  mode = "test"
 }: {
   userId: string;
   workflowId: string;
   workflowJson: unknown;
+  input?: WorkflowRunInput;
+  mode?: WorkflowRunMode;
 }) {
   const parsedWorkflow = parseRunnerWorkflowJson(workflowJson);
   const logs: WorkflowRunLog[] = [];
-  const context: RunnerContext = {};
+  const context: RunnerContext = seedMissedCallContext(input);
 
   if (parsedWorkflow.nodes.length === 0) {
     return {
@@ -359,9 +660,9 @@ export async function runWorkflowTest({
       logs: [
         {
           nodeId: "empty",
-          label: "Empty workflow",
+          label: "Empty agent",
           status: "error" as const,
-          message: "Please add at least one node before running test."
+          message: "Please add at least one node before running a test."
         }
       ],
       context
@@ -373,7 +674,7 @@ export async function runWorkflowTest({
 
     try {
       if (nodeKind === "trigger") {
-        runTriggerNode(node, logs);
+        runTriggerNode(node, context, logs);
         continue;
       }
 
@@ -382,7 +683,8 @@ export async function runWorkflowTest({
           userId,
           node,
           context,
-          logs
+          logs,
+          mode
         });
         continue;
       }
@@ -393,12 +695,7 @@ export async function runWorkflowTest({
       }
 
       if (nodeKind === "condition") {
-        runConditionNode(node, logs);
-        continue;
-      }
-
-      if (nodeKind === "approval") {
-        runApprovalNode(node, context, logs);
+        runConditionNode(node, context, logs);
         continue;
       }
 

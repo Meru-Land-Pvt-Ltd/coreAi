@@ -21,6 +21,15 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GMAIL_OAUTH_REDIRECT_URI: z.string().url().optional(),
+
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_PHONE_NUMBER: z.string().optional(),
+  TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
+  TWILIO_TEST_MODE: z
+    .preprocess((value) => value === true || value === "true" || value === "1", z.boolean())
+    .default(false),
+  TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

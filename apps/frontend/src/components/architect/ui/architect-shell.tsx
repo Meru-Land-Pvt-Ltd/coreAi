@@ -4,13 +4,18 @@ import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { CoreMark, cn } from "@/components/architect/ui/architect-ui";
 import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
 
-type IconName = "agents" | "published" | "plus" | "builder";
+type IconName =
+  | "agents"
+  | "published"
+  | "builder"
+  | "plus"
+  | "profile";
 
 type NavItem = {
   label: string;
-  pageTitle: string;
   href: Route;
   icon: IconName;
   matchPrefix?: string;
@@ -18,67 +23,38 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-
-  {
-    label: "Agent",
-    pageTitle: "New Agent",
-    href: "/architect/workflows/new",
-    icon: "plus"
-  },
   {
     label: "My Agents",
-    pageTitle: "My Agents",
-    href: "/architect/agents",
+    href: "/architect/agents" as Route,
     icon: "agents",
     matchPrefix: "/architect/agents",
     excludePrefixes: ["/architect/agents/published", "/architect/agents/publish"]
   },
   {
     label: "Published",
-    pageTitle: "Published Agents",
-    href: "/architect/agents/published",
+    href: "/architect/agents/published" as Route,
     icon: "published"
   },
   {
+    label: "Agent",
+    href: "/architect/workflows/new" as Route,
+    icon: "plus"
+  },
+  {
     label: "Builder",
-    pageTitle: "Workflow Builder",
-    href: "/architect/workflows",
+    href: "/architect/workflows" as Route,
     icon: "builder",
     matchPrefix: "/architect/workflows",
     excludePrefixes: ["/architect/workflows/new"]
-  },
-  // {
-  //   label: "Projects",
-  //   pageTitle: "Open Projects",
-  //   href: "/architect/projects",
-  //   icon: "projects"
-  // }
+  }
 ];
 
 function isActive(pathname: string, item: NavItem) {
-  if (pathname === String(item.href)) {
-    return true;
-  }
-
-  if (!item.matchPrefix) {
-    return false;
-  }
-
+  if (pathname === String(item.href)) return true;
+  if (!item.matchPrefix) return false;
   const isExcluded = item.excludePrefixes?.some((prefix) => pathname.startsWith(prefix));
-
-  if (isExcluded) {
-    return false;
-  }
-
+  if (isExcluded) return false;
   return pathname.startsWith(item.matchPrefix);
-}
-
-function getCurrentPage(pathname: string) {
-  if (pathname === "/architect/profile") return "Profile";
-  if (pathname === "/architect/agents/publish") return "Publish Agent";
-
-  const activeItem = navItems.find((item) => isActive(pathname, item));
-  return activeItem?.pageTitle ?? "My Agents";
 }
 
 function getInitial(user: AuthUser | null) {
@@ -86,183 +62,94 @@ function getInitial(user: AuthUser | null) {
   return source.charAt(0).toUpperCase();
 }
 
-function IconBox({
-  active,
-  isCreate,
-  children
-}: {
-  active: boolean;
-  isCreate?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      className={`flex h-10 w-10 items-center justify-center rounded-2xl transition ${isCreate
-        ? "bg-gradient-to-br from-orange-500 to-yellow-400 text-white shadow-sm shadow-orange-200"
-        : active
-          ? "bg-orange-100 text-orange-700"
-          : "text-orange-700 group-hover:bg-yellow-50"
-        }`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function NavIcon({ name, active }: { name: IconName; active: boolean }) {
-  const common = "h-5 w-5";
+function Icon({ name, className = "" }: { name: IconName; className?: string }) {
+  const common = cn("h-5 w-5 shrink-0", className);
 
   if (name === "agents") {
     return (
-      <IconBox active={active}>
-        <svg className={common} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M7.2 9.8h9.6A3.2 3.2 0 0 1 20 13v3.4a3.2 3.2 0 0 1-3.2 3.2H7.2A3.2 3.2 0 0 1 4 16.4V13a3.2 3.2 0 0 1 3.2-3.2Z"
-            stroke="currentColor"
-            strokeWidth="1.7"
-          />
-          <path
-            d="M8.5 9.8V7.9a3.5 3.5 0 0 1 7 0v1.9"
-            stroke="currentColor"
-            strokeWidth="1.7"
-          />
-          <path
-            d="M9 15h.01M15 15h.01"
-            stroke="currentColor"
-            strokeWidth="2.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      </IconBox>
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="8" width="16" height="12" rx="2.5" />
+        <path d="M12 8V4.5" />
+        <circle cx="9" cy="14" r="1.1" />
+        <circle cx="15" cy="14" r="1.1" />
+        <path d="M4 13.5H2.5M21.5 13.5H20" />
+      </svg>
     );
   }
 
   if (name === "published") {
     return (
-      <IconBox active={active}>
-        <svg className={common} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M5 12.2 10.2 17 19 7"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M12 21a9 9 0 1 1 7.8-4.5"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-          />
-        </svg>
-      </IconBox>
-    );
-  }
-
-  if (name === "plus") {
-    return (
-      <IconBox active={active} isCreate>
-        <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M12 5v14M5 12h14"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-          />
-        </svg>
-      </IconBox>
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 2 3 6.5V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.5L18 2Z" />
+        <path d="M3 6.5h18" />
+        <path d="M16 10.5a4 4 0 0 1-8 0" />
+      </svg>
     );
   }
 
   if (name === "builder") {
     return (
-      <IconBox active={active}>
-        <svg className={common} viewBox="0 0 24 24" fill="none">
-          <rect
-            x="4"
-            y="5"
-            width="6"
-            height="6"
-            rx="1.6"
-            stroke="currentColor"
-            strokeWidth="1.7"
-          />
-          <rect
-            x="14"
-            y="13"
-            width="6"
-            height="6"
-            rx="1.6"
-            stroke="currentColor"
-            strokeWidth="1.7"
-          />
-          <path
-            d="M10 8h2.5A3.5 3.5 0 0 1 16 11.5V13"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-          />
-        </svg>
-      </IconBox>
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="6" height="6" rx="1.6" />
+        <rect x="15" y="15" width="6" height="6" rx="1.6" />
+        <path d="M9 6h3.5A2.5 2.5 0 0 1 15 8.5V15" />
+      </svg>
+    );
+  }
+
+  if (name === "plus") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    );
+  }
+
+  if (name === "profile") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21a8 8 0 0 0-16 0" />
+        <circle cx="12" cy="8" r="4" />
+      </svg>
     );
   }
 
   return (
-    <IconBox active={active}>
-      <svg className={common} viewBox="0 0 24 24" fill="none">
-        <path
-          d="M4 7.8A2.2 2.2 0 0 1 6.2 5.6h3.1l1.5 1.8h7A2.2 2.2 0 0 1 20 9.6v7.8a2.2 2.2 0 0 1-2.2 2.2H6.2A2.2 2.2 0 0 1 4 17.4V7.8Z"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </IconBox>
+    <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
   );
 }
 
-function ProfileMenu({
-  user,
-  open,
-  onToggle
-}: {
-  user: AuthUser | null;
-  open: boolean;
-  onToggle: () => void;
-}) {
+function ProfileMenu({ user, open, onToggle }: { user: AuthUser | null; open: boolean; onToggle: () => void }) {
   return (
     <div className="relative">
       <button
         type="button"
         onClick={onToggle}
-        className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-yellow-400 text-sm font-black text-white shadow-sm shadow-orange-200 transition hover:scale-[1.03]"
+        className="grid h-10 w-10 place-items-center rounded-full bg-amber-500 text-sm font-black text-white shadow-sm ring-2 ring-white transition hover:scale-[1.03]"
         aria-label="Open profile menu"
       >
         {getInitial(user)}
       </button>
 
       {open ? (
-        <div className="absolute bottom-14 left-1/2 z-50 w-52 -translate-x-1/2 rounded-2xl border border-orange-100 bg-white p-2 shadow-xl shadow-orange-950/10 lg:left-full lg:bottom-0 lg:ml-3 lg:translate-x-0">
-          <div className="border-b border-orange-100 px-3 py-2">
-            <p className="truncate text-sm font-black text-orange-950">
-              {user?.fullName ?? "Architect"}
-            </p>
-            <p className="truncate text-xs font-semibold text-orange-800/60">
-              {user?.email}
-            </p>
+        <div className="absolute bottom-12 left-0 z-50 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10 lg:bottom-auto lg:left-auto lg:right-0 lg:top-12">
+          <div className="border-b border-slate-100 px-3 py-3">
+            <p className="truncate text-sm font-black text-slate-950">{user?.fullName ?? "Architect"}</p>
+            <p className="truncate text-xs font-semibold text-slate-500">{user?.email}</p>
+            <span className="mt-2 inline-flex rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-amber-700">
+              Architect Studio
+            </span>
           </div>
-
-          <Link
-            href="/architect/profile"
-            className="mt-2 flex rounded-xl px-3 py-2 text-sm font-black text-orange-900 transition hover:bg-yellow-50"
-          >
+          <Link href="/architect/profile" className="mt-2 flex rounded-xl px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-amber-50 hover:text-amber-700">
             Profile
           </Link>
-
           <button
             type="button"
             onClick={logout}
-            className="flex w-full rounded-xl px-3 py-2 text-left text-sm font-black text-red-600 transition hover:bg-red-50"
+            className="flex w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-red-600 transition hover:bg-red-50"
           >
             Logout
           </button>
@@ -272,119 +159,163 @@ function ProfileMenu({
   );
 }
 
-export function ArchitectShell({ children }: { children: React.ReactNode }) {
+function SidebarContent({
+  user,
+  pathname,
+  profileMenuOpen,
+  onProfileToggle,
+  onNavigate
+}: {
+  user: AuthUser | null;
+  pathname: string;
+  profileMenuOpen: boolean;
+  onProfileToggle: () => void;
+  onNavigate?: () => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-2.5 px-5 py-5">
+        <CoreMark />
+        <div>
+          <span className="block text-lg font-black tracking-tight text-slate-950">CORE</span>
+          <span className="block text-[10px] font-extrabold uppercase tracking-[0.22em] text-slate-400">Architect Studio</span>
+        </div>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <p className="mb-2 px-3 text-xs font-extrabold uppercase tracking-wider text-slate-400">
+          Studio
+        </p>
+        <ul className="space-y-1">
+          {navItems.map((item) => {
+            const active = isActive(pathname, item);
+            return (
+              <li key={`${item.label}-${item.href}`}>
+                <Link
+                  href={item.href}
+                  onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition",
+                    active
+                      ? "bg-amber-50 font-extrabold text-amber-700"
+                      : "font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                  )}
+                >
+                  {active ? <span className="absolute -left-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-amber-500" /> : null}
+                  <Icon name={item.icon} className={active ? "text-amber-600" : "text-slate-400 group-hover:text-slate-600"} />
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div className="border-t border-slate-100 p-4">
+        <div className="mb-3 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 p-3">
+          <p className="text-sm font-black text-amber-800">First build</p>
+          <p className="mt-1 text-[11px] font-semibold leading-5 text-amber-700/75">
+            Missed Call Text-Back agent for Twilio + SMS.
+          </p>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <ProfileMenu user={user} open={profileMenuOpen} onToggle={onProfileToggle} />
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function ArchitectShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-
-  const currentPage = getCurrentPage(pathname);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isBuilder = pathname.includes("/builder");
 
   useEffect(() => {
     const authUser = getAuthUser();
-
     if (!authUser || authUser.role !== "ARCHITECT") {
       router.replace("/architect/login");
       return;
     }
-
     setUser(authUser);
     setReady(true);
   }, [router]);
 
   useEffect(() => {
     setProfileMenuOpen(false);
+    setMobileNavOpen(false);
   }, [pathname]);
 
   if (!ready) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#fff8ef] text-orange-950">
-        <div className="rounded-2xl border border-orange-100 bg-white px-6 py-4 text-sm font-bold shadow-sm">
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-900">
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-bold shadow-sm">
           Checking architect session...
         </div>
       </main>
     );
   }
 
+  if (isBuilder) {
+    return <main className="min-h-screen bg-slate-50 text-slate-900">{children}</main>;
+  }
+
   return (
-    <main className="min-h-screen bg-[#fff8ef] text-orange-950">
-      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-20 border-r border-orange-100 bg-white shadow-sm lg:flex lg:flex-col lg:items-center lg:py-4">
-        <nav className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto px-2">
-          {navItems.map((item) => {
-            const active = isActive(pathname, item);
-
-            return (
-              <Link
-                key={`${item.label}-${item.href}`}
-                href={item.href}
-                className="group flex w-full flex-col items-center justify-center rounded-2xl px-1 py-2 text-center transition hover:bg-yellow-50"
-              >
-                <NavIcon name={item.icon} active={active} />
-
-                <span
-                  className={`mt-1 text-[10px] font-semibold leading-4 ${active ? "text-orange-700" : "text-orange-900"
-                    }`}
-                >
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="relative mb-2">
-          <ProfileMenu
-            user={user}
-            open={profileMenuOpen}
-            onToggle={() => setProfileMenuOpen((current) => !current)}
-          />
-        </div>
+    <main className="min-h-screen bg-slate-50 text-slate-900">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white shadow-sm lg:flex">
+        <SidebarContent
+          user={user}
+          pathname={pathname}
+          profileMenuOpen={profileMenuOpen}
+          onProfileToggle={() => setProfileMenuOpen((current) => !current)}
+        />
       </aside>
 
-      <section className="min-h-screen lg:pl-20">
-        <header className="sticky top-0 z-30 border-b border-orange-100 bg-white px-5 py-3 shadow-sm">
-          <div className="flex w-full items-center justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-orange-500">
-                AI Architect
-              </p>
-              <h2 className="text-xl font-black text-orange-950 md:text-2xl">
-                {currentPage}
-              </h2>
-            </div>
+      {mobileNavOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label="Close navigation"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <aside className="relative flex h-full w-72 max-w-[84vw] flex-col bg-white shadow-2xl">
+            <SidebarContent
+              user={user}
+              pathname={pathname}
+              profileMenuOpen={profileMenuOpen}
+              onProfileToggle={() => setProfileMenuOpen((current) => !current)}
+              onNavigate={() => setMobileNavOpen(false)}
+            />
+          </aside>
+        </div>
+      ) : null}
 
-            <div className="lg:hidden">
-              <ProfileMenu
-                user={user}
-                open={profileMenuOpen}
-                onToggle={() => setProfileMenuOpen((current) => !current)}
-              />
-            </div>
-          </div>
+      <button
+        type="button"
+        onClick={() => setMobileNavOpen(true)}
+        className="fixed bottom-4 left-4 z-30 grid h-12 w-12 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-xl shadow-slate-900/10 lg:hidden"
+        aria-label="Open navigation"
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
 
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
-            {navItems.map((item) => {
-              const active = isActive(pathname, item);
-
-              return (
-                <Link
-                  key={`${item.label}-mobile-${item.href}`}
-                  href={item.href}
-                  className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${active
-                    ? "bg-orange-500 text-white"
-                    : "bg-yellow-50 text-orange-700"
-                    }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        </header>
-
-        <div className="w-full px-5 py-6">{children}</div>
+      <section className="min-h-screen lg:pl-64">
+        <div className="w-full px-4 py-4 sm:px-6 sm:py-6 lg:px-8 xl:px-10">{children}</div>
       </section>
     </main>
   );
