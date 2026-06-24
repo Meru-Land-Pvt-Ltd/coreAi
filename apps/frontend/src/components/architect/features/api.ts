@@ -106,10 +106,41 @@ export function deleteArchitectWorkflow(workflowId: string) {
   return apiDelete<{ workflowId: string }>(`/architect/workflows/${workflowId}`);
 }
 
-export function runArchitectWorkflowTest(workflowId: string) {
+export function runArchitectWorkflowTest(
+  workflowId: string,
+  body: {
+    input?: {
+      callerNumber?: string;
+      callerName?: string;
+      businessName?: string;
+      callStatus?: string;
+      callTimestamp?: string;
+      missedCallReason?: string;
+    };
+  } = {}
+) {
   return apiPost<{ run: WorkflowRunResult }>(
     `/architect/workflows/${workflowId}/run-test`,
-    {}
+    body
+  );
+}
+
+export function runArchitectWorkflowLive(
+  workflowId: string,
+  body: {
+    input?: {
+      callerNumber?: string;
+      callerName?: string;
+      businessName?: string;
+      callStatus?: string;
+      callTimestamp?: string;
+      missedCallReason?: string;
+    };
+  } = {}
+) {
+  return apiPost<{ run: WorkflowRunResult }>(
+    `/architect/workflows/${workflowId}/run-live`,
+    body
   );
 }
 

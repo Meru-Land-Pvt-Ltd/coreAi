@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -36,6 +36,67 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
   } catch (error) {
     console.error(error);
     return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
+  }
+});
+
+architectRoutes.post("/connectors/twilio/missed-call/:workflowId", async (c) => {
+  try {
+    const workflowId = c.req.param("workflowId");
+    const contentType = c.req.header("content-type") ?? "";
+
+    const rawBody = contentType.includes("application/json")
+      ? await c.req.json().catch(() => ({}))
+      : await c.req.parseBody();
+    const body = rawBody as Record<string, unknown>;
+
+    const callerNumber = String(body.From ?? body.from ?? body.Caller ?? "").trim();
+    const calledNumber = String(body.Called ?? body.To ?? body.to ?? "").trim();
+
+    if (!callerNumber) {
+      return c.text("<Response></Response>", 422, {
+        "Content-Type": "text/xml"
+      });
+    }
+
+    const workflow = await prisma.workflowDefinition.findUnique({
+      where: {
+        id: workflowId
+      },
+      select: {
+        id: true,
+        architectUserId: true,
+        workflowJson: true
+      }
+    });
+
+    if (!workflow) {
+      return c.text("<Response></Response>", 404, {
+        "Content-Type": "text/xml"
+      });
+    }
+
+    await runWorkflowTest({
+      userId: workflow.architectUserId,
+      workflowId: workflow.id,
+      workflowJson: workflow.workflowJson,
+      mode: "live",
+      input: {
+        callerNumber,
+        businessName: env.TWILIO_DEFAULT_BUSINESS_NAME ?? calledNumber,
+        callStatus: String(body.CallStatus ?? body.callStatus ?? "no-answer"),
+        callTimestamp: new Date().toISOString(),
+        missedCallReason: "Twilio missed-call webhook triggered this agent."
+      }
+    });
+
+    return c.text("<Response></Response>", 200, {
+      "Content-Type": "text/xml"
+    });
+  } catch (error) {
+    console.error(error);
+    return c.text("<Response></Response>", 200, {
+      "Content-Type": "text/xml"
+    });
   }
 });
 
@@ -87,6 +148,19 @@ const proposalSchema = z.object({
   coverLetter: z.string().trim().min(20, "Cover letter must be at least 20 characters"),
   bidAmountCents: z.number().int().nonnegative().optional(),
   etaDays: z.number().int().positive().optional()
+});
+
+const workflowRunInputSchema = z.object({
+  callerNumber: z.string().trim().optional(),
+  callerName: z.string().trim().optional(),
+  businessName: z.string().trim().optional(),
+  callStatus: z.string().trim().optional(),
+  callTimestamp: z.string().trim().optional(),
+  missedCallReason: z.string().trim().optional()
+});
+
+const workflowRunTestSchema = z.object({
+  input: workflowRunInputSchema.optional()
 });
 
 function isPrismaErrorCode(error: unknown, code: string) {
@@ -422,9 +496,17 @@ architectRoutes.delete("/workflows/:workflowId", async (c) => {
   return successResponse(c, { workflowId }, "Agent deleted");
 });
 
-architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {
+async function runOwnedWorkflow({
+  c,
+  mode
+}: {
+  c: Context;
+  mode: "test" | "live";
+}) {
   const authUser = c.get("authUser");
   const workflowId = c.req.param("workflowId");
+  const body = await c.req.json().catch(() => ({}));
+  const input = workflowRunTestSchema.parse(body);
 
   const workflow = await prisma.workflowDefinition.findFirst({
     where: {
@@ -437,13 +519,67 @@ architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {
     return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
   }
 
+  if (mode === "live" && !input.input?.callerNumber?.trim()) {
+    return errorResponse(
+      c,
+      "Caller number is required before sending with Twilio",
+      422,
+      "CALLER_NUMBER_REQUIRED"
+    );
+  }
+
   const run = await runWorkflowTest({
     userId: authUser.id,
     workflowId,
-    workflowJson: workflow.workflowJson
+    workflowJson: workflow.workflowJson,
+    input: input.input,
+    mode
   });
 
-  return successResponse(c, { run }, "Workflow test completed");
+  return successResponse(
+    c,
+    { run },
+    mode === "live" ? "Twilio workflow run completed" : "Workflow test completed"
+  );
+}
+
+architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {
+  try {
+    return await runOwnedWorkflow({ c, mode: "test" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid test input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    return errorResponse(c, "Could not run workflow test", 500, "WORKFLOW_TEST_FAILED");
+  }
+});
+
+architectRoutes.post("/workflows/:workflowId/run-live", async (c) => {
+  try {
+    return await runOwnedWorkflow({ c, mode: "live" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid Twilio test input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not send Twilio SMS",
+      500,
+      "TWILIO_RUN_FAILED"
+    );
+  }
 });
 
 architectRoutes.get("/listings", async (c) => {
