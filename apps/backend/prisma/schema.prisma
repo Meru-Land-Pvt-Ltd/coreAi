@@ -184,3 +184,20 @@ model ConnectorCredential {
   @@index([userId])
   @@index([provider])
 }
+
+
+model EmailVerificationCode {
+  id         String    @id @default(cuid())
+  email      String
+  role       UserRole
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([email, role])
+  @@index([expiresAt])
+  @@index([createdAt])
+}

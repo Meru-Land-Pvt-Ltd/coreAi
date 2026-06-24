@@ -9,24 +9,27 @@
     "dev": "npm run dev:backend & npm run dev:frontend",
     "dev:frontend": "npm run dev --workspace=@coreai/frontend",
     "dev:backend": "npm run dev --workspace=@coreai/backend",
-
     "build": "npm run build:backend && npm run build:frontend",
     "build:frontend": "npm run build --workspace=@coreai/frontend",
     "build:backend": "npm run build --workspace=@coreai/backend",
-
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "typecheck:frontend": "npm run typecheck --workspace=@coreai/frontend",
     "typecheck:backend": "npm run typecheck --workspace=@coreai/backend",
-
     "lint": "npm run lint:frontend",
     "lint:frontend": "npm run lint --workspace=@coreai/frontend",
-
     "prisma:generate": "npm run prisma:generate --workspace=@coreai/backend",
     "prisma:migrate": "npm run prisma:migrate --workspace=@coreai/backend",
     "prisma:studio": "npm run prisma:studio --workspace=@coreai/backend",
-
     "clean": "rm -rf node_modules package-lock.json apps/frontend/node_modules apps/backend/node_modules apps/frontend/.next apps/backend/dist",
     "clean:apple": "find . -name '._*' -delete",
     "reinstall": "npm run clean && npm install"
+  },
+  "dependencies": {
+    "firebase": "^12.15.0",
+    "firebase-admin": "^14.0.0",
+    "nodemailer": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1"
   }
 }

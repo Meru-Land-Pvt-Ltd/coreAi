@@ -2,17 +2,23 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import {
+  ClipboardEvent,
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import { useRouter } from "next/navigation";
 import { apiPost } from "@/lib/api";
 import { saveAuthSession, type AuthRole, type AuthUser } from "@/lib/auth";
 
-type AuthMode = "login" | "signup";
+type OtpAuthRole = Extract<AuthRole, "BUSINESS" | "ARCHITECT">;
 
-type AuthInput = {
-  fullName?: string;
-  email: string;
-  password: string;
+type CoreOtpAuthProps = {
+  initialRole: OtpAuthRole;
 };
 
 type AuthResponse = {
@@ -20,137 +26,575 @@ type AuthResponse = {
   user: AuthUser;
 };
 
-type Props = {
-  role: AuthRole;
-  mode: AuthMode;
-  title: string;
-  subtitle: string;
-  switchHref: Route;
-  switchText: string;
-  dashboardPath: Route;
+const roleContent: Record<
+  OtpAuthRole,
+  {
+    tab: string;
+    subtitle: string;
+    loginPath: Route;
+    dashboardPath: Route;
+  }
+> = {
+  BUSINESS: {
+    tab: "Business Owner",
+    subtitle: "Find and install AI agents for your business",
+    loginPath: "/business/login" as Route,
+    dashboardPath: "/business/dashboard" as Route
+  },
+  ARCHITECT: {
+    tab: "AI Architect",
+    subtitle: "Build, publish, and sell AI agents",
+    loginPath: "/architect/login" as Route,
+    dashboardPath: "/architect/agents" as Route
+  }
 };
 
-export function AuthCard({
-  role,
-  mode,
-  title,
-  subtitle,
-  switchHref,
-  switchText,
-  dashboardPath
-}: Props) {
-  const { register, handleSubmit } = useForm<AuthInput>();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
-  const onSubmit = async (values: AuthInput) => {
+export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
+  const router = useRouter();
+
+  const [role, setRole] = useState<OtpAuthRole>(initialRole);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [error, setError] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const currentYear = new Date().getFullYear();
+
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const otpValue = useMemo(() => otp.join(""), [otp]);
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+
+    const timer = window.setInterval(() => {
+      setSecondsLeft((current) => Math.max(current - 1, 0));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [secondsLeft]);
+
+  function changeRole(nextRole: OtpAuthRole) {
+    if (nextRole === role) return;
+
+    setRole(nextRole);
+    setStep(1);
+    setOtp(["", "", "", "", "", ""]);
+    setError("");
+    setSecondsLeft(0);
+
+    router.replace(roleContent[nextRole].loginPath, {
+      scroll: false
+    });
+  }
+
+  async function sendVerificationCode(targetEmail: string) {
+    const result = await apiPost<unknown>("/auth/send-verification-code", {
+      email: targetEmail,
+      role
+    });
+
+    if (!result.success) {
+      throw new Error(result.error ?? "Failed to send verification code");
+    }
+  }
+
+  async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!isValidEmail(cleanEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
     try {
       setError("");
-      setLoading(true);
+      setIsSending(true);
 
-      const payload =
-        mode === "signup"
-          ? {
-              fullName: values.fullName,
-              email: values.email,
-              password: values.password,
-              role
-            }
-          : {
-              email: values.email,
-              password: values.password,
-              role
-            };
+      await sendVerificationCode(cleanEmail);
 
-      const result = await apiPost<AuthResponse>(`/auth/${mode}`, payload);
+      setEmail(cleanEmail);
+      setStep(2);
+      setSecondsLeft(60);
+
+      window.setTimeout(() => {
+        otpRefs.current[0]?.focus();
+      }, 80);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to send verification code"
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (otpValue.length !== 6) {
+      setError("Please enter all 6 digits.");
+      return;
+    }
+
+    try {
+      setError("");
+      setIsVerifying(true);
+
+      const result = await apiPost<AuthResponse>("/auth/verify-code", {
+        email,
+        role,
+        code: otpValue
+      });
 
       if (!result.success || !result.data) {
-        setError(result.error ?? "Authentication failed");
+        setError(result.error ?? "Verification failed");
         return;
       }
 
       saveAuthSession(result.data.token, result.data.user);
-      window.location.href = dashboardPath;
+
+      setStep(3);
+
+      window.setTimeout(() => {
+        router.push(roleContent[role].dashboardPath);
+      }, 700);
     } catch {
       setError("Something went wrong. Please check if backend is running.");
     } finally {
-      setLoading(false);
+      setIsVerifying(false);
     }
-  };
+  }
+
+  async function handleGoogleLogin() {
+    try {
+      setError("");
+      setIsGoogleLoading(true);
+
+      const [{ GoogleAuthProvider, signInWithPopup }, { getFirebaseAuth }] =
+        await Promise.all([import("firebase/auth"), import("@/lib/firebase")]);
+
+      const provider = new GoogleAuthProvider();
+
+      provider.setCustomParameters({
+        prompt: "select_account"
+      });
+
+      const firebaseResult = await signInWithPopup(getFirebaseAuth(), provider);
+      const idToken = await firebaseResult.user.getIdToken();
+
+      const result = await apiPost<AuthResponse>("/auth/firebase-login", {
+        idToken,
+        role
+      });
+
+      if (!result.success || !result.data) {
+        setError(result.error ?? "Google login failed");
+        return;
+      }
+
+      saveAuthSession(result.data.token, result.data.user);
+      router.push(roleContent[role].dashboardPath);
+    } catch {
+      setError("Google login failed. Please try again.");
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    if (secondsLeft > 0 || !email) return;
+
+    try {
+      setError("");
+      setIsSending(true);
+
+      await sendVerificationCode(email);
+
+      setOtp(["", "", "", "", "", ""]);
+      setSecondsLeft(60);
+
+      window.setTimeout(() => {
+        otpRefs.current[0]?.focus();
+      }, 80);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resend code");
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  function handleOtpChange(index: number, value: string) {
+    const digit = value.replace(/[^0-9]/g, "").slice(0, 1);
+
+    setOtp((current) => {
+      const next = [...current];
+      next[index] = digit;
+      return next;
+    });
+
+    setError("");
+
+    if (digit && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleOtpKeyDown(
+    index: number,
+    event: KeyboardEvent<HTMLInputElement>
+  ) {
+    if (event.key === "Backspace" && !otp[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    }
+
+    if (event.key === "Enter" && otpValue.length === 6) {
+      void handleVerify();
+    }
+  }
+
+  function handleOtpPaste(event: ClipboardEvent<HTMLInputElement>) {
+    event.preventDefault();
+
+    const digits = event.clipboardData
+      .getData("text")
+      .replace(/[^0-9]/g, "")
+      .slice(0, 6)
+      .split("");
+
+    if (!digits.length) return;
+
+    setOtp((current) => {
+      const next = [...current];
+
+      digits.forEach((digit, index) => {
+        next[index] = digit;
+      });
+
+      return next;
+    });
+
+    const focusIndex = Math.min(digits.length, 5);
+
+    window.setTimeout(() => {
+      otpRefs.current[focusIndex]?.focus();
+    }, 50);
+  }
+
+  function useDifferentEmail() {
+    setStep(1);
+    setOtp(["", "", "", "", "", ""]);
+    setError("");
+    setSecondsLeft(0);
+  }
 
   return (
-    <div className="w-full max-w-md rounded-3xl soft-card p-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-600">
-            CoreAI Access
-          </p>
-          <h1 className="mt-2 text-3xl font-bold text-orange-950">{title}</h1>
-          <p className="mt-2 text-sm leading-6 text-orange-800/75">{subtitle}</p>
-        </div>
-        <div className="brand-ring shrink-0" />
-      </div>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <header className="w-full px-6 py-5">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
+              <span className="w-3 h-3 rounded-full bg-white" />
+            </span>
+            <span className="text-xl font-extrabold text-slate-900 tracking-tight">
+              CORE
+            </span>
+          </Link>
 
-      <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
-        {mode === "signup" ? (
-          <div>
-            <label className="text-sm font-medium text-orange-900">Full Name</label>
-            <input
-              className="mt-1 w-full rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-500"
-              placeholder="Enter full name"
-              {...register("fullName", { required: mode === "signup" })}
-            />
+          <Link
+            href="/"
+            className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors duration-200"
+          >
+            ← Back to Home
+          </Link>
+        </div>
+      </header>
+
+      <main className="flex-1 flex items-center justify-center px-6 py-10">
+        <div className="w-full max-w-md">
+          <div className="bg-white shadow-lg rounded-2xl border border-gray-100 overflow-hidden">
+            <div
+              className="flex border-b border-gray-100"
+              role="tablist"
+              aria-label="Account type"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={role === "BUSINESS"}
+                onClick={() => changeRole("BUSINESS")}
+                className={`flex-1 py-4 text-sm border-b-2 transition-colors duration-200 ${role === "BUSINESS"
+                  ? "font-semibold text-amber-600 border-amber-500"
+                  : "font-medium text-gray-400 border-transparent hover:text-slate-600"
+                  }`}
+              >
+                {roleContent.BUSINESS.tab}
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={role === "ARCHITECT"}
+                onClick={() => changeRole("ARCHITECT")}
+                className={`flex-1 py-4 text-sm border-b-2 transition-colors duration-200 ${role === "ARCHITECT"
+                  ? "font-semibold text-amber-600 border-amber-500"
+                  : "font-medium text-gray-400 border-transparent hover:text-slate-600"
+                  }`}
+              >
+                {roleContent.ARCHITECT.tab}
+              </button>
+            </div>
+
+            <div className="p-8">
+              <p className="text-center text-sm text-slate-500 mb-6">
+                {roleContent[role].subtitle}
+              </p>
+
+              {step === 1 ? (
+                <div>
+                  <h1 className="text-2xl font-extrabold text-slate-900 text-center">
+                    Welcome to CORE
+                  </h1>
+
+                  <p className="mt-2 text-sm text-slate-600 text-center">
+                    Login with email OTP or Google
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    disabled={isGoogleLoading || isSending}
+                    className="mt-6 flex h-14 w-full items-center justify-center gap-4 rounded-full border border-[#747775] bg-white px-6 text-[18px] font-medium text-[#1f1f1f] transition hover:bg-gray-50 active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <svg
+                      width="24"
+                      height="24"
+                      viewBox="0 0 48 48"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path
+                        fill="#EA4335"
+                        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                      />
+                      <path
+                        fill="#4285F4"
+                        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                      />
+                      <path fill="none" d="M0 0h48v48H0z" />
+                    </svg>
+
+                    <span>{isGoogleLoading ? "Connecting..." : "Continue with Google"}</span>
+                  </button>
+
+                  <div className="my-6 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-gray-100" />
+                    <span className="text-xs font-medium text-slate-400">
+                      OR
+                    </span>
+                    <div className="h-px flex-1 bg-gray-100" />
+                  </div>
+
+                  <form onSubmit={handleEmailSubmit} noValidate>
+                    <label htmlFor="email-input" className="sr-only">
+                      Work email
+                    </label>
+
+                    <input
+                      id="email-input"
+                      type="email"
+                      value={email}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        setError("");
+                      }}
+                      placeholder="you@company.com"
+                      autoComplete="email"
+                      required
+                      className={`w-full px-4 py-3.5 text-base rounded-xl border text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100 transition duration-200 ${error ? "border-red-300" : "border-gray-200"
+                        }`}
+                    />
+
+                    {error ? (
+                      <p className="mt-2 text-sm text-red-500" role="alert">
+                        {error}
+                      </p>
+                    ) : null}
+
+                    <button
+                      type="submit"
+                      disabled={isSending || isGoogleLoading}
+                      className="mt-4 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isSending ? "Sending..." : "Send Verification Code"}
+                    </button>
+                  </form>
+
+                  <p className="mt-4 text-xs text-slate-400 text-center leading-relaxed">
+                    We&apos;ll send a 6-digit code to verify your email. No
+                    password needed.
+                  </p>
+                </div>
+              ) : null}
+
+              {step === 2 ? (
+                <div>
+                  <h1 className="text-2xl font-extrabold text-slate-900 text-center">
+                    Check your email
+                  </h1>
+
+                  <p className="mt-2 text-sm text-slate-600 text-center">
+                    We sent a code to{" "}
+                    <span className="font-semibold text-slate-900">{email}</span>
+                  </p>
+
+                  <div
+                    className="mt-6 flex justify-center gap-2"
+                    aria-label="6-digit verification code"
+                  >
+                    {otp.map((digit, index) => (
+                      <input
+                        key={index}
+                        ref={(element) => {
+                          otpRefs.current[index] = element;
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(event) =>
+                          handleOtpChange(index, event.target.value)
+                        }
+                        onKeyDown={(event) => handleOtpKeyDown(index, event)}
+                        onPaste={handleOtpPaste}
+                        className="w-12 h-14 text-center text-2xl font-semibold rounded-lg border border-gray-200 text-slate-900 focus:outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-100 transition duration-200"
+                        aria-label={`Digit ${index + 1}`}
+                      />
+                    ))}
+                  </div>
+
+                  {error ? (
+                    <p
+                      className="mt-3 text-sm text-red-500 text-center"
+                      role="alert"
+                    >
+                      {error}
+                    </p>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={handleVerify}
+                    disabled={isVerifying}
+                    className="mt-6 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isVerifying ? "Verifying..." : "Verify & Continue"}
+                  </button>
+
+                  <div className="mt-5 flex items-center justify-between text-sm">
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      disabled={secondsLeft > 0 || isSending}
+                      className="text-amber-600 font-medium hover:text-amber-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Resend code{" "}
+                      {secondsLeft > 0 ? <span>({secondsLeft}s)</span> : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={useDifferentEmail}
+                      className="text-slate-400 hover:text-slate-600 transition-colors duration-200"
+                    >
+                      Use a different email
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {step === 3 ? (
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="w-9 h-9 text-green-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </div>
+
+                  <h1 className="mt-5 text-xl font-extrabold text-slate-900">
+                    Verified!
+                  </h1>
+
+                  <p className="mt-2 text-sm text-slate-500">
+                    Redirecting to your dashboard…
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : null}
 
-        <div>
-          <label className="text-sm font-medium text-orange-900">Email</label>
-          <input
-            className="mt-1 w-full rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-500"
-            placeholder="Enter email"
-            type="email"
-            {...register("email", { required: true })}
-          />
-        </div>
+          <div className="mt-8 text-center">
+            <p className="text-sm font-medium text-slate-600">
+              Join 2,400+ businesses already using CORE
+            </p>
 
-        <div>
-          <label className="text-sm font-medium text-orange-900">Password</label>
-          <input
-            className="mt-1 w-full rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-500"
-            placeholder="Enter password"
-            type="password"
-            {...register("password", { required: true, minLength: 6 })}
-          />
-        </div>
+            <p className="mt-1.5 text-xs text-slate-400">
+              Trusted by dentists, HVAC companies, law firms & more
+            </p>
 
-        {error ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
+            <p className="mt-4 text-xs text-slate-400 tracking-wide">
+              256-bit encryption &nbsp;•&nbsp; SOC 2 compliant &nbsp;•&nbsp; No
+              credit card required
+            </p>
           </div>
-        ) : null}
+        </div>
+      </main>
 
-        <button
-          className="w-full rounded-xl bg-orange-500 py-3 font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={loading}
-          type="submit"
-        >
-          {loading ? "Please wait..." : mode === "login" ? "Login" : "Create Account"}
-        </button>
-      </form>
+      <footer className="w-full px-6 py-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="hover:text-slate-600 transition-colors duration-200">
+              Privacy Policy
+            </Link>
 
-      <p className="mt-5 text-center text-sm text-orange-800">
-        {switchText}{" "}
-        <Link className="font-semibold underline" href={switchHref}>
-          Click here
-        </Link>
-      </p>
+            <Link href="/" className="hover:text-slate-600 transition-colors duration-200">
+              Terms of Service
+            </Link>
 
-      <Link
-        href="/"
-        className="mt-4 block text-center text-sm font-medium text-orange-700 underline"
-      >
-        Back to landing page
-      </Link>
+            <Link href="/" className="hover:text-slate-600 transition-colors duration-200">
+              Help
+            </Link>
+          </div>
+
+          <p>© {currentYear} CORE AI Agent Platform</p>
+        </div>
+      </footer>
     </div>
   );
 }

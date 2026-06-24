@@ -1,17 +1,5 @@
-import { AuthCard } from "@/components/auth/auth-card";
+import { CoreOtpAuth } from "@/components/auth/auth-card";
 
 export default function ArchitectSignupPage() {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#fff8ef] px-4">
-      <AuthCard
-        role="ARCHITECT"
-        mode="signup"
-        title="AI Architect Signup"
-        subtitle="Create your architect account and start building AI agents for businesses."
-        switchHref="/architect/login"
-        switchText="Already have an architect account?"
-        dashboardPath="/architect/agents"
-      />
-    </main>
-  );
+  return <CoreOtpAuth initialRole="ARCHITECT" />;
 }

@@ -41,10 +41,10 @@ services:
     env_file:
       - apps/backend/.env
     environment:
-      DATABASE_URL: postgresql://coreai:Priyanshu30@postgres:5432/coreai
-      REDIS_URL: redis://redis:6379
-      FRONTEND_URL: http://localhost:3000
-      BACKEND_URL: http://localhost:8787
+      DATABASE_URL: "postgresql://coreai:Priyanshu30@postgres:5432/coreai"
+      REDIS_URL: "redis://redis:6379"
+      FRONTEND_URL: "http://localhost:3000"
+      BACKEND_URL: "http://localhost:8787"
       PORT: 8787
     depends_on:
       postgres:
@@ -59,13 +59,21 @@ services:
       context: .
       dockerfile: apps/frontend/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8787
+        NEXT_PUBLIC_API_URL: "http://localhost:8787"
+        NEXT_PUBLIC_FIREBASE_API_KEY: "${NEXT_PUBLIC_FIREBASE_API_KEY}"
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}"
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: "${NEXT_PUBLIC_FIREBASE_PROJECT_ID}"
+        NEXT_PUBLIC_FIREBASE_APP_ID: "${NEXT_PUBLIC_FIREBASE_APP_ID}"
     container_name: coreai-frontend
     restart: unless-stopped
     env_file:
       - apps/frontend/.env.local
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8787
+      NEXT_PUBLIC_API_URL: "http://localhost:8787"
+      NEXT_PUBLIC_FIREBASE_API_KEY: "${NEXT_PUBLIC_FIREBASE_API_KEY}"
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}"
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: "${NEXT_PUBLIC_FIREBASE_PROJECT_ID}"
+      NEXT_PUBLIC_FIREBASE_APP_ID: "${NEXT_PUBLIC_FIREBASE_APP_ID}"
     depends_on:
       - backend
     ports:
