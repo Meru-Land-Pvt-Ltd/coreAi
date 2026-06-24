@@ -362,15 +362,6 @@ export function ArchitectShell({ children }: { children: React.ReactNode }) {
                 onToggle={() => setProfileMenuOpen((current) => !current)}
               />
             </div>
-
-            <div className="hidden text-right lg:block">
-              <p className="text-sm font-black text-orange-950">
-                {user?.fullName ?? "Architect"}
-              </p>
-              <p className="text-xs font-semibold text-orange-800/60">
-                {user?.email}
-              </p>
-            </div>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">

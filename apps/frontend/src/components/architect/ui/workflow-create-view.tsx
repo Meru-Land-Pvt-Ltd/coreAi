@@ -59,13 +59,6 @@ export function ArchitectWorkflowCreateView() {
             </div>
           </div>
         </div>
-
-        <Link
-          href="/architect/workflows"
-          className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-black text-orange-800 transition hover:bg-yellow-50"
-        >
-          Back
-        </Link>
       </div>
 
       {message ? (
@@ -74,7 +67,7 @@ export function ArchitectWorkflowCreateView() {
         </div>
       ) : null}
 
-      <div className="max-w-2xl rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+      <div className="max-w-2xl rounded-2xl bg-white p-5">
         <form onSubmit={handleSubmit} className="grid gap-4">
           <ArchitectField
             name="name"
