@@ -80,3 +80,22 @@ export type ArchitectSummary = {
     proposals: ArchitectProposal[];
   };
 };
+
+export type WorkflowRunLog = {
+  nodeId: string;
+  label: string;
+  status: "success" | "waiting" | "error";
+  message: string;
+  output?: unknown;
+};
+
+export type WorkflowRunResult = {
+  workflowId: string;
+  logs: WorkflowRunLog[];
+  context: Record<string, unknown>;
+};
+
+export type GmailConnectorStatus = {
+  connected: boolean;
+  email: string | null;
+};
