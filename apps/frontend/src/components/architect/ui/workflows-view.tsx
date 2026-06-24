@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cn, formatDate } from "@/components/architect/ui/architect-ui";
 import { ArchitectWorkflowCreateView } from "@/components/architect/ui/workflow-create-view";
@@ -27,6 +28,26 @@ function AgentGlyph({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+function TrashIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v5" />
+      <path d="M14 11v5" />
+    </svg>
+  );
+}
 
 function CreateAgentCard({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
   return (
@@ -34,18 +55,26 @@ function CreateAgentCard({ onClick, compact = false }: { onClick: () => void; co
       type="button"
       onClick={onClick}
       className={cn(
-        "group flex w-full flex-col items-start justify-between rounded-[1.75rem] border border-dashed border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 text-left transition hover:-translate-y-1 hover:border-amber-300 hover:shadow-lg hover:shadow-amber-500/10",
-        compact ? "min-h-72 p-6" : "min-h-[24rem] p-7 sm:p-8"
+        "group flex w-full flex-col items-start justify-between rounded-[1.75rem] border border-dashed border-amber-400 bg-gradient-to-br from-amber-200 via-orange-100 to-amber-50 text-left shadow-sm transition hover:-translate-y-1 hover:border-amber-500 hover:shadow-xl hover:shadow-amber-500/20",
+        compact ? "min-h-[20rem] p-6" : "min-h-[24rem] p-7 sm:p-8"
       )}
     >
-      <span className="grid h-14 w-14 place-items-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/25 transition group-hover:scale-105">
-        <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+      <span className="grid h-14 w-14 place-items-center rounded-[0.75rem] bg-amber-500 text-white shadow-lg shadow-amber-500/25 transition group-hover:scale-105">
+        <svg
+          className="h-7 w-7"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+        >
           <path d="M12 5v14M5 12h14" />
         </svg>
       </span>
+
       <div>
         <h2 className="text-2xl font-black text-slate-950">Create New Agent</h2>
-        <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-slate-500">
+        <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-slate-600">
           Start with an empty canvas. Then load Missed Call Text-Back or build your own flow.
         </p>
       </div>
@@ -59,6 +88,12 @@ export function ArchitectWorkflowsView() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  const router = useRouter();
+
+  function openWorkflow(workflow: ArchitectWorkflow) {
+    router.push(`/architect/workflows/${workflow.id}/builder` as Route);
+  }
 
   async function loadWorkflows() {
     setLoading(true);
@@ -112,10 +147,10 @@ export function ArchitectWorkflowsView() {
   }, [workflows]);
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
-      <section className="mb-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+    <div className="-m-4 min-h-screen w-auto max-w-none bg-white p-4 sm:-m-6 sm:p-6 lg:-m-8 lg:p-8">
+      <section className="mb-6 w-full overflow-hidden rounded-[0.75rem]">
         <div className="relative p-5 sm:p-7 lg:p-8">
-          <div className="pointer-events-none absolute right-0 top-0 h-56 w-72 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.16),transparent_62%)]" />
+          <div className="pointer-events-none absolute left-1/2 top-0 h-72 w-full -translate-x-1/2 bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.30),rgba(251,191,36,0.16)_36%,transparent_72%)]" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-600">Architect Studio</p>
@@ -124,29 +159,14 @@ export function ArchitectWorkflowsView() {
                 Build responsive, production-ready agents. First CORE template: Missed Call Text-Back — Customer Calls → Auto Text in 5 Seconds → Lead Captured.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsCreateOpen(true)}
-              className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-5 py-3 text-sm font-black text-white shadow-sm shadow-amber-500/25 transition hover:bg-amber-600"
-            >
-              New Agent
-            </button>
           </div>
         </div>
       </section>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <div className="border-l-4 border-amber-500 bg-amber-50/40 px-5 py-4">
           <p className="text-sm font-semibold text-slate-500">Agents</p>
           <p className="mt-2 text-3xl font-black text-slate-950">{workflows.length}</p>
-        </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">Nodes</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{totals.nodes}</p>
-        </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">Connections</p>
-          <p className="mt-2 text-3xl font-black text-slate-950">{totals.edges}</p>
         </div>
       </div>
 
@@ -157,66 +177,80 @@ export function ArchitectWorkflowsView() {
       ) : null}
 
       {loading ? (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="border-l-4 border-amber-500 bg-amber-50/40 px-5 py-4">
           <p className="text-sm font-bold text-amber-700">Loading agents...</p>
         </section>
       ) : workflows.length ? (
-        <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid w-full gap-5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           <CreateAgentCard onClick={() => setIsCreateOpen(true)} compact />
+
           {workflows.map((workflow) => {
-            const stats = getWorkflowStats(workflow);
-            const isEmpty = stats.nodes === 0;
+            const isEmpty = getWorkflowStats(workflow).nodes === 0;
 
             return (
-              <article key={workflow.id} className="group rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg hover:shadow-slate-900/5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
-                      <AgentGlyph />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="truncate text-lg font-black text-slate-950">{workflow.name}</h2>
-                      <p className="mt-0.5 text-xs font-semibold text-slate-500">Created {formatDate(workflow.createdAt)}</p>
-                    </div>
-                  </div>
-                  <span className={cn("shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide", isEmpty ? "bg-slate-100 text-slate-600" : "bg-amber-50 text-amber-700")}>
+              <article
+                key={workflow.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openWorkflow(workflow)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openWorkflow(workflow);
+                  }
+                }}
+                className="group relative flex min-h-[20rem] cursor-pointer flex-col rounded-[1.75rem] border border-slate-200 bg-white p-6 text-center shadow-sm transition hover:-translate-y-1 hover:border-amber-300 hover:shadow-xl hover:shadow-slate-900/10"
+              >
+                <div className="absolute right-5 top-5 flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide",
+                      isEmpty
+                        ? "bg-slate-100 text-slate-600"
+                        : "bg-amber-50 text-amber-700"
+                    )}
+                  >
                     {isEmpty ? "Empty" : "Draft"}
                   </span>
-                </div>
 
-                <p className="mt-4 line-clamp-2 text-sm leading-6 text-slate-500">
-                  {workflow.description || "No description added yet."}
-                </p>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Nodes</p>
-                    <p className="mt-1 text-lg font-black text-slate-950">{stats.nodes}</p>
-                  </div>
-                  <div className="rounded-2xl bg-amber-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-wide text-amber-600">Connections</p>
-                    <p className="mt-1 text-lg font-black text-slate-950">{stats.edges}</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-                  <Link href={`/architect/workflows/${workflow.id}/builder` as Route} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white transition hover:bg-amber-600">
-                    Open Builder
-                  </Link>
-                  <Link href={`/architect/agents/publish?workflowId=${workflow.id}` as Route} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700">
-                    Publish
-                  </Link>
-                  <button type="button" onClick={() => handleDelete(workflow)} disabled={deletingId === workflow.id} className="rounded-xl border border-red-100 bg-red-50 px-4 py-2 text-sm font-black text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">
-                    {deletingId === workflow.id ? "Deleting..." : "Delete"}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleDelete(workflow);
+                    }}
+                    disabled={deletingId === workflow.id}
+                    className="grid h-8 w-8 place-items-center rounded-full bg-red-50 text-red-600 transition hover:bg-red-100 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label={`Delete ${workflow.name}`}
+                  >
+                    <TrashIcon />
                   </button>
                 </div>
+
+                <div className="mx-auto mt-8 grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+                  <AgentGlyph />
+                </div>
+
+                <div className="mt-8 flex flex-1 flex-col items-center justify-center">
+                  <h2 className="max-w-[18rem] text-center text-xl font-black leading-tight text-slate-950">
+                    {workflow.name || "Enoylity Media Creations LLC"}
+                  </h2>
+
+                  <p className="mt-3 line-clamp-3 max-w-sm text-center text-sm font-semibold leading-6 text-slate-500">
+                    {workflow.description || "Enoylity Media Creations LLC"}
+                  </p>
+                </div>
+
+                <p className="mt-6 text-xs font-semibold text-slate-400">
+                  Created {formatDate(workflow.createdAt)}
+                </p>
               </article>
             );
           })}
         </div>
       ) : (
-        <div className="grid min-h-[58vh] place-items-center">
-          <div className="w-full max-w-md">
+        <div className="grid min-h-[58vh] w-full place-items-center">
+          <div className="w-full max-w-[520px]">
             <CreateAgentCard onClick={() => setIsCreateOpen(true)} />
           </div>
         </div>

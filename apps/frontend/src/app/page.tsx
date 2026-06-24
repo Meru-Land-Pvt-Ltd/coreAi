@@ -193,11 +193,10 @@ export default function HomePage() {
       <header
         id="navbar"
         style={{ top: navTop }}
-        className={`fixed inset-x-0 z-50 border-b backdrop-blur-md transition ${
-          navScrolled ? "border-gray-200 bg-white/90 shadow-[0_1px_3px_0_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.06)]" : "border-transparent"
-        }`}
+        className={`fixed inset-x-0 z-50 border-b backdrop-blur-md transition ${navScrolled ? "border-gray-200 bg-white/90 shadow-[0_1px_3px_0_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.06)]" : "border-transparent"
+          }`}
       >
-        <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+        <nav className="mx-auto flex w-full max-w-none items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
           <a href="#top" className="flex items-center gap-2.5" aria-label="CORE home">
             <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
               <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
@@ -206,14 +205,29 @@ export default function HomePage() {
             <span className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
           </a>
 
-          <div className="hidden items-center gap-8 md:flex">
-            <a href="#architects" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">For Architects</a>
-            <a href="#businesses" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">For Businesses</a>
-            <a href="#assessment" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">Pricing</a>
-            <a href="#footer" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">Docs</a>
+          <div className="hidden min-w-0 flex-1 items-center justify-center gap-4 md:flex lg:gap-7 xl:gap-8">
+            <a href="#architects" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+              For Architects
+            </a>
+
+            <a href="#businesses" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+              For Businesses
+            </a>
+
+            <Link href="/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+              Marketplace
+            </Link>
+
+            <a href="#assessment" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+              Pricing
+            </a>
+
+            <a href="#footer" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+              Docs
+            </a>
           </div>
 
-          <div className="hidden items-center gap-3 md:flex">
+          <div className="hidden shrink-0 items-center gap-2 md:flex lg:gap-3">
             <Link href="/business/login" className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900">Login</Link>
             <Link href="/assignment" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow-sm transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow">Get Started Free</Link>
           </div>
@@ -234,14 +248,55 @@ export default function HomePage() {
 
         {menuOpen && (
           <div id="mobile-menu" className="border-t border-gray-200 bg-white/95 backdrop-blur-md md:hidden">
-            <div className="mx-auto flex max-w-7xl flex-col gap-1 px-6 py-4">
-              <a href="#architects" onClick={() => setMenuOpen(false)} className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900">For Architects</a>
-              <a href="#businesses" onClick={() => setMenuOpen(false)} className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900">For Businesses</a>
-              <a href="#assessment" onClick={() => setMenuOpen(false)} className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900">Pricing</a>
-              <a href="#footer" onClick={() => setMenuOpen(false)} className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900">Docs</a>
+            <div className="mx-auto flex w-full max-w-none flex-col gap-1 px-4 py-4 sm:px-6 lg:px-8">
+              <a
+                href="#architects"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+              >
+                For Architects
+              </a>
+
+              <a
+                href="#businesses"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+              >
+                For Businesses
+              </a>
+
+              <Link
+                href="/marketplace"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+              >
+                Marketplace
+              </Link>
+
+              <a
+                href="#assessment"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+              >
+                Pricing
+              </a>
+
+              <a
+                href="#footer"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+              >
+                Docs
+              </a>
+
               <div className="mt-3 flex flex-col gap-2 border-t border-gray-200 pt-4">
-                <Link href="/business/login" onClick={() => setMenuOpen(false)} className="rounded-lg border border-amber-400 px-4 py-2.5 text-center text-sm font-semibold text-amber-600 transition hover:bg-amber-50">Login</Link>
-                <Link href="/assignment" onClick={() => setMenuOpen(false)} className="rounded-lg bg-amber-500 px-4 py-2.5 text-center text-sm font-semibold text-slate-950 transition hover:bg-amber-400">Get Started Free</Link>
+                <Link href="/business/login" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900 lg:px-4">
+                  Login
+                </Link>
+
+                <Link href="/assignment" className="rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 shadow-glow-sm transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow lg:px-4">
+                  Get Started Free
+                </Link>
               </div>
             </div>
           </div>
@@ -281,7 +336,7 @@ export default function HomePage() {
             </div>
 
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link href="/business/login" className="group inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-7 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow-lg sm:w-auto">
+              <Link href="/assignment" className="group inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-7 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow-lg sm:w-auto">
                 I&apos;m a Business — Find My Agent
                 <ArrowIcon className="h-4 w-4 transition group-hover:translate-x-0.5" />
               </Link>
@@ -747,7 +802,7 @@ export default function HomePage() {
         className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 px-6 py-3 shadow-lg backdrop-blur-md transition-all duration-300"
         style={{ opacity: stickyShown ? 1 : 0, transform: stickyShown ? "translateY(0)" : "translateY(0.5rem)", pointerEvents: stickyShown ? "auto" : "none" }}
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+        <div className="mx-auto flex w-full max-w-none items-center justify-between gap-4">
           <p className="text-sm text-slate-600">Ready to recover lost revenue?</p>
           <form
             className="flex items-center gap-2"
