@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import {
   addEdge,
-  Background,
   Controls,
-  MarkerType,
-  MiniMap,
   ReactFlow,
   useEdgesState,
   useNodesState,
   type Connection,
-  type Edge
+  type Edge,
+  type NodeProps,
+  type NodeTypes
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
@@ -25,6 +24,7 @@ import {
 } from "@/components/architect/features/api";
 import type { ArchitectWorkflow, WorkflowRunLog } from "@/components/architect/features/types";
 import { BuilderHeader } from "./workflow-builder/builder-header";
+import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
 import { ConfigurePanel } from "./workflow-builder/configure-panel";
 import { CoreNode } from "./workflow-builder/core-node";
@@ -33,6 +33,7 @@ import { MobileSheet } from "./workflow-builder/mobile-sheet";
 import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
+import { PreviewModal } from "./workflow-builder/preview-modal";
 import { PublishPanel } from "./workflow-builder/publish-panel";
 import { TestPanel } from "./workflow-builder/test-panel";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
@@ -46,6 +47,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<BuilderTab>("build");
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [runLogs, setRunLogs] = useState<WorkflowRunLog[]>([]);
   const [runContext, setRunContext] = useState<Record<string, unknown>>({});
@@ -63,7 +65,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("Unsaved changes");
 
-  const nodeTypes = useMemo(() => ({ coreNode: CoreNode }), []);
+  const nodeTypes = useMemo<NodeTypes>(
+    () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
+    []
+  );
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -172,10 +177,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }
 
   function loadTemplate(templateId: "missed-call" | "gmail-reply") {
-    const template = agentTemplates.find((item) => item.id === templateId);
+    const template = agentTemplates.find((item: (typeof agentTemplates)[number]) => item.id === templateId);
     if (!template) return;
 
-    const confirmed = nodes.length === 0 || window.confirm(`Replace the current canvas with ${template.title.replace("Build ", "the ")}?`);
+    const confirmed =
+      nodes.length === 0 ||
+      window.confirm(`Replace the current canvas with ${template.title.replace("Build ", "the ")}?`);
     if (!confirmed) return;
 
     const flow = template.flow();
@@ -367,8 +374,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 text-slate-900">
+    <div className="fixed inset-0 overflow-hidden bg-[#f8fafc] text-slate-900">
       <WorkflowBuilderStyles />
+
       <BuilderHeader
         agentName={agentName}
         message={message}
@@ -381,14 +389,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onTabChange={setActiveTab}
         onRunTest={() => void runAgent("test")}
         onSave={() => void saveAgent()}
+        onPreview={() => setPreviewOpen(true)}
       />
 
-      <main className="relative h-[calc(100vh-56px)] overflow-hidden">
+      <main className="fixed bottom-10 left-0 right-0 top-14 overflow-hidden">
         {activeTab === "build" ? (
-          <section className="absolute inset-0 flex">
-            <aside className="hidden w-72 shrink-0 border-r border-gray-100 bg-white xl:block">{library}</aside>
+          <section className="builder-view fade-enter flex">
+            <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin">
+              {library}
+            </aside>
 
-            <div className="relative flex-1 overflow-hidden bg-[#f7f8fa]">
+            <div className="canvas-grid relative flex-1 overflow-hidden">
               {nodes.length === 0 ? (
                 <div className="absolute inset-x-4 top-4 z-10 rounded-2xl border border-dashed border-amber-200 bg-white/90 p-4 shadow-sm backdrop-blur sm:left-6 sm:right-auto sm:max-w-md">
                   <p className="text-sm font-black text-slate-900">New agent canvas is empty</p>
@@ -428,15 +439,30 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 onPaneClick={() => setSelectedNodeId(null)}
                 fitView
                 fitViewOptions={{ padding: 0.2 }}
+                minZoom={0.25}
+                maxZoom={2}
+                className="bg-transparent"
                 proOptions={{ hideAttribution: true }}
               >
-                <Background color="#cbd5e1" gap={22} size={1} />
                 <Controls />
-                <MiniMap />
               </ReactFlow>
+
+              <div className="absolute right-4 top-4 z-10 hidden items-center gap-3 rounded-xl border border-gray-200 bg-white/90 px-3 py-2 text-[11px] text-slate-500 shadow-sm backdrop-blur md:flex">
+                <span className="flex items-center gap-1">
+                  <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Scroll</kbd> zoom
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Space</kbd> pan
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Del</kbd> remove
+                </span>
+              </div>
             </div>
 
-            <aside className="hidden w-80 shrink-0 border-l border-gray-100 bg-white 2xl:block">{inspector}</aside>
+            <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-100 bg-white scroll-thin">
+              {inspector}
+            </aside>
           </section>
         ) : null}
 
@@ -469,6 +495,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onAgentNameChange={setAgentName}
             onTaglineChange={setTagline}
             onPriceChange={setPrice}
+            onSave={() => void saveAgent()}
           />
         ) : null}
 
@@ -483,6 +510,18 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           />
         ) : null}
       </main>
+
+      <BuilderStatusBar
+        nodesCount={nodes.length}
+        edgesCount={edges.length}
+        editedLabel={message === "Unsaved changes" ? "unsaved changes" : "last edited just now"}
+      />
+
+      <PreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        businessName={businessName.trim() || "Mitchell Dental"}
+      />
 
       <MobileSheet panel={mobilePanel} onClose={() => setMobilePanel(null)}>
         {mobilePanel === "library" ? library : inspector}

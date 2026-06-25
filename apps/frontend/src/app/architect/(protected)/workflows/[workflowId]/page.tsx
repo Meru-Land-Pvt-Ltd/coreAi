@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 
 export default async function ArchitectWorkflowDetailPage({
@@ -9,5 +10,5 @@ export default async function ArchitectWorkflowDetailPage({
 }) {
   const { workflowId } = await params;
 
-  redirect(`/architect/workflows/${workflowId}/builder`);
+  redirect(`/architect/workflows/${workflowId}/builder` as Route);
 }

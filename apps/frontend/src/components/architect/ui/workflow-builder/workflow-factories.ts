@@ -5,41 +5,82 @@ import { defaultNodeData } from "./node-defaults";
 export function createMissedCallTextBackFlow(): BuilderFlow {
   const nodes: BuilderNode[] = [
     {
-      id: "customer-calls",
+      id: "trigger",
       type: "coreNode",
-      position: { x: 100, y: 260 },
-      data: defaultNodeData("trigger")
-    },
-    {
-      id: "auto-text",
-      type: "coreNode",
-      position: { x: 430, y: 260 },
-      data: defaultNodeData("connector", {
-        title: "Auto Text in 5 Seconds",
-        label: "Auto Text in 5 Seconds",
-        subtitle: "Personalized SMS through Twilio",
-        connector: "SMS",
-        connectorAction: "send_sms",
-        smsTo: "{{caller_number}}",
-        smsBody:
-          "Hi {{caller_name}}, this is {{business.name}}. Sorry we missed your call. We can help by text right now. Would you like to book an appointment or ask a quick question?"
+      position: { x: 560, y: 60 },
+      data: defaultNodeData("trigger", {
+        label: "Missed Call Detected",
+        title: "Missed Call Detected",
+        kind: "TRIGGER",
+        icon: "phone-missed",
+        accent: "amber",
+        subtitle: "When: Business hours missed call",
+        footer: "Output: caller_number, timestamp"
       })
     },
     {
-      id: "lead-captured",
+      id: "ai",
       type: "coreNode",
-      position: { x: 760, y: 260 },
+      position: { x: 560, y: 280 },
+      data: defaultNodeData("ai", {
+        label: "Generate Personalized SMS",
+        title: "Generate Personalized SMS",
+        kind: "AI PROCESS",
+        icon: "sparkles",
+        accent: "violet",
+        subtitle: "Model: GPT-4o - Tone: Friendly",
+        footer: "Input: caller_number -> Output: message_text",
+        prompt:
+          "You are a friendly dental office assistant. A patient just called but we missed their call. Write a brief, warm text message acknowledging their call and offering to help schedule an appointment. Keep it under 160 characters."
+      })
+    },
+    {
+      id: "condition",
+      type: "coreNode",
+      position: { x: 560, y: 500 },
+      data: defaultNodeData("condition", {
+        label: "Is Business Hours?",
+        title: "Is Business Hours?",
+        kind: "CONDITION",
+        icon: "git-branch",
+        accent: "orange",
+        subtitle: "Check: 8AM-6PM, Mon-Fri",
+        condition: "8:00 AM - 6:00 PM"
+      })
+    },
+    {
+      id: "actionYes",
+      type: "coreNode",
+      position: { x: 360, y: 720 },
       data: defaultNodeData("connector", {
-        title: "Lead Captured",
-        label: "Lead Captured",
-        kind: "CAPTURE",
-        icon: "capture",
-        accent: "blue",
-        subtitle: "Conversation continues via text, booking, FAQ, or team routing",
+        label: "Send SMS Now",
+        title: "Send SMS Now",
+        kind: "ACTION",
+        icon: "message-square",
+        accent: "green",
+        subtitle: "To: {caller_number}",
         connector: "SMS",
-        connectorAction: "capture_lead",
-        smsTo: undefined,
-        smsBody: undefined
+        connectorAction: "send_sms",
+        smsTo: "{{caller_number}}",
+        smsBody: "{{message_text}}"
+      })
+    },
+    {
+      id: "actionNo",
+      type: "coreNode",
+      position: { x: 760, y: 720 },
+      data: defaultNodeData("connector", {
+        label: "Queue for Morning",
+        title: "Queue for Morning",
+        kind: "ACTION",
+        icon: "clock",
+        accent: "blue",
+        subtitle: "Send at: 8:00 AM next day",
+        connector: "SMS",
+        connectorAction: "send_sms",
+        smsTo: "{{caller_number}}",
+        smsBody: "{{message_text}}",
+        sendAt: "8:00 AM next business day"
       })
     }
   ];
@@ -47,18 +88,10 @@ export function createMissedCallTextBackFlow(): BuilderFlow {
   return {
     nodes,
     edges: [
-      createFlowEdge({
-        id: "e1",
-        source: "customer-calls",
-        target: "auto-text",
-        accent: "amber"
-      }),
-      createFlowEdge({
-        id: "e2",
-        source: "auto-text",
-        target: "lead-captured",
-        accent: "green"
-      })
+      createFlowEdge({ id: "c1", source: "trigger", target: "ai", accent: "amber" }),
+      createFlowEdge({ id: "c2", source: "ai", target: "condition", accent: "violet" }),
+      createFlowEdge({ id: "c3", source: "condition", sourceHandle: "yes", target: "actionYes", accent: "green", label: "Yes" }),
+      createFlowEdge({ id: "c4", source: "condition", sourceHandle: "no", target: "actionNo", accent: "red", label: "No" })
     ]
   };
 }
@@ -130,24 +163,9 @@ export function createGmailReplyFlow(): BuilderFlow {
   return {
     nodes,
     edges: [
-      createFlowEdge({
-        id: "g1",
-        source: "gmail-read",
-        target: "gmail-ai-reply",
-        accent: "blue"
-      }),
-      createFlowEdge({
-        id: "g2",
-        source: "gmail-ai-reply",
-        target: "gmail-draft",
-        accent: "violet"
-      }),
-      createFlowEdge({
-        id: "g3",
-        source: "gmail-draft",
-        target: "gmail-output",
-        accent: "green"
-      })
+      createFlowEdge({ id: "g1", source: "gmail-read", target: "gmail-ai-reply", accent: "blue" }),
+      createFlowEdge({ id: "g2", source: "gmail-ai-reply", target: "gmail-draft", accent: "violet" }),
+      createFlowEdge({ id: "g3", source: "gmail-draft", target: "gmail-output", accent: "green" })
     ]
   };
 }

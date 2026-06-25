@@ -205,24 +205,24 @@ export function ArchitectWorkspace() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f7f3ff] text-slate-900">
-        <div className="rounded-3xl bg-white px-6 py-4 shadow-sm">Loading architect workspace...</div>
+      <main data-testid="components-architect-ui-architect-workspace-main-1" className="flex min-h-screen items-center justify-center bg-[#f7f3ff] text-slate-900">
+        <div data-testid="components-architect-ui-architect-workspace-div-1" className="rounded-3xl bg-white px-6 py-4 shadow-sm">Loading architect workspace...</div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f3ff] text-slate-950">
-      <aside className="fixed left-0 top-0 hidden h-screen w-72 border-r border-violet-100 bg-white/90 p-5 backdrop-blur-xl lg:block">
-        <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-violet-600 to-orange-400" />
-          <div>
-            <h1 className="font-bold">CoreAI Studio</h1>
-            <p className="text-xs text-slate-500">Architect Workspace</p>
+    <main data-testid="components-architect-ui-architect-workspace-main-2" className="min-h-screen bg-[#f7f3ff] text-slate-950">
+      <aside data-testid="components-architect-ui-architect-workspace-aside-1" className="fixed left-0 top-0 hidden h-screen w-72 border-r border-violet-100 bg-white/90 p-5 backdrop-blur-xl lg:block">
+        <div data-testid="components-architect-ui-architect-workspace-div-2" className="flex items-center gap-3">
+          <div data-testid="components-architect-ui-architect-workspace-div-3" className="h-11 w-11 rounded-2xl bg-gradient-to-br from-violet-600 to-orange-400" />
+          <div data-testid="components-architect-ui-architect-workspace-div-4">
+            <h1 data-testid="components-architect-ui-architect-workspace-h1-1" className="font-bold">CoreAI Studio</h1>
+            <p data-testid="components-architect-ui-architect-workspace-p-1" className="text-xs text-slate-500">Architect Workspace</p>
           </div>
         </div>
 
-        <nav className="mt-8 space-y-2">
+        <nav data-testid="components-architect-ui-architect-workspace-nav-1" className="mt-8 space-y-2">
           {[
             ["overview", "Overview"],
             ["profile", "Profile"],
@@ -230,7 +230,7 @@ export function ArchitectWorkspace() {
             ["marketplace", "Marketplace Listing"],
             ["projects", "Open Projects"]
           ].map(([key, label]) => (
-            <button
+            <button data-testid="components-architect-ui-architect-workspace-button-1"
               key={key}
               onClick={() => setTab(key as Tab)}
               className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
@@ -245,32 +245,32 @@ export function ArchitectWorkspace() {
         </nav>
       </aside>
 
-      <section className="lg:pl-72">
-        <header className="sticky top-0 z-20 border-b border-violet-100 bg-[#f7f3ff]/80 px-5 py-4 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-7xl items-center justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-600">
+      <section data-testid="components-architect-ui-architect-workspace-section-1" className="lg:pl-72">
+        <header data-testid="components-architect-ui-architect-workspace-header-1" className="sticky top-0 z-20 border-b border-violet-100 bg-[#f7f3ff]/80 px-5 py-4 backdrop-blur-xl">
+          <div data-testid="components-architect-ui-architect-workspace-div-5" className="mx-auto flex max-w-7xl items-center justify-between">
+            <div data-testid="components-architect-ui-architect-workspace-div-6">
+              <p data-testid="components-architect-ui-architect-workspace-p-2" className="text-xs font-bold uppercase tracking-[0.22em] text-violet-600">
                 AI Architect
               </p>
-              <h2 className="text-2xl font-black">
+              <h2 data-testid="components-architect-ui-architect-workspace-h2-1" className="text-2xl font-black">
                 {summary?.user.fullName ?? summary?.user.email}
               </h2>
             </div>
 
-            <div className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm">
+            <div data-testid="components-architect-ui-architect-workspace-div-7" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm">
               Profile {profileCompletion}% complete
             </div>
           </div>
         </header>
 
-        <div className="mx-auto max-w-7xl p-5">
+        <div data-testid="components-architect-ui-architect-workspace-div-8" className="mx-auto max-w-7xl p-5">
           {message ? (
-            <div className="mb-5 rounded-3xl border border-violet-100 bg-white px-5 py-4 text-sm font-semibold text-violet-700 shadow-sm">
+            <div data-testid="components-architect-ui-architect-workspace-div-9" className="mb-5 rounded-3xl border border-violet-100 bg-white px-5 py-4 text-sm font-semibold text-violet-700 shadow-sm">
               {message}
             </div>
           ) : null}
 
-          <div className="mb-5 flex gap-2 overflow-x-auto lg:hidden">
+          <div data-testid="components-architect-ui-architect-workspace-div-10" className="mb-5 flex gap-2 overflow-x-auto lg:hidden">
             {[
               ["overview", "Overview"],
               ["profile", "Profile"],
@@ -278,7 +278,7 @@ export function ArchitectWorkspace() {
               ["marketplace", "Marketplace"],
               ["projects", "Projects"]
             ].map(([key, label]) => (
-              <button
+              <button data-testid="components-architect-ui-architect-workspace-button-2"
                 key={key}
                 onClick={() => setTab(key as Tab)}
                 className={`rounded-full px-4 py-2 text-sm font-semibold ${
@@ -291,21 +291,21 @@ export function ArchitectWorkspace() {
           </div>
 
           {tab === "overview" ? (
-            <section>
-              <div className="grid gap-4 md:grid-cols-4">
+            <section data-testid="components-architect-ui-architect-workspace-section-2">
+              <div data-testid="components-architect-ui-architect-workspace-div-11" className="grid gap-4 md:grid-cols-4">
                 <Stat label="Workflows" value={summary?.stats.workflows ?? 0} />
                 <Stat label="Listings" value={summary?.stats.listings ?? 0} />
                 <Stat label="Proposals" value={summary?.stats.proposals ?? 0} />
                 <Stat label="Open Projects" value={summary?.stats.openProjects ?? 0} />
               </div>
 
-              <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+              <div data-testid="components-architect-ui-architect-workspace-div-12" className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
                 <Panel title="Profile Snapshot">
                   {profile ? (
-                    <div>
-                      <h3 className="text-xl font-black">{profile.title ?? "Untitled Architect"}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{profile.bio}</p>
-                      <div className="mt-4 flex flex-wrap gap-2">
+                    <div data-testid="components-architect-ui-architect-workspace-div-13">
+                      <h3 data-testid="components-architect-ui-architect-workspace-h3-1" className="text-xl font-black">{profile.title ?? "Untitled Architect"}</h3>
+                      <p data-testid="components-architect-ui-architect-workspace-p-3" className="mt-2 text-sm leading-6 text-slate-600">{profile.bio}</p>
+                      <div data-testid="components-architect-ui-architect-workspace-div-14" className="mt-4 flex flex-wrap gap-2">
                         {profile.skills.map((skill) => (
                           <Badge key={skill}>{skill}</Badge>
                         ))}
@@ -333,7 +333,7 @@ export function ArchitectWorkspace() {
 
           {tab === "profile" ? (
             <Panel title="Architect Profile">
-              <form action={handleProfileSubmit} className="grid gap-4">
+              <form data-testid="components-architect-ui-architect-workspace-form-1" action={handleProfileSubmit} className="grid gap-4">
                 <Input name="title" label="Professional Title" defaultValue={profile?.title ?? ""} placeholder="AI Workflow Architect" />
                 <Textarea name="bio" label="Bio" defaultValue={profile?.bio ?? ""} placeholder="Tell businesses what you build and how you help." />
                 <Input name="portfolioUrl" label="Portfolio URL" defaultValue={profile?.portfolioUrl ?? ""} placeholder="https://yourportfolio.com" />
@@ -345,13 +345,13 @@ export function ArchitectWorkspace() {
           ) : null}
 
           {tab === "workflows" ? (
-            <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+            <section data-testid="components-architect-ui-architect-workspace-section-3" className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
               <Panel title="Create Workflow">
-                <form action={handleWorkflowSubmit} className="grid gap-4">
+                <form data-testid="components-architect-ui-architect-workspace-form-2" action={handleWorkflowSubmit} className="grid gap-4">
                   <Input name="name" label="Workflow Name" placeholder="Customer Support AI Workflow" />
                   <Textarea name="description" label="Description" placeholder="What does this workflow automate?" />
-                  <label className="flex items-center gap-2 text-sm font-semibold">
-                    <input name="isTemplate" type="checkbox" />
+                  <label data-testid="components-architect-ui-architect-workspace-label-1" className="flex items-center gap-2 text-sm font-semibold">
+                    <input data-testid="components-architect-ui-architect-workspace-input-1" name="isTemplate" type="checkbox" />
                     Save as reusable template
                   </label>
                   <SubmitButton>Create Workflow</SubmitButton>
@@ -360,12 +360,12 @@ export function ArchitectWorkspace() {
 
               <Panel title="Your Workflows">
                 {workflows.length ? (
-                  <div className="grid gap-3">
+                  <div data-testid="components-architect-ui-architect-workspace-div-15" className="grid gap-3">
                     {workflows.map((workflow) => (
                       <Card key={workflow.id}>
-                        <h3 className="font-black">{workflow.name}</h3>
-                        <p className="mt-1 text-sm text-slate-600">{workflow.description}</p>
-                        <p className="mt-3 text-xs font-semibold text-violet-600">
+                        <h3 data-testid="components-architect-ui-architect-workspace-h3-2" className="font-black">{workflow.name}</h3>
+                        <p data-testid="components-architect-ui-architect-workspace-p-4" className="mt-1 text-sm text-slate-600">{workflow.description}</p>
+                        <p data-testid="components-architect-ui-architect-workspace-p-5" className="mt-3 text-xs font-semibold text-violet-600">
                           {workflow.isTemplate ? "Template" : "Private workflow"}
                         </p>
                       </Card>
@@ -379,15 +379,15 @@ export function ArchitectWorkspace() {
           ) : null}
 
           {tab === "marketplace" ? (
-            <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+            <section data-testid="components-architect-ui-architect-workspace-section-4" className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
               <Panel title="Submit Agent Listing">
-                <form action={handleListingSubmit} className="grid gap-4">
-                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                <form data-testid="components-architect-ui-architect-workspace-form-3" action={handleListingSubmit} className="grid gap-4">
+                  <label data-testid="components-architect-ui-architect-workspace-label-2" className="grid gap-1 text-sm font-semibold text-slate-700">
                     Select Workflow
-                    <select name="workflowId" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none">
-                      <option value="">No workflow selected</option>
+                    <select data-testid="components-architect-ui-architect-workspace-select-1" name="workflowId" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none">
+                      <option data-testid="components-architect-ui-architect-workspace-option-1" value="">No workflow selected</option>
                       {workflows.map((workflow) => (
-                        <option key={workflow.id} value={workflow.id}>
+                        <option data-testid="components-architect-ui-architect-workspace-option-2" key={workflow.id} value={workflow.id}>
                           {workflow.name}
                         </option>
                       ))}
@@ -406,17 +406,17 @@ export function ArchitectWorkspace() {
 
               <Panel title="Your Listings">
                 {listings.length ? (
-                  <div className="grid gap-3">
+                  <div data-testid="components-architect-ui-architect-workspace-div-16" className="grid gap-3">
                     {listings.map((listing) => (
                       <Card key={listing.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h3 className="font-black">{listing.name}</h3>
-                            <p className="mt-1 text-sm text-slate-600">{listing.shortDescription}</p>
+                        <div data-testid="components-architect-ui-architect-workspace-div-17" className="flex items-start justify-between gap-3">
+                          <div data-testid="components-architect-ui-architect-workspace-div-18">
+                            <h3 data-testid="components-architect-ui-architect-workspace-h3-3" className="font-black">{listing.name}</h3>
+                            <p data-testid="components-architect-ui-architect-workspace-p-6" className="mt-1 text-sm text-slate-600">{listing.shortDescription}</p>
                           </div>
                           <Badge>{listing.status}</Badge>
                         </div>
-                        <p className="mt-3 text-sm font-bold">{currency(listing.priceCents)}</p>
+                        <p data-testid="components-architect-ui-architect-workspace-p-7" className="mt-3 text-sm font-bold">{currency(listing.priceCents)}</p>
                       </Card>
                     ))}
                   </div>
@@ -430,26 +430,26 @@ export function ArchitectWorkspace() {
           {tab === "projects" ? (
             <Panel title="Open Business Projects">
               {projects.length ? (
-                <div className="grid gap-4">
+                <div data-testid="components-architect-ui-architect-workspace-div-19" className="grid gap-4">
                   {projects.map((project) => (
                     <Card key={project.id}>
-                      <h3 className="text-lg font-black">{project.title}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{project.requirementBrief}</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <h3 data-testid="components-architect-ui-architect-workspace-h3-4" className="text-lg font-black">{project.title}</h3>
+                      <p data-testid="components-architect-ui-architect-workspace-p-8" className="mt-2 text-sm leading-6 text-slate-600">{project.requirementBrief}</p>
+                      <div data-testid="components-architect-ui-architect-workspace-div-20" className="mt-3 flex flex-wrap gap-2">
                         {project.requiredConnectors.map((connector) => (
                           <Badge key={connector}>{connector}</Badge>
                         ))}
                       </div>
-                      <p className="mt-3 text-sm font-bold">
+                      <p data-testid="components-architect-ui-architect-workspace-p-9" className="mt-3 text-sm font-bold">
                         Budget: {currency(project.budgetMinCents)} - {currency(project.budgetMaxCents)}
                       </p>
 
-                      <form
+                      <form data-testid="components-architect-ui-architect-workspace-form-4"
                         action={(formData) => handleProposalSubmit(project.id, formData)}
                         className="mt-4 grid gap-3 rounded-3xl bg-slate-50 p-4"
                       >
                         <Textarea name="coverLetter" label="Proposal Message" placeholder="Explain how you will solve this project." />
-                        <div className="grid gap-3 md:grid-cols-2">
+                        <div data-testid="components-architect-ui-architect-workspace-div-21" className="grid gap-3 md:grid-cols-2">
                           <Input name="bidAmount" label="Bid Amount INR" type="number" placeholder="15000" />
                           <Input name="etaDays" label="ETA Days" type="number" placeholder="7" />
                         </div>
@@ -471,37 +471,37 @@ export function ArchitectWorkspace() {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-[28px] bg-white p-5 shadow-sm">
-      <p className="text-sm font-semibold text-slate-500">{label}</p>
-      <h3 className="mt-2 text-4xl font-black">{value}</h3>
+    <div data-testid="components-architect-ui-architect-workspace-div-22" className="rounded-[28px] bg-white p-5 shadow-sm">
+      <p data-testid="components-architect-ui-architect-workspace-p-10" className="text-sm font-semibold text-slate-500">{label}</p>
+      <h3 data-testid="components-architect-ui-architect-workspace-h3-5" className="mt-2 text-4xl font-black">{value}</h3>
     </div>
   );
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-[32px] bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-xl font-black">{title}</h2>
+    <section data-testid="components-architect-ui-architect-workspace-section-5" className="rounded-[32px] bg-white p-5 shadow-sm">
+      <h2 data-testid="components-architect-ui-architect-workspace-h2-2" className="mb-4 text-xl font-black">{title}</h2>
       {children}
     </section>
   );
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-[26px] border border-slate-100 bg-white p-4 shadow-sm">{children}</div>;
+  return <div data-testid="components-architect-ui-architect-workspace-div-23" className="rounded-[26px] border border-slate-100 bg-white p-4 shadow-sm">{children}</div>;
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">{children}</span>;
+  return <span data-testid="components-architect-ui-architect-workspace-span-1" className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">{children}</span>;
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-[26px] bg-slate-50 p-5 text-sm font-semibold text-slate-500">{text}</div>;
+  return <div data-testid="components-architect-ui-architect-workspace-div-24" className="rounded-[26px] bg-slate-50 p-5 text-sm font-semibold text-slate-500">{text}</div>;
 }
 
 function ActionButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="rounded-full bg-violet-600 px-5 py-3 text-sm font-bold text-white">
+    <button data-testid="components-architect-ui-architect-workspace-button-3" onClick={onClick} className="rounded-full bg-violet-600 px-5 py-3 text-sm font-bold text-white">
       {children}
     </button>
   );
@@ -515,9 +515,9 @@ function Input(props: {
   type?: string;
 }) {
   return (
-    <label className="grid gap-1 text-sm font-semibold text-slate-700">
+    <label data-testid="components-architect-ui-architect-workspace-label-3" className="grid gap-1 text-sm font-semibold text-slate-700">
       {props.label}
-      <input
+      <input data-testid="components-architect-ui-architect-workspace-input-2"
         name={props.name}
         type={props.type ?? "text"}
         defaultValue={props.defaultValue}
@@ -535,9 +535,9 @@ function Textarea(props: {
   defaultValue?: string;
 }) {
   return (
-    <label className="grid gap-1 text-sm font-semibold text-slate-700">
+    <label data-testid="components-architect-ui-architect-workspace-label-4" className="grid gap-1 text-sm font-semibold text-slate-700">
       {props.label}
-      <textarea
+      <textarea data-testid="components-architect-ui-architect-workspace-textarea-1"
         name={props.name}
         defaultValue={props.defaultValue}
         placeholder={props.placeholder}
@@ -549,7 +549,7 @@ function Textarea(props: {
 
 function SubmitButton({ children }: { children: React.ReactNode }) {
   return (
-    <button className="rounded-full bg-violet-600 px-5 py-3 text-sm font-bold text-white" type="submit">
+    <button data-testid="components-architect-ui-architect-workspace-button-4" className="rounded-full bg-violet-600 px-5 py-3 text-sm font-bold text-white" type="submit">
       {children}
     </button>
   );

@@ -30,6 +30,10 @@ const envSchema = z.object({
     .preprocess((value) => value === true || value === "true" || value === "1", z.boolean())
     .default(false),
   TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
+  TWILIO_FORWARD_TO_PHONE: z.string().optional(),
+  TWILIO_FORWARD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(20),
+  TWILIO_DEFAULT_BOOKING_URL: z.string().optional(),
+  TWILIO_DEFAULT_TEAM_PHONE: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

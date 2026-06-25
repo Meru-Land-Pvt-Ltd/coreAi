@@ -1,5 +1,6 @@
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 
 export default function ArchitectIndexPage() {
-  redirect("/architect/agents");
+  redirect("/architect/agents" as Route);
 }
