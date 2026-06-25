@@ -1,4 +1,9 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
+import { CoreHeader } from "../../components/common/header";
+import { CoreFooter } from "../../components/common/footer";
 
 const howItWorks = [
   {
@@ -42,6 +47,8 @@ const serveCards = [
 ];
 
 export default function AboutPage() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <main className="min-h-screen bg-white text-slate-900 antialiased">
       <style
@@ -82,9 +89,15 @@ export default function AboutPage() {
         }}
       />
 
-      <Header />
+      <CoreHeader
+        navTop={0}
+        navScrolled={true}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onCloseMenu={() => setMenuOpen(false)}
+      />
 
-      <section className="py-20 md:py-28">
+      <section className="pb-20 pt-32 md:pb-28 md:pt-40">
         <div className="mx-auto max-w-6xl px-6 text-center">
           <h1 className="mx-auto max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-slate-900 md:text-5xl">
             AI Agents That Actually Work for Your Business
@@ -205,98 +218,7 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <Footer />
+      <CoreFooter />
     </main>
-  );
-}
-
-function Header() {
-  return (
-    <header className="border-b border-gray-100">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="flex h-16 items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500">
-              <span className="h-3 w-3 rounded-full bg-white" />
-            </span>
-            <span className="text-xl font-extrabold tracking-tight">CORE</span>
-          </Link>
-
-          <nav className="hidden items-center gap-9 text-sm font-medium text-slate-600 md:flex">
-            <Link href="/" className="nav-link hover:text-slate-900">
-              Home
-            </Link>
-            <Link href="/business/marketplace" className="nav-link hover:text-slate-900">
-              Marketplace
-            </Link>
-            <Link href="/business/checkout" className="nav-link hover:text-slate-900">
-              Pricing
-            </Link>
-            <Link href="/about" className="nav-link active text-amber-600">
-              About
-            </Link>
-            <Link href="/#contact" className="nav-link hover:text-slate-900">
-              Contact
-            </Link>
-          </nav>
-
-          <Link
-            href="/business/login"
-            className="btn-amber rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
-          >
-            Get Started
-          </Link>
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="border-t border-gray-100 py-12">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="flex flex-col items-center justify-between gap-6 md:flex-row">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500">
-              <span className="h-2.5 w-2.5 rounded-full bg-white" />
-            </span>
-
-            <div>
-              <p className="text-base font-extrabold leading-none text-slate-900">CORE</p>
-              <p className="mt-1 text-xs text-slate-400">AI agents that work for you, 24/7.</p>
-            </div>
-          </Link>
-
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-slate-500">
-            <Link href="/" className="transition-colors duration-200 hover:text-amber-600">
-              Home
-            </Link>
-            <Link href="/business/marketplace" className="transition-colors duration-200 hover:text-amber-600">
-              Marketplace
-            </Link>
-            <Link href="/business/checkout" className="transition-colors duration-200 hover:text-amber-600">
-              Pricing
-            </Link>
-            <Link href="/about" className="transition-colors duration-200 hover:text-amber-600">
-              About
-            </Link>
-            <Link href="/#contact" className="transition-colors duration-200 hover:text-amber-600">
-              Contact
-            </Link>
-            <Link href="/privacy" className="transition-colors duration-200 hover:text-amber-600">
-              Privacy
-            </Link>
-            <Link href="/terms" className="transition-colors duration-200 hover:text-amber-600">
-              Terms
-            </Link>
-          </nav>
-        </div>
-
-        <p className="mt-8 text-center text-xs text-slate-400">
-          © 2025 CORE AI Agent Platform
-        </p>
-      </div>
-    </footer>
   );
 }

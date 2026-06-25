@@ -317,7 +317,7 @@ function LegalFooter() {
             <Link href="/" className="transition hover:text-amber-600">Home</Link>
             <Link href="/marketplace" className="transition hover:text-amber-600">Marketplace</Link>
             <Link href="/business/checkout" className="transition hover:text-amber-600">Pricing</Link>
-            <Link href="/#about" className="transition hover:text-amber-600">About</Link>
+            <Link href="/about" className="transition hover:text-amber-600">About</Link>
             <Link href="/#contact" className="transition hover:text-amber-600">Contact</Link>
             <Link href="/privacy" className="transition hover:text-amber-600">Privacy</Link>
             <Link href="/terms" className="transition hover:text-amber-600">Terms</Link>

@@ -1,4 +1,7 @@
-import Link from "next/link";
+"use client";
+import { useState } from "react";
+import { CoreHeader } from "@/components/common/header";
+import { CoreFooter } from "@/components/common/footer";
 
 const termsSections = [
   {
@@ -147,72 +150,37 @@ export default function TermsPage() {
 }
 
 function LegalPageShell({ children }: { children: React.ReactNode }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
       <style
         dangerouslySetInnerHTML={{
           __html: `
             html { scroll-behavior: smooth; }
-            section[id] { scroll-margin-top: 5rem; }
-            .nav-link { position: relative; }
-            .nav-link::after {
-              content: "";
-              position: absolute;
-              left: 0;
-              right: 0;
-              bottom: -4px;
-              height: 2px;
-              background: #f59e0b;
-              transform: scaleX(0);
-              transition: transform 200ms ease;
-            }
-            .nav-link:hover::after { transform: scaleX(1); }
+            section[id] { scroll-margin-top: 6rem; }
           `
         }}
       />
 
-      <LegalHeader />
+      <CoreHeader
+        navTop={0}
+        navScrolled={true}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onCloseMenu={() => setMenuOpen(false)}
+      />
+
       {children}
-      <LegalFooter />
+
+      <CoreFooter />
     </div>
-  );
-}
-
-function LegalHeader() {
-  return (
-    <header className="border-b border-gray-100">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="flex h-16 items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500">
-              <span className="h-3 w-3 rounded-full bg-white" />
-            </span>
-            <span className="text-xl font-extrabold tracking-tight">CORE</span>
-          </Link>
-
-          <nav className="hidden items-center gap-9 text-sm font-medium text-slate-600 md:flex">
-            <Link href="/" className="nav-link hover:text-slate-900">Home</Link>
-            <Link href="/business/marketplace" className="nav-link hover:text-slate-900">Marketplace</Link>
-            <Link href="/business/checkout" className="nav-link hover:text-slate-900">Pricing</Link>
-            <Link href="/#about" className="nav-link hover:text-slate-900">About</Link>
-            <Link href="/#contact" className="nav-link hover:text-slate-900">Contact</Link>
-          </nav>
-
-          <Link
-            href="/business/login"
-            className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-amber-600 hover:shadow-lg hover:shadow-amber-500/30"
-          >
-            Get Started
-          </Link>
-        </div>
-      </div>
-    </header>
   );
 }
 
 function LegalHero({ title }: { title: string }) {
   return (
-    <section className="mx-auto max-w-3xl px-6 pb-8 pt-16">
+    <section className="mx-auto max-w-3xl px-6 pb-8 pt-32 md:pt-36">
       <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">{title}</h1>
       <p className="mt-4 text-sm text-slate-500">Last updated: June 2025</p>
       <p className="mt-1 text-sm text-slate-500">Effective date: June 2025</p>
@@ -282,37 +250,5 @@ function LegalSection({
         <p className="mt-4 text-base leading-relaxed text-slate-600">{section.afterNode}</p>
       ) : null}
     </section>
-  );
-}
-
-function LegalFooter() {
-  return (
-    <footer className="border-t border-gray-100 bg-gray-50 py-12">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="flex flex-col items-center justify-between gap-6 md:flex-row">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500">
-              <span className="h-2.5 w-2.5 rounded-full bg-white" />
-            </span>
-            <div>
-              <p className="text-base font-extrabold leading-none text-slate-900">CORE</p>
-              <p className="mt-1 text-xs text-slate-400">AI agents that work for you, 24/7.</p>
-            </div>
-          </div>
-
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-slate-500">
-            <Link href="/" className="transition hover:text-amber-600">Home</Link>
-            <Link href="/business/marketplace" className="transition hover:text-amber-600">Marketplace</Link>
-            <Link href="/business/checkout" className="transition hover:text-amber-600">Pricing</Link>
-            <Link href="/#about" className="transition hover:text-amber-600">About</Link>
-            <Link href="/#contact" className="transition hover:text-amber-600">Contact</Link>
-            <Link href="/privacy" className="transition hover:text-amber-600">Privacy</Link>
-            <Link href="/terms" className="transition hover:text-amber-600">Terms</Link>
-          </nav>
-        </div>
-
-        <p className="mt-8 text-center text-xs text-slate-400">© 2025 CORE AI Agent Platform</p>
-      </div>
-    </footer>
   );
 }
