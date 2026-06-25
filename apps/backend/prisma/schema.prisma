@@ -185,7 +185,6 @@ model ConnectorCredential {
   @@index([provider])
 }
 
-
 model EmailVerificationCode {
   id         String    @id @default(cuid())
   email      String
