@@ -51,6 +51,12 @@ enum ConnectorProvider {
   VAPI
 }
 
+enum PlatformPhoneStatus {
+  AVAILABLE
+  ASSIGNED
+  DISABLED
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -280,9 +286,9 @@ model InstalledAgent {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business     Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  workflow     WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  listing      AgentListing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  listing      AgentListing?         @relation(fields: [listingId], references: [id], onDelete: SetNull)
   phoneNumbers BusinessPhoneNumber[]
 
   @@index([businessId])
@@ -382,23 +388,41 @@ model Appointment {
 }
 
 model VapiCall {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   businessId     String
   conversationId String?
-  callId         String   @unique
+  callId         String    @unique
   customerPhone  String
-  status         String   @default("STARTED")
+  status         String    @default("STARTED")
   transcript     String?
   summary        String?
   metadataJson   Json?
-  startedAt      DateTime @default(now())
+  startedAt      DateTime  @default(now())
   endedAt        DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([customerPhone])
   @@index([status])
+}
+
+// Pre-provisioned CoreAI phone numbers that the platform assigns to businesses
+// during the buyer setup flow. Businesses never enter Twilio credentials; they
+// receive an AVAILABLE number that becomes ASSIGNED to their business.
+model PlatformPhoneNumber {
+  id          String              @id @default(cuid())
+  phoneNumber String              @unique
+  provider    ConnectorProvider   @default(TWILIO)
+  status      PlatformPhoneStatus @default(AVAILABLE)
+  twilioSid   String?
+  businessId  String?
+  assignedAt  DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([status])
+  @@index([businessId])
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { DashboardShell } from "@/components/common/dashboard-shell";
 import { StatCard } from "@/components/common/stat-card";
 
@@ -47,7 +48,7 @@ export default function BusinessDashboardPage() {
           </p>
 
           <Link data-testid="app-business-dashboard-page-link-1"
-            href="/projects"
+            href={"/projects" as Route}
             className="mt-5 inline-flex rounded-full bg-orange-500 px-5 py-3 text-sm font-semibold text-white"
           >
             View Project Flow

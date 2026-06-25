@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 
 const projects = [
   {
@@ -31,7 +32,7 @@ export default function ProjectsPage() {
             <h1 data-testid="app-projects-page-h1-1" className="text-3xl font-bold">Custom Agent Requirements</h1>
           </div>
 
-          <Link data-testid="app-projects-page-link-1" href="/" className="rounded-full border border-orange-300 px-4 py-2 text-sm">
+          <Link data-testid="app-projects-page-link-1" href={"/" as Route} className="rounded-full border border-orange-300 px-4 py-2 text-sm">
             Home
           </Link>
         </div>

@@ -29,12 +29,15 @@ const envSchema = z.object({
   TWILIO_TEST_MODE: z
     .preprocess((value) => value === true || value === "true" || value === "1", z.boolean())
     .default(false),
+  TWILIO_VALIDATE_SIGNATURE: z
+    .preprocess((value) => value === true || value === "true" || value === "1", z.boolean())
+    .default(false),
   TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
   TWILIO_FORWARD_TO_PHONE: z.string().optional(),
   TWILIO_FORWARD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(20),
   TWILIO_DEFAULT_BOOKING_URL: z.string().optional(),
   TWILIO_DEFAULT_TEAM_PHONE: z.string().optional(),
-
+  TWILIO_NUMBER_POOL: z.string().optional(),
   VAPI_API_KEY: z.string().optional(),
   VAPI_BASE_URL: z.string().url().default("https://api.vapi.ai"),
   VAPI_DEFAULT_ASSISTANT_ID: z.string().optional(),

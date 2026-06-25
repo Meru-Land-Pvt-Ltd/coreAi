@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Context } from "hono";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -8,6 +9,7 @@ import {
   createGoogleCalendarAppointment,
   getDefaultAppointmentWindow
 } from "./google-calendar-connector";
+import { parseRequestedAppointment } from "./appointment-parser";
 
 type TwilioBody = Record<string, unknown>;
 
@@ -50,6 +52,64 @@ async function parseBody(c: Context): Promise<Record<string, unknown>> {
   }
 
   return (await c.req.parseBody().catch(() => ({}))) as Record<string, unknown>;
+}
+
+function stringParams(body: Record<string, unknown>): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (typeof value === "string") params[key] = value;
+  }
+  return params;
+}
+
+/**
+ * Rebuild the exact URL Twilio signed. Twilio signs the webhook URL it was
+ * configured with, so we anchor to BACKEND_URL (the same base advertised by the
+ * installation endpoint) and keep the path + query string intact.
+ */
+function twilioRequestUrl(c: Context): string {
+  const base = env.BACKEND_URL.replace(/\/$/, "");
+  const parsed = new URL(c.req.url);
+  return `${base}${parsed.pathname}${parsed.search}`;
+}
+
+function computeTwilioSignature(
+  authToken: string,
+  url: string,
+  params: Record<string, string>
+): string {
+  const data = Object.keys(params)
+    .sort()
+    .reduce((acc, key) => acc + key + params[key], url);
+
+  return createHmac("sha1", authToken).update(Buffer.from(data, "utf-8")).digest("base64");
+}
+
+/**
+ * Validates the X-Twilio-Signature header. Disabled by default
+ * (TWILIO_VALIDATE_SIGNATURE) so local/manual testing and the :workflowId test
+ * endpoints keep working; enable it in production once BACKEND_URL is the public
+ * URL Twilio posts to.
+ */
+function isValidTwilioRequest(c: Context, body: Record<string, unknown>): boolean {
+  if (!env.TWILIO_VALIDATE_SIGNATURE) return true;
+
+  const authToken = env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    console.warn(
+      "TWILIO_VALIDATE_SIGNATURE is enabled but TWILIO_AUTH_TOKEN is missing; rejecting Twilio webhook."
+    );
+    return false;
+  }
+
+  const signature = c.req.header("X-Twilio-Signature") ?? c.req.header("x-twilio-signature");
+  if (!signature) return false;
+
+  const expected = computeTwilioSignature(authToken, twilioRequestUrl(c), stringParams(body));
+  const provided = Buffer.from(signature);
+  const computed = Buffer.from(expected);
+
+  return provided.length === computed.length && timingSafeEqual(provided, computed);
 }
 
 function readBodyString(body: TwilioBody, keys: string[]) {
@@ -340,7 +400,119 @@ async function upsertLead({
   });
 }
 
-function buildInboundSmsReply(agent: ResolvedAgent, incomingBody: string) {
+type ConversationTurn = {
+  direction: string;
+  body: string;
+};
+
+/** Loads recent conversation messages (chronological) for reply context. */
+async function loadConversationHistory(
+  conversationId: string,
+  limit = 12
+): Promise<ConversationTurn[]> {
+  const messages = await prisma.conversationMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: { direction: true, body: true }
+  });
+
+  return messages.reverse().map((message) => ({
+    direction: message.direction,
+    body: message.body
+  }));
+}
+
+/** Best-effort match of the requested service against the business's offerings. */
+function inferService(message: string, services: string[]): string {
+  const normalized = message.toLowerCase();
+  const match = services.find((service) => normalized.includes(service.toLowerCase()));
+  return match || "Appointment";
+}
+
+function formatAppointmentTime(iso: string, timeZone?: string | null): string {
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  } catch {
+    return new Date(iso).toLocaleString();
+  }
+}
+
+/**
+ * Shared appointment creation used by both the Vapi voice booking tool and the
+ * inbound-SMS booking path: creates the Google Calendar event and persists the
+ * Appointment row. Requires the business to have an owner (for Google OAuth).
+ */
+async function createBusinessAppointment({
+  business,
+  customerPhone,
+  customerName,
+  service,
+  startAt,
+  endAt,
+  conversationId,
+  description,
+  notes
+}: {
+  business: BusinessRuntimeContext;
+  customerPhone: string;
+  customerName?: string | null;
+  service: string;
+  startAt: Date | string;
+  endAt: Date | string;
+  conversationId?: string | null;
+  description?: string | null;
+  notes?: string | null;
+}) {
+  if (!business.businessId || !business.ownerId) {
+    throw new Error("Business is not fully configured for calendar booking.");
+  }
+
+  const calendarEvent = await createGoogleCalendarAppointment({
+    userId: business.ownerId,
+    calendarId: business.calendarId,
+    timeZone: business.timeZone,
+    businessName: business.businessName,
+    customerName,
+    customerPhone,
+    service,
+    startAt,
+    endAt,
+    description:
+      description ??
+      `Booked by CORE AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
+  });
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      businessId: business.businessId,
+      conversationId: conversationId ?? undefined,
+      customerPhone,
+      customerName: customerName ?? undefined,
+      service,
+      startAt: new Date(calendarEvent.startAt),
+      endAt: new Date(calendarEvent.endAt),
+      timeZone: calendarEvent.timeZone,
+      calendarEventId: calendarEvent.id,
+      notes: notes ?? undefined
+    }
+  });
+
+  return { calendarEvent, appointment };
+}
+
+function buildInboundSmsReply(
+  agent: ResolvedAgent,
+  incomingBody: string,
+  history: ConversationTurn[] = []
+) {
   const business = agent.business;
   const businessName = business?.businessName ?? "the business";
   const businessType = business?.businessType ?? "business";
@@ -350,14 +522,25 @@ function buildInboundSmsReply(agent: ResolvedAgent, incomingBody: string) {
   const knowledge = [...(business?.faqs ?? []), ...(business?.knowledge ?? [])];
   const normalizedMessage = incomingBody.toLowerCase();
 
-  if (/book|appointment|schedule|yes|visit|slot|available/.test(normalizedMessage)) {
+  // Use prior conversation context so we do not re-introduce the business on
+  // every message and can keep the thread moving toward a booking.
+  const hasGreeted = history.some((turn) => turn.direction === "OUTBOUND");
+  const askedForTime = history.some(
+    (turn) => turn.direction === "OUTBOUND" && /time|day|when|book/i.test(turn.body)
+  );
+
+  if (/book|appointment|schedule|yes|visit|slot|available|reschedule/.test(normalizedMessage)) {
     if (bookingUrl) {
-      return `Absolutely — you can book with ${businessName} here: ${bookingUrl}. If you prefer, reply with your preferred time and our team will help.`;
+      return `Absolutely — you can book with ${businessName} here: ${bookingUrl}. If you prefer, reply with your preferred day and time and we'll set it up.`;
     }
 
     if (teamPhone) {
-      return `Absolutely — ${businessName} can help schedule that. Our team can call you from ${teamPhone}. What day and time works best?`;
+      return askedForTime
+        ? `Great — just reply with the exact day and time you'd like and we'll lock it in, or our team can call you from ${teamPhone}.`
+        : `Absolutely — ${businessName} can help schedule that. What day and time works best? Our team can also call you from ${teamPhone}.`;
     }
+
+    return `Happy to help you book with ${businessName}. What day and time works best for you?`;
   }
 
   if (/price|cost|fee|charge|rate|quote|estimate|how much/.test(normalizedMessage)) {
@@ -367,12 +550,16 @@ function buildInboundSmsReply(agent: ResolvedAgent, incomingBody: string) {
 
   const matchingService = services.find((service) => normalizedMessage.includes(service.toLowerCase().split(" ")[0] ?? ""));
   if (matchingService) {
-    return `${businessName} can help with ${matchingService}. ${bookingUrl ? `You can book here: ${bookingUrl}` : "Can you share a few details so our team can help?"}`;
+    return `${businessName} can help with ${matchingService}. ${bookingUrl ? `You can book here: ${bookingUrl}` : "Reply with a day and time that works and we'll schedule it."}`;
   }
 
   const firstKnowledge = knowledge[0];
-  if (firstKnowledge) {
+  if (firstKnowledge && !hasGreeted) {
     return `${businessName} is a ${businessType}. ${firstKnowledge} ${bookingUrl ? `You can also book here: ${bookingUrl}` : "How can we help you next?"}`;
+  }
+
+  if (hasGreeted) {
+    return `Thanks for the reply. Want me to book you in with ${businessName}, or is there a question I can answer?${bookingUrl ? ` Booking link: ${bookingUrl}` : ""}`;
   }
 
   return `Thanks for texting ${businessName}. How can we help you today?${bookingUrl ? ` You can also book here: ${bookingUrl}` : ""}`;
@@ -523,6 +710,13 @@ async function runMissedCallAgent({
 export async function handleTwilioVoice(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
+
+  if (!isValidTwilioRequest(c, body)) {
+    return c.text("<Response><Reject /></Response>", 403, {
+      "Content-Type": "text/xml"
+    });
+  }
+
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
@@ -557,6 +751,11 @@ export async function handleTwilioVoice(c: Context) {
 export async function handleTwilioVoiceAction(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
+
+  if (!isValidTwilioRequest(c, body)) {
+    return c.text("<Response></Response>", 403, { "Content-Type": "text/xml" });
+  }
+
   const calledNumber = readBodyString(body, ["Called", "To", "to"]) || c.req.query("to") || "";
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
@@ -584,6 +783,11 @@ export async function handleTwilioVoiceAction(c: Context) {
 export async function handleTwilioMissedCall(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
+
+  if (!isValidTwilioRequest(c, body)) {
+    return c.text("<Response></Response>", 403, { "Content-Type": "text/xml" });
+  }
+
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
@@ -606,6 +810,11 @@ export async function handleTwilioMissedCall(c: Context) {
 export async function handleTwilioInboundSms(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
+
+  if (!isValidTwilioRequest(c, body)) {
+    return c.text("<Response></Response>", 403, { "Content-Type": "text/xml" });
+  }
+
   const businessNumber = readBodyString(body, ["To", "to"]);
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
@@ -615,7 +824,7 @@ export async function handleTwilioInboundSms(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  await upsertConversation({
+  const conversation = await upsertConversation({
     businessId: agent.business?.businessId,
     customerPhone,
     direction: "INBOUND",
@@ -623,7 +832,48 @@ export async function handleTwilioInboundSms(c: Context) {
     providerId: readBodyString(body, ["MessageSid", "SmsSid"])
   });
 
-  const replyBody = buildInboundSmsReply(agent, incomingBody);
+  const history = conversation?.id ? await loadConversationHistory(conversation.id) : [];
+
+  // If the customer texted a concrete day + time, book it straight to Google
+  // Calendar and confirm by SMS. Otherwise fall back to a context-aware reply.
+  let replyBody: string;
+  let bookedEventId: string | null = null;
+
+  const requestedSlot =
+    agent.business?.businessId && agent.business?.ownerId
+      ? parseRequestedAppointment(
+          incomingBody,
+          agent.business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
+        )
+      : null;
+
+  if (requestedSlot && agent.business) {
+    try {
+      const service = inferService(incomingBody, agent.business.services);
+      const { calendarEvent } = await createBusinessAppointment({
+        business: agent.business,
+        customerPhone,
+        service,
+        startAt: requestedSlot.startAt,
+        endAt: requestedSlot.endAt,
+        conversationId: conversation?.id,
+        description: `Booked from inbound SMS for ${agent.business.businessName}. Phone: ${customerPhone}`,
+        notes: `Requested via SMS: "${incomingBody}"`
+      });
+
+      bookedEventId = calendarEvent.id;
+      replyBody = `You're booked with ${agent.business.businessName}: ${service} on ${formatAppointmentTime(
+        calendarEvent.startAt,
+        agent.business.timeZone
+      )}. Reply here if you need to change it.`;
+    } catch (error) {
+      console.error("Inbound SMS booking failed", error);
+      replyBody = buildInboundSmsReply(agent, incomingBody, history);
+    }
+  } else {
+    replyBody = buildInboundSmsReply(agent, incomingBody, history);
+  }
+
   const sent = await sendTwilioSms({
     to: customerPhone,
     body: replyBody,
@@ -635,14 +885,14 @@ export async function handleTwilioInboundSms(c: Context) {
     customerPhone,
     direction: "OUTBOUND",
     body: replyBody,
-    providerId: sent.id
+    providerId: bookedEventId ?? sent.id
   });
 
   await upsertLead({
     businessId: agent.business?.businessId,
     phoneNumber: customerPhone,
     source: "TWILIO_SMS",
-    status: "ENGAGED",
+    status: bookedEventId ? "BOOKED" : "ENGAGED",
     notes: incomingBody
   });
 
@@ -785,35 +1035,22 @@ export async function handleVapiWebhook(c: Context) {
     const service = typeof args.service === "string" ? args.service : "Consultation";
     const customerName = typeof args.customerName === "string" ? args.customerName : undefined;
 
-    const calendarEvent = await createGoogleCalendarAppointment({
-      userId: businessContext.ownerId,
-      calendarId: businessContext.calendarId,
-      timeZone: businessContext.timeZone,
-      businessName: businessContext.businessName,
-      customerName,
+    const { calendarEvent } = await createBusinessAppointment({
+      business: businessContext,
       customerPhone,
+      customerName,
       service,
       startAt: requestedStart ?? defaultWindow.startAt,
       endAt: requestedEnd ?? defaultWindow.endAt,
-      description: `Booked by Vapi AI Receptionist after missed-call follow-up. Phone: ${customerPhone}`
+      conversationId,
+      description: `Booked by Vapi AI Receptionist after missed-call follow-up. Phone: ${customerPhone}`,
+      notes: summary || transcript || null
     });
 
-    await prisma.appointment.create({
-      data: {
-        businessId: businessContext.businessId,
-        conversationId,
-        customerPhone,
-        customerName,
-        service,
-        startAt: new Date(calendarEvent.startAt),
-        endAt: new Date(calendarEvent.endAt),
-        timeZone: calendarEvent.timeZone,
-        calendarEventId: calendarEvent.id,
-        notes: summary || transcript || null
-      }
-    });
-
-    const smsBody = `Booked with ${businessContext.businessName}: ${service} at ${new Date(calendarEvent.startAt).toLocaleString()}. Reply if you need to change it.`;
+    const smsBody = `Booked with ${businessContext.businessName}: ${service} on ${formatAppointmentTime(
+      calendarEvent.startAt,
+      businessContext.timeZone
+    )}. Reply if you need to change it.`;
     await sendTwilioSms({
       to: customerPhone,
       body: smsBody,

@@ -34,12 +34,15 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
       return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
     }
 
-    await handleGmailOAuthCallback({
+    const { redirectPath } = await handleGmailOAuthCallback({
       code,
       state
     });
 
-    return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=connected`);
+    const target = redirectPath ?? "/architect/profile";
+    const separator = target.includes("?") ? "&" : "?";
+
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=connected`);
   } catch (error) {
     console.error(error);
     return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);

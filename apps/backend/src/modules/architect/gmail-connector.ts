@@ -116,6 +116,7 @@ function verifyStatePayload(state: string) {
 
   let payload: {
     userId?: unknown;
+    redirectPath?: unknown;
     createdAt?: unknown;
   };
 
@@ -138,16 +139,23 @@ function verifyStatePayload(state: string) {
     throw new Error("OAuth state expired");
   }
 
+  const redirectPath =
+    typeof payload.redirectPath === "string" && payload.redirectPath.startsWith("/")
+      ? payload.redirectPath
+      : null;
+
   return {
-    userId: payload.userId
+    userId: payload.userId,
+    redirectPath
   };
 }
 
-export function createGmailOAuthUrl(userId: string) {
+export function createGmailOAuthUrl(userId: string, redirectPath?: string) {
   const oauth2Client = createOAuthClient();
 
   const state = signStatePayload({
     userId,
+    redirectPath: redirectPath ?? null,
     createdAt: Date.now()
   });
 
@@ -167,7 +175,7 @@ export async function handleGmailOAuthCallback({
   code: string;
   state: string;
 }) {
-  const { userId } = verifyStatePayload(state);
+  const { userId, redirectPath } = verifyStatePayload(state);
   const oauth2Client = createOAuthClient();
 
   const tokenResponse = await oauth2Client.getToken(code);
@@ -232,7 +240,8 @@ export async function handleGmailOAuthCallback({
 
   return {
     userId,
-    email: profile.data.emailAddress ?? null
+    email: profile.data.emailAddress ?? null,
+    redirectPath
   };
 }
 

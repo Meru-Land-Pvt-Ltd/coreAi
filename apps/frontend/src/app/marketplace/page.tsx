@@ -162,6 +162,11 @@ const sortOptions = [
   { value: "newest", label: "Newest" }
 ] as const;
 
+const HOME_PATH = "/" as Route;
+const BUSINESS_LOGIN_PATH = "/business/login" as Route;
+const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;
+const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
+
 type SortValue = (typeof sortOptions)[number]["value"];
 
 export default function MarketplacePage() {
@@ -207,7 +212,7 @@ export default function MarketplacePage() {
       <nav data-testid="app-marketplace-page-nav-1" className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 shadow-sm backdrop-blur">
         <div data-testid="app-marketplace-page-div-1" className="mx-auto max-w-7xl px-4 sm:px-6">
           <div data-testid="app-marketplace-page-div-2" className="flex flex-wrap items-center gap-3 py-3">
-            <Link data-testid="app-marketplace-page-link-1" href="/" className="flex shrink-0 items-center gap-2.5">
+            <Link data-testid="app-marketplace-page-link-1" href={HOME_PATH} className="flex shrink-0 items-center gap-2.5">
               <span data-testid="app-marketplace-page-span-1" className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30">
                 ●
               </span>
@@ -232,19 +237,19 @@ export default function MarketplacePage() {
 
             <div data-testid="app-marketplace-page-div-5" className="order-2 ml-auto flex items-center gap-2 md:order-3">
               <Link data-testid="app-marketplace-page-link-2"
-                href={"/architect/login" as Route}
+                href={ARCHITECT_LOGIN_PATH}
                 className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 sm:block"
               >
                 For Architects
               </Link>
               <Link data-testid="app-marketplace-page-link-3"
-                href="/business/login"
+                href={BUSINESS_LOGIN_PATH}
                 className="rounded-xl border border-amber-500 px-4 py-2 text-sm font-semibold text-amber-600 transition hover:bg-amber-50"
               >
                 Log in
               </Link>
               <Link data-testid="app-marketplace-page-link-4"
-                href="/business/login"
+                href={BUSINESS_LOGIN_PATH}
                 className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-amber-500/30 transition hover:bg-amber-600"
               >
                 Get started
@@ -319,7 +324,7 @@ export default function MarketplacePage() {
 
                 <div data-testid="app-marketplace-page-div-17" className="mt-6 flex flex-wrap items-center gap-3">
                   <Link data-testid="app-marketplace-page-link-5"
-                    href="/business/login"
+                    href={BUSINESS_SETUP_PATH}
                     className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                   >
                     Start free trial
@@ -552,7 +557,7 @@ export default function MarketplacePage() {
             recommendation built around your business.
           </p>
           <Link data-testid="app-marketplace-page-link-6"
-            href="/business/login"
+            href={BUSINESS_LOGIN_PATH}
             className="mx-auto mt-7 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
           >
             Get your free AI score →
