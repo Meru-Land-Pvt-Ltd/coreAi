@@ -46,7 +46,9 @@ enum ListingStatus {
 
 enum ConnectorProvider {
   GMAIL
+  GOOGLE_CALENDAR
   TWILIO
+  VAPI
 }
 
 model User {
@@ -64,7 +66,7 @@ model User {
   listings             AgentListing[]
   proposals            ProjectProposal[]
   connectorCredentials ConnectorCredential[]
-  businesses            Business[]
+  businesses           Business[]
 
   @@index([role])
   @@index([createdAt])
@@ -99,7 +101,7 @@ model WorkflowDefinition {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  architect User           @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  architect       User             @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
   listings        AgentListing[]
   installedAgents InstalledAgent[]
 
@@ -122,7 +124,7 @@ model AgentListing {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  architect User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  architect       User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
   workflow        WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
   installedAgents InstalledAgent[]
 
@@ -213,45 +215,51 @@ model Business {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner          User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  profile        BusinessProfile?
-  phoneNumbers   BusinessPhoneNumber[]
+  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  profile         BusinessProfile?
+  phoneNumbers    BusinessPhoneNumber[]
   installedAgents InstalledAgent[]
-  knowledgeBases BusinessKnowledgeBase[]
-  conversations  Conversation[]
-  leads          Lead[]
+  knowledgeBases  BusinessKnowledgeBase[]
+  conversations   Conversation[]
+  leads           Lead[]
+  appointments    Appointment[]
+  vapiCalls       VapiCall[]
 
   @@index([ownerId])
   @@index([type])
 }
 
 model BusinessProfile {
-  id              String   @id @default(cuid())
-  businessId      String   @unique
-  serviceArea     String?
-  bookingUrl      String?
-  teamPhone       String?
-  hoursJson       Json?
-  tone            String   @default("friendly")
-  escalationRules String?
-  services        String[]
-  faqsJson        Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  serviceArea       String?
+  bookingUrl        String?
+  teamPhone         String?
+  calendarId        String?  @default("primary")
+  timeZone          String   @default("America/New_York")
+  vapiAssistantId   String?
+  vapiPhoneNumberId String?
+  hoursJson         Json?
+  tone              String   @default("friendly")
+  escalationRules   String?
+  services          String[]
+  faqsJson          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 model BusinessPhoneNumber {
-  id                  String   @id @default(cuid())
-  businessId          String
-  installedAgentId    String?
-  phoneNumber         String   @unique
+  id                   String   @id @default(cuid())
+  businessId           String
+  installedAgentId     String?
+  phoneNumber          String   @unique
   twilioPhoneNumberSid String?
-  forwardToPhone      String?
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  forwardToPhone       String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
@@ -262,19 +270,19 @@ model BusinessPhoneNumber {
 }
 
 model InstalledAgent {
-  id          String   @id @default(cuid())
-  businessId  String
-  workflowId  String
-  listingId   String?
-  name        String
-  status      String   @default("ACTIVE")
-  configJson  Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  businessId String
+  workflowId String
+  listingId  String?
+  name       String
+  status     String   @default("ACTIVE")
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  listing      AgentListing?         @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  business     Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workflow     WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  listing      AgentListing?      @relation(fields: [listingId], references: [id], onDelete: SetNull)
   phoneNumbers BusinessPhoneNumber[]
 
   @@index([businessId])
@@ -309,10 +317,10 @@ model Conversation {
   business Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages ConversationMessage[]
 
+  @@unique([businessId, channel, customerPhone])
   @@index([businessId])
   @@index([customerPhone])
   @@index([channel, customerPhone])
-  @@unique([businessId, channel, customerPhone])
 }
 
 model ConversationMessage {
@@ -333,7 +341,7 @@ model Lead {
   id             String   @id @default(cuid())
   businessId     String
   conversationId String?
-  phoneNumber     String
+  phoneNumber    String
   name           String?
   source         String
   status         String   @default("NEW")
@@ -343,9 +351,54 @@ model Lead {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
+  @@unique([businessId, phoneNumber])
   @@index([businessId])
   @@index([phoneNumber])
   @@index([status])
-  @@unique([businessId, phoneNumber])
 }
 
+model Appointment {
+  id              String   @id @default(cuid())
+  businessId      String
+  conversationId  String?
+  customerPhone   String
+  customerName    String?
+  service         String?
+  startAt         DateTime
+  endAt           DateTime
+  timeZone        String?
+  calendarEventId String?
+  status          String   @default("BOOKED")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([startAt])
+  @@index([calendarEventId])
+}
+
+model VapiCall {
+  id             String   @id @default(cuid())
+  businessId     String
+  conversationId String?
+  callId         String   @unique
+  customerPhone  String
+  status         String   @default("STARTED")
+  transcript     String?
+  summary        String?
+  metadataJson   Json?
+  startedAt      DateTime @default(now())
+  endedAt        DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([status])
+}

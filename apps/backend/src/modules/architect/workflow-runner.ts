@@ -5,6 +5,11 @@ import {
   readGmailEmail,
   sendGmailEmail
 } from "./gmail-connector";
+import {
+  createGoogleCalendarAppointment,
+  getDefaultAppointmentWindow
+} from "./google-calendar-connector";
+import { startVapiOutboundCall } from "./vapi-connector";
 
 export type WorkflowRunLog = {
   nodeId: string;
@@ -16,15 +21,21 @@ export type WorkflowRunLog = {
 
 type WorkflowRunMode = "test" | "live";
 
-type WorkflowRunInput = {
+export type WorkflowRunInput = {
   callerNumber?: string;
   callerName?: string;
+  businessId?: string;
+  businessOwnerId?: string;
   businessName?: string;
+  businessType?: string;
+  businessPhoneNumber?: string;
+  calendarId?: string;
+  timeZone?: string;
+  vapiAssistantId?: string;
+  vapiPhoneNumberId?: string;
   callStatus?: string;
   callTimestamp?: string;
   missedCallReason?: string;
-  businessId?: string;
-  businessType?: string;
   bookingUrl?: string;
   teamPhone?: string;
   services?: string[];
@@ -33,8 +44,9 @@ type WorkflowRunInput = {
   escalationRules?: string;
   knowledge?: string[];
   inboundSmsBody?: string;
-  twilioFromNumber?: string;
-  twilioMessagingServiceSid?: string;
+  appointmentStartAt?: string;
+  appointmentEndAt?: string;
+  appointmentService?: string;
 };
 
 type RunnerNodeData = {
@@ -53,6 +65,14 @@ type RunnerNodeData = {
   smsTo?: unknown;
   smsBody?: unknown;
   sendAt?: unknown;
+  vapiAssistantId?: unknown;
+  vapiPhoneNumberId?: unknown;
+  calendarId?: unknown;
+  calendarSummary?: unknown;
+  calendarDescription?: unknown;
+  appointmentStartAt?: unknown;
+  appointmentEndAt?: unknown;
+  appointmentService?: unknown;
   condition?: unknown;
   outputKey?: unknown;
 };
@@ -78,17 +98,21 @@ type RunnerContext = {
   caller_name?: string;
   business?: {
     id?: string;
+    ownerId?: string;
     name: string;
     type?: string;
+    phoneNumber?: string;
     bookingUrl?: string;
     teamPhone?: string;
-    twilioFromNumber?: string;
-    twilioMessagingServiceSid?: string;
     services?: string[];
     faqs?: string[];
     tone?: string;
     escalationRules?: string;
     knowledge?: string[];
+    calendarId?: string;
+    timeZone?: string;
+    vapiAssistantId?: string;
+    vapiPhoneNumberId?: string;
   };
   inboundSms?: {
     body: string;
@@ -136,7 +160,6 @@ type RunnerContext = {
     id: string | null;
     to: string;
     body: string;
-    from?: string | null;
     mode: WorkflowRunMode;
     providerCalled: boolean;
     twilioTestMode: boolean;
@@ -146,6 +169,20 @@ type RunnerContext = {
     body: string;
     sendAt: string;
     mode: WorkflowRunMode;
+  };
+  vapiCall?: {
+    id: string | null;
+    status: string | null;
+    customerPhone: string;
+    providerCalled: boolean;
+  };
+  calendarAppointment?: {
+    id: string | null;
+    calendarId: string;
+    summary: string;
+    startAt: string;
+    endAt: string;
+    timeZone: string;
   };
   capturedLead?: {
     callerNumber: string;
@@ -165,6 +202,12 @@ function asString(value: unknown, fallback = "") {
 function optionalString(value: string | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
 }
 
 function isRunnerNode(value: unknown): value is RunnerNode {
@@ -269,17 +312,21 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   const context: RunnerContext = {
     business: {
       id: optionalString(input?.businessId),
+      ownerId: optionalString(input?.businessOwnerId),
       name: businessName,
       type: optionalString(input?.businessType),
+      phoneNumber: optionalString(input?.businessPhoneNumber),
       bookingUrl: optionalString(input?.bookingUrl) ?? optionalString(env.TWILIO_DEFAULT_BOOKING_URL),
       teamPhone: optionalString(input?.teamPhone) ?? optionalString(env.TWILIO_DEFAULT_TEAM_PHONE),
-      twilioFromNumber: optionalString(input?.twilioFromNumber),
-      twilioMessagingServiceSid: optionalString(input?.twilioMessagingServiceSid),
       services: input?.services ?? [],
       faqs: input?.faqs ?? [],
       tone: optionalString(input?.tone) ?? "friendly",
       escalationRules: optionalString(input?.escalationRules),
-      knowledge: input?.knowledge ?? []
+      knowledge: input?.knowledge ?? [],
+      calendarId: optionalString(input?.calendarId) ?? env.GOOGLE_CALENDAR_ID ?? "primary",
+      timeZone: optionalString(input?.timeZone) ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+      vapiAssistantId: optionalString(input?.vapiAssistantId) ?? env.VAPI_DEFAULT_ASSISTANT_ID,
+      vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID
     },
     missedCall: {
       callerNumber: callerNumber ?? "",
@@ -296,6 +343,9 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   if (optionalString(input?.inboundSmsBody)) {
     context.inboundSms = { body: optionalString(input?.inboundSmsBody)! };
   }
+  if (input?.appointmentStartAt) context.appointmentStartAt = input.appointmentStartAt;
+  if (input?.appointmentEndAt) context.appointmentEndAt = input.appointmentEndAt;
+  if (input?.appointmentService) context.appointmentService = input.appointmentService;
 
   return context;
 }
@@ -314,7 +364,8 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
     createLog(node, "success", "Twilio missed-call event received.", {
       callerNumber,
       timestamp: context.missedCall?.timestamp,
-      status: context.missedCall?.status
+      status: context.missedCall?.status,
+      business: context.business
     })
   );
 }
@@ -357,7 +408,7 @@ function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLo
       output = `${callerName}thanks for texting ${businessName}. ${services}${faqHint ? ` ${faqHint}` : ""} ${booking || team || "How can we help you today?"}`.trim();
     }
   } else {
-    output = `Hi ${callerName}this is ${businessName}. Sorry we missed your call. We can help by text right now.${services} Would you like to book an appointment or ask a quick question?${booking ? ` ${booking}` : ""}`;
+    output = `Hi ${callerName}this is ${businessName}. Sorry we missed your call. We can help by text or voice right now.${services} Would you like to book an appointment or ask a quick question?${booking ? ` ${booking}` : ""}`;
   }
 
   context.ai = {
@@ -429,7 +480,7 @@ async function runSmsConnectorNode({
       createLog(
         node,
         "success",
-        "Lead captured. Conversation can continue by SMS, booking, FAQ, or team routing.",
+        "Lead captured. Conversation can continue by SMS, Vapi voice, booking, FAQ, or team routing.",
         context.capturedLead
       )
     );
@@ -464,8 +515,7 @@ async function runSmsConnectorNode({
     const sentSms = await sendTwilioSms({
       to: actionTo,
       body: actionBody,
-      from: context.business?.twilioFromNumber,
-      messagingServiceSid: context.business?.twilioMessagingServiceSid
+      fromPhoneNumber: context.business?.phoneNumber
     });
 
     context.sentSms = {
@@ -503,6 +553,148 @@ async function runSmsConnectorNode({
       context.sentSms
     )
   );
+}
+
+async function runVapiConnectorNode({
+  node,
+  context,
+  logs,
+  mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const action = asString(node.data?.connectorAction, "start_voice_call");
+  const customerPhone = context.caller_number || context.missedCall?.callerNumber || "";
+
+  if (!customerPhone) {
+    logs.push(createLog(node, "error", "Vapi call failed because caller phone number is missing."));
+    return;
+  }
+
+  const assistantId = renderTemplate(node.data?.vapiAssistantId, context) || context.business?.vapiAssistantId;
+  const phoneNumberId = renderTemplate(node.data?.vapiPhoneNumberId, context) || context.business?.vapiPhoneNumberId;
+
+  if (mode !== "live") {
+    context.vapiCall = {
+      id: null,
+      status: "dry_run",
+      customerPhone,
+      providerCalled: false
+    };
+    logs.push(createLog(node, "success", "Dry run passed. No Vapi call was made.", context.vapiCall));
+    return;
+  }
+
+  if (action !== "start_voice_call") {
+    logs.push(createLog(node, "error", `Unsupported Vapi action: ${action}`));
+    return;
+  }
+
+  const call = await startVapiOutboundCall({
+    customerPhone,
+    customerName: context.caller_name,
+    business: {
+      businessId: context.business?.id,
+      businessName: context.business?.name ?? "the business",
+      businessType: context.business?.type,
+      bookingUrl: context.business?.bookingUrl,
+      teamPhone: context.business?.teamPhone,
+      services: context.business?.services,
+      faqs: context.business?.faqs,
+      knowledge: context.business?.knowledge,
+      tone: context.business?.tone,
+      escalationRules: context.business?.escalationRules,
+      calendarId: context.business?.calendarId,
+      timeZone: context.business?.timeZone
+    },
+    reason: context.missedCall?.reason ?? "Missed call follow-up",
+    assistantId,
+    phoneNumberId,
+    metadata: {
+      businessId: context.business?.id,
+      businessOwnerId: context.business?.ownerId,
+      workflowSource: "workflow_runner"
+    }
+  });
+
+  context.vapiCall = {
+    id: call.id,
+    status: call.status,
+    customerPhone: call.customerPhone,
+    providerCalled: call.providerCalled
+  };
+
+  logs.push(createLog(node, "success", "Vapi AI voice call started.", context.vapiCall));
+}
+
+async function runGoogleCalendarConnectorNode({
+  userId,
+  node,
+  context,
+  logs,
+  mode
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const action = asString(node.data?.connectorAction, "book_appointment");
+
+  if (action !== "book_appointment") {
+    logs.push(createLog(node, "error", `Unsupported Google Calendar action: ${action}`));
+    return;
+  }
+
+  const customerPhone = context.caller_number || context.missedCall?.callerNumber || "";
+  const businessName = context.business?.name ?? "the business";
+  const calendarId = renderTemplate(node.data?.calendarId, context) || context.business?.calendarId || "primary";
+  const timeZone = context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const service = renderTemplate(node.data?.appointmentService, context) || asString(context.appointmentService, "Consultation");
+  context.appointmentService = service;
+  const defaultWindow = getDefaultAppointmentWindow(timeZone);
+  const startAtRaw = renderTemplate(node.data?.appointmentStartAt, context) || asString(context.appointmentStartAt, defaultWindow.startAt.toISOString());
+  const endAtRaw = renderTemplate(node.data?.appointmentEndAt, context) || asString(context.appointmentEndAt, defaultWindow.endAt.toISOString());
+  const summary = renderTemplate(node.data?.calendarSummary, context) || `${service} - ${context.caller_name || customerPhone}`;
+  const description = renderTemplate(node.data?.calendarDescription, context) || `Booked by CORE AI Receptionist for ${businessName}.`;
+
+  if (!customerPhone) {
+    logs.push(createLog(node, "error", "Calendar booking failed because caller phone number is missing."));
+    return;
+  }
+
+  if (mode !== "live") {
+    context.calendarAppointment = {
+      id: null,
+      calendarId,
+      summary,
+      startAt: new Date(startAtRaw).toISOString(),
+      endAt: new Date(endAtRaw).toISOString(),
+      timeZone
+    };
+    logs.push(createLog(node, "success", "Dry run passed. No Google Calendar event was created.", context.calendarAppointment));
+    return;
+  }
+
+  const appointment = await createGoogleCalendarAppointment({
+    userId: context.business?.ownerId || userId,
+    calendarId,
+    timeZone,
+    businessName,
+    customerName: context.caller_name,
+    customerPhone,
+    service,
+    startAt: startAtRaw,
+    endAt: endAtRaw,
+    description
+  });
+
+  context.calendarAppointment = appointment;
+  logs.push(createLog(node, "success", "Google Calendar appointment created.", appointment));
 }
 
 async function runGmailConnectorNode({
@@ -630,6 +822,27 @@ async function runConnectorNode({
     return;
   }
 
+  if (connector === "vapi" || connector === "vapi ai") {
+    await runVapiConnectorNode({
+      node,
+      context,
+      logs,
+      mode
+    });
+    return;
+  }
+
+  if (connector === "google calendar" || connector === "calendar") {
+    await runGoogleCalendarConnectorNode({
+      userId,
+      node,
+      context,
+      logs,
+      mode
+    });
+    return;
+  }
+
   logs.push(createLog(node, "error", `Unsupported connector: ${connector}`));
 }
 
@@ -640,6 +853,8 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
     key: outputKey,
     value:
       context.capturedLead ??
+      context.calendarAppointment ??
+      context.vapiCall ??
       context.sentSms ??
       context.queuedSms ??
       context.sentEmail ??

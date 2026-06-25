@@ -7,7 +7,8 @@ import { prisma } from "../../lib/prisma";
 const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.compose"
+  "https://www.googleapis.com/auth/gmail.compose",
+  "https://www.googleapis.com/auth/calendar.events"
 ];
 
 export type GmailEmail = {
@@ -263,7 +264,7 @@ export async function disconnectGmail(userId: string) {
   });
 }
 
-export async function createAuthorizedGmailClient(userId: string) {
+export async function createAuthorizedGoogleOAuthClient(userId: string) {
   const credential = await prisma.connectorCredential.findUnique({
     where: {
       userId_provider: {
@@ -313,6 +314,12 @@ export async function createAuthorizedGmailClient(userId: string) {
       }
     });
   });
+
+  return oauth2Client;
+}
+
+export async function createAuthorizedGmailClient(userId: string) {
+  const oauth2Client = await createAuthorizedGoogleOAuthClient(userId);
 
   return google.gmail({
     version: "v1",

@@ -1,19 +1,28 @@
 import type { Context } from "hono";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
-import { runWorkflowTest } from "./workflow-runner";
+import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { escapeXml, sendTwilioSms } from "./twilio-connector";
+import { startVapiOutboundCall } from "./vapi-connector";
+import {
+  createGoogleCalendarAppointment,
+  getDefaultAppointmentWindow
+} from "./google-calendar-connector";
 
 type TwilioBody = Record<string, unknown>;
 
 type BusinessRuntimeContext = {
   businessId?: string;
+  ownerId?: string;
   businessName: string;
   businessType?: string;
+  businessPhoneNumber?: string;
   bookingUrl?: string;
   teamPhone?: string;
-  twilioFromNumber?: string;
-  twilioMessagingServiceSid?: string;
+  calendarId?: string;
+  timeZone?: string;
+  vapiAssistantId?: string;
+  vapiPhoneNumberId?: string;
   services: string[];
   faqs: string[];
   tone?: string;
@@ -33,14 +42,14 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/[^+\d]/g, "").trim();
 }
 
-async function parseTwilioBody(c: Context): Promise<TwilioBody> {
+async function parseBody(c: Context): Promise<Record<string, unknown>> {
   const contentType = c.req.header("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
-    return (await c.req.json().catch(() => ({}))) as TwilioBody;
+    return (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   }
 
-  return (await c.req.parseBody()) as TwilioBody;
+  return (await c.req.parseBody().catch(() => ({}))) as Record<string, unknown>;
 }
 
 function readBodyString(body: TwilioBody, keys: string[]) {
@@ -52,12 +61,20 @@ function readBodyString(body: TwilioBody, keys: string[]) {
   return "";
 }
 
-function readQueryString(c: Context, keys: string[]) {
+function getNestedRecord(value: unknown, keys: string[]) {
+  let current = value;
   for (const key of keys) {
-    const value = c.req.query(key);
-    if (value?.trim()) return value.trim();
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<string, unknown>)[key];
   }
+  return current;
+}
 
+function firstNestedString(body: Record<string, unknown>, paths: string[][]) {
+  for (const path of paths) {
+    const value = getNestedRecord(body, path);
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
   return "";
 }
 
@@ -94,28 +111,22 @@ function faqStrings(value: unknown): string[] {
   return [];
 }
 
-function buildBusinessContext({
-  business,
-  phoneNumber,
-  configJson
-}: {
-  business: any;
-  phoneNumber?: any;
-  configJson?: unknown;
-}): BusinessRuntimeContext {
+function buildBusinessContext(business: any, phoneNumber?: string | null): BusinessRuntimeContext {
   const profile = business?.profile;
   const knowledgeBases = Array.isArray(business?.knowledgeBases) ? business.knowledgeBases : [];
-  const config = typeof configJson === "object" && configJson !== null ? (configJson as Record<string, unknown>) : {};
-  const twilioMessagingServiceSid = typeof config.twilioMessagingServiceSid === "string" ? config.twilioMessagingServiceSid : undefined;
 
   return {
     businessId: business?.id,
+    ownerId: business?.ownerId,
     businessName: business?.name ?? env.TWILIO_DEFAULT_BUSINESS_NAME ?? "the business",
     businessType: business?.type ?? undefined,
+    businessPhoneNumber: phoneNumber ?? undefined,
     bookingUrl: profile?.bookingUrl ?? env.TWILIO_DEFAULT_BOOKING_URL ?? undefined,
     teamPhone: profile?.teamPhone ?? env.TWILIO_DEFAULT_TEAM_PHONE ?? undefined,
-    twilioFromNumber: phoneNumber?.phoneNumber ?? env.TWILIO_PHONE_NUMBER ?? undefined,
-    twilioMessagingServiceSid,
+    calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
+    timeZone: profile?.timeZone ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+    vapiAssistantId: profile?.vapiAssistantId ?? env.VAPI_DEFAULT_ASSISTANT_ID ?? undefined,
+    vapiPhoneNumberId: profile?.vapiPhoneNumberId ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID ?? undefined,
     services: jsonStringArray(profile?.services),
     faqs: faqStrings(profile?.faqsJson),
     tone: profile?.tone ?? "friendly",
@@ -136,11 +147,8 @@ async function resolveAgent({
   const normalizedCalledNumber = calledNumber ? normalizePhoneNumber(calledNumber) : "";
 
   if (normalizedCalledNumber) {
-    const phoneNumber = await prisma.businessPhoneNumber.findFirst({
-      where: {
-        phoneNumber: normalizedCalledNumber,
-        isActive: true
-      },
+    const phoneNumber = await prisma.businessPhoneNumber.findUnique({
+      where: { phoneNumber: normalizedCalledNumber },
       include: {
         business: {
           include: {
@@ -162,11 +170,7 @@ async function resolveAgent({
         userId: phoneNumber.installedAgent.workflow.architectUserId,
         workflowJson: phoneNumber.installedAgent.workflow.workflowJson,
         forwardToPhone: phoneNumber.forwardToPhone ?? undefined,
-        business: buildBusinessContext({
-          business: phoneNumber.business,
-          phoneNumber,
-          configJson: phoneNumber.installedAgent.configJson
-        })
+        business: buildBusinessContext(phoneNumber.business, phoneNumber.phoneNumber)
       };
     }
   }
@@ -190,9 +194,13 @@ async function resolveAgent({
         business: {
           businessName: env.TWILIO_DEFAULT_BUSINESS_NAME ?? normalizedCalledNumber ?? "the business",
           businessType: undefined,
+          businessPhoneNumber: normalizedCalledNumber || env.TWILIO_PHONE_NUMBER,
           bookingUrl: env.TWILIO_DEFAULT_BOOKING_URL,
           teamPhone: env.TWILIO_DEFAULT_TEAM_PHONE,
-          twilioFromNumber: normalizedCalledNumber || env.TWILIO_PHONE_NUMBER,
+          calendarId: env.GOOGLE_CALENDAR_ID ?? "primary",
+          timeZone: env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+          vapiAssistantId: env.VAPI_DEFAULT_ASSISTANT_ID,
+          vapiPhoneNumberId: env.VAPI_DEFAULT_PHONE_NUMBER_ID,
           services: [],
           faqs: [],
           tone: "friendly",
@@ -217,19 +225,23 @@ function runInputFromContext({
   callerName?: string;
   body?: string;
   reason: string;
-}) {
+}): WorkflowRunInput {
   const business = agent.business;
 
   return {
     callerNumber,
     callerName,
     businessId: business?.businessId,
+    businessOwnerId: business?.ownerId,
     businessName: business?.businessName,
     businessType: business?.businessType,
+    businessPhoneNumber: business?.businessPhoneNumber,
     bookingUrl: business?.bookingUrl,
     teamPhone: business?.teamPhone,
-    twilioFromNumber: business?.twilioFromNumber,
-    twilioMessagingServiceSid: business?.twilioMessagingServiceSid,
+    calendarId: business?.calendarId,
+    timeZone: business?.timeZone,
+    vapiAssistantId: business?.vapiAssistantId,
+    vapiPhoneNumberId: business?.vapiPhoneNumberId,
     services: business?.services,
     faqs: business?.faqs,
     tone: business?.tone,
@@ -251,7 +263,7 @@ async function upsertConversation({
 }: {
   businessId?: string;
   customerPhone: string;
-  direction: "INBOUND" | "OUTBOUND";
+  direction: "INBOUND" | "OUTBOUND" | "SYSTEM";
   body: string;
   providerId?: string | null;
 }) {
@@ -290,87 +302,41 @@ async function upsertConversation({
 
 async function upsertLead({
   businessId,
-  conversationId,
-  customerPhone,
+  phoneNumber,
   source,
   status,
-  notes
+  notes,
+  name
 }: {
   businessId?: string;
-  conversationId?: string | null;
-  customerPhone: string;
+  phoneNumber: string;
   source: string;
   status: string;
   notes?: string;
+  name?: string;
 }) {
-  if (!businessId) return;
+  if (!businessId) return null;
 
-  await prisma.lead.upsert({
+  return prisma.lead.upsert({
     where: {
       businessId_phoneNumber: {
         businessId,
-        phoneNumber: customerPhone
+        phoneNumber
       }
     },
     update: {
-      conversationId: conversationId ?? undefined,
       status,
-      notes: notes ?? undefined
+      notes,
+      name: name || undefined
     },
     create: {
       businessId,
-      conversationId: conversationId ?? null,
-      phoneNumber: customerPhone,
+      phoneNumber,
       source,
       status,
-      notes: notes ?? null
+      notes,
+      name
     }
-  });
-}
-
-function getRunRecord(context: Record<string, unknown>, key: string) {
-  const value = context[key];
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
-}
-
-function getRunText(context: Record<string, unknown>, key: string) {
-  const value = context[key];
-  return typeof value === "string" ? value : "";
-}
-
-async function recordWorkflowRunResult({
-  agent,
-  customerPhone,
-  runContext,
-  source,
-  notes
-}: {
-  agent: ResolvedAgent;
-  customerPhone: string;
-  runContext: Record<string, unknown>;
-  source: string;
-  notes: string;
-}) {
-  const sentSms = getRunRecord(runContext, "sentSms");
-  const smsBody = sentSms ? getRunText(sentSms, "body") : "";
-  const smsId = sentSms ? getRunText(sentSms, "id") : null;
-  const conversation = smsBody
-    ? await upsertConversation({
-        businessId: agent.business?.businessId,
-        customerPhone,
-        direction: "OUTBOUND",
-        body: smsBody,
-        providerId: smsId
-      })
-    : null;
-
-  await upsertLead({
-    businessId: agent.business?.businessId,
-    conversationId: conversation?.id ?? null,
-    customerPhone,
-    source,
-    status: "CAPTURED",
-    notes
   });
 }
 
@@ -412,10 +378,152 @@ function buildInboundSmsReply(agent: ResolvedAgent, incomingBody: string) {
   return `Thanks for texting ${businessName}. How can we help you today?${bookingUrl ? ` You can also book here: ${bookingUrl}` : ""}`;
 }
 
+async function maybeStartVapiAfterMissedCall({
+  agent,
+  callerNumber,
+  callerName,
+  conversationId,
+  reason,
+  existingCallId
+}: {
+  agent: ResolvedAgent;
+  callerNumber: string;
+  callerName?: string;
+  conversationId?: string | null;
+  reason: string;
+  existingCallId?: string | null;
+}) {
+  if (existingCallId || !agent.business) return existingCallId ?? null;
+
+  const call = await startVapiOutboundCall({
+    customerPhone: callerNumber,
+    customerName: callerName,
+    business: {
+      businessId: agent.business.businessId,
+      businessName: agent.business.businessName,
+      businessType: agent.business.businessType,
+      bookingUrl: agent.business.bookingUrl,
+      teamPhone: agent.business.teamPhone,
+      services: agent.business.services,
+      faqs: agent.business.faqs,
+      knowledge: agent.business.knowledge,
+      tone: agent.business.tone,
+      escalationRules: agent.business.escalationRules,
+      calendarId: agent.business.calendarId,
+      timeZone: agent.business.timeZone
+    },
+    reason,
+    assistantId: agent.business.vapiAssistantId,
+    phoneNumberId: agent.business.vapiPhoneNumberId,
+    metadata: {
+      businessId: agent.business.businessId,
+      businessOwnerId: agent.business.ownerId,
+      conversationId,
+      workflowId: agent.workflowId
+    }
+  });
+
+  if (agent.business.businessId && call.id) {
+    await prisma.vapiCall.upsert({
+      where: { callId: call.id },
+      update: {
+        status: call.status ?? "STARTED",
+        conversationId: conversationId ?? undefined
+      },
+      create: {
+        businessId: agent.business.businessId,
+        conversationId: conversationId ?? undefined,
+        callId: call.id,
+        customerPhone: callerNumber,
+        status: call.status ?? "STARTED",
+        metadataJson: {
+          workflowId: agent.workflowId,
+          reason
+        }
+      }
+    });
+  }
+
+  return call.id;
+}
+
+async function runMissedCallAgent({
+  agent,
+  callerNumber,
+  callerName,
+  reason
+}: {
+  agent: ResolvedAgent;
+  callerNumber: string;
+  callerName?: string;
+  reason: string;
+}) {
+  const conversation = await upsertConversation({
+    businessId: agent.business?.businessId,
+    customerPhone: callerNumber,
+    direction: "SYSTEM",
+    body: `Missed call detected. ${reason}`,
+    providerId: null
+  });
+
+  const run = await runWorkflowTest({
+    userId: agent.business?.ownerId ?? agent.userId,
+    workflowId: agent.workflowId,
+    workflowJson: agent.workflowJson,
+    mode: "live",
+    input: runInputFromContext({
+      agent,
+      callerNumber,
+      callerName,
+      reason
+    })
+  });
+
+  const sentSms = typeof run.context.sentSms === "object" && run.context.sentSms !== null
+    ? (run.context.sentSms as { body?: string; id?: string | null })
+    : null;
+
+  if (sentSms?.body) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone: callerNumber,
+      direction: "OUTBOUND",
+      body: sentSms.body,
+      providerId: sentSms.id ?? null
+    });
+  }
+
+  const existingVapiId = typeof run.context.vapiCall === "object" && run.context.vapiCall !== null
+    ? (run.context.vapiCall as { id?: string | null }).id
+    : null;
+
+  await maybeStartVapiAfterMissedCall({
+    agent,
+    callerNumber,
+    callerName,
+    conversationId: conversation?.id,
+    reason,
+    existingCallId: existingVapiId
+  }).catch((error) => {
+    console.error("Vapi follow-up call failed", error);
+  });
+
+  await upsertLead({
+    businessId: agent.business?.businessId,
+    phoneNumber: callerNumber,
+    source: "TWILIO_MISSED_CALL",
+    status: "CAPTURED",
+    notes: reason,
+    name: callerName
+  });
+
+  return run;
+}
+
 export async function handleTwilioVoice(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
-  const body = await parseTwilioBody(c);
-  const calledNumber = readBodyString(body, ["Called", "To", "to"]) || readQueryString(c, ["calledNumber", "to"]);
+  const body = await parseBody(c);
+  const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   if (!agent) {
@@ -432,10 +540,7 @@ export async function handleTwilioVoice(c: Context) {
     });
   }
 
-  const actionPath = workflowId
-    ? `/architect/connectors/twilio/voice-action/${agent.workflowId}`
-    : "/architect/connectors/twilio/voice-action";
-  const actionUrl = `${env.BACKEND_URL}${actionPath}?calledNumber=${encodeURIComponent(calledNumber)}`;
+  const actionUrl = `${env.BACKEND_URL}/architect/connectors/twilio/voice-action/${agent.workflowId}?to=${encodeURIComponent(calledNumber)}`;
   const responseXml = [
     "<Response>",
     `<Dial timeout=\"${env.TWILIO_FORWARD_TIMEOUT_SECONDS}\" action=\"${escapeXml(actionUrl)}\" method=\"POST\" answerOnBridge=\"true\">`,
@@ -451,9 +556,10 @@ export async function handleTwilioVoice(c: Context) {
 
 export async function handleTwilioVoiceAction(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
-  const body = await parseTwilioBody(c);
-  const calledNumber = readBodyString(body, ["Called", "To", "to"]) || readQueryString(c, ["calledNumber", "to"]);
+  const body = await parseBody(c);
+  const calledNumber = readBodyString(body, ["Called", "To", "to"]) || c.req.query("to") || "";
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
+  const callerName = readBodyString(body, ["CallerName", "callerName"]);
   const dialStatus = readBodyString(body, ["DialCallStatus", "DialStatus", "CallStatus"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
@@ -465,24 +571,11 @@ export async function handleTwilioVoiceAction(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  const run = await runWorkflowTest({
-    userId: agent.userId,
-    workflowId: agent.workflowId,
-    workflowJson: agent.workflowJson,
-    mode: "live",
-    input: runInputFromContext({
-      agent,
-      callerNumber,
-      reason: `Twilio forwarded the call but office did not answer. Dial status: ${dialStatus || "unknown"}.`
-    })
-  });
-
-  await recordWorkflowRunResult({
+  await runMissedCallAgent({
     agent,
-    customerPhone: callerNumber,
-    runContext: run.context as Record<string, unknown>,
-    source: "TWILIO_MISSED_CALL",
-    notes: `Missed call after dial status: ${dialStatus || "unknown"}`
+    callerNumber,
+    callerName,
+    reason: `Twilio forwarded the call but office did not answer. Dial status: ${dialStatus || "unknown"}.`
   });
 
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
@@ -490,8 +583,8 @@ export async function handleTwilioVoiceAction(c: Context) {
 
 export async function handleTwilioMissedCall(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
-  const body = await parseTwilioBody(c);
-  const calledNumber = readBodyString(body, ["Called", "To", "to"]) || readQueryString(c, ["calledNumber", "to"]);
+  const body = await parseBody(c);
+  const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
@@ -500,25 +593,11 @@ export async function handleTwilioMissedCall(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  const run = await runWorkflowTest({
-    userId: agent.userId,
-    workflowId: agent.workflowId,
-    workflowJson: agent.workflowJson,
-    mode: "live",
-    input: runInputFromContext({
-      agent,
-      callerNumber,
-      callerName,
-      reason: "Direct Twilio missed-call webhook triggered this agent."
-    })
-  });
-
-  await recordWorkflowRunResult({
+  await runMissedCallAgent({
     agent,
-    customerPhone: callerNumber,
-    runContext: run.context as Record<string, unknown>,
-    source: "TWILIO_MISSED_CALL",
-    notes: "Direct missed-call webhook"
+    callerNumber,
+    callerName,
+    reason: "Direct Twilio missed-call webhook triggered this agent."
   });
 
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
@@ -526,7 +605,7 @@ export async function handleTwilioMissedCall(c: Context) {
 
 export async function handleTwilioInboundSms(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
-  const body = await parseTwilioBody(c);
+  const body = await parseBody(c);
   const businessNumber = readBodyString(body, ["To", "to"]);
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
@@ -536,7 +615,7 @@ export async function handleTwilioInboundSms(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  const conversation = await upsertConversation({
+  await upsertConversation({
     businessId: agent.business?.businessId,
     customerPhone,
     direction: "INBOUND",
@@ -548,8 +627,7 @@ export async function handleTwilioInboundSms(c: Context) {
   const sent = await sendTwilioSms({
     to: customerPhone,
     body: replyBody,
-    from: agent.business?.twilioFromNumber || businessNumber,
-    messagingServiceSid: agent.business?.twilioMessagingServiceSid
+    fromPhoneNumber: agent.business?.businessPhoneNumber
   });
 
   await upsertConversation({
@@ -562,12 +640,210 @@ export async function handleTwilioInboundSms(c: Context) {
 
   await upsertLead({
     businessId: agent.business?.businessId,
-    conversationId: conversation?.id ?? null,
-    customerPhone,
+    phoneNumber: customerPhone,
     source: "TWILIO_SMS",
     status: "ENGAGED",
     notes: incomingBody
   });
 
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+}
+
+function getVapiMetadata(body: Record<string, unknown>) {
+  const metadata = getNestedRecord(body, ["message", "call", "metadata"]);
+  if (typeof metadata === "object" && metadata !== null) return metadata as Record<string, unknown>;
+  const directMetadata = body.metadata;
+  if (typeof directMetadata === "object" && directMetadata !== null) return directMetadata as Record<string, unknown>;
+  return {} as Record<string, unknown>;
+}
+
+function getFirstToolCall(body: Record<string, unknown>) {
+  const list = getNestedRecord(body, ["message", "toolCallList"]);
+  if (Array.isArray(list) && list.length > 0 && typeof list[0] === "object" && list[0] !== null) {
+    const record = list[0] as Record<string, unknown>;
+    return {
+      id: typeof record.id === "string" ? record.id : "",
+      name: typeof record.name === "string" ? record.name : "",
+      parameters:
+        typeof record.parameters === "object" && record.parameters !== null
+          ? (record.parameters as Record<string, unknown>)
+          : {}
+    };
+  }
+
+  const toolWithToolCallList = getNestedRecord(body, ["message", "toolWithToolCallList"]);
+  if (Array.isArray(toolWithToolCallList) && toolWithToolCallList.length > 0 && typeof toolWithToolCallList[0] === "object" && toolWithToolCallList[0] !== null) {
+    const record = toolWithToolCallList[0] as Record<string, unknown>;
+    const toolCall = typeof record.toolCall === "object" && record.toolCall !== null ? (record.toolCall as Record<string, unknown>) : {};
+    return {
+      id: typeof toolCall.id === "string" ? toolCall.id : "",
+      name: typeof record.name === "string" ? record.name : "",
+      parameters:
+        typeof toolCall.parameters === "object" && toolCall.parameters !== null
+          ? (toolCall.parameters as Record<string, unknown>)
+          : {}
+    };
+  }
+
+  const legacyName = firstNestedString(body, [
+    ["message", "toolCall", "function", "name"],
+    ["toolCall", "function", "name"],
+    ["function", "name"]
+  ]);
+  const legacyId = firstNestedString(body, [
+    ["message", "toolCall", "id"],
+    ["toolCall", "id"],
+    ["id"]
+  ]);
+  const rawArguments =
+    getNestedRecord(body, ["message", "toolCall", "function", "arguments"]) ??
+    getNestedRecord(body, ["toolCall", "function", "arguments"]) ??
+    body.arguments;
+
+  let parameters: Record<string, unknown> = {};
+  if (typeof rawArguments === "string") {
+    try {
+      parameters = JSON.parse(rawArguments) as Record<string, unknown>;
+    } catch {
+      parameters = {};
+    }
+  } else if (typeof rawArguments === "object" && rawArguments !== null) {
+    parameters = rawArguments as Record<string, unknown>;
+  }
+
+  return {
+    id: legacyId,
+    name: legacyName,
+    parameters
+  };
+}
+
+async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
+  const metadata = getVapiMetadata(body);
+  const businessId = typeof metadata.businessId === "string" ? metadata.businessId : "";
+
+  if (!businessId) return null;
+
+  return prisma.business.findUnique({
+    where: { id: businessId },
+    include: {
+      profile: true,
+      knowledgeBases: true
+    }
+  });
+}
+
+export async function handleVapiWebhook(c: Context) {
+  const body = await parseBody(c);
+  const metadata = getVapiMetadata(body);
+  const business = await findBusinessByVapiWebhook(body);
+  const businessContext = business ? buildBusinessContext(business) : null;
+  const callId = firstNestedString(body, [
+    ["message", "call", "id"],
+    ["call", "id"],
+    ["id"]
+  ]);
+  const customerPhone =
+    firstNestedString(body, [["message", "call", "customer", "number"], ["call", "customer", "number"]]) ||
+    (typeof metadata.customerPhone === "string" ? metadata.customerPhone : "");
+  const conversationId = typeof metadata.conversationId === "string" ? metadata.conversationId : undefined;
+  const messageType = firstNestedString(body, [["message", "type"], ["type"]]);
+  const summary = firstNestedString(body, [["message", "summary"], ["summary"]]);
+  const transcript = firstNestedString(body, [["message", "transcript"], ["transcript"]]);
+
+  if (businessContext?.businessId && callId) {
+    await prisma.vapiCall.upsert({
+      where: { callId },
+      update: {
+        status: messageType || "UPDATED",
+        transcript: transcript || undefined,
+        summary: summary || undefined,
+        endedAt: /end|ended|report/.test(messageType) ? new Date() : undefined,
+        metadataJson: body as never
+      },
+      create: {
+        businessId: businessContext.businessId,
+        conversationId,
+        callId,
+        customerPhone,
+        status: messageType || "STARTED",
+        transcript: transcript || null,
+        summary: summary || null,
+        metadataJson: body as never
+      }
+    });
+  }
+
+  const toolCall = getFirstToolCall(body);
+  const toolName = toolCall.name;
+  const args = toolCall.parameters;
+
+  if (toolName === "book_appointment" && businessContext?.businessId && businessContext.ownerId && customerPhone) {
+    const requestedStart = typeof args.startAt === "string" ? args.startAt : undefined;
+    const requestedEnd = typeof args.endAt === "string" ? args.endAt : undefined;
+    const defaultWindow = getDefaultAppointmentWindow(businessContext.timeZone);
+    const service = typeof args.service === "string" ? args.service : "Consultation";
+    const customerName = typeof args.customerName === "string" ? args.customerName : undefined;
+
+    const calendarEvent = await createGoogleCalendarAppointment({
+      userId: businessContext.ownerId,
+      calendarId: businessContext.calendarId,
+      timeZone: businessContext.timeZone,
+      businessName: businessContext.businessName,
+      customerName,
+      customerPhone,
+      service,
+      startAt: requestedStart ?? defaultWindow.startAt,
+      endAt: requestedEnd ?? defaultWindow.endAt,
+      description: `Booked by Vapi AI Receptionist after missed-call follow-up. Phone: ${customerPhone}`
+    });
+
+    await prisma.appointment.create({
+      data: {
+        businessId: businessContext.businessId,
+        conversationId,
+        customerPhone,
+        customerName,
+        service,
+        startAt: new Date(calendarEvent.startAt),
+        endAt: new Date(calendarEvent.endAt),
+        timeZone: calendarEvent.timeZone,
+        calendarEventId: calendarEvent.id,
+        notes: summary || transcript || null
+      }
+    });
+
+    const smsBody = `Booked with ${businessContext.businessName}: ${service} at ${new Date(calendarEvent.startAt).toLocaleString()}. Reply if you need to change it.`;
+    await sendTwilioSms({
+      to: customerPhone,
+      body: smsBody,
+      fromPhoneNumber: businessContext.businessPhoneNumber
+    });
+
+    await upsertConversation({
+      businessId: businessContext.businessId,
+      customerPhone,
+      direction: "OUTBOUND",
+      body: smsBody,
+      providerId: calendarEvent.id
+    });
+
+    return c.json({
+      results: [
+        {
+          name: toolName,
+          toolCallId: toolCall.id,
+          result: JSON.stringify({
+            status: "booked",
+            calendarEventId: calendarEvent.id,
+            startAt: calendarEvent.startAt,
+            endAt: calendarEvent.endAt,
+            message: `Appointment booked with ${businessContext.businessName}.`
+          })
+        }
+      ]
+    });
+  }
+
+  return c.json({ ok: true });
 }

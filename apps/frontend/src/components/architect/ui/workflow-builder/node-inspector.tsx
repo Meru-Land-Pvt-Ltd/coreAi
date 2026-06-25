@@ -287,7 +287,11 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 }
 
 function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const isGmail = selectedNode.data.connector === "Gmail";
+  const connector = selectedNode.data.connector ?? "SMS";
+  const isGmail = connector === "Gmail";
+  const isVapi = connector === "Vapi";
+  const isCalendar = connector === "Google Calendar";
+
   return (
     <>
       <Section title="General">
@@ -298,7 +302,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           <TextInput value={selectedNode.data.subtitle ?? ""} onChange={(value) => onUpdateNodeData("subtitle", value)} />
         </div>
       </Section>
-      <Section title={isGmail ? "Gmail action" : "Message"}>
+      <Section title={isGmail ? "Gmail action" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : "Message"}>
         {isGmail ? (
           <>
             <Label>Action</Label>
@@ -313,13 +317,30 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
               </>
             )}
           </>
+        ) : isVapi ? (
+          <>
+            <Label>Action</Label>
+            <SelectBox value={selectedNode.data.connectorAction ?? "start_voice_call"} onChange={(value) => onUpdateNodeData("connectorAction", value)} options={["start_voice_call"]} />
+            <div className="mt-4"><Label>Assistant ID</Label><TextInput mono value={selectedNode.data.vapiAssistantId ?? "{{business.vapiAssistantId}}"} onChange={(value) => onUpdateNodeData("vapiAssistantId", value)} /></div>
+            <div className="mt-4"><Label>Phone Number ID</Label><TextInput mono value={selectedNode.data.vapiPhoneNumberId ?? "{{business.vapiPhoneNumberId}}"} onChange={(value) => onUpdateNodeData("vapiPhoneNumberId", value)} /></div>
+            <p className="mt-3 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-700">Vapi receives business context variables, talks to the patient, and can call the Vapi webhook tool to book appointments.</p>
+          </>
+        ) : isCalendar ? (
+          <>
+            <Label>Action</Label>
+            <SelectBox value={selectedNode.data.connectorAction ?? "book_appointment"} onChange={(value) => onUpdateNodeData("connectorAction", value)} options={["book_appointment"]} />
+            <div className="mt-4"><Label>Calendar ID</Label><TextInput mono value={selectedNode.data.calendarId ?? "{{business.calendarId}}"} onChange={(value) => onUpdateNodeData("calendarId", value)} /></div>
+            <div className="mt-4"><Label>Service</Label><TextInput value={selectedNode.data.appointmentService ?? "Consultation"} onChange={(value) => onUpdateNodeData("appointmentService", value)} /></div>
+            <div className="mt-4"><Label>Summary</Label><TextInput mono value={selectedNode.data.calendarSummary ?? "{{appointmentService}} - {{caller_number}}"} onChange={(value) => onUpdateNodeData("calendarSummary", value)} /></div>
+            <div className="mt-4"><Label>Description</Label><TextArea mono height="h-20" value={selectedNode.data.calendarDescription ?? "Booked by CORE AI Receptionist after missed-call follow-up."} onChange={(value) => onUpdateNodeData("calendarDescription", value)} /></div>
+          </>
         ) : (
           <>
             <Label>Send to</Label>
             <TextInput mono value={selectedNode.data.smsTo ?? "{caller_number}"} onChange={(value) => onUpdateNodeData("smsTo", value)} />
             <div className="mt-4">
               <Label>Message body</Label>
-              <TextArea value={selectedNode.data.smsBody ?? "{message_text}"} onChange={(value) => onUpdateNodeData("smsBody", value)} height="h-[88px]" />
+              <TextArea value={selectedNode.data.smsBody ?? "{{ai.output}}"} onChange={(value) => onUpdateNodeData("smsBody", value)} height="h-[88px]" />
               <p className="mt-1 text-[11px] text-slate-400">Uses the AI-generated text from the previous step.</p>
             </div>
           </>
@@ -327,8 +348,8 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       </Section>
       <Section title="Delivery" last>
         <Label>Provider</Label>
-        <SelectBox value={isGmail ? "Gmail" : "Twilio"} onChange={() => undefined} options={isGmail ? ["Gmail"] : ["Twilio", "MessageBird", "Vonage", "Telnyx"]} />
-        <div className="mt-4"><Toggle label={isGmail ? "Create safe draft first" : "Send immediately"} /></div>
+        <SelectBox value={isGmail ? "Gmail" : isVapi ? "Vapi" : isCalendar ? "Google Calendar" : "Twilio"} onChange={() => undefined} options={isGmail ? ["Gmail"] : isVapi ? ["Vapi"] : isCalendar ? ["Google Calendar"] : ["Twilio", "MessageBird", "Vonage", "Telnyx"]} />
+        <div className="mt-4"><Toggle label={isGmail ? "Create safe draft first" : isVapi ? "Call patient after missed call" : isCalendar ? "Create appointment event" : "Send immediately"} /></div>
       </Section>
     </>
   );

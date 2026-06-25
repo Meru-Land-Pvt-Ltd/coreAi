@@ -77,3 +77,29 @@ export function getGmailRead(context: Record<string, unknown>) {
     body: getRunTextFromRecord(gmail, "body")
   };
 }
+
+export function getVapiCall(context: Record<string, unknown>) {
+  const vapiCall = getRunRecord(context, "vapiCall");
+  if (!vapiCall) return null;
+
+  return {
+    id: getRunTextFromRecord(vapiCall, "id"),
+    status: getRunTextFromRecord(vapiCall, "status"),
+    customerPhone: getRunTextFromRecord(vapiCall, "customerPhone"),
+    providerCalled: Boolean(vapiCall.providerCalled)
+  };
+}
+
+export function getCalendarAppointment(context: Record<string, unknown>) {
+  const calendarAppointment = getRunRecord(context, "calendarAppointment");
+  if (!calendarAppointment) return null;
+
+  return {
+    id: getRunTextFromRecord(calendarAppointment, "id"),
+    calendarId: getRunTextFromRecord(calendarAppointment, "calendarId"),
+    summary: getRunTextFromRecord(calendarAppointment, "summary"),
+    startAt: getRunTextFromRecord(calendarAppointment, "startAt"),
+    endAt: getRunTextFromRecord(calendarAppointment, "endAt"),
+    timeZone: getRunTextFromRecord(calendarAppointment, "timeZone")
+  };
+}

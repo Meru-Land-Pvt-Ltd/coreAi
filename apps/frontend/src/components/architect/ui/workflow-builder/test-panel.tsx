@@ -1,7 +1,7 @@
 import type { WorkflowRunLog } from "@/components/architect/features/types";
 import { BuilderIcon } from "./icons";
 import { logColor } from "./run-context";
-import { getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms } from "./run-context";
+import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 
 export function TestPanel({
   hasGmailFlow,
@@ -43,7 +43,9 @@ export function TestPanel({
   const draftEmail = getDraftEmail(runContext);
   const sentEmail = getSentEmail(runContext);
   const gmailRead = getGmailRead(runContext);
-  const hasResult = Boolean(sentSms || draftEmail || sentEmail || gmailRead || runLogs.length > 0);
+  const vapiCall = getVapiCall(runContext);
+  const calendarAppointment = getCalendarAppointment(runContext);
+  const hasResult = Boolean(sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || runLogs.length > 0);
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -179,6 +181,8 @@ export function TestPanel({
                     <p className="mt-2 font-mono text-xs text-slate-400">
                       {sentSms?.providerCalled ? (sentSms.twilioTestMode ? "Twilio test accepted" : "Delivered") : "Dry run"} - {sentSms?.body?.length ?? 142} characters - est. cost $0.15
                     </p>
+                    {vapiCall ? <p className="mt-2 font-mono text-xs text-violet-500">Vapi voice: {vapiCall.providerCalled ? "Started" : "Dry run"} {vapiCall.status ? `- ${vapiCall.status}` : ""}</p> : null}
+                    {calendarAppointment ? <p className="mt-2 font-mono text-xs text-blue-500">Calendar: {calendarAppointment.id ? "Booked" : "Dry run"} - {calendarAppointment.summary}</p> : null}
                   </>
                 )}
               </div>

@@ -86,6 +86,42 @@ export const libraryGroups: LibraryGroup[] = [
       }
     ]
   },
+
+  {
+    title: "Voice + Calendar",
+    items: [
+      {
+        nodeKind: "connector",
+        label: "AI Voice Callback",
+        helper: "Vapi talks to the patient",
+        icon: "phone-call",
+        accent: "violet",
+        overrides: {
+          title: "AI Voice Callback",
+          subtitle: "Vapi calls the patient and answers questions using business context",
+          connector: "Vapi",
+          connectorAction: "start_voice_call",
+          vapiAssistantId: "{{business.vapiAssistantId}}",
+          vapiPhoneNumberId: "{{business.vapiPhoneNumberId}}"
+        }
+      },
+      {
+        nodeKind: "connector",
+        label: "Book Appointment",
+        helper: "Create Google Calendar event",
+        icon: "calendar",
+        accent: "blue",
+        overrides: {
+          title: "Book Appointment",
+          subtitle: "Google Calendar creates the booked appointment",
+          connector: "Google Calendar",
+          connectorAction: "book_appointment",
+          calendarId: "{{business.calendarId}}",
+          appointmentService: "Consultation"
+        }
+      }
+    ]
+  },
   {
     title: "Gmail",
     items: [
@@ -156,7 +192,7 @@ export const agentTemplates: AgentTemplate[] = [
   {
     id: "missed-call",
     title: "Build Missed Call Text-Back",
-    description: "Customer Calls → Text in 5s → Lead Captured",
+    description: "Twilio missed call → Vapi voice → Calendar booking → SMS follow-up",
     accent: "amber",
     icon: "phone",
     flow: createMissedCallTextBackFlow
