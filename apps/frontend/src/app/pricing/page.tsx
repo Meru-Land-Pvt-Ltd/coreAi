@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useEffect, useState, type CSSProperties } from "react";
 import { CoreHeader } from "@/components/common/header";
 import { CoreFooter } from "@/components/common/footer";
+import {
+  ASSIGNMENT_PATH,
+  BUSINESS_LOGIN_PATH,
+  BUSINESS_MARKETPLACE_PATH
+} from "@/lib/routes";
 
 const pricingSteps = [
   {
@@ -544,7 +549,7 @@ export default function PricingPage() {
               </ul>
 
               <Link
-                href="/business/login"
+                href={BUSINESS_LOGIN_PATH}
                 className="mt-9 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-9 py-4 text-lg font-semibold text-slate-950 shadow-[0_0_90px_-10px_rgba(245,158,11,0.3)] transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
               >
                 Start Free Trial
@@ -613,7 +618,7 @@ export default function PricingPage() {
 
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
-                href="/business/marketplace"
+                href={BUSINESS_MARKETPLACE_PATH}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-8 py-4 text-base font-semibold text-slate-950 shadow-[0_0_90px_-10px_rgba(245,158,11,0.3)] transition duration-200 hover:scale-[1.03] hover:bg-amber-400 sm:w-auto"
               >
                 Explore Marketplace
@@ -621,7 +626,7 @@ export default function PricingPage() {
               </Link>
 
               <Link
-                href="/assignment"
+                href={ASSIGNMENT_PATH}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 px-8 py-4 text-base font-semibold text-white transition duration-200 hover:scale-[1.03] hover:bg-white/10 sm:w-auto"
               >
                 Take Free Assessment

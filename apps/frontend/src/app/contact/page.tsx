@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import Link from "next/link";
 import { CoreHeader } from "@/components/common/header";
 import { CoreFooter } from "@/components/common/footer";
+import { BUSINESS_MARKETPLACE_PATH } from "@/lib/routes";
 
 type SearchType = "faq" | "category" | "article";
 
@@ -667,7 +668,7 @@ export default function HelpPage() {
             <h2 className="text-xl font-bold text-slate-900">Ready to get started?</h2>
 
             <Link
-              href="/business/marketplace"
+              href={BUSINESS_MARKETPLACE_PATH}
               className="mt-4 inline-flex items-center justify-center rounded-xl bg-amber-500 px-8 py-3.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition-all hover:-translate-y-0.5 hover:bg-amber-600 hover:shadow-amber-500/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
             >
               Browse AI Agents

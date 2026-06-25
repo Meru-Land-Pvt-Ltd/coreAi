@@ -4,6 +4,14 @@ import { apiPost } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  ARCHITECT_LOGIN_PATH,
+  ASSIGNMENT_PATH,
+  BUSINESS_CHECKOUT_PATH,
+  BUSINESS_LOGIN_PATH,
+  BUSINESS_MARKETPLACE_PATH,
+  businessAgentPath
+} from "@/lib/routes";
 
 type Agent = {
     id: string;
@@ -273,7 +281,7 @@ export default function MarketplacePage() {
             localStorage.removeItem("coreai_token");
             localStorage.removeItem("coreai_user");
             sessionStorage.clear();
-            router.replace("/business/login");
+            router.replace(BUSINESS_LOGIN_PATH);
             return;
         }
 
@@ -342,11 +350,11 @@ export default function MarketplacePage() {
         localStorage.removeItem("coreai_token");
         localStorage.removeItem("coreai_user");
         sessionStorage.clear();
-        router.replace("/business/login");
+        router.replace(BUSINESS_LOGIN_PATH);
     }
 
     function openAgentPage(agent: Agent) {
-        router.push(`/business/agent/${agent.id}`);
+        router.push(businessAgentPath(agent.id));
     }
 
     function openDetailsModal(agent: Agent) {
@@ -401,7 +409,7 @@ export default function MarketplacePage() {
             <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 shadow-sm backdrop-blur">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6">
                     <div className="flex flex-wrap items-center gap-3 py-3">
-                        <Link href="/business/marketplace" className="flex shrink-0 items-center gap-2.5">
+                        <Link href={BUSINESS_MARKETPLACE_PATH} className="flex shrink-0 items-center gap-2.5">
                             <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30">
                                 ●
                             </span>
@@ -810,7 +818,7 @@ export default function MarketplacePage() {
                 <div className="mx-auto max-w-7xl px-4 sm:px-6">
                     <div className="grid grid-cols-2 gap-8 md:grid-cols-5">
                         <div className="col-span-2 md:col-span-1">
-                            <Link href="/business/marketplace" className="flex items-center gap-2.5">
+                            <Link href={BUSINESS_MARKETPLACE_PATH} className="flex items-center gap-2.5">
                                 <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white">
                                     ●
                                 </span>

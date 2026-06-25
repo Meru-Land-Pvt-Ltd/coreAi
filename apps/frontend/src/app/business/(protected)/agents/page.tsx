@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import {
+  BUSINESS_MARKETPLACE_PATH,
+  FOOTER_HASH_PATH,
+  HOME_PATH
+} from "@/lib/routes";
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -446,7 +451,7 @@ export default function MissedCallTextBackPage() {
             <Link href="/" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               Home
             </Link>
-            <Link href="/business/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+            <Link href={BUSINESS_MARKETPLACE_PATH} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               Marketplace
             </Link>
             <a href="#bottom-cta" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
@@ -485,16 +490,22 @@ export default function MissedCallTextBackPage() {
         {menuOpen ? (
           <div className="border-t border-gray-200 bg-white/95 backdrop-blur-md md:hidden">
             <div className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-4">
-              {["Home", "Marketplace", "Pricing", "About", "Contact"].map((item) => (
-                <Link
-                  key={item}
-                  href={item === "Home" ? "/" : item === "Marketplace" ? "/business/marketplace" : "#footer"}
-                  onClick={() => setMenuOpen(false)}
-                  className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
-                >
-                  {item}
-                </Link>
-              ))}
+{[
+  { label: "Home", href: HOME_PATH },
+  { label: "Marketplace", href: BUSINESS_MARKETPLACE_PATH },
+  { label: "Pricing", href: FOOTER_HASH_PATH },
+  { label: "About", href: FOOTER_HASH_PATH },
+  { label: "Contact", href: FOOTER_HASH_PATH }
+].map((item) => (
+  <Link
+    key={item.label}
+    href={item.href}
+    onClick={() => setMenuOpen(false)}
+    className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+  >
+    {item.label}
+  </Link>
+))}
 
               <a
                 href="#hero-cta"
@@ -512,7 +523,7 @@ export default function MissedCallTextBackPage() {
         <nav className="mx-auto max-w-6xl px-6 py-3 text-sm" aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-2 text-slate-500">
             <li>
-              <Link href="/business/marketplace" className="transition hover:text-amber-600">
+              <Link href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
                 Marketplace
               </Link>
             </li>
