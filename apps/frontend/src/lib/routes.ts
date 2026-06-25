@@ -12,6 +12,7 @@ export const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 export const FOOTER_HASH_PATH = "#footer" as Route;
 export const ABOUT_HASH_PATH = "/#about" as Route;
 export const CONTACT_HASH_PATH = "/#contact" as Route;
+export const HELP_PATH = "/contact" as Route;
 
 export function businessAgentPath(agentId: string): Route {
   return `/business/agent/${agentId}` as Route;

@@ -5,12 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  ARCHITECT_LOGIN_PATH,
-  ASSIGNMENT_PATH,
-  BUSINESS_CHECKOUT_PATH,
-  BUSINESS_LOGIN_PATH,
-  BUSINESS_MARKETPLACE_PATH,
-  businessAgentPath
+    BUSINESS_LOGIN_PATH,
+    BUSINESS_MARKETPLACE_PATH,
+    businessAgentPath
 } from "@/lib/routes";
 
 type Agent = {
@@ -266,8 +263,13 @@ export default function MarketplacePage() {
     const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
     useEffect(() => {
-        const token = localStorage.getItem("coreai_token");
-        const userRaw = localStorage.getItem("coreai_user");
+        const token =
+            localStorage.getItem("coreai-token") ||
+            localStorage.getItem("coreai_token");
+
+        const userRaw =
+            localStorage.getItem("coreai-user") ||
+            localStorage.getItem("coreai_user");
 
         let role = "";
 
@@ -278,7 +280,9 @@ export default function MarketplacePage() {
         }
 
         if (!token || role !== "BUSINESS") {
+            localStorage.removeItem("coreai-token");
             localStorage.removeItem("coreai_token");
+            localStorage.removeItem("coreai-user");
             localStorage.removeItem("coreai_user");
             sessionStorage.clear();
             router.replace(BUSINESS_LOGIN_PATH);
@@ -346,13 +350,6 @@ export default function MarketplacePage() {
         };
     }, [selectedAgent]);
 
-    function handleLogout() {
-        localStorage.removeItem("coreai_token");
-        localStorage.removeItem("coreai_user");
-        sessionStorage.clear();
-        router.replace(BUSINESS_LOGIN_PATH);
-    }
-
     function openAgentPage(agent: Agent) {
         router.push(businessAgentPath(agent.id));
     }
@@ -406,42 +403,19 @@ export default function MarketplacePage() {
 
     return (
         <main className="min-h-screen bg-white text-slate-900">
-            <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 shadow-sm backdrop-blur">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6">
-                    <div className="flex flex-wrap items-center gap-3 py-3">
-                        <Link href={BUSINESS_MARKETPLACE_PATH} className="flex shrink-0 items-center gap-2.5">
-                            <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30">
-                                ●
-                            </span>
-                            <span className="text-xl font-extrabold tracking-tight text-slate-900">
-                                CORE
-                            </span>
-                        </Link>
+            <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur">
+                <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
+                    <div className="relative mx-auto max-w-3xl">
+                        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                            🔍
+                        </span>
 
-                        <div className="order-3 w-full md:order-2 md:flex-1 md:px-4">
-                            <div className="relative mx-auto max-w-2xl">
-                                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                    🔍
-                                </span>
-
-                                <input
-                                    value={query}
-                                    onChange={(event) => setQuery(event.target.value)}
-                                    placeholder="Search agents by name, industry, or problem..."
-                                    className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-11 pr-4 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-100"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="order-2 ml-auto flex items-center gap-2 md:order-3">
-                            <button
-                                type="button"
-                                onClick={handleLogout}
-                                className="rounded-xl border border-red-100 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100"
-                            >
-                                Logout
-                            </button>
-                        </div>
+                        <input
+                            value={query}
+                            onChange={(event) => setQuery(event.target.value)}
+                            placeholder="Search agents by name, industry, or problem..."
+                            className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-3 pl-12 pr-4 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-100"
+                        />
                     </div>
                 </div>
             </nav>
@@ -604,8 +578,8 @@ export default function MarketplacePage() {
                                         type="button"
                                         onClick={() => setIndustry(item.id)}
                                         className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
-                                                ? "border-amber-300 ring-4 ring-amber-100"
-                                                : "border-gray-100"
+                                            ? "border-amber-300 ring-4 ring-amber-100"
+                                            : "border-gray-100"
                                             }`}
                                     >
                                         <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-105 group-hover:bg-amber-500">
@@ -622,7 +596,7 @@ export default function MarketplacePage() {
                 </section>
             ) : null}
 
-            <section className="sticky top-[68px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur">
+            <section className="sticky top-[73px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6">
                     <div className="flex items-center gap-3 overflow-x-auto py-3">
                         <select
@@ -641,8 +615,8 @@ export default function MarketplacePage() {
                             type="button"
                             onClick={() => setFreeTrialOnly((current) => !current)}
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${freeTrialOnly
-                                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                                    : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
+                                ? "border-amber-300 bg-amber-50 text-amber-700"
+                                : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
                                 }`}
                         >
                             Free trial
@@ -652,8 +626,8 @@ export default function MarketplacePage() {
                             type="button"
                             onClick={() => setNewOnly((current) => !current)}
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${newOnly
-                                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                                    : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
+                                ? "border-amber-300 bg-amber-50 text-amber-700"
+                                : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
                                 }`}
                         >
                             New this month
@@ -664,8 +638,8 @@ export default function MarketplacePage() {
                                 type="button"
                                 onClick={() => setView("grid")}
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "grid"
-                                        ? "border-amber-300 bg-amber-50 text-amber-700"
-                                        : "border-gray-200 text-slate-500"
+                                    ? "border-amber-300 bg-amber-50 text-amber-700"
+                                    : "border-gray-200 text-slate-500"
                                     }`}
                             >
                                 Grid
@@ -675,8 +649,8 @@ export default function MarketplacePage() {
                                 type="button"
                                 onClick={() => setView("list")}
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "list"
-                                        ? "border-amber-300 bg-amber-50 text-amber-700"
-                                        : "border-gray-200 text-slate-500"
+                                    ? "border-amber-300 bg-amber-50 text-amber-700"
+                                    : "border-gray-200 text-slate-500"
                                     }`}
                             >
                                 List
@@ -813,82 +787,6 @@ export default function MarketplacePage() {
                     </div>
                 </div>
             </section>
-
-            <footer className="border-t border-gray-100 bg-white py-12">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6">
-                    <div className="grid grid-cols-2 gap-8 md:grid-cols-5">
-                        <div className="col-span-2 md:col-span-1">
-                            <Link href={BUSINESS_MARKETPLACE_PATH} className="flex items-center gap-2.5">
-                                <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white">
-                                    ●
-                                </span>
-                                <span className="text-xl font-extrabold tracking-tight text-slate-900">
-                                    CORE
-                                </span>
-                            </Link>
-
-                            <p className="mt-3 max-w-xs text-sm text-slate-500">
-                                The marketplace for AI agents that run the busywork of your business.
-                            </p>
-                        </div>
-
-                        <FooterGroup
-                            title="Product"
-                            items={[
-                                { label: "Marketplace", href: "/business/marketplace" },
-                                { label: "For Architects", href: "/architect/login" },
-                                { label: "Pricing", href: "/business/checkout" }
-                            ]}
-                        />
-
-                        <FooterGroup
-                            title="Company"
-                            items={[
-                                { label: "About", href: "/about" },
-                                { label: "Blog", href: "/blog" },
-                                { label: "Contact", href: "/#contact" }
-                            ]}
-                        />
-
-                        <FooterGroup
-                            title="Resources"
-                            items={[
-                                { label: "Docs", href: "/docs" },
-                                { label: "Help center", href: "/help" },
-                                { label: "Status", href: "/status" }
-                            ]}
-                        />
-
-                        <FooterGroup
-                            title="Legal"
-                            items={[
-                                { label: "Privacy", href: "/privacy" },
-                                { label: "Terms", href: "/terms" },
-                                { label: "Security", href: "/security" }
-                            ]}
-                        />
-                    </div>
-
-                    <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-gray-100 pt-6 sm:flex-row">
-                        <p className="text-sm text-slate-400">
-                            © {new Date().getFullYear()} CORE AI Agent Platform. All rights reserved.
-                        </p>
-
-                        <div className="flex items-center gap-3 text-sm text-slate-400">
-                            <Link href="#" className="transition hover:text-amber-600">
-                                X
-                            </Link>
-                            <Link href="#" className="transition hover:text-amber-600">
-                                LinkedIn
-                            </Link>
-                            <Link href="#" className="transition hover:text-amber-600">
-                                GitHub
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </footer>
-
             {selectedAgent ? (
                 <AgentDetailsModal
                     agent={selectedAgent}
@@ -919,8 +817,8 @@ function Message({
     return (
         <div
             className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-sm ${mine
-                    ? "ml-auto rounded-br-md bg-amber-500 text-white"
-                    : "mr-auto rounded-bl-md bg-white text-slate-700"
+                ? "ml-auto rounded-br-md bg-amber-500 text-white"
+                : "mr-auto rounded-bl-md bg-white text-slate-700"
                 }`}
         >
             {children}
@@ -1271,31 +1169,31 @@ function TrustItem({ text }: { text: string }) {
 }
 
 function FooterGroup({
-  title,
-  items
+    title,
+    items
 }: {
-  title: string;
-  items: {
-    label: string;
-    href: string;
-  }[];
+    title: string;
+    items: {
+        label: string;
+        href: string;
+    }[];
 }) {
-  return (
-    <div>
-      <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+    return (
+        <div>
+            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
 
-      <ul className="mt-3 space-y-2">
-        {items.map((item) => (
-          <li key={item.label}>
-            <Link
-              href={item.href as any}
-              className="text-sm text-slate-500 transition hover:text-amber-600"
-            >
-              {item.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+            <ul className="mt-3 space-y-2">
+                {items.map((item) => (
+                    <li key={item.label}>
+                        <Link
+                            href={item.href as any}
+                            className="text-sm text-slate-500 transition hover:text-amber-600"
+                        >
+                            {item.label}
+                        </Link>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
 }

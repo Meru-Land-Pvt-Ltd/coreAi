@@ -2,7 +2,7 @@
 
 import type { Route } from "next";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
 
 type Agent = {
@@ -36,6 +36,12 @@ const industries: Industry[] = [
   { id: "automotive", label: "Automotive", count: 5, icon: "🚗" },
   { id: "ecommerce", label: "E-commerce", count: 11, icon: "🛍️" }
 ];
+
+const unlockedIndustryIds = ["all", "dental"];
+
+function isIndustryUnlocked(id: string) {
+  return unlockedIndustryIds.includes(id);
+}
 
 const agents: Agent[] = [
   {
@@ -181,6 +187,7 @@ export default function MarketplacePage() {
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(200);
   const [minRating, setMinRating] = useState(0);
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
   const filteredAgents = useMemo(() => {
     const cleanQuery = query.trim().toLowerCase();
@@ -293,6 +300,26 @@ export default function MarketplacePage() {
     setOpenFilter(null);
   }
 
+  useEffect(() => {
+    if (!selectedAgent) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedAgent(null);
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [selectedAgent]);
+
+  function openDetailsModal(agent: Agent) {
+    setSelectedAgent(agent);
+  }
+
   return (
     <main data-testid="app-marketplace-page-main-1" className="min-h-screen bg-white text-slate-900">
       <nav data-testid="app-marketplace-page-nav-1" className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 shadow-sm backdrop-blur">
@@ -367,103 +394,7 @@ export default function MarketplacePage() {
             <div data-testid="app-marketplace-page-div-10" className="mt-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
               <Metric label="Agents" value="50+" />
               <Metric label="Businesses" value="2,400+" />
-              <Metric label="Average rating" value="4.8 ⭐" />
-            </div>
-          </div>
-
-          <div data-testid="app-marketplace-page-div-11" className="relative mx-auto mt-12 max-w-5xl">
-            <div data-testid="app-marketplace-page-div-12" className="absolute inset-x-8 bottom-2 h-24 rounded-full bg-amber-400/30 blur-2xl" />
-
-            <div data-testid="app-marketplace-page-div-13" className="relative grid items-center gap-8 overflow-hidden rounded-3xl border border-amber-100 bg-white p-7 shadow-[0_30px_80px_-28px_rgba(245,158,11,.55)] sm:p-9 md:grid-cols-2">
-              <div data-testid="app-marketplace-page-div-14">
-                <div data-testid="app-marketplace-page-div-15" className="flex flex-wrap items-center gap-2">
-                  <span data-testid="app-marketplace-page-span-5" className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
-                    ⭐ Featured
-                  </span>
-                  <span data-testid="app-marketplace-page-span-6" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                    Communication
-                  </span>
-                </div>
-
-                <h2 data-testid="app-marketplace-page-h2-1" className="mt-4 text-3xl font-extrabold text-slate-900">
-                  Missed Call Text-Back
-                </h2>
-
-                <p data-testid="app-marketplace-page-p-2" className="mt-3 text-slate-600">
-                  Turn every missed call into a text conversation in seconds —
-                  so a busy line never costs you another customer.
-                </p>
-
-                <div data-testid="app-marketplace-page-div-16" className="mt-5 flex flex-wrap items-center gap-3">
-                  <span data-testid="app-marketplace-page-span-7" className="text-2xl font-black text-slate-900">
-                    $100
-                  </span>
-                  <span data-testid="app-marketplace-page-span-8" className="text-sm text-slate-500">one-time</span>
-                  <span data-testid="app-marketplace-page-span-9" className="h-4 w-px bg-gray-200" />
-                  <span data-testid="app-marketplace-page-span-10" className="text-sm font-semibold text-amber-600">
-                    ⭐ 4.9{" "}
-                    <span data-testid="app-marketplace-page-span-11" className="font-normal text-slate-400">
-                      (47 reviews)
-                    </span>
-                  </span>
-                </div>
-
-                <div data-testid="app-marketplace-page-div-17" className="mt-6 flex flex-wrap items-center gap-3">
-                  <Link data-testid="app-marketplace-page-link-5"
-                    href={BUSINESS_SETUP_PATH}
-                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
-                  >
-                    Start free trial
-                  </Link>
-                  <button data-testid="app-marketplace-page-button-1" className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600">
-                    View details
-                  </button>
-                </div>
-              </div>
-
-              <div data-testid="app-marketplace-page-div-18" className="flex justify-center md:justify-end">
-                <div data-testid="app-marketplace-page-div-19" className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
-                  <div data-testid="app-marketplace-page-div-20" className="overflow-hidden rounded-[1.7rem] bg-slate-50">
-                    <div data-testid="app-marketplace-page-div-21" className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
-                      <span data-testid="app-marketplace-page-span-12" className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white">
-                        BS
-                      </span>
-                      <div data-testid="app-marketplace-page-div-22">
-                        <p data-testid="app-marketplace-page-p-3" className="text-[13px] font-semibold text-slate-900">
-                          Bright Smile Dental
-                        </p>
-                        <p data-testid="app-marketplace-page-p-4" className="text-[10px] text-emerald-500">
-                          ● Active now
-                        </p>
-                      </div>
-                    </div>
-
-                    <div data-testid="app-marketplace-page-div-23" className="space-y-2.5 px-3 py-4 text-[12px] leading-snug">
-                      <div data-testid="app-marketplace-page-div-24" className="mx-auto w-fit rounded-full bg-slate-200/70 px-3 py-1 text-[10px] text-slate-500">
-                        Missed call · 9:42 AM
-                      </div>
-                      <Message mine>
-                        Hi! Sorry we missed your call. How can we help?
-                      </Message>
-                      <Message>
-                        Do you have openings this week for a cleaning?
-                      </Message>
-                      <Message mine>
-                        Yes! Thursday 2:00 PM or Friday 10:30 AM.
-                      </Message>
-                    </div>
-
-                    <div data-testid="app-marketplace-page-div-25" className="flex items-center gap-2 border-t border-gray-100 bg-white px-3 py-2.5">
-                      <div data-testid="app-marketplace-page-div-26" className="flex-1 rounded-full bg-gray-100 px-3 py-1.5 text-[11px] text-slate-400">
-                        Text message…
-                      </div>
-                      <span data-testid="app-marketplace-page-span-13" className="grid h-7 w-7 place-items-center rounded-full bg-amber-500 text-white">
-                        ➤
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <Metric label="Average rating" value="4.9 ⭐" />
             </div>
           </div>
         </div>
@@ -483,31 +414,150 @@ export default function MarketplacePage() {
           <div data-testid="app-marketplace-page-div-29" className="mt-10 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
             {industries
               .filter((item) => item.id !== "all")
-              .map((item) => (
-                <button data-testid="app-marketplace-page-button-2"
-                  key={item.id}
-                  onClick={() => setIndustry(item.id)}
-                  className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
-                    ? "border-amber-300 ring-4 ring-amber-100"
-                    : "border-gray-100"
-                    }`}
-                >
-                  <span data-testid="app-marketplace-page-span-14" className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-105 group-hover:bg-amber-500">
-                    {item.icon}
+              .map((item) => {
+                const isDental = item.id === "dental";
+
+                return (
+                  <button
+                    data-testid="app-marketplace-page-button-2"
+                    key={item.id}
+                    type="button"
+                    disabled={!isDental}
+                    onClick={() => {
+                      if (!isDental) return;
+                      setIndustry(item.id);
+                    }}
+                    className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${isDental
+                      ? `hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
+                        ? "border-amber-300 ring-4 ring-amber-100"
+                        : "border-gray-100"
+                      }`
+                      : "cursor-not-allowed border-gray-100 opacity-70"
+                      }`}
+                  >
+                    <span
+                      data-testid="app-marketplace-page-span-14"
+                      className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl transition ${isDental
+                        ? "bg-amber-50 group-hover:scale-105 group-hover:bg-amber-500"
+                        : "bg-slate-100 grayscale"
+                        }`}
+                    >
+                      {item.icon}
+                    </span>
+
+                    <p data-testid="app-marketplace-page-p-6" className="mt-3 font-semibold text-slate-900">
+                      {item.label}
+                    </p>
+
+                    <p data-testid="app-marketplace-page-p-7" className="text-sm text-slate-500">
+                      {isDental ? `${item.count} agents` : "Coming soon"}
+                    </p>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+
+        <div data-testid="app-marketplace-page-div-11" className="relative mx-auto mt-12 max-w-5xl">
+          <div data-testid="app-marketplace-page-div-12" className="absolute inset-x-8 bottom-2 h-24 rounded-full bg-amber-400/30 blur-2xl" />
+
+          <div data-testid="app-marketplace-page-div-13" className="relative grid items-center gap-8 overflow-hidden rounded-3xl border border-amber-100 bg-white p-7 shadow-[0_30px_80px_-28px_rgba(245,158,11,.55)] sm:p-9 md:grid-cols-2">
+            <div data-testid="app-marketplace-page-div-14">
+              <div data-testid="app-marketplace-page-div-15" className="flex flex-wrap items-center gap-2">
+                <span data-testid="app-marketplace-page-span-5" className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+                  ⭐ Featured
+                </span>
+                <span data-testid="app-marketplace-page-span-6" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                  Communication
+                </span>
+              </div>
+
+              <h2 data-testid="app-marketplace-page-h2-1" className="mt-4 text-3xl font-extrabold text-slate-900">
+                Missed Call Text-Back
+              </h2>
+
+              <p data-testid="app-marketplace-page-p-2" className="mt-3 text-slate-600">
+                Turn every missed call into a text conversation in seconds —
+                so a busy line never costs you another customer.
+              </p>
+
+              <div data-testid="app-marketplace-page-div-16" className="mt-5 flex flex-wrap items-center gap-3">
+                <span data-testid="app-marketplace-page-span-7" className="text-2xl font-black text-slate-900">
+                  $100
+                </span>
+                <span data-testid="app-marketplace-page-span-8" className="text-sm text-slate-500">one-time</span>
+                <span data-testid="app-marketplace-page-span-9" className="h-4 w-px bg-gray-200" />
+                <span data-testid="app-marketplace-page-span-10" className="text-sm font-semibold text-amber-600">
+                  ⭐ 4.9{" "}
+                  <span data-testid="app-marketplace-page-span-11" className="font-normal text-slate-400">
+                    (47 reviews)
                   </span>
-                  <p data-testid="app-marketplace-page-p-6" className="mt-3 font-semibold text-slate-900">
-                    {item.label}
-                  </p>
-                  <p data-testid="app-marketplace-page-p-7" className="text-sm text-slate-500">{item.count} agents</p>
+                </span>
+              </div>
+
+              <div data-testid="app-marketplace-page-div-17" className="mt-6 flex flex-wrap items-center gap-3">
+                <Link data-testid="app-marketplace-page-link-5"
+                  href={BUSINESS_SETUP_PATH}
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
+                >
+                  Start free trial
+                </Link>
+                <button data-testid="app-marketplace-page-button-1" className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600">
+                  View details
                 </button>
-              ))}
+              </div>
+            </div>
+
+            <div data-testid="app-marketplace-page-div-18" className="flex justify-center md:justify-end">
+              <div data-testid="app-marketplace-page-div-19" className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
+                <div data-testid="app-marketplace-page-div-20" className="overflow-hidden rounded-[1.7rem] bg-slate-50">
+                  <div data-testid="app-marketplace-page-div-21" className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
+                    <span data-testid="app-marketplace-page-span-12" className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white">
+                      BS
+                    </span>
+                    <div data-testid="app-marketplace-page-div-22">
+                      <p data-testid="app-marketplace-page-p-3" className="text-[13px] font-semibold text-slate-900">
+                        Bright Smile Dental
+                      </p>
+                      <p data-testid="app-marketplace-page-p-4" className="text-[10px] text-emerald-500">
+                        ● Active now
+                      </p>
+                    </div>
+                  </div>
+
+                  <div data-testid="app-marketplace-page-div-23" className="space-y-2.5 px-3 py-4 text-[12px] leading-snug">
+                    <div data-testid="app-marketplace-page-div-24" className="mx-auto w-fit rounded-full bg-slate-200/70 px-3 py-1 text-[10px] text-slate-500">
+                      Missed call · 9:42 AM
+                    </div>
+                    <Message mine>
+                      Hi! Sorry we missed your call. How can we help?
+                    </Message>
+                    <Message>
+                      Do you have openings this week for a cleaning?
+                    </Message>
+                    <Message mine>
+                      Yes! Thursday 2:00 PM or Friday 10:30 AM.
+                    </Message>
+                  </div>
+
+                  <div data-testid="app-marketplace-page-div-25" className="flex items-center gap-2 border-t border-gray-100 bg-white px-3 py-2.5">
+                    <div data-testid="app-marketplace-page-div-26" className="flex-1 rounded-full bg-gray-100 px-3 py-1.5 text-[11px] text-slate-400">
+                      Text message…
+                    </div>
+                    <span data-testid="app-marketplace-page-span-13" className="grid h-7 w-7 place-items-center rounded-full bg-amber-500 text-white">
+                      ➤
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="sticky top-[68px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
+      <section className="sticky top-[73px] z-[70] overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div className="flex items-center gap-3 overflow-x-auto py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative flex flex-wrap items-center gap-3 overflow-visible py-3">
             <div className="flex items-center gap-2.5">
               <div className="relative">
                 <button
@@ -522,21 +572,34 @@ export default function MarketplacePage() {
                 </button>
 
                 {openFilter === "industry" ? (
-                  <div className="absolute left-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
-                    {industries.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setIndustry(item.id);
-                          setOpenFilter(null);
-                        }}
-                        className={popoverOptionClass(industry === item.id)}
-                      >
-                        <span>{item.label}</span>
-                        <span className="text-xs text-slate-400">{item.count}</span>
-                      </button>
-                    ))}
+                  <div className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                    {industries.map((item) => {
+                      const unlocked = isIndustryUnlocked(item.id);
+
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={!unlocked}
+                          onClick={() => {
+                            if (!unlocked) return;
+                            setIndustry(item.id);
+                            setOpenFilter(null);
+                          }}
+                          className={
+                            unlocked
+                              ? popoverOptionClass(industry === item.id)
+                              : "flex w-full cursor-not-allowed items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-400 opacity-70"
+                          }
+                        >
+                          <span>{item.label}</span>
+
+                          <span className="text-xs text-slate-400">
+                            {unlocked ? item.count : "Coming soon"}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>
@@ -806,9 +869,17 @@ export default function MarketplacePage() {
             >
               {filteredAgents.map((agent) =>
                 view === "grid" ? (
-                  <AgentGridCard key={agent.id} agent={agent} />
+                  <AgentGridCard
+                    key={agent.id}
+                    agent={agent}
+                    onViewDetails={() => openDetailsModal(agent)}
+                  />
                 ) : (
-                  <AgentListCard key={agent.id} agent={agent} />
+                  <AgentListCard
+                    key={agent.id}
+                    agent={agent}
+                    onViewDetails={() => openDetailsModal(agent)}
+                  />
                 )
               )}
             </div>
@@ -876,7 +947,13 @@ export default function MarketplacePage() {
         </div>
       </section>
 
-      <CoreFooter/>
+      <CoreFooter />
+      {selectedAgent ? (
+        <AgentDetailsModal
+          agent={selectedAgent}
+          onClose={() => setSelectedAgent(null)}
+        />
+      ) : null}
     </main>
   );
 }
@@ -909,14 +986,24 @@ function Message({
   );
 }
 
-function AgentGridCard({ agent }: { agent: Agent }) {
+function AgentGridCard({
+  agent,
+  onViewDetails
+}: {
+  agent: Agent;
+  onViewDetails: () => void;
+}) {
   return (
-    <article data-testid="app-marketplace-page-article-1" className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+    <article
+      data-testid="app-marketplace-page-article-1"
+      className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+    >
       <div data-testid="app-marketplace-page-div-49" className="flex-1 p-6">
         <div data-testid="app-marketplace-page-div-50" className="flex items-start justify-between">
           <span data-testid="app-marketplace-page-span-22" className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
             🤖
           </span>
+
           <span data-testid="app-marketplace-page-span-23" className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white">
             ${agent.price}
           </span>
@@ -935,6 +1022,7 @@ function AgentGridCard({ agent }: { agent: Agent }) {
           <span data-testid="app-marketplace-page-span-25" className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600">
             {agent.category}
           </span>
+
           <span data-testid="app-marketplace-page-span-26" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
             {agent.industry === "all" ? "All industries" : agent.industry}
           </span>
@@ -946,23 +1034,38 @@ function AgentGridCard({ agent }: { agent: Agent }) {
       </div>
 
       <div data-testid="app-marketplace-page-div-52" className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
-        <span data-testid="app-marketplace-page-span-27" className="text-xs text-slate-500">{agent.installs} installs</span>
+        <span data-testid="app-marketplace-page-span-27" className="text-xs text-slate-500">
+          {agent.installs} installs
+        </span>
         <span data-testid="app-marketplace-page-span-28" className="text-xs font-semibold text-amber-600">
           ⭐ {agent.rating.toFixed(1)}
         </span>
-        <span data-testid="app-marketplace-page-span-29" className="truncate text-xs text-slate-500">By {agent.author}</span>
+        <span data-testid="app-marketplace-page-span-29" className="truncate text-xs text-slate-500">
+          By {agent.author}
+        </span>
       </div>
 
       <div data-testid="app-marketplace-page-div-53" className="px-6 pb-6 pt-4">
-        <button data-testid="app-marketplace-page-button-8" className="w-full rounded-xl border-2 border-amber-500 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white">
-          View details
+        <button
+          data-testid="app-marketplace-page-button-8"
+          type="button"
+          onClick={onViewDetails}
+          className="w-full rounded-xl border-2 border-amber-500 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
+        >
+          Open
         </button>
       </div>
     </article>
   );
 }
 
-function AgentListCard({ agent }: { agent: Agent }) {
+function AgentListCard({
+  agent,
+  onViewDetails
+}: {
+  agent: Agent;
+  onViewDetails: () => void;
+}) {
   return (
     <article data-testid="app-marketplace-page-article-2" className="group flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-center">
       <span data-testid="app-marketplace-page-span-30" className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-50 text-xl ring-1 ring-amber-100">
@@ -999,11 +1102,147 @@ function AgentListCard({ agent }: { agent: Agent }) {
         <span data-testid="app-marketplace-page-span-36" className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white">
           ${agent.price}
         </span>
-        <button data-testid="app-marketplace-page-button-9" className="rounded-xl border-2 border-amber-500 px-5 py-2 text-sm font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white">
-          View details
+
+        <button
+          data-testid="app-marketplace-page-button-9"
+          type="button"
+          onClick={onViewDetails}
+          className="rounded-xl border-2 border-amber-500 px-5 py-2 text-sm font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
+        >
+          Open
         </button>
       </div>
     </article>
+  );
+}
+
+function AgentDetailsModal({
+  agent,
+  onClose
+}: {
+  agent: Agent;
+  onClose: () => void;
+}) {
+  const features = [
+    "Connects to your existing tools and workflow in minutes",
+    "Fully editable automation setup based on your business needs",
+    "Built for service-business automation",
+    "Ready to install and test with your team"
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/45 p-3 backdrop-blur-sm sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${agent.name} details`}
+      onClick={onClose}
+    >
+      <div
+        className="relative flex max-h-[94vh] w-full max-w-[680px] flex-col overflow-hidden rounded-[1.6rem] bg-white shadow-2xl ring-1 ring-slate-200"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full text-2xl font-light text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Close modal"
+        >
+          ×
+        </button>
+
+        <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
+          <div className="flex items-start gap-4 pr-10">
+            <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-3xl">
+              🤖
+            </span>
+
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  {agent.category}
+                </span>
+
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                  {agent.industry === "all" ? "All industries" : agent.industry}
+                </span>
+
+                {agent.freeTrial ? (
+                  <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
+                    Free trial
+                  </span>
+                ) : null}
+              </div>
+
+              <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-[26px]">
+                {agent.name}
+              </h2>
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="font-semibold text-amber-500">
+                  ★★★★★ {agent.rating.toFixed(1)}
+                </span>
+
+                <span className="text-slate-300">·</span>
+
+                <span className="text-slate-500">{agent.installs} installs</span>
+
+                <span className="text-slate-300">·</span>
+
+                <span className="text-slate-500">By {agent.author}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-7 sm:px-7">
+          <p className="text-[17px] leading-8 text-slate-600">
+            {agent.description}
+          </p>
+
+          <div className="mt-7">
+            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
+              What you get
+            </h3>
+
+            <div className="mt-4 space-y-3">
+              {features.map((feature) => (
+                <div key={feature} className="flex items-start gap-3">
+                  <span className="mt-0.5 text-sm font-black text-amber-500">✓</span>
+                  <p className="text-sm leading-6 text-slate-600">{feature}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-end gap-2">
+            <span className="text-3xl font-black tracking-tight text-slate-950">
+              ${agent.price}
+            </span>
+            <span className="pb-1 text-sm font-medium text-slate-400">one-time</span>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              href={BUSINESS_SETUP_PATH}
+              className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
+            >
+              Start free trial
+            </Link>
+
+            <Link
+              href={BUSINESS_SETUP_PATH}
+              
+              className="inline-flex min-w-[150px] items-center justify-center rounded-xl border-2 border-amber-500 bg-white px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
+            >
+              View Details
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
