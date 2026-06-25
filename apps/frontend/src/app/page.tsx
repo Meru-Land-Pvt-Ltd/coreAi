@@ -769,7 +769,7 @@ export default function HomePage() {
             <div>
               <h4 className="text-sm font-semibold text-slate-900">Company</h4>
               <ul className="mt-4 space-y-3 text-sm">
-                <li><a href="#" className="text-slate-500 transition hover:text-amber-600">About</a></li>
+                <li><a href="/about" className="text-slate-500 transition hover:text-amber-600">About</a></li>
                 <li><a href="#" className="text-slate-500 transition hover:text-amber-600">Blog</a></li>
                 <li><a href="#" className="text-slate-500 transition hover:text-amber-600">Careers</a></li>
               </ul>
@@ -777,8 +777,8 @@ export default function HomePage() {
             <div>
               <h4 className="text-sm font-semibold text-slate-900">Legal</h4>
               <ul className="mt-4 space-y-3 text-sm">
-                <li><a href="#" className="text-slate-500 transition hover:text-amber-600">Privacy</a></li>
-                <li><a href="#" className="text-slate-500 transition hover:text-amber-600">Terms</a></li>
+                <li><a href="/privacy" className="text-slate-500 transition hover:text-amber-600">Privacy</a></li>
+                <li><a href="/terms" className="text-slate-500 transition hover:text-amber-600">Terms</a></li>
               </ul>
             </div>
             <div>

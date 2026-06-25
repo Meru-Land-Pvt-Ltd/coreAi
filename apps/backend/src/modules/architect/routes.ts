@@ -651,6 +651,51 @@ architectRoutes.post("/listings", async (c) => {
   }
 });
 
+architectRoutes.get("/listings/completed", async (c) => {
+  const listings = await prisma.agentListing.findMany({
+    where: {
+      status: "APPROVED"
+    },
+    include: {
+      architect: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          architectProfile: {
+            select: {
+              title: true,
+              bio: true,
+              portfolioUrl: true,
+              skills: true,
+              hourlyRateCents: true,
+              rating: true,
+              completedJobs: true
+            }
+          }
+        }
+      },
+      workflow: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          isTemplate: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  return successResponse(c, {
+    listings
+  });
+});
+
 architectRoutes.get("/projects", async (c) => {
   const authUser = c.get("authUser");
 

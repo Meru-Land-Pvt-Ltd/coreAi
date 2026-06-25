@@ -39,7 +39,7 @@ const roleContent: Record<
     tab: "Business Owner",
     subtitle: "Find and install AI agents for your business",
     loginPath: "/business/login" as Route,
-    dashboardPath: "/business/dashboard" as Route
+    dashboardPath: "/business/marketplace" as Route
   },
   ARCHITECT: {
     tab: "AI Architect",
