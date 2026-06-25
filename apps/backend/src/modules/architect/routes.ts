@@ -10,6 +10,12 @@ import {
   getGmailConnectionStatus,
   handleGmailOAuthCallback
 } from "./gmail-connector";
+import {
+  handleTwilioInboundSms,
+  handleTwilioMissedCall,
+  handleTwilioVoice,
+  handleTwilioVoiceAction
+} from "./twilio-business-routing";
 import { runWorkflowTest } from "./workflow-runner";
 
 export const architectRoutes = new Hono();
@@ -39,66 +45,20 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
   }
 });
 
-architectRoutes.post("/connectors/twilio/missed-call/:workflowId", async (c) => {
-  try {
-    const workflowId = c.req.param("workflowId");
-    const contentType = c.req.header("content-type") ?? "";
-
-    const rawBody = contentType.includes("application/json")
-      ? await c.req.json().catch(() => ({}))
-      : await c.req.parseBody();
-    const body = rawBody as Record<string, unknown>;
-
-    const callerNumber = String(body.From ?? body.from ?? body.Caller ?? "").trim();
-    const calledNumber = String(body.Called ?? body.To ?? body.to ?? "").trim();
-
-    if (!callerNumber) {
-      return c.text("<Response></Response>", 422, {
-        "Content-Type": "text/xml"
-      });
-    }
-
-    const workflow = await prisma.workflowDefinition.findUnique({
-      where: {
-        id: workflowId
-      },
-      select: {
-        id: true,
-        architectUserId: true,
-        workflowJson: true
-      }
-    });
-
-    if (!workflow) {
-      return c.text("<Response></Response>", 404, {
-        "Content-Type": "text/xml"
-      });
-    }
-
-    await runWorkflowTest({
-      userId: workflow.architectUserId,
-      workflowId: workflow.id,
-      workflowJson: workflow.workflowJson,
-      mode: "live",
-      input: {
-        callerNumber,
-        businessName: env.TWILIO_DEFAULT_BUSINESS_NAME ?? calledNumber,
-        callStatus: String(body.CallStatus ?? body.callStatus ?? "no-answer"),
-        callTimestamp: new Date().toISOString(),
-        missedCallReason: "Twilio missed-call webhook triggered this agent."
-      }
-    });
-
-    return c.text("<Response></Response>", 200, {
-      "Content-Type": "text/xml"
-    });
-  } catch (error) {
-    console.error(error);
-    return c.text("<Response></Response>", 200, {
-      "Content-Type": "text/xml"
-    });
-  }
-});
+/**
+ * Public Twilio webhooks.
+ * Production path should resolve the business by Twilio "To" number, so one shared
+ * number is not used for every customer. The :workflowId variants remain useful for
+ * local testing before a business phone-number mapping exists.
+ */
+architectRoutes.post("/connectors/twilio/voice", handleTwilioVoice);
+architectRoutes.post("/connectors/twilio/voice/:workflowId", handleTwilioVoice);
+architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction);
+architectRoutes.post("/connectors/twilio/voice-action/:workflowId", handleTwilioVoiceAction);
+architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
+architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
+architectRoutes.post("/connectors/twilio/missed-call", handleTwilioMissedCall);
+architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));
@@ -154,6 +114,18 @@ const workflowRunInputSchema = z.object({
   callerNumber: z.string().trim().optional(),
   callerName: z.string().trim().optional(),
   businessName: z.string().trim().optional(),
+  businessId: z.string().trim().optional(),
+  businessType: z.string().trim().optional(),
+  bookingUrl: z.string().trim().optional(),
+  teamPhone: z.string().trim().optional(),
+  twilioFromNumber: z.string().trim().optional(),
+  twilioMessagingServiceSid: z.string().trim().optional(),
+  services: z.array(z.string().trim()).optional(),
+  faqs: z.array(z.string().trim()).optional(),
+  tone: z.string().trim().optional(),
+  escalationRules: z.string().trim().optional(),
+  knowledge: z.array(z.string().trim()).optional(),
+  inboundSmsBody: z.string().trim().optional(),
   callStatus: z.string().trim().optional(),
   callTimestamp: z.string().trim().optional(),
   missedCallReason: z.string().trim().optional()
@@ -161,6 +133,36 @@ const workflowRunInputSchema = z.object({
 
 const workflowRunTestSchema = z.object({
   input: workflowRunInputSchema.optional()
+});
+
+const twilioBusinessInstallationSchema = z.object({
+  workflowId: z.string().min(1, "workflowId is required"),
+  businessName: z.string().trim().min(2, "Business name is required"),
+  businessType: z.string().trim().min(2, "Business type is required"),
+  twilioPhoneNumber: z.string().trim().min(6, "Twilio phone number is required"),
+  twilioPhoneNumberSid: z.string().trim().optional().or(z.literal("")),
+  forwardToPhone: z.string().trim().min(6, "Forward-to phone is required"),
+  bookingUrl: z.string().trim().url().optional().or(z.literal("")),
+  teamPhone: z.string().trim().optional().or(z.literal("")),
+  services: z.array(z.string().trim().min(1)).default([]),
+  faqs: z
+    .array(
+      z.object({
+        question: z.string().trim().min(1),
+        answer: z.string().trim().min(1)
+      })
+    )
+    .default([]),
+  knowledge: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1),
+        content: z.string().trim().min(1)
+      })
+    )
+    .default([]),
+  tone: z.string().trim().optional().or(z.literal("")),
+  escalationRules: z.string().trim().optional().or(z.literal(""))
 });
 
 function isPrismaErrorCode(error: unknown, code: string) {
@@ -357,6 +359,115 @@ architectRoutes.delete("/connectors/gmail", async (c) => {
   return successResponse(c, null, "Gmail disconnected");
 });
 
+architectRoutes.post("/connectors/twilio/business-installations", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = twilioBusinessInstallationSchema.parse(await c.req.json());
+
+    const workflow = await prisma.workflowDefinition.findFirst({
+      where: {
+        id: input.workflowId,
+        architectUserId: authUser.id
+      }
+    });
+
+    if (!workflow) {
+      return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
+    }
+
+    const business = await prisma.business.create({
+      data: {
+        ownerId: authUser.id,
+        name: input.businessName,
+        type: input.businessType,
+        profile: {
+          create: {
+            bookingUrl: input.bookingUrl || null,
+            teamPhone: input.teamPhone || input.forwardToPhone,
+            tone: input.tone || "friendly",
+            escalationRules: input.escalationRules || null,
+            services: input.services,
+            faqsJson: input.faqs
+          }
+        },
+        knowledgeBases: {
+          create: input.knowledge.map((item) => ({
+            title: item.title,
+            content: item.content
+          }))
+        }
+      },
+      include: {
+        profile: true,
+        knowledgeBases: true
+      }
+    });
+
+    const installedAgent = await prisma.installedAgent.create({
+      data: {
+        businessId: business.id,
+        workflowId: workflow.id,
+        name: workflow.name,
+        status: "ACTIVE",
+        configJson: {
+          source: "architect-test-install"
+        }
+      }
+    });
+
+    const phoneNumber = await prisma.businessPhoneNumber.upsert({
+      where: {
+        phoneNumber: input.twilioPhoneNumber
+      },
+      update: {
+        businessId: business.id,
+        installedAgentId: installedAgent.id,
+        twilioPhoneNumberSid: input.twilioPhoneNumberSid || null,
+        forwardToPhone: input.forwardToPhone,
+        isActive: true
+      },
+      create: {
+        businessId: business.id,
+        installedAgentId: installedAgent.id,
+        phoneNumber: input.twilioPhoneNumber,
+        twilioPhoneNumberSid: input.twilioPhoneNumberSid || null,
+        forwardToPhone: input.forwardToPhone,
+        isActive: true
+      }
+    });
+
+    return successResponse(
+      c,
+      {
+        business,
+        installedAgent,
+        phoneNumber,
+        webhooks: {
+          voice: `${env.BACKEND_URL}/architect/connectors/twilio/voice`,
+          inboundSms: `${env.BACKEND_URL}/architect/connectors/twilio/inbound-sms`
+        }
+      },
+      "Business Twilio installation created"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid Twilio business installation input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not create Twilio business installation",
+      500,
+      "TWILIO_BUSINESS_INSTALL_FAILED"
+    );
+  }
+});
+
 architectRoutes.get("/workflows", async (c) => {
   const authUser = c.get("authUser");
 
@@ -505,6 +616,11 @@ async function runOwnedWorkflow({
 }) {
   const authUser = c.get("authUser");
   const workflowId = c.req.param("workflowId");
+
+  if (!workflowId) {
+    return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
   const body = await c.req.json().catch(() => ({}));
   const input = workflowRunTestSchema.parse(body);
 

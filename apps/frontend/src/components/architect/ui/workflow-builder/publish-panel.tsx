@@ -18,53 +18,85 @@ export function PublishPanel({
   onSave: () => void;
 }) {
   return (
-    <section className="absolute inset-0 overflow-y-auto bg-gray-50">
-      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
-        <h2 className="text-xl font-black text-slate-900">Publish to Marketplace</h2>
-        <p className="mt-1 text-sm text-slate-500">Review the first CORE marketplace agent before submission.</p>
-        <div className="mt-6 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-amber-500 text-white shadow-sm shadow-amber-500/25">
-              <BuilderIcon name="phone" className="h-8 w-8" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-2xl font-black text-slate-900">{agentName}</h3>
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Communication</span>
-              </div>
-              <p className="mt-2 max-w-xl text-slate-600">{tagline}</p>
-              <div className="mt-4 flex flex-wrap items-center gap-4">
-                <span className="text-3xl font-black text-slate-900">${price}</span>
-                <span className="text-sm text-slate-500">/month after trial</span>
+    <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
+      <div className="mx-auto max-w-5xl px-6 py-8">
+        <h2 className="text-xl font-bold text-slate-900">Publish to marketplace</h2>
+        <p className="mt-1 text-sm text-slate-500">Review your listing and readiness, then submit for approval. Most agents are reviewed within 24 hours.</p>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Marketplace preview</p>
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="h-24 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500" />
+              <div className="px-5 pb-5">
+                <div className="-mt-8 flex items-end gap-3">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-md ring-1 ring-gray-100">
+                    <BuilderIcon name="message" className="h-8 w-8 text-amber-500" />
+                  </div>
+                  <div className="pb-1">
+                    <span className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">Healthcare & Dental</span>
+                  </div>
+                </div>
+                <h3 className="mt-3 text-lg font-bold text-slate-900">{agentName}</h3>
+                <p className="mt-1 text-sm text-slate-500">{tagline || "Never lose a patient to a missed call again. Turns missed calls into booked appointments - automatically."}</p>
+                <div className="mt-4 flex items-center gap-4 text-sm">
+                  <span className="flex items-center gap-1 font-semibold text-amber-500">
+                    <BuilderIcon name="star" className="h-4 w-4" />
+                    New
+                  </span>
+                  <span className="text-slate-400">-</span>
+                  <span className="text-slate-500">by <span className="font-medium text-slate-700">Marcus Thompson</span></span>
+                </div>
+                <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
+                  <div>
+                    <span className="text-2xl font-bold text-slate-900">${price}</span>
+                    <span className="text-sm text-slate-400">/month</span>
+                  </div>
+                  <Link
+                    href={`/architect/agents/publish?workflowId=${workflowId}` as Route}
+                    className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Install agent
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {["Customer calls", "Auto text in 5 seconds", "Lead captured"].map((item, index) => (
-              <div key={item} className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                <p className="text-xs font-black text-amber-600">0{index + 1}</p>
-                <p className="mt-2 text-sm font-black text-slate-900">{item}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+
+          <div className="lg:col-span-2">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Readiness checklist</p>
+            <div className="space-y-3.5 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+              <ChecklistItem done title="Workflow configured" text="5 nodes - 4 connections" />
+              <ChecklistItem done title="Test run passed" text="Last run completed in 1.6s" />
+              <ChecklistItem done title="Pricing set" text={`$${price} / month - 14-day trial`} />
+              <ChecklistItem title="Add a cover image" text="Optional, but boosts installs by about 40%" />
+            </div>
             <button
               type="button"
               onClick={onSave}
               disabled={saving}
-              className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-amber-300 hover:text-amber-700 disabled:opacity-60"
+              className="mt-4 w-full rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
             >
-              {saving ? "Saving..." : "Save Draft"}
+              {saving ? "Submitting..." : "Submit for review"}
             </button>
-            <Link
-              href={`/architect/agents/publish?workflowId=${workflowId}` as Route}
-              className="inline-flex flex-1 items-center justify-center rounded-xl bg-amber-500 px-5 py-3 text-sm font-black text-white shadow-sm shadow-amber-500/25 transition hover:bg-amber-600"
-            >
-              Submit for Review
-            </Link>
+            <p className="mt-2 text-center text-[11px] text-slate-400">You&apos;ll be notified once your agent is approved and live.</p>
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function ChecklistItem({ done = false, title, text }: { done?: boolean; title: string; text: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className={done ? "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-600" : "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600"}>
+        {done ? <BuilderIcon name="check" className="h-3 w-3" /> : <BuilderIcon name="info" className="h-3 w-3" />}
+      </span>
+      <div>
+        <p className="text-sm font-medium text-slate-800">{title}</p>
+        <p className="text-xs text-slate-400">{text}</p>
+      </div>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import { env } from "../../config/env";
+import { sendTwilioSms } from "./twilio-connector";
 import {
   createGmailDraft,
   readGmailEmail,
@@ -22,6 +23,18 @@ type WorkflowRunInput = {
   callStatus?: string;
   callTimestamp?: string;
   missedCallReason?: string;
+  businessId?: string;
+  businessType?: string;
+  bookingUrl?: string;
+  teamPhone?: string;
+  services?: string[];
+  faqs?: string[];
+  tone?: string;
+  escalationRules?: string;
+  knowledge?: string[];
+  inboundSmsBody?: string;
+  twilioFromNumber?: string;
+  twilioMessagingServiceSid?: string;
 };
 
 type RunnerNodeData = {
@@ -64,7 +77,21 @@ type RunnerContext = {
   caller_number?: string;
   caller_name?: string;
   business?: {
+    id?: string;
     name: string;
+    type?: string;
+    bookingUrl?: string;
+    teamPhone?: string;
+    twilioFromNumber?: string;
+    twilioMessagingServiceSid?: string;
+    services?: string[];
+    faqs?: string[];
+    tone?: string;
+    escalationRules?: string;
+    knowledge?: string[];
+  };
+  inboundSms?: {
+    body: string;
   };
   missedCall?: {
     callerNumber: string;
@@ -109,6 +136,7 @@ type RunnerContext = {
     id: string | null;
     to: string;
     body: string;
+    from?: string | null;
     mode: WorkflowRunMode;
     providerCalled: boolean;
     twilioTestMode: boolean;
@@ -240,7 +268,18 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 
   const context: RunnerContext = {
     business: {
-      name: businessName
+      id: optionalString(input?.businessId),
+      name: businessName,
+      type: optionalString(input?.businessType),
+      bookingUrl: optionalString(input?.bookingUrl) ?? optionalString(env.TWILIO_DEFAULT_BOOKING_URL),
+      teamPhone: optionalString(input?.teamPhone) ?? optionalString(env.TWILIO_DEFAULT_TEAM_PHONE),
+      twilioFromNumber: optionalString(input?.twilioFromNumber),
+      twilioMessagingServiceSid: optionalString(input?.twilioMessagingServiceSid),
+      services: input?.services ?? [],
+      faqs: input?.faqs ?? [],
+      tone: optionalString(input?.tone) ?? "friendly",
+      escalationRules: optionalString(input?.escalationRules),
+      knowledge: input?.knowledge ?? []
     },
     missedCall: {
       callerNumber: callerNumber ?? "",
@@ -254,6 +293,9 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 
   if (callerNumber) context.caller_number = callerNumber;
   if (callerName) context.caller_name = callerName;
+  if (optionalString(input?.inboundSmsBody)) {
+    context.inboundSms = { body: optionalString(input?.inboundSmsBody)! };
+  }
 
   return context;
 }
@@ -283,18 +325,50 @@ function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLo
     "Write a friendly missed-call text-back message."
   );
 
-  const businessName = context.business?.name ?? "the business";
+  const business = context.business;
+  const businessName = business?.name ?? "the business";
+  const businessType = business?.type ? ` (${business.type})` : "";
   const callerName = context.caller_name ? `${context.caller_name}, ` : "";
+  const services = business?.services?.length
+    ? ` We can help with: ${business.services.slice(0, 5).join(", ")}.`
+    : "";
+  const booking = business?.bookingUrl
+    ? ` You can book here: ${business.bookingUrl}`
+    : "";
+  const team = business?.teamPhone
+    ? ` Or our team can call you from ${business.teamPhone}.`
+    : "";
 
-  const output = `Hi ${callerName}this is ${businessName}. Sorry we missed your call. We can help by text right now. Would you like to book an appointment or ask a quick question?`;
+  let output: string;
+
+  if (context.gmail?.subject || context.gmail?.body) {
+    output = `Hi, thanks for reaching out to ${businessName}. We saw your message about "${context.gmail.subject ?? "your request"}". ${services}${booking || team ? `${booking}${team}` : "We will help you with the next step shortly."}`.trim();
+  } else if (context.inboundSms?.body) {
+    const message = context.inboundSms.body.toLowerCase();
+    const wantsBooking = /book|appointment|schedule|yes|visit|call/.test(message);
+    const asksPrice = /price|cost|fee|charge|rate|how much/.test(message);
+    const faqHint = business?.faqs?.[0] ?? business?.knowledge?.[0] ?? "";
+
+    if (wantsBooking && business?.bookingUrl) {
+      output = `Absolutely — ${businessName}${businessType} can help. Please book here: ${business.bookingUrl}. ${team}`.trim();
+    } else if (asksPrice && faqHint) {
+      output = `${callerName}${faqHint} ${booking || team || "Reply with a preferred time and we will help you further."}`.trim();
+    } else {
+      output = `${callerName}thanks for texting ${businessName}. ${services}${faqHint ? ` ${faqHint}` : ""} ${booking || team || "How can we help you today?"}`.trim();
+    }
+  } else {
+    output = `Hi ${callerName}this is ${businessName}. Sorry we missed your call. We can help by text right now.${services} Would you like to book an appointment or ask a quick question?${booking ? ` ${booking}` : ""}`;
+  }
 
   context.ai = {
     output
   };
 
   logs.push(
-    createLog(node, "success", "Text-back message generated.", {
+    createLog(node, "success", "Context-aware reply generated.", {
       prompt,
+      business,
+      inboundSms: context.inboundSms,
       output
     })
   );
@@ -322,66 +396,6 @@ function runConditionNode(node: RunnerNode, context: RunnerContext, logs: Workfl
       context.condition
     )
   );
-}
-
-async function sendTwilioSms({
-  to,
-  body
-}: {
-  to: string;
-  body: string;
-}) {
-  const accountSid = env.TWILIO_ACCOUNT_SID;
-  const authToken = env.TWILIO_AUTH_TOKEN;
-  const isTwilioTestMode = env.TWILIO_TEST_MODE;
-  const from = isTwilioTestMode ? "+15005550006" : env.TWILIO_PHONE_NUMBER;
-  const messagingServiceSid = isTwilioTestMode ? undefined : env.TWILIO_MESSAGING_SERVICE_SID;
-
-  if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
-    throw new Error(
-      "Twilio is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER or TWILIO_MESSAGING_SERVICE_SID. For Twilio test credentials, set TWILIO_TEST_MODE=true."
-    );
-  }
-
-  const bodyParams = new URLSearchParams({
-    To: to,
-    Body: body
-  });
-
-  if (messagingServiceSid) {
-    bodyParams.set("MessagingServiceSid", messagingServiceSid);
-  } else if (from) {
-    bodyParams.set("From", from);
-  }
-
-  const response = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: bodyParams
-    }
-  );
-
-  const responseJson = (await response.json()) as {
-    sid?: string;
-    message?: string;
-  };
-
-  if (!response.ok) {
-    throw new Error(responseJson.message ?? "Twilio SMS failed");
-  }
-
-  return {
-    id: responseJson.sid ?? null,
-    to,
-    body,
-    providerCalled: true,
-    twilioTestMode: isTwilioTestMode
-  };
 }
 
 async function runSmsConnectorNode({
@@ -449,7 +463,9 @@ async function runSmsConnectorNode({
   if (mode === "live") {
     const sentSms = await sendTwilioSms({
       to: actionTo,
-      body: actionBody
+      body: actionBody,
+      from: context.business?.twilioFromNumber,
+      messagingServiceSid: context.business?.twilioMessagingServiceSid
     });
 
     context.sentSms = {

@@ -2,7 +2,7 @@ import { ArchitectCard, ArchitectEmptyState, ArchitectPageHeader } from "@/compo
 
 export function ArchitectPayoutsView() {
   return (
-    <div>
+    <div data-testid="components-architect-ui-architect-payouts-view-div-1">
       <ArchitectPageHeader
         eyebrow="Payouts"
         title="Payouts"

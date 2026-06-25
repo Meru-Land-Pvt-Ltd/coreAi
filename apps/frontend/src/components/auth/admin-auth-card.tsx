@@ -122,19 +122,19 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="w-full px-6 py-5">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
-              <span className="w-3 h-3 rounded-full bg-white" />
+    <div data-testid="components-auth-admin-auth-card-div-1" className="min-h-screen bg-gray-50 flex flex-col">
+      <header data-testid="components-auth-admin-auth-card-header-1" className="w-full px-6 py-5">
+        <div data-testid="components-auth-admin-auth-card-div-2" className="max-w-6xl mx-auto flex items-center justify-between">
+          <Link data-testid="components-auth-admin-auth-card-link-1" href="/" className="flex items-center gap-2">
+            <span data-testid="components-auth-admin-auth-card-span-1" className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
+              <span data-testid="components-auth-admin-auth-card-span-2" className="w-3 h-3 rounded-full bg-white" />
             </span>
-            <span className="text-xl font-extrabold text-slate-900 tracking-tight">
+            <span data-testid="components-auth-admin-auth-card-span-3" className="text-xl font-extrabold text-slate-900 tracking-tight">
               CORE
             </span>
           </Link>
 
-          <Link
+          <Link data-testid="components-auth-admin-auth-card-link-2"
             href="/"
             className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors duration-200"
           >
@@ -143,35 +143,35 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
         </div>
       </header>
 
-      <main className="flex-1 flex items-center justify-center px-6 py-10">
-        <div className="w-full max-w-md">
-          <div className="bg-white shadow-lg rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="border-b border-gray-100 py-4">
-              <p className="text-center text-sm font-semibold text-amber-600">
+      <main data-testid="components-auth-admin-auth-card-main-1" className="flex-1 flex items-center justify-center px-6 py-10">
+        <div data-testid="components-auth-admin-auth-card-div-3" className="w-full max-w-md">
+          <div data-testid="components-auth-admin-auth-card-div-4" className="bg-white shadow-lg rounded-2xl border border-gray-100 overflow-hidden">
+            <div data-testid="components-auth-admin-auth-card-div-5" className="border-b border-gray-100 py-4">
+              <p data-testid="components-auth-admin-auth-card-p-1" className="text-center text-sm font-semibold text-amber-600">
                 Platform Administration
               </p>
             </div>
 
-            <div className="p-8">
-              <p className="text-center text-sm text-slate-500 mb-6">
+            <div data-testid="components-auth-admin-auth-card-div-6" className="p-8">
+              <p data-testid="components-auth-admin-auth-card-p-2" className="text-center text-sm text-slate-500 mb-6">
                 {copy.subtitle}
               </p>
 
-              <h1 className="text-2xl font-extrabold text-slate-900 text-center">
+              <h1 data-testid="components-auth-admin-auth-card-h1-1" className="text-2xl font-extrabold text-slate-900 text-center">
                 {copy.title}
               </h1>
 
-              <p className="mt-2 text-sm text-slate-600 text-center">
+              <p data-testid="components-auth-admin-auth-card-p-3" className="mt-2 text-sm text-slate-600 text-center">
                 Sign in with your admin email and password
               </p>
 
-              <form className="mt-6" onSubmit={handleSubmit} noValidate>
+              <form data-testid="components-auth-admin-auth-card-form-1" className="mt-6" onSubmit={handleSubmit} noValidate>
                 {mode === "signup" ? (
-                  <div className="mb-4">
-                    <label htmlFor="admin-name" className="sr-only">
+                  <div data-testid="components-auth-admin-auth-card-div-7" className="mb-4">
+                    <label data-testid="components-auth-admin-auth-card-label-1" htmlFor="admin-name" className="sr-only">
                       Full name
                     </label>
-                    <input
+                    <input data-testid="components-auth-admin-auth-card-input-1"
                       id="admin-name"
                       type="text"
                       value={fullName}
@@ -187,11 +187,11 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
                   </div>
                 ) : null}
 
-                <div className="mb-4">
-                  <label htmlFor="admin-email" className="sr-only">
+                <div data-testid="components-auth-admin-auth-card-div-8" className="mb-4">
+                  <label data-testid="components-auth-admin-auth-card-label-2" htmlFor="admin-email" className="sr-only">
                     Admin email
                   </label>
-                  <input
+                  <input data-testid="components-auth-admin-auth-card-input-2"
                     id="admin-email"
                     type="email"
                     value={email}
@@ -207,11 +207,11 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
                   />
                 </div>
 
-                <div>
-                  <label htmlFor="admin-password" className="sr-only">
+                <div data-testid="components-auth-admin-auth-card-div-9">
+                  <label data-testid="components-auth-admin-auth-card-label-3" htmlFor="admin-password" className="sr-only">
                     Password
                   </label>
-                  <input
+                  <input data-testid="components-auth-admin-auth-card-input-3"
                     id="admin-password"
                     type="password"
                     value={password}
@@ -229,12 +229,12 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
                 </div>
 
                 {error ? (
-                  <p className="mt-3 text-sm text-red-500" role="alert">
+                  <p data-testid="components-auth-admin-auth-card-p-4" className="mt-3 text-sm text-red-500" role="alert">
                     {error}
                   </p>
                 ) : null}
 
-                <button
+                <button data-testid="components-auth-admin-auth-card-button-1"
                   type="submit"
                   disabled={isSubmitting}
                   className="mt-6 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
@@ -243,9 +243,9 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
                 </button>
               </form>
 
-              <p className="mt-6 text-sm text-slate-500 text-center">
+              <p data-testid="components-auth-admin-auth-card-p-5" className="mt-6 text-sm text-slate-500 text-center">
                 {copy.switchPrompt}{" "}
-                <Link
+                <Link data-testid="components-auth-admin-auth-card-link-3"
                   href={copy.switchHref}
                   className="font-semibold text-amber-600 hover:text-amber-700 transition-colors duration-200"
                 >
@@ -255,8 +255,8 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
             </div>
           </div>
 
-          <div className="mt-8 text-center">
-            <p className="text-xs text-slate-400 tracking-wide">
+          <div data-testid="components-auth-admin-auth-card-div-10" className="mt-8 text-center">
+            <p data-testid="components-auth-admin-auth-card-p-6" className="text-xs text-slate-400 tracking-wide">
               256-bit encryption &nbsp;•&nbsp; SOC 2 compliant &nbsp;•&nbsp;
               Restricted access
             </p>
@@ -264,23 +264,23 @@ export function AdminAuthCard({ mode }: AdminAuthCardProps) {
         </div>
       </main>
 
-      <footer className="w-full px-6 py-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="hover:text-slate-600 transition-colors duration-200">
+      <footer data-testid="components-auth-admin-auth-card-footer-1" className="w-full px-6 py-6">
+        <div data-testid="components-auth-admin-auth-card-div-11" className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+          <div data-testid="components-auth-admin-auth-card-div-12" className="flex items-center gap-4">
+            <Link data-testid="components-auth-admin-auth-card-link-4" href="/" className="hover:text-slate-600 transition-colors duration-200">
               Privacy Policy
             </Link>
 
-            <Link href="/" className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="components-auth-admin-auth-card-link-5" href="/" className="hover:text-slate-600 transition-colors duration-200">
               Terms of Service
             </Link>
 
-            <Link href="/" className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="components-auth-admin-auth-card-link-6" href="/" className="hover:text-slate-600 transition-colors duration-200">
               Help
             </Link>
           </div>
 
-          <p>© {currentYear} CORE AI Agent Platform</p>
+          <p data-testid="components-auth-admin-auth-card-p-7">© {currentYear} CORE AI Agent Platform</p>
         </div>
       </footer>
     </div>

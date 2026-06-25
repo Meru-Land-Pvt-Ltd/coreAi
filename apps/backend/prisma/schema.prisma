@@ -46,6 +46,7 @@ enum ListingStatus {
 
 enum ConnectorProvider {
   GMAIL
+  TWILIO
 }
 
 model User {
@@ -63,6 +64,7 @@ model User {
   listings             AgentListing[]
   proposals            ProjectProposal[]
   connectorCredentials ConnectorCredential[]
+  businesses            Business[]
 
   @@index([role])
   @@index([createdAt])
@@ -98,7 +100,8 @@ model WorkflowDefinition {
   updatedAt       DateTime @updatedAt
 
   architect User           @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  listings  AgentListing[]
+  listings        AgentListing[]
+  installedAgents InstalledAgent[]
 
   @@index([architectUserId])
   @@index([createdAt])
@@ -120,7 +123,8 @@ model AgentListing {
   updatedAt          DateTime      @updatedAt
 
   architect User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  workflow  WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  workflow        WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  installedAgents InstalledAgent[]
 
   @@index([architectUserId])
   @@index([workflowId])
@@ -185,7 +189,6 @@ model ConnectorCredential {
   @@index([provider])
 }
 
-
 model EmailVerificationCode {
   id         String    @id @default(cuid())
   email      String
@@ -201,3 +204,148 @@ model EmailVerificationCode {
   @@index([expiresAt])
   @@index([createdAt])
 }
+
+model Business {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  type      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner          User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  profile        BusinessProfile?
+  phoneNumbers   BusinessPhoneNumber[]
+  installedAgents InstalledAgent[]
+  knowledgeBases BusinessKnowledgeBase[]
+  conversations  Conversation[]
+  leads          Lead[]
+
+  @@index([ownerId])
+  @@index([type])
+}
+
+model BusinessProfile {
+  id              String   @id @default(cuid())
+  businessId      String   @unique
+  serviceArea     String?
+  bookingUrl      String?
+  teamPhone       String?
+  hoursJson       Json?
+  tone            String   @default("friendly")
+  escalationRules String?
+  services        String[]
+  faqsJson        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model BusinessPhoneNumber {
+  id                  String   @id @default(cuid())
+  businessId          String
+  installedAgentId    String?
+  phoneNumber         String   @unique
+  twilioPhoneNumberSid String?
+  forwardToPhone      String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([installedAgentId])
+  @@index([isActive])
+}
+
+model InstalledAgent {
+  id          String   @id @default(cuid())
+  businessId  String
+  workflowId  String
+  listingId   String?
+  name        String
+  status      String   @default("ACTIVE")
+  configJson  Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  listing      AgentListing?         @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  phoneNumbers BusinessPhoneNumber[]
+
+  @@index([businessId])
+  @@index([workflowId])
+  @@index([listingId])
+  @@index([status])
+}
+
+model BusinessKnowledgeBase {
+  id          String   @id @default(cuid())
+  businessId  String
+  title       String
+  content     String
+  contentJson Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model Conversation {
+  id            String   @id @default(cuid())
+  businessId    String
+  channel       String
+  customerPhone String
+  status        String   @default("OPEN")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages ConversationMessage[]
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([channel, customerPhone])
+  @@unique([businessId, channel, customerPhone])
+}
+
+model ConversationMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  direction      String
+  body           String
+  providerId     String?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model Lead {
+  id             String   @id @default(cuid())
+  businessId     String
+  conversationId String?
+  phoneNumber     String
+  name           String?
+  source         String
+  status         String   @default("NEW")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([phoneNumber])
+  @@index([status])
+  @@unique([businessId, phoneNumber])
+}
+
