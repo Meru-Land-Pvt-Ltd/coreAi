@@ -12,6 +12,7 @@
     "seed:numbers": "tsx scripts/seed-platform-numbers.ts"
   },
   "dependencies": {
+    "@coreai/shared": "*",
     "@hono/node-server": "^2.0.2",
     "@prisma/client": "6.19.0",
     "dotenv": "^17.4.2",

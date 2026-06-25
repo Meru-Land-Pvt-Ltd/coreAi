@@ -1,4 +1,6 @@
+import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH } from "@coreai/shared";
 import { env } from "../../config/env";
+import { prisma } from "../../lib/prisma";
 import { sendTwilioSms } from "./twilio-connector";
 import {
   createGmailDraft,
@@ -10,6 +12,13 @@ import {
   getDefaultAppointmentWindow
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
+
+/** Threaded through the runner to bound workflow-to-workflow chaining. */
+type WorkflowChain = {
+  depth: number;
+  visited: string[];
+  workflowId: string;
+};
 
 export type WorkflowRunLog = {
   nodeId: string;
@@ -47,6 +56,11 @@ export type WorkflowRunInput = {
   appointmentStartAt?: string;
   appointmentEndAt?: string;
   appointmentService?: string;
+  businessHours?: unknown;
+  conversationId?: string;
+  leadId?: string;
+  installedAgentId?: string;
+  latestMessage?: string;
 };
 
 type RunnerNodeData = {
@@ -75,6 +89,12 @@ type RunnerNodeData = {
   appointmentService?: unknown;
   condition?: unknown;
   outputKey?: unknown;
+  leadSource?: unknown;
+  leadStatus?: unknown;
+  conversationDirection?: unknown;
+  conversationBody?: unknown;
+  handoffReason?: unknown;
+  nextWorkflowId?: unknown;
 };
 
 type RunnerNode = {
@@ -113,6 +133,7 @@ type RunnerContext = {
     timeZone?: string;
     vapiAssistantId?: string;
     vapiPhoneNumberId?: string;
+    hours?: unknown;
   };
   inboundSms?: {
     body: string;
@@ -190,6 +211,21 @@ type RunnerContext = {
     businessName: string;
     status: string;
     capturedAt: string;
+  };
+  conversationId?: string;
+  leadId?: string;
+  installedAgentId?: string;
+  latestMessage?: string;
+  leadSaved?: boolean;
+  conversationSaved?: boolean;
+  handoff?: {
+    reason: string;
+    teamPhone?: string;
+  };
+  nextWorkflow?: {
+    workflowId: string;
+    name: string;
+    ran: boolean;
   };
   output?: unknown;
   [key: string]: unknown;
@@ -326,7 +362,8 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
       calendarId: optionalString(input?.calendarId) ?? env.GOOGLE_CALENDAR_ID ?? "primary",
       timeZone: optionalString(input?.timeZone) ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
       vapiAssistantId: optionalString(input?.vapiAssistantId) ?? env.VAPI_DEFAULT_ASSISTANT_ID,
-      vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID
+      vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID,
+      hours: input?.businessHours
     },
     missedCall: {
       callerNumber: callerNumber ?? "",
@@ -346,6 +383,10 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   if (input?.appointmentStartAt) context.appointmentStartAt = input.appointmentStartAt;
   if (input?.appointmentEndAt) context.appointmentEndAt = input.appointmentEndAt;
   if (input?.appointmentService) context.appointmentService = input.appointmentService;
+  if (optionalString(input?.conversationId)) context.conversationId = optionalString(input?.conversationId);
+  if (optionalString(input?.leadId)) context.leadId = optionalString(input?.leadId);
+  if (optionalString(input?.installedAgentId)) context.installedAgentId = optionalString(input?.installedAgentId);
+  if (optionalString(input?.latestMessage)) context.latestMessage = optionalString(input?.latestMessage);
 
   return context;
 }
@@ -425,12 +466,64 @@ function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLo
   );
 }
 
+function nowInZone(timeZone?: string) {
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date());
+
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") map[part.type] = part.value;
+  }
+
+  let hour = Number(map.hour);
+  if (hour === 24) hour = 0;
+
+  return {
+    weekday: (map.weekday || "").toLowerCase(),
+    minutes: hour * 60 + Number(map.minute)
+  };
+}
+
+function parseHoursMinutes(value: unknown): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(typeof value === "string" ? value : "");
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+/**
+ * Real business-hours evaluation: uses the business's configured weekly hours
+ * (from setup) when available, otherwise falls back to Mon–Fri 8:00–18:00.
+ */
+function evaluateBusinessHours(context: RunnerContext): boolean {
+  const { weekday, minutes } = nowInZone(context.business?.timeZone);
+  const hours = Array.isArray(context.business?.hours)
+    ? (context.business?.hours as Array<Record<string, unknown>>)
+    : null;
+
+  if (hours) {
+    const today = hours.find(
+      (entry) => typeof entry?.day === "string" && entry.day.toLowerCase() === weekday
+    );
+    if (today) {
+      if (today.closed === true) return false;
+      const open = parseHoursMinutes(today.open);
+      const close = parseHoursMinutes(today.close);
+      if (open !== null && close !== null) return minutes >= open && minutes < close;
+    }
+  }
+
+  const isWeekday = weekday !== "saturday" && weekday !== "sunday";
+  return isWeekday && minutes >= 8 * 60 && minutes < 18 * 60;
+}
+
 function runConditionNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
   const condition = asString(node.data?.condition, "Business hours check");
-  const now = new Date(context.missedCall?.timestamp ?? Date.now());
-  const hour = now.getHours();
-  const day = now.getDay();
-  const isBusinessHours = day >= 1 && day <= 5 && hour >= 8 && hour < 18;
+  const isBusinessHours = evaluateBusinessHours(context);
 
   context.condition = {
     passed: isBusinessHours,
@@ -787,20 +880,352 @@ async function runGmailConnectorNode({
   logs.push(createLog(node, "error", `Unsupported Gmail action: ${action}`));
 }
 
-async function runConnectorNode({
-  userId,
+function customerPhoneFromContext(context: RunnerContext) {
+  return context.caller_number || context.missedCall?.callerNumber || "";
+}
+
+async function runSaveLeadNode({
   node,
   context,
   logs,
   mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const businessId = context.business?.id;
+  const phoneNumber = customerPhoneFromContext(context);
+
+  if (!businessId || !phoneNumber) {
+    logs.push(createLog(node, "error", "Save Lead failed because business or caller phone is missing."));
+    return;
+  }
+
+  const status = asString(node.data?.leadStatus, "CAPTURED");
+  const source = asString(node.data?.leadSource, "WORKFLOW");
+  const name = context.caller_name;
+
+  if (mode === "live") {
+    const lead = await prisma.lead.upsert({
+      where: { businessId_phoneNumber: { businessId, phoneNumber } },
+      update: { status, name: name || undefined },
+      create: { businessId, phoneNumber, source, status, name }
+    });
+    context.leadId = lead.id;
+  }
+
+  context.leadSaved = true;
+  context.capturedLead = {
+    callerNumber: phoneNumber,
+    callerName: name,
+    businessName: context.business?.name ?? "the business",
+    status,
+    capturedAt: new Date().toISOString()
+  };
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      mode === "live" ? "Lead saved." : "Dry run: lead not written.",
+      context.capturedLead
+    )
+  );
+}
+
+async function runSaveConversationNode({
+  node,
+  context,
+  logs,
+  mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const businessId = context.business?.id;
+  const phoneNumber = customerPhoneFromContext(context);
+
+  if (!businessId || !phoneNumber) {
+    logs.push(createLog(node, "error", "Save Conversation failed because business or caller phone is missing."));
+    return;
+  }
+
+  const direction = asString(node.data?.conversationDirection, "OUTBOUND").toUpperCase();
+  const body =
+    renderTemplate(node.data?.conversationBody, context) ||
+    context.sentSms?.body ||
+    context.ai?.output ||
+    "";
+
+  if (!body) {
+    logs.push(createLog(node, "error", "Save Conversation failed because the message body is empty."));
+    return;
+  }
+
+  if (mode === "live") {
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        businessId_channel_customerPhone: { businessId, channel: "SMS", customerPhone: phoneNumber }
+      },
+      update: { status: "OPEN" },
+      create: { businessId, channel: "SMS", customerPhone: phoneNumber, status: "OPEN" }
+    });
+
+    // Dedupe: skip if the latest stored message is identical (avoids double-writes
+    // when handler orchestration also persists the same message).
+    const latest = await prisma.conversationMessage.findFirst({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (!(latest && latest.direction === direction && latest.body === body)) {
+      await prisma.conversationMessage.create({
+        data: { conversationId: conversation.id, direction, body }
+      });
+    }
+
+    context.conversationId = conversation.id;
+  }
+
+  context.conversationSaved = true;
+  context.latestMessage = body;
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      mode === "live" ? `Conversation message saved (${direction}).` : "Dry run: message not written.",
+      { direction, body }
+    )
+  );
+}
+
+async function runHumanHandoffNode({
+  node,
+  context,
+  logs,
+  mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const businessId = context.business?.id;
+  const phoneNumber = customerPhoneFromContext(context);
+  const reason =
+    renderTemplate(node.data?.handoffReason, context) ||
+    context.business?.escalationRules ||
+    "Escalated to a human team member.";
+  const teamPhone = context.business?.teamPhone;
+
+  if (mode === "live" && businessId && phoneNumber) {
+    await prisma.lead.upsert({
+      where: { businessId_phoneNumber: { businessId, phoneNumber } },
+      update: { status: "ESCALATED", notes: reason },
+      create: {
+        businessId,
+        phoneNumber,
+        source: "WORKFLOW",
+        status: "ESCALATED",
+        notes: reason,
+        name: context.caller_name
+      }
+    });
+
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        businessId_channel_customerPhone: { businessId, channel: "SMS", customerPhone: phoneNumber }
+      },
+      update: { status: "OPEN" },
+      create: { businessId, channel: "SMS", customerPhone: phoneNumber, status: "OPEN" }
+    });
+
+    await prisma.conversationMessage.create({
+      data: {
+        conversationId: conversation.id,
+        direction: "SYSTEM",
+        body: `Handoff to human${teamPhone ? ` (${teamPhone})` : ""}: ${reason}`
+      }
+    });
+
+    context.conversationId = conversation.id;
+  }
+
+  context.handoff = { reason, teamPhone };
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      `Human handoff recorded${teamPhone ? ` to ${teamPhone}` : ""}.`,
+      context.handoff
+    )
+  );
+}
+
+function forwardInputFromContext(context: RunnerContext): WorkflowRunInput {
+  return {
+    callerNumber: context.caller_number,
+    callerName: context.caller_name,
+    businessId: context.business?.id,
+    businessOwnerId: context.business?.ownerId,
+    businessName: context.business?.name,
+    businessType: context.business?.type,
+    businessPhoneNumber: context.business?.phoneNumber,
+    bookingUrl: context.business?.bookingUrl,
+    teamPhone: context.business?.teamPhone,
+    calendarId: context.business?.calendarId,
+    timeZone: context.business?.timeZone,
+    vapiAssistantId: context.business?.vapiAssistantId,
+    vapiPhoneNumberId: context.business?.vapiPhoneNumberId,
+    services: context.business?.services,
+    faqs: context.business?.faqs,
+    tone: context.business?.tone,
+    escalationRules: context.business?.escalationRules,
+    knowledge: context.business?.knowledge,
+    businessHours: context.business?.hours,
+    inboundSmsBody: context.inboundSms?.body,
+    missedCallReason: context.missedCall?.reason,
+    conversationId: context.conversationId,
+    leadId: context.leadId,
+    installedAgentId: context.installedAgentId,
+    latestMessage: context.latestMessage ?? context.inboundSms?.body
+  };
+}
+
+async function runTriggerNextWorkflowNode({
+  userId,
+  node,
+  context,
+  logs,
+  mode,
+  chain
 }: {
   userId: string;
   node: RunnerNode;
   context: RunnerContext;
   logs: WorkflowRunLog[];
   mode: WorkflowRunMode;
+  chain: WorkflowChain;
+}) {
+  const targetWorkflowId = renderTemplate(node.data?.nextWorkflowId, context).trim();
+
+  if (!targetWorkflowId) {
+    logs.push(createLog(node, "error", "Next Workflow failed: no target workflow id is configured."));
+    return;
+  }
+
+  if (chain.depth + 1 > MAX_WORKFLOW_CHAIN_DEPTH) {
+    logs.push(
+      createLog(node, "error", `Next Workflow stopped: max chain depth (${MAX_WORKFLOW_CHAIN_DEPTH}) reached.`)
+    );
+    return;
+  }
+
+  if (targetWorkflowId === chain.workflowId || chain.visited.includes(targetWorkflowId)) {
+    logs.push(createLog(node, "error", "Next Workflow stopped: workflow loop detected."));
+    return;
+  }
+
+  const target = await prisma.workflowDefinition.findUnique({
+    where: { id: targetWorkflowId }
+  });
+
+  if (!target) {
+    logs.push(createLog(node, "error", `Next Workflow failed: workflow ${targetWorkflowId} not found or inactive.`));
+    return;
+  }
+
+  const childRun = await runWorkflowTest({
+    userId,
+    workflowId: target.id,
+    workflowJson: target.workflowJson,
+    input: forwardInputFromContext(context),
+    mode,
+    chainDepth: chain.depth + 1,
+    chainVisited: [...chain.visited, chain.workflowId]
+  });
+
+  for (const childLog of childRun.logs) {
+    logs.push({ ...childLog, label: `${target.name} › ${childLog.label}` });
+  }
+
+  context.nextWorkflow = { workflowId: target.id, name: target.name, ran: true };
+
+  logs.push(
+    createLog(node, "success", `Triggered next workflow: ${target.name}.`, {
+      workflowId: target.id,
+      name: target.name
+    })
+  );
+}
+
+async function runCoreConnectorNode({
+  userId,
+  node,
+  context,
+  logs,
+  mode,
+  chain
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+  chain: WorkflowChain;
+}) {
+  const action = asString(node.data?.connectorAction);
+
+  if (action === CORE_CONNECTOR_ACTIONS.saveLead) {
+    await runSaveLeadNode({ node, context, logs, mode });
+    return;
+  }
+
+  if (action === CORE_CONNECTOR_ACTIONS.saveConversationMessage) {
+    await runSaveConversationNode({ node, context, logs, mode });
+    return;
+  }
+
+  if (action === CORE_CONNECTOR_ACTIONS.humanHandoff) {
+    await runHumanHandoffNode({ node, context, logs, mode });
+    return;
+  }
+
+  if (action === CORE_CONNECTOR_ACTIONS.triggerNextWorkflow) {
+    await runTriggerNextWorkflowNode({ userId, node, context, logs, mode, chain });
+    return;
+  }
+
+  logs.push(createLog(node, "error", `CoreAI action "${action}" is not executable yet.`));
+}
+
+async function runConnectorNode({
+  userId,
+  node,
+  context,
+  logs,
+  mode,
+  chain
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+  chain: WorkflowChain;
 }) {
   const connector = asString(node.data?.connector, "SMS").toLowerCase();
+
+  if (connector === "coreai" || connector === "core") {
+    await runCoreConnectorNode({ userId, node, context, logs, mode, chain });
+    return;
+  }
 
   if (connector === "gmail") {
     await runGmailConnectorNode({
@@ -873,17 +1298,22 @@ export async function runWorkflowTest({
   workflowId,
   workflowJson,
   input,
-  mode = "test"
+  mode = "test",
+  chainDepth = 0,
+  chainVisited = []
 }: {
   userId: string;
   workflowId: string;
   workflowJson: unknown;
   input?: WorkflowRunInput;
   mode?: WorkflowRunMode;
+  chainDepth?: number;
+  chainVisited?: string[];
 }) {
   const parsedWorkflow = parseRunnerWorkflowJson(workflowJson);
   const logs: WorkflowRunLog[] = [];
   const context: RunnerContext = seedMissedCallContext(input);
+  const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId };
 
   if (parsedWorkflow.nodes.length === 0) {
     return {
@@ -915,7 +1345,8 @@ export async function runWorkflowTest({
           node,
           context,
           logs,
-          mode
+          mode,
+          chain
         });
         continue;
       }

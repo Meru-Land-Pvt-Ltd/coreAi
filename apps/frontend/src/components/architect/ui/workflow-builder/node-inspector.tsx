@@ -291,6 +291,8 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const isGmail = connector === "Gmail";
   const isVapi = connector === "Vapi";
   const isCalendar = connector === "Google Calendar";
+  const isCore = connector === "CoreAI";
+  const coreAction = selectedNode.data.connectorAction ?? "save_lead";
 
   return (
     <>
@@ -302,7 +304,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           <TextInput value={selectedNode.data.subtitle ?? ""} onChange={(value) => onUpdateNodeData("subtitle", value)} />
         </div>
       </Section>
-      <Section title={isGmail ? "Gmail action" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : "Message"}>
+      <Section title={isGmail ? "Gmail action" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "CoreAI action" : "Message"}>
         {isGmail ? (
           <>
             <Label>Action</Label>
@@ -334,6 +336,26 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             <div className="mt-4"><Label>Summary</Label><TextInput mono value={selectedNode.data.calendarSummary ?? "{{appointmentService}} - {{caller_number}}"} onChange={(value) => onUpdateNodeData("calendarSummary", value)} /></div>
             <div className="mt-4"><Label>Description</Label><TextArea mono height="h-20" value={selectedNode.data.calendarDescription ?? "Booked by CORE AI Receptionist after missed-call follow-up."} onChange={(value) => onUpdateNodeData("calendarDescription", value)} /></div>
           </>
+        ) : isCore ? (
+          <div data-testid="node-inspector-coreai">
+            <Label>Action</Label>
+            <SelectBox value={coreAction} onChange={(value) => onUpdateNodeData("connectorAction", value)} options={["save_lead", "save_conversation_message", "human_handoff", "trigger_next_workflow"]} />
+            {coreAction === "trigger_next_workflow" ? (
+              <div className="mt-4"><Label>Next workflow ID</Label><TextInput mono value={selectedNode.data.nextWorkflowId ?? ""} onChange={(value) => onUpdateNodeData("nextWorkflowId", value)} /></div>
+            ) : null}
+            {coreAction === "save_conversation_message" ? (
+              <>
+                <div className="mt-4"><Label>Direction</Label><SelectBox value={selectedNode.data.conversationDirection ?? "OUTBOUND"} onChange={(value) => onUpdateNodeData("conversationDirection", value)} options={["OUTBOUND", "INBOUND", "SYSTEM"]} /></div>
+                <div className="mt-4"><Label>Message body</Label><TextArea mono height="h-20" value={selectedNode.data.conversationBody ?? "{{sentSms.body}}"} onChange={(value) => onUpdateNodeData("conversationBody", value)} /></div>
+              </>
+            ) : null}
+            {coreAction === "human_handoff" ? (
+              <div className="mt-4"><Label>Handoff reason</Label><TextArea height="h-16" value={selectedNode.data.handoffReason ?? "{{business.escalationRules}}"} onChange={(value) => onUpdateNodeData("handoffReason", value)} /></div>
+            ) : null}
+            {coreAction === "save_lead" ? (
+              <p className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">Saves the caller as a lead for this business. No extra configuration needed.</p>
+            ) : null}
+          </div>
         ) : (
           <>
             <Label>Send to</Label>
@@ -348,8 +370,8 @@ function ConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       </Section>
       <Section title="Delivery" last>
         <Label>Provider</Label>
-        <SelectBox value={isGmail ? "Gmail" : isVapi ? "Vapi" : isCalendar ? "Google Calendar" : "Twilio"} onChange={() => undefined} options={isGmail ? ["Gmail"] : isVapi ? ["Vapi"] : isCalendar ? ["Google Calendar"] : ["Twilio", "MessageBird", "Vonage", "Telnyx"]} />
-        <div className="mt-4"><Toggle label={isGmail ? "Create safe draft first" : isVapi ? "Call patient after missed call" : isCalendar ? "Create appointment event" : "Send immediately"} /></div>
+        <SelectBox value={isGmail ? "Gmail" : isVapi ? "Vapi" : isCalendar ? "Google Calendar" : isCore ? "CoreAI" : "Twilio"} onChange={() => undefined} options={isGmail ? ["Gmail"] : isVapi ? ["Vapi"] : isCalendar ? ["Google Calendar"] : isCore ? ["CoreAI"] : ["Twilio", "MessageBird", "Vonage", "Telnyx"]} />
+        <div className="mt-4"><Toggle label={isGmail ? "Create safe draft first" : isVapi ? "Call patient after missed call" : isCalendar ? "Create appointment event" : isCore ? "Run inside workflow" : "Send immediately"} /></div>
       </Section>
     </>
   );

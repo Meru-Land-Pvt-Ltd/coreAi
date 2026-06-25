@@ -1,6 +1,6 @@
 import { cn } from "@/components/architect/ui/architect-ui";
 import { accentStyles } from "./accent-styles";
-import { libraryGroups } from "./library";
+import { comingSoonItems, libraryGroups } from "./library";
 import { BuilderIcon } from "./icons";
 import type { BuilderNodeData, NodeKind } from "./types";
 
@@ -76,6 +76,7 @@ export function ComponentLibrary({
                   return (
                     <button
                       key={`${group.title}-${item.label}`}
+                      data-testid={item.testId}
                       type="button"
                       onClick={() => onAddNode(item.nodeKind, { ...item.overrides, accent: item.accent, icon: item.icon })}
                       className={cn(
@@ -97,6 +98,8 @@ export function ComponentLibrary({
             </div>
           ))}
         </div>
+
+        <ComingSoonSection query={query} />
       </div>
 
       <div className="mt-4 border-t border-gray-100 px-4 py-4">
@@ -107,6 +110,42 @@ export function ComponentLibrary({
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </p>
+      </div>
+    </div>
+  );
+}
+
+function ComingSoonSection({ query }: { query: string }) {
+  const items = !query
+    ? comingSoonItems
+    : comingSoonItems.filter(
+        (item) =>
+          item.label.toLowerCase().includes(query) || item.description.toLowerCase().includes(query)
+      );
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-6" data-testid="builder-coming-soon">
+      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Coming soon</p>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.type}
+            data-testid={item.testId}
+            aria-disabled="true"
+            title="Coming soon — not executable yet"
+            className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 p-3 text-left opacity-70"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-slate-500">{item.label}</span>
+              <span className="mt-0.5 block truncate text-xs text-slate-400">{item.description}</span>
+            </span>
+            <span className="ml-auto shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Soon
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

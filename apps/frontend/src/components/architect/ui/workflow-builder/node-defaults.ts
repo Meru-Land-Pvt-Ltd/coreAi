@@ -120,6 +120,21 @@ export function defaultNodeData(
       };
     }
 
+    if (connector === "CoreAI") {
+      return {
+        ...base,
+        label: "Save Lead",
+        title: "Save Lead",
+        kind: "COREAI",
+        icon: "capture",
+        accent: "blue",
+        subtitle: "CoreAI platform action (lead, conversation, handoff, or next workflow)",
+        connector: "CoreAI",
+        connectorAction: "save_lead",
+        ...overrides
+      };
+    }
+
     return {
       ...base,
       label: "Auto Text in 5 Seconds",

@@ -45,6 +45,11 @@ const envSchema = z.object({
 
   GOOGLE_CALENDAR_ID: z.string().optional(),
   GOOGLE_CALENDAR_DEFAULT_TIMEZONE: z.string().default("America/New_York"),
+
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional(),
+
 });
 
 export const env = envSchema.parse(process.env);

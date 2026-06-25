@@ -41,6 +41,12 @@ export type BuilderNodeData = Record<string, unknown> & {
   smsBody?: string;
   sendAt?: string;
   outputKey?: string;
+  leadSource?: string;
+  leadStatus?: string;
+  conversationDirection?: string;
+  conversationBody?: string;
+  handoffReason?: string;
+  nextWorkflowId?: string;
 };
 
 export type BuilderNode = Node<BuilderNodeData, "coreNode">;
@@ -68,6 +74,14 @@ export type LibraryItem = {
   icon: string;
   accent: NodeAccent;
   overrides?: Partial<BuilderNodeData>;
+  testId?: string;
+};
+
+export type ComingSoonItem = {
+  type: string;
+  label: string;
+  description: string;
+  testId: string;
 };
 
 export type LibraryGroup = {
