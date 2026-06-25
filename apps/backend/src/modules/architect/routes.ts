@@ -14,7 +14,8 @@ import {
   handleTwilioInboundSms,
   handleTwilioMissedCall,
   handleTwilioVoice,
-  handleTwilioVoiceAction
+  handleTwilioVoiceAction,
+  handleVapiWebhook
 } from "./twilio-business-routing";
 import { runWorkflowTest } from "./workflow-runner";
 
@@ -33,12 +34,15 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
       return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
     }
 
-    await handleGmailOAuthCallback({
+    const { redirectPath } = await handleGmailOAuthCallback({
       code,
       state
     });
 
-    return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=connected`);
+    const target = redirectPath ?? "/architect/profile";
+    const separator = target.includes("?") ? "&" : "?";
+
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=connected`);
   } catch (error) {
     console.error(error);
     return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
@@ -57,8 +61,8 @@ architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction)
 architectRoutes.post("/connectors/twilio/voice-action/:workflowId", handleTwilioVoiceAction);
 architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
-architectRoutes.post("/connectors/twilio/missed-call", handleTwilioMissedCall);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
+architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));
@@ -113,37 +117,49 @@ const proposalSchema = z.object({
 const workflowRunInputSchema = z.object({
   callerNumber: z.string().trim().optional(),
   callerName: z.string().trim().optional(),
-  businessName: z.string().trim().optional(),
   businessId: z.string().trim().optional(),
+  businessOwnerId: z.string().trim().optional(),
+  businessName: z.string().trim().optional(),
   businessType: z.string().trim().optional(),
+  businessPhoneNumber: z.string().trim().optional(),
+  calendarId: z.string().trim().optional(),
+  timeZone: z.string().trim().optional(),
+  vapiAssistantId: z.string().trim().optional(),
+  vapiPhoneNumberId: z.string().trim().optional(),
+  callStatus: z.string().trim().optional(),
+  callTimestamp: z.string().trim().optional(),
+  missedCallReason: z.string().trim().optional(),
   bookingUrl: z.string().trim().optional(),
   teamPhone: z.string().trim().optional(),
-  twilioFromNumber: z.string().trim().optional(),
-  twilioMessagingServiceSid: z.string().trim().optional(),
   services: z.array(z.string().trim()).optional(),
   faqs: z.array(z.string().trim()).optional(),
   tone: z.string().trim().optional(),
   escalationRules: z.string().trim().optional(),
   knowledge: z.array(z.string().trim()).optional(),
   inboundSmsBody: z.string().trim().optional(),
-  callStatus: z.string().trim().optional(),
-  callTimestamp: z.string().trim().optional(),
-  missedCallReason: z.string().trim().optional()
+  appointmentStartAt: z.string().trim().optional(),
+  appointmentEndAt: z.string().trim().optional(),
+  appointmentService: z.string().trim().optional()
 });
 
 const workflowRunTestSchema = z.object({
   input: workflowRunInputSchema.optional()
 });
 
-const twilioBusinessInstallationSchema = z.object({
-  workflowId: z.string().min(1, "workflowId is required"),
-  businessName: z.string().trim().min(2, "Business name is required"),
-  businessType: z.string().trim().min(2, "Business type is required"),
-  twilioPhoneNumber: z.string().trim().min(6, "Twilio phone number is required"),
+const businessInstallationSchema = z.object({
+  workflowId: z.string().trim().min(1),
+  listingId: z.string().trim().optional().or(z.literal("")),
+  businessName: z.string().trim().min(2),
+  businessType: z.string().trim().min(2),
+  twilioPhoneNumber: z.string().trim().min(5),
   twilioPhoneNumberSid: z.string().trim().optional().or(z.literal("")),
-  forwardToPhone: z.string().trim().min(6, "Forward-to phone is required"),
+  forwardToPhone: z.string().trim().optional().or(z.literal("")),
   bookingUrl: z.string().trim().url().optional().or(z.literal("")),
   teamPhone: z.string().trim().optional().or(z.literal("")),
+  calendarId: z.string().trim().optional().or(z.literal("")),
+  timeZone: z.string().trim().default("America/New_York"),
+  vapiAssistantId: z.string().trim().optional().or(z.literal("")),
+  vapiPhoneNumberId: z.string().trim().optional().or(z.literal("")),
   services: z.array(z.string().trim().min(1)).default([]),
   faqs: z
     .array(
@@ -161,7 +177,7 @@ const twilioBusinessInstallationSchema = z.object({
       })
     )
     .default([]),
-  tone: z.string().trim().optional().or(z.literal("")),
+  tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal(""))
 });
 
@@ -362,7 +378,7 @@ architectRoutes.delete("/connectors/gmail", async (c) => {
 architectRoutes.post("/connectors/twilio/business-installations", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const input = twilioBusinessInstallationSchema.parse(await c.req.json());
+    const input = businessInstallationSchema.parse(await c.req.json());
 
     const workflow = await prisma.workflowDefinition.findFirst({
       where: {
@@ -383,11 +399,15 @@ architectRoutes.post("/connectors/twilio/business-installations", async (c) => {
         profile: {
           create: {
             bookingUrl: input.bookingUrl || null,
-            teamPhone: input.teamPhone || input.forwardToPhone,
-            tone: input.tone || "friendly",
-            escalationRules: input.escalationRules || null,
+            teamPhone: input.teamPhone || null,
+            calendarId: input.calendarId || "primary",
+            timeZone: input.timeZone,
+            vapiAssistantId: input.vapiAssistantId || null,
+            vapiPhoneNumberId: input.vapiPhoneNumberId || null,
             services: input.services,
-            faqsJson: input.faqs
+            faqsJson: input.faqs as never,
+            tone: input.tone,
+            escalationRules: input.escalationRules || null
           }
         },
         knowledgeBases: {
@@ -407,31 +427,25 @@ architectRoutes.post("/connectors/twilio/business-installations", async (c) => {
       data: {
         businessId: business.id,
         workflowId: workflow.id,
+        listingId: input.listingId || undefined,
         name: workflow.name,
         status: "ACTIVE",
         configJson: {
-          source: "architect-test-install"
+          connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],
+          vapiAssistantId: input.vapiAssistantId || null,
+          vapiPhoneNumberId: input.vapiPhoneNumberId || null,
+          calendarId: input.calendarId || "primary"
         }
       }
     });
 
-    const phoneNumber = await prisma.businessPhoneNumber.upsert({
-      where: {
-        phoneNumber: input.twilioPhoneNumber
-      },
-      update: {
+    const phoneNumber = await prisma.businessPhoneNumber.create({
+      data: {
         businessId: business.id,
         installedAgentId: installedAgent.id,
+        phoneNumber: input.twilioPhoneNumber.replace(/[^+\d]/g, ""),
         twilioPhoneNumberSid: input.twilioPhoneNumberSid || null,
-        forwardToPhone: input.forwardToPhone,
-        isActive: true
-      },
-      create: {
-        businessId: business.id,
-        installedAgentId: installedAgent.id,
-        phoneNumber: input.twilioPhoneNumber,
-        twilioPhoneNumberSid: input.twilioPhoneNumberSid || null,
-        forwardToPhone: input.forwardToPhone,
+        forwardToPhone: input.forwardToPhone || null,
         isActive: true
       }
     });
@@ -444,27 +458,23 @@ architectRoutes.post("/connectors/twilio/business-installations", async (c) => {
         phoneNumber,
         webhooks: {
           voice: `${env.BACKEND_URL}/architect/connectors/twilio/voice`,
-          inboundSms: `${env.BACKEND_URL}/architect/connectors/twilio/inbound-sms`
+          sms: `${env.BACKEND_URL}/architect/connectors/twilio/inbound-sms`,
+          vapi: `${env.BACKEND_URL}/architect/connectors/vapi/webhook`
         }
       },
-      "Business Twilio installation created"
+      "Business installation created"
     );
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
         c,
-        error.issues[0]?.message ?? "Invalid Twilio business installation input",
+        error.issues[0]?.message ?? "Invalid business installation input",
         422,
         "VALIDATION_ERROR"
       );
     }
 
-    return errorResponse(
-      c,
-      error instanceof Error ? error.message : "Could not create Twilio business installation",
-      500,
-      "TWILIO_BUSINESS_INSTALL_FAILED"
-    );
+    return errorResponse(c, error instanceof Error ? error.message : "Could not create business installation", 500, "BUSINESS_INSTALLATION_FAILED");
   }
 });
 
@@ -765,51 +775,6 @@ architectRoutes.post("/listings", async (c) => {
 
     return errorResponse(c, "Could not create agent listing", 500, "LISTING_CREATE_FAILED");
   }
-});
-
-architectRoutes.get("/listings/completed", async (c) => {
-  const listings = await prisma.agentListing.findMany({
-    where: {
-      status: "APPROVED"
-    },
-    include: {
-      architect: {
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          architectProfile: {
-            select: {
-              title: true,
-              bio: true,
-              portfolioUrl: true,
-              skills: true,
-              hourlyRateCents: true,
-              rating: true,
-              completedJobs: true
-            }
-          }
-        }
-      },
-      workflow: {
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          isTemplate: true,
-          createdAt: true,
-          updatedAt: true
-        }
-      }
-    },
-    orderBy: {
-      createdAt: "desc"
-    }
-  });
-
-  return successResponse(c, {
-    listings
-  });
 });
 
 architectRoutes.get("/projects", async (c) => {

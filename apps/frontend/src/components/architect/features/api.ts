@@ -112,10 +112,29 @@ export function runArchitectWorkflowTest(
     input?: {
       callerNumber?: string;
       callerName?: string;
+      businessId?: string;
+      businessOwnerId?: string;
       businessName?: string;
+      businessType?: string;
+      businessPhoneNumber?: string;
+      calendarId?: string;
+      timeZone?: string;
+      vapiAssistantId?: string;
+      vapiPhoneNumberId?: string;
       callStatus?: string;
       callTimestamp?: string;
       missedCallReason?: string;
+      bookingUrl?: string;
+      teamPhone?: string;
+      services?: string[];
+      faqs?: string[];
+      tone?: string;
+      escalationRules?: string;
+      knowledge?: string[];
+      inboundSmsBody?: string;
+      appointmentStartAt?: string;
+      appointmentEndAt?: string;
+      appointmentService?: string;
     };
   } = {}
 ) {
@@ -131,10 +150,29 @@ export function runArchitectWorkflowLive(
     input?: {
       callerNumber?: string;
       callerName?: string;
+      businessId?: string;
+      businessOwnerId?: string;
       businessName?: string;
+      businessType?: string;
+      businessPhoneNumber?: string;
+      calendarId?: string;
+      timeZone?: string;
+      vapiAssistantId?: string;
+      vapiPhoneNumberId?: string;
       callStatus?: string;
       callTimestamp?: string;
       missedCallReason?: string;
+      bookingUrl?: string;
+      teamPhone?: string;
+      services?: string[];
+      faqs?: string[];
+      tone?: string;
+      escalationRules?: string;
+      knowledge?: string[];
+      inboundSmsBody?: string;
+      appointmentStartAt?: string;
+      appointmentEndAt?: string;
+      appointmentService?: string;
     };
   } = {}
 ) {
@@ -154,4 +192,32 @@ export function getGmailOAuthUrl() {
 
 export function disconnectGmailConnector() {
   return apiDelete<null>("/architect/connectors/gmail");
+}
+
+export function createTwilioBusinessInstallation(body: {
+  workflowId: string;
+  listingId?: string;
+  businessName: string;
+  businessType: string;
+  twilioPhoneNumber: string;
+  twilioPhoneNumberSid?: string;
+  forwardToPhone?: string;
+  bookingUrl?: string;
+  teamPhone?: string;
+  calendarId?: string;
+  timeZone?: string;
+  vapiAssistantId?: string;
+  vapiPhoneNumberId?: string;
+  services: string[];
+  faqs: { question: string; answer: string }[];
+  knowledge: { title: string; content: string }[];
+  tone?: string;
+  escalationRules?: string;
+}) {
+  return apiPost<{
+    business: unknown;
+    installedAgent: unknown;
+    phoneNumber: unknown;
+    webhooks: { voice: string; sms: string; vapi: string };
+  }>("/architect/connectors/twilio/business-installations", body);
 }

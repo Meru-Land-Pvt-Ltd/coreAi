@@ -7,80 +7,99 @@ export function createMissedCallTextBackFlow(): BuilderFlow {
     {
       id: "trigger",
       type: "coreNode",
-      position: { x: 560, y: 60 },
+      position: { x: 560, y: 40 },
       data: defaultNodeData("trigger", {
         label: "Missed Call Detected",
         title: "Missed Call Detected",
-        kind: "TRIGGER",
+        kind: "TWILIO",
         icon: "phone-missed",
         accent: "amber",
-        subtitle: "When: Business hours missed call",
-        footer: "Output: caller_number, timestamp"
+        subtitle: "Twilio detects no-answer, busy, failed, or canceled calls",
+        footer: "Output: caller_number, business context, timestamp"
       })
     },
     {
       id: "ai",
       type: "coreNode",
-      position: { x: 560, y: 280 },
+      position: { x: 560, y: 250 },
       data: defaultNodeData("ai", {
-        label: "Generate Personalized SMS",
-        title: "Generate Personalized SMS",
+        label: "Context-Aware Reply",
+        title: "Context-Aware Reply",
         kind: "AI PROCESS",
         icon: "sparkles",
         accent: "violet",
-        subtitle: "Model: GPT-4o - Tone: Friendly",
-        footer: "Input: caller_number -> Output: message_text",
+        subtitle: "Uses business type, services, FAQs, booking URL, and rules",
+        footer: "Input: business profile + caller -> Output: ai.output",
         prompt:
-          "You are a friendly dental office assistant. A patient just called but we missed their call. Write a brief, warm text message acknowledging their call and offering to help schedule an appointment. Keep it under 160 characters."
+          "You are the AI receptionist for {{business.name}}. Use business type, services, FAQs, hours, booking URL, and escalation rules. Keep responses helpful and concise."
       })
     },
     {
-      id: "condition",
+      id: "vapi-call",
       type: "coreNode",
-      position: { x: 560, y: 500 },
-      data: defaultNodeData("condition", {
-        label: "Is Business Hours?",
-        title: "Is Business Hours?",
-        kind: "CONDITION",
-        icon: "git-branch",
-        accent: "orange",
-        subtitle: "Check: 8AM-6PM, Mon-Fri",
-        condition: "8:00 AM - 6:00 PM"
-      })
-    },
-    {
-      id: "actionYes",
-      type: "coreNode",
-      position: { x: 360, y: 720 },
+      position: { x: 240, y: 480 },
       data: defaultNodeData("connector", {
-        label: "Send SMS Now",
-        title: "Send SMS Now",
-        kind: "ACTION",
+        label: "AI Voice Callback",
+        title: "AI Voice Callback",
+        kind: "VAPI AI",
+        icon: "phone-call",
+        accent: "violet",
+        subtitle: "Vapi calls the patient and handles the voice conversation",
+        connector: "Vapi",
+        connectorAction: "start_voice_call",
+        vapiAssistantId: "{{business.vapiAssistantId}}",
+        vapiPhoneNumberId: "{{business.vapiPhoneNumberId}}"
+      })
+    },
+    {
+      id: "sms-follow-up",
+      type: "coreNode",
+      position: { x: 560, y: 480 },
+      data: defaultNodeData("connector", {
+        label: "Text Back in 5 Seconds",
+        title: "Text Back in 5 Seconds",
+        kind: "TWILIO SMS",
         icon: "message-square",
         accent: "green",
-        subtitle: "To: {caller_number}",
+        subtitle: "Twilio sends the context-aware follow-up text",
         connector: "SMS",
         connectorAction: "send_sms",
         smsTo: "{{caller_number}}",
-        smsBody: "{{message_text}}"
+        smsBody: "{{ai.output}}"
       })
     },
     {
-      id: "actionNo",
+      id: "calendar-booking",
       type: "coreNode",
-      position: { x: 760, y: 720 },
+      position: { x: 880, y: 480 },
       data: defaultNodeData("connector", {
-        label: "Queue for Morning",
-        title: "Queue for Morning",
-        kind: "ACTION",
-        icon: "clock",
+        label: "Book Appointment",
+        title: "Book Appointment",
+        kind: "GOOGLE CALENDAR",
+        icon: "calendar",
         accent: "blue",
-        subtitle: "Send at: 8:00 AM next day",
+        subtitle: "Google Calendar creates the appointment when a slot is chosen",
+        connector: "Google Calendar",
+        connectorAction: "book_appointment",
+        calendarId: "{{business.calendarId}}",
+        appointmentService: "Consultation",
+        calendarSummary: "{{appointmentService}} - {{caller_number}}",
+        calendarDescription: "Booked by CORE AI Receptionist after missed-call follow-up."
+      })
+    },
+    {
+      id: "lead-captured",
+      type: "coreNode",
+      position: { x: 560, y: 720 },
+      data: defaultNodeData("connector", {
+        label: "Lead Captured",
+        title: "Lead Captured",
+        kind: "CAPTURE",
+        icon: "capture",
+        accent: "blue",
+        subtitle: "Conversation, call summary, SMS, and appointment are stored",
         connector: "SMS",
-        connectorAction: "send_sms",
-        smsTo: "{{caller_number}}",
-        smsBody: "{{message_text}}",
-        sendAt: "8:00 AM next business day"
+        connectorAction: "capture_lead"
       })
     }
   ];
@@ -89,9 +108,11 @@ export function createMissedCallTextBackFlow(): BuilderFlow {
     nodes,
     edges: [
       createFlowEdge({ id: "c1", source: "trigger", target: "ai", accent: "amber" }),
-      createFlowEdge({ id: "c2", source: "ai", target: "condition", accent: "violet" }),
-      createFlowEdge({ id: "c3", source: "condition", sourceHandle: "yes", target: "actionYes", accent: "green", label: "Yes" }),
-      createFlowEdge({ id: "c4", source: "condition", sourceHandle: "no", target: "actionNo", accent: "red", label: "No" })
+      createFlowEdge({ id: "c2", source: "ai", target: "vapi-call", accent: "violet", label: "Voice" }),
+      createFlowEdge({ id: "c3", source: "ai", target: "sms-follow-up", accent: "green", label: "SMS" }),
+      createFlowEdge({ id: "c4", source: "vapi-call", target: "calendar-booking", accent: "blue", label: "Books" }),
+      createFlowEdge({ id: "c5", source: "sms-follow-up", target: "lead-captured", accent: "green" }),
+      createFlowEdge({ id: "c6", source: "calendar-booking", target: "lead-captured", accent: "blue" })
     ]
   };
 }

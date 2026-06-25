@@ -4,7 +4,6 @@ export type TwilioSmsResult = {
   id: string | null;
   to: string;
   body: string;
-  from: string | null;
   providerCalled: boolean;
   twilioTestMode: boolean;
 };
@@ -14,34 +13,30 @@ export function escapeXml(value: string) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 }
 
 export async function sendTwilioSms({
   to,
   body,
-  from,
-  messagingServiceSid
+  fromPhoneNumber
 }: {
   to: string;
   body: string;
-  from?: string;
-  messagingServiceSid?: string;
+  fromPhoneNumber?: string | null;
 }): Promise<TwilioSmsResult> {
   const accountSid = env.TWILIO_ACCOUNT_SID;
   const authToken = env.TWILIO_AUTH_TOKEN;
   const isTwilioTestMode = env.TWILIO_TEST_MODE;
-  const resolvedFrom = isTwilioTestMode
-    ? "+15005550006"
-    : from || env.TWILIO_PHONE_NUMBER;
-  const resolvedMessagingServiceSid = isTwilioTestMode
+  const from = isTwilioTestMode ? "+15005550006" : fromPhoneNumber || env.TWILIO_PHONE_NUMBER;
+  const messagingServiceSid = isTwilioTestMode
     ? undefined
-    : messagingServiceSid || env.TWILIO_MESSAGING_SERVICE_SID;
+    : env.TWILIO_MESSAGING_SERVICE_SID;
 
-  if (!accountSid || !authToken || (!resolvedFrom && !resolvedMessagingServiceSid)) {
+  if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
     throw new Error(
-      "Twilio is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and either a business phone number, TWILIO_PHONE_NUMBER, or TWILIO_MESSAGING_SERVICE_SID. For Twilio test credentials, set TWILIO_TEST_MODE=true."
+      "Twilio is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER or TWILIO_MESSAGING_SERVICE_SID. For Twilio test credentials, set TWILIO_TEST_MODE=true."
     );
   }
 
@@ -50,10 +45,10 @@ export async function sendTwilioSms({
     Body: body
   });
 
-  if (resolvedMessagingServiceSid) {
-    bodyParams.set("MessagingServiceSid", resolvedMessagingServiceSid);
-  } else if (resolvedFrom) {
-    bodyParams.set("From", resolvedFrom);
+  if (messagingServiceSid) {
+    bodyParams.set("MessagingServiceSid", messagingServiceSid);
+  } else if (from) {
+    bodyParams.set("From", from);
   }
 
   const response = await fetch(
@@ -81,7 +76,6 @@ export async function sendTwilioSms({
     id: responseJson.sid ?? null,
     to,
     body,
-    from: resolvedFrom ?? null,
     providerCalled: true,
     twilioTestMode: isTwilioTestMode
   };

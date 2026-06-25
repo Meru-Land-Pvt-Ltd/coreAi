@@ -84,6 +84,42 @@ export function defaultNodeData(
       };
     }
 
+    if (connector === "Vapi") {
+      return {
+        ...base,
+        label: "AI Voice Callback",
+        title: "AI Voice Callback",
+        kind: "VAPI AI",
+        icon: "phone-call",
+        accent: "violet",
+        subtitle: "Vapi talks to the patient after the missed call",
+        connector: "Vapi",
+        connectorAction: "start_voice_call",
+        vapiAssistantId: "{{business.vapiAssistantId}}",
+        vapiPhoneNumberId: "{{business.vapiPhoneNumberId}}",
+        ...overrides
+      };
+    }
+
+    if (connector === "Google Calendar") {
+      return {
+        ...base,
+        label: "Book Appointment",
+        title: "Book Appointment",
+        kind: "CALENDAR",
+        icon: "calendar",
+        accent: "blue",
+        subtitle: "Create a Google Calendar event when the patient chooses a slot",
+        connector: "Google Calendar",
+        connectorAction: "book_appointment",
+        calendarId: "{{business.calendarId}}",
+        appointmentService: "Consultation",
+        calendarSummary: "{{appointmentService}} - {{caller_number}}",
+        calendarDescription: "Booked by CORE AI Receptionist after missed-call follow-up.",
+        ...overrides
+      };
+    }
+
     return {
       ...base,
       label: "Auto Text in 5 Seconds",
@@ -96,7 +132,7 @@ export function defaultNodeData(
       connectorAction: "send_sms",
       smsTo: "{{caller_number}}",
       smsBody:
-        "Hi {{caller_name}}, this is {{business.name}}. Sorry we missed your call. We can help by text right now. Would you like to book an appointment or ask a quick question?",
+        "{{ai.output}}",
       ...overrides
     };
   }

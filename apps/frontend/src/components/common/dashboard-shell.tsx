@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, type AuthRole, type AuthUser } from "@/lib/auth";
 
@@ -40,7 +41,7 @@ export function DashboardShell({ role, title, subtitle, children }: Props) {
     <main data-testid="components-common-dashboard-shell-main-2" className="min-h-screen bg-[#fff8ef] text-orange-950">
       <header data-testid="components-common-dashboard-shell-header-1" className="border-b border-orange-200 bg-white/75 backdrop-blur">
         <div data-testid="components-common-dashboard-shell-div-1" className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link data-testid="components-common-dashboard-shell-link-1" href="/" className="flex items-center gap-3">
+          <Link data-testid="components-common-dashboard-shell-link-1" href={"/" as Route} className="flex items-center gap-3">
             <div data-testid="components-common-dashboard-shell-div-2" className="brand-ring" />
             <span data-testid="components-common-dashboard-shell-span-1" className="font-bold">CoreAI Marketplace</span>
           </Link>

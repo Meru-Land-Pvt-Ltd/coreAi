@@ -294,9 +294,24 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             callerNumber: normalizedCallerNumber,
             callerName: callerName.trim(),
             businessName: normalizedBusinessName,
+            businessType: "Dental Clinic",
+            businessPhoneNumber: "",
+            calendarId: "primary",
+            timeZone: "America/New_York",
+            services: ["Dental cleaning", "Emergency tooth pain", "Whitening", "New patient exam"],
+            faqs: [
+              "Dental cleaning pricing depends on insurance and exam needs.",
+              "For severe pain or swelling, the team should call the patient urgently."
+            ],
+            knowledge: [
+              "The AI receptionist should offer booking first, answer basic service questions, and route emergencies to the team."
+            ],
+            bookingUrl: "https://example.com/book",
+            teamPhone: "",
             callStatus: "no-answer",
             callTimestamp: new Date().toISOString(),
-            missedCallReason: "No one picked up the customer call."
+            missedCallReason: "No one picked up the customer call.",
+            appointmentService: "Dental consultation"
           }
         }
       : {};

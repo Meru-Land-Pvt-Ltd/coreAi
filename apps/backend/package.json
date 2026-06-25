@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "seed:numbers": "tsx scripts/seed-platform-numbers.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.2",

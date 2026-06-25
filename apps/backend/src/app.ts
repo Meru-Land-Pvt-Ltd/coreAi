@@ -7,6 +7,7 @@ import { requestIdMiddleware } from "./middleware/request-id";
 import { authRoutes } from "./modules/auth/routes";
 import { healthRoutes } from "./modules/health/routes";
 import { architectRoutes } from "./modules/architect/routes";
+import { businessRoutes } from "./modules/business/routes";
 
 export const app = new Hono();
 
@@ -25,6 +26,7 @@ app.use(
 app.route("/health", healthRoutes);
 app.route("/auth", authRoutes);
 app.route("/architect", architectRoutes);
+app.route("/business", businessRoutes);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

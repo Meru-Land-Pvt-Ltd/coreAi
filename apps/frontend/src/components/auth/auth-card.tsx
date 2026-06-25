@@ -39,7 +39,7 @@ const roleContent: Record<
     tab: "Business Owner",
     subtitle: "Find and install AI agents for your business",
     loginPath: "/business/login" as Route,
-    dashboardPath: "/business/marketplace" as Route
+    dashboardPath: "/business/dashboard" as Route
   },
   ARCHITECT: {
     tab: "AI Architect",
@@ -48,6 +48,8 @@ const roleContent: Record<
     dashboardPath: "/architect/agents" as Route
   }
 };
+
+const HOME_ROUTE = "/" as Route;
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -299,7 +301,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
     <div data-testid="components-auth-auth-card-div-1" className="min-h-screen bg-gray-50 flex flex-col">
       <header data-testid="components-auth-auth-card-header-1" className="w-full px-6 py-5">
         <div data-testid="components-auth-auth-card-div-2" className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link data-testid="components-auth-auth-card-link-1" href="/" className="flex items-center gap-2">
+          <Link data-testid="components-auth-auth-card-link-1" href={HOME_ROUTE} className="flex items-center gap-2">
             <span data-testid="components-auth-auth-card-span-1" className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
               <span data-testid="components-auth-auth-card-span-2" className="w-3 h-3 rounded-full bg-white" />
             </span>
@@ -308,8 +310,9 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
             </span>
           </Link>
 
-          <Link data-testid="components-auth-auth-card-link-2"
-            href="/"
+          <Link
+            data-testid="components-auth-auth-card-link-2"
+            href={HOME_ROUTE}
             className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors duration-200"
           >
             ← Back to Home
@@ -579,15 +582,14 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
       <footer data-testid="components-auth-auth-card-footer-1" className="w-full px-6 py-6">
         <div data-testid="components-auth-auth-card-div-17" className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
           <div data-testid="components-auth-auth-card-div-18" className="flex items-center gap-4">
-            <Link data-testid="components-auth-auth-card-link-3" href="/" className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="components-auth-auth-card-link-3" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
               Privacy Policy
             </Link>
 
-            <Link data-testid="components-auth-auth-card-link-4" href="/" className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="components-auth-auth-card-link-4" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
               Terms of Service
             </Link>
-
-            <Link data-testid="components-auth-auth-card-link-5" href="/" className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="components-auth-auth-card-link-5" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
               Help
             </Link>
           </div>

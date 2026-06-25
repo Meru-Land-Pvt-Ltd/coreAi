@@ -29,6 +29,14 @@ export type BuilderNodeData = Record<string, unknown> & {
   gmailTo?: string;
   gmailSubject?: string;
   gmailBody?: string;
+  vapiAssistantId?: string;
+  vapiPhoneNumberId?: string;
+  calendarId?: string;
+  calendarSummary?: string;
+  calendarDescription?: string;
+  appointmentStartAt?: string;
+  appointmentEndAt?: string;
+  appointmentService?: string;
   smsTo?: string;
   smsBody?: string;
   sendAt?: string;
@@ -73,7 +81,7 @@ export type BuilderFlow = {
 };
 
 export type AgentTemplate = {
-  id: "missed-call" | "gmail-reply";
+  id: "missed-call" | "gmail-reply" | "ai-receptionist";
   title: string;
   description: string;
   accent: NodeAccent;
