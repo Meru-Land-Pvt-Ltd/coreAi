@@ -4,6 +4,8 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { CoreHeader } from "../components/common/header";
+import { CoreFooter } from "../components/common/footer";
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -191,118 +193,13 @@ export default function HomePage() {
       </div>
 
       {/* ============ NAVBAR ============ */}
-      <header data-testid="app-page-header-1"
-        id="navbar"
-        style={{ top: navTop }}
-        className={`fixed inset-x-0 z-50 border-b backdrop-blur-md transition ${navScrolled ? "border-gray-200 bg-white/90 shadow-[0_1px_3px_0_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.06)]" : "border-transparent"
-          }`}
-      >
-        <nav data-testid="app-page-nav-1" className="mx-auto flex w-full max-w-none items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-          <a data-testid="app-page-a-1" href="#top" className="flex items-center gap-2.5" aria-label="CORE home">
-            <svg data-testid="app-page-svg-4" className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-              <circle data-testid="app-page-circle-1" cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-              <circle data-testid="app-page-circle-2" cx="14" cy="14" r="4" fill="#fbbf24" />
-            </svg>
-            <span data-testid="app-page-span-3" className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
-          </a>
-
-          <div data-testid="app-page-div-5" className="hidden min-w-0 flex-1 items-center justify-center gap-4 md:flex lg:gap-7 xl:gap-8">
-            <a data-testid="app-page-a-2" href="#architects" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-              For Architects
-            </a>
-
-            <a data-testid="app-page-a-3" href="#businesses" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-              For Businesses
-            </a>
-
-            <Link data-testid="app-page-link-1" href="/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-              Marketplace
-            </Link>
-
-            <a data-testid="app-page-a-4" href="#assessment" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-              Pricing
-            </a>
-
-            <a data-testid="app-page-a-5" href="#footer" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-              Docs
-            </a>
-          </div>
-
-          <div data-testid="app-page-div-6" className="hidden shrink-0 items-center gap-2 md:flex lg:gap-3">
-            <Link data-testid="app-page-link-2" href="/business/login" className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900">Login</Link>
-            <Link data-testid="app-page-link-3" href="/assignment" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow-sm transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow">Get Started Free</Link>
-          </div>
-
-          <button data-testid="app-page-button-1"
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="inline-flex items-center justify-center rounded-lg p-2 text-slate-600 transition hover:bg-gray-100 hover:text-slate-900 md:hidden"
-            aria-label="Toggle menu"
-            aria-controls="mobile-menu"
-            aria-expanded={menuOpen}
-          >
-            <svg data-testid="app-page-svg-5" className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
-              <path data-testid="app-page-path-4" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-          </button>
-        </nav>
-
-        {menuOpen && (
-          <div data-testid="app-page-div-7" id="mobile-menu" className="border-t border-gray-200 bg-white/95 backdrop-blur-md md:hidden">
-            <div data-testid="app-page-div-8" className="mx-auto flex w-full max-w-none flex-col gap-1 px-4 py-4 sm:px-6 lg:px-8">
-              <a data-testid="app-page-a-6"
-                href="#architects"
-                onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
-              >
-                For Architects
-              </a>
-
-              <a data-testid="app-page-a-7"
-                href="#businesses"
-                onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
-              >
-                For Businesses
-              </a>
-
-              <Link data-testid="app-page-link-4"
-                href="/marketplace"
-                onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
-              >
-                Marketplace
-              </Link>
-
-              <a data-testid="app-page-a-8"
-                href="#assessment"
-                onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
-              >
-                Pricing
-              </a>
-
-              <a data-testid="app-page-a-9"
-                href="#footer"
-                onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
-              >
-                Docs
-              </a>
-
-              <div data-testid="app-page-div-9" className="mt-3 flex flex-col gap-2 border-t border-gray-200 pt-4">
-                <Link data-testid="app-page-link-5" href="/business/login" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900 lg:px-4">
-                  Login
-                </Link>
-
-                <Link data-testid="app-page-link-6" href="/assignment" className="rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-slate-950 shadow-glow-sm transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow lg:px-4">
-                  Get Started Free
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-      </header>
+      <CoreHeader
+        navTop={navTop}
+        navScrolled={navScrolled}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onCloseMenu={() => setMenuOpen(false)}
+      />
 
       <main data-testid="app-page-main-1" id="top">
         {/* ============ HERO ============ */}
@@ -323,7 +220,7 @@ export default function HomePage() {
 
             <p data-testid="app-page-p-1" className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-slate-600 sm:text-xl">
               <span data-testid="app-page-span-6" className="font-semibold text-slate-900">Businesses:</span> your missed calls and slow follow-ups are costing you thousands.{" "}
-              <span data-testid="app-page-span-7" className="font-semibold text-slate-900">AI Architects:</span> build agents that solve this — and earn 70% of every sale.
+              <span data-testid="app-page-span-7" className="font-semibold text-slate-900">AI Architects:</span> build agents that solve this and earn 70% of every sale.
             </p>
 
             <div data-testid="app-page-div-14" className="mt-6 flex items-center justify-center gap-2 text-base font-semibold text-amber-600">
@@ -338,11 +235,11 @@ export default function HomePage() {
 
             <div data-testid="app-page-div-15" className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link data-testid="app-page-link-7" href="/assignment" className="group inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-7 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition hover:scale-[1.03] hover:bg-amber-400 hover:shadow-glow-lg sm:w-auto">
-                I&apos;m a Business — Find My Agent
+                I&apos;m a Business Find My Agent
                 <ArrowIcon className="h-4 w-4 transition group-hover:translate-x-0.5" />
               </Link>
               <Link data-testid="app-page-link-8" href={"/architect/login" as Route} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-400 px-7 py-3.5 text-base font-semibold text-amber-600 transition hover:scale-[1.03] hover:border-amber-400 hover:bg-amber-50 hover:text-amber-700 sm:w-auto">
-                I&apos;m an Architect — Start Building Free
+                I&apos;m an Architect Start Building Free
               </Link>
             </div>
 
@@ -745,57 +642,7 @@ export default function HomePage() {
       </main>
 
       {/* ============ FOOTER ============ */}
-      <footer data-testid="app-page-footer-1" id="footer" className="scroll-mt-24 border-t border-gray-200 bg-gray-50 px-6 py-16">
-        <div data-testid="app-page-div-105" className="mx-auto max-w-7xl">
-          <div data-testid="app-page-div-106" className="grid grid-cols-2 gap-10 md:grid-cols-5">
-            <div data-testid="app-page-div-107" className="col-span-2 md:col-span-1">
-              <a data-testid="app-page-a-10" href="#top" className="flex items-center gap-2.5" aria-label="CORE home">
-                <svg data-testid="app-page-svg-13" className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                  <circle data-testid="app-page-circle-6" cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-                  <circle data-testid="app-page-circle-7" cx="14" cy="14" r="4" fill="#fbbf24" />
-                </svg>
-                <span data-testid="app-page-span-31" className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
-              </a>
-              <p data-testid="app-page-p-17" className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500">The AI agent marketplace where businesses and architects build the future of work together.</p>
-            </div>
-            <div data-testid="app-page-div-108">
-              <h4 data-testid="app-page-h4-1" className="text-sm font-semibold text-slate-900">Product</h4>
-              <ul data-testid="app-page-ul-3" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-page-li-7"><a data-testid="app-page-a-11" href="#platform" className="text-slate-500 transition hover:text-amber-600">Platform</a></li>
-                <li data-testid="app-page-li-8"><a data-testid="app-page-a-12" href="#assessment" className="text-slate-500 transition hover:text-amber-600">Pricing</a></li>
-                <li data-testid="app-page-li-9"><a data-testid="app-page-a-13" href="#" className="text-slate-500 transition hover:text-amber-600">Docs</a></li>
-                <li data-testid="app-page-li-10"><a data-testid="app-page-a-14" href="#" className="text-slate-500 transition hover:text-amber-600">API</a></li>
-              </ul>
-            </div>
-            <div data-testid="app-page-div-109">
-              <h4 data-testid="app-page-h4-2" className="text-sm font-semibold text-slate-900">Company</h4>
-              <ul data-testid="app-page-ul-4" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-page-li-11"><a data-testid="app-page-a-15" href="#" className="text-slate-500 transition hover:text-amber-600">About</a></li>
-                <li data-testid="app-page-li-12"><a data-testid="app-page-a-16" href="#" className="text-slate-500 transition hover:text-amber-600">Blog</a></li>
-                <li data-testid="app-page-li-13"><a data-testid="app-page-a-17" href="#" className="text-slate-500 transition hover:text-amber-600">Careers</a></li>
-              </ul>
-            </div>
-            <div data-testid="app-page-div-110">
-              <h4 data-testid="app-page-h4-3" className="text-sm font-semibold text-slate-900">Legal</h4>
-              <ul data-testid="app-page-ul-5" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-page-li-14"><a data-testid="app-page-a-18" href="#" className="text-slate-500 transition hover:text-amber-600">Privacy</a></li>
-                <li data-testid="app-page-li-15"><a data-testid="app-page-a-19" href="#" className="text-slate-500 transition hover:text-amber-600">Terms</a></li>
-              </ul>
-            </div>
-            <div data-testid="app-page-div-111">
-              <h4 data-testid="app-page-h4-4" className="text-sm font-semibold text-slate-900">Connect</h4>
-              <ul data-testid="app-page-ul-6" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-page-li-16"><a data-testid="app-page-a-20" href="#" className="text-slate-500 transition hover:text-amber-600">Twitter</a></li>
-                <li data-testid="app-page-li-17"><a data-testid="app-page-a-21" href="#" className="text-slate-500 transition hover:text-amber-600">LinkedIn</a></li>
-                <li data-testid="app-page-li-18"><a data-testid="app-page-a-22" href="#" className="text-slate-500 transition hover:text-amber-600">Email</a></li>
-              </ul>
-            </div>
-          </div>
-          <div data-testid="app-page-div-112" className="mt-12 border-t border-gray-200 pt-8">
-            <p data-testid="app-page-p-18" className="text-sm text-slate-500">© 2026 CORE. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <CoreFooter />
 
       {/* ============ STICKY BOTTOM CTA BAR ============ */}
       <div data-testid="app-page-div-113"

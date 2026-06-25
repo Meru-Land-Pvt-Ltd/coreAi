@@ -3,6 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { CoreFooter } from "@/components/common/footer";
 
 type Agent = {
   id: string;
@@ -176,6 +177,10 @@ export default function MarketplacePage() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [freeTrialOnly, setFreeTrialOnly] = useState(false);
   const [newOnly, setNewOnly] = useState(false);
+  const [openFilter, setOpenFilter] = useState<"industry" | "price" | "rating" | "sort" | null>(null);
+  const [priceMin, setPriceMin] = useState(0);
+  const [priceMax, setPriceMax] = useState(200);
+  const [minRating, setMinRating] = useState(0);
 
   const filteredAgents = useMemo(() => {
     const cleanQuery = query.trim().toLowerCase();
@@ -192,10 +197,19 @@ export default function MarketplacePage() {
         agent.industry === industry ||
         agent.industry === "all";
 
+      const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
+      const matchesRating = agent.rating >= minRating;
       const matchesTrial = !freeTrialOnly || agent.freeTrial;
       const matchesNew = !newOnly || agent.isNew;
 
-      return matchesQuery && matchesIndustry && matchesTrial && matchesNew;
+      return (
+        matchesQuery &&
+        matchesIndustry &&
+        matchesPrice &&
+        matchesRating &&
+        matchesTrial &&
+        matchesNew
+      );
     });
 
     return filtered.sort((a, b) => {
@@ -205,7 +219,79 @@ export default function MarketplacePage() {
       if (sort === "newest") return Number(b.isNew) - Number(a.isNew);
       return b.installs - a.installs;
     });
-  }, [query, industry, sort, freeTrialOnly, newOnly]);
+  }, [query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+
+
+  const industryLabel =
+    industries.find((item) => item.id === industry)?.label ?? "All industries";
+
+  const sortLabel =
+    sortOptions.find((item) => item.value === sort)?.label ?? "Most popular";
+
+  const priceActive = priceMin !== 0 || priceMax !== 200;
+  const ratingActive = minRating > 0;
+
+  const activeFilters = [
+    query.trim()
+      ? {
+        key: "query",
+        label: `"${query.trim()}"`
+      }
+      : null,
+    industry !== "all"
+      ? {
+        key: "industry",
+        label: industryLabel
+      }
+      : null,
+    priceActive
+      ? {
+        key: "price",
+        label: priceMax >= 200 ? `$${priceMin}+` : `$${priceMin}–$${priceMax}`
+      }
+      : null,
+    ratingActive
+      ? {
+        key: "rating",
+        label: `${minRating}.0+ ★`
+      }
+      : null,
+    freeTrialOnly
+      ? {
+        key: "free",
+        label: "Free trial"
+      }
+      : null,
+    newOnly
+      ? {
+        key: "new",
+        label: "New this month"
+      }
+      : null
+  ].filter(Boolean) as { key: string; label: string }[];
+
+  function clearFilter(key: string) {
+    if (key === "query") setQuery("");
+    if (key === "industry") setIndustry("all");
+    if (key === "price") {
+      setPriceMin(0);
+      setPriceMax(200);
+    }
+    if (key === "rating") setMinRating(0);
+    if (key === "free") setFreeTrialOnly(false);
+    if (key === "new") setNewOnly(false);
+  }
+
+  function clearAllFilters() {
+    setQuery("");
+    setIndustry("all");
+    setPriceMin(0);
+    setPriceMax(200);
+    setMinRating(0);
+    setFreeTrialOnly(false);
+    setNewOnly(false);
+    setOpenFilter(null);
+  }
 
   return (
     <main data-testid="app-marketplace-page-main-1" className="min-h-screen bg-white text-slate-900">
@@ -401,11 +487,10 @@ export default function MarketplacePage() {
                 <button data-testid="app-marketplace-page-button-2"
                   key={item.id}
                   onClick={() => setIndustry(item.id)}
-                  className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${
-                    industry === item.id
-                      ? "border-amber-300 ring-4 ring-amber-100"
-                      : "border-gray-100"
-                  }`}
+                  className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
+                    ? "border-amber-300 ring-4 ring-amber-100"
+                    : "border-gray-100"
+                    }`}
                 >
                   <span data-testid="app-marketplace-page-span-14" className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-105 group-hover:bg-amber-500">
                     {item.icon}
@@ -420,78 +505,292 @@ export default function MarketplacePage() {
         </div>
       </section>
 
-      <section data-testid="app-marketplace-page-section-3" className="sticky top-[68px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur">
-        <div data-testid="app-marketplace-page-div-30" className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div data-testid="app-marketplace-page-div-31" className="flex items-center gap-3 overflow-x-auto py-3">
-            <select data-testid="app-marketplace-page-select-1"
-              value={industry}
-              onChange={(event) => setIndustry(event.target.value)}
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            >
-              {industries.map((item) => (
-                <option data-testid="app-marketplace-page-option-1" key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+      <section className="sticky top-[68px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="flex items-center gap-3 overflow-x-auto py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex items-center gap-2.5">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
+                  className={filterPillClass(industry !== "all")}
+                  aria-haspopup="true"
+                  aria-expanded={openFilter === "industry"}
+                >
+                  <span>{industryLabel}</span>
+                  <ChevronIcon />
+                </button>
 
-            <button data-testid="app-marketplace-page-button-3"
-              onClick={() => setFreeTrialOnly((current) => !current)}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
-                freeTrialOnly
-                  ? "border-amber-300 bg-amber-50 text-amber-700"
-                  : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
-              }`}
-            >
-              Free trial
-            </button>
+                {openFilter === "industry" ? (
+                  <div className="absolute left-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                    {industries.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setIndustry(item.id);
+                          setOpenFilter(null);
+                        }}
+                        className={popoverOptionClass(industry === item.id)}
+                      >
+                        <span>{item.label}</span>
+                        <span className="text-xs text-slate-400">{item.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
 
-            <button data-testid="app-marketplace-page-button-4"
-              onClick={() => setNewOnly((current) => !current)}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
-                newOnly
-                  ? "border-amber-300 bg-amber-50 text-amber-700"
-                  : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
-              }`}
-            >
-              New this month
-            </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenFilter(openFilter === "price" ? null : "price")}
+                  className={filterPillClass(priceActive)}
+                  aria-haspopup="true"
+                  aria-expanded={openFilter === "price"}
+                >
+                  <span>
+                    {priceActive
+                      ? priceMax >= 200
+                        ? `$${priceMin}+`
+                        : `$${priceMin}–$${priceMax}`
+                      : "Price range"}
+                  </span>
+                  <ChevronIcon />
+                </button>
 
-            <div data-testid="app-marketplace-page-div-32" className="ml-auto flex shrink-0 items-center gap-3">
-              <button data-testid="app-marketplace-page-button-5"
-                onClick={() => setView("grid")}
-                className={`rounded-lg border px-3 py-2 text-sm ${
-                  view === "grid"
-                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                    : "border-gray-200 text-slate-500"
-                }`}
+                {openFilter === "price" ? (
+                  <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                    <div className="mb-2 flex items-center justify-between px-1">
+                      <span className="text-sm font-semibold text-slate-700">Price range</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPriceMin(0);
+                          setPriceMax(200);
+                        }}
+                        className="text-xs font-medium text-amber-600 transition hover:text-amber-700"
+                      >
+                        Reset
+                      </button>
+                    </div>
+
+                    <div className="mb-2 flex items-center justify-between px-1 text-sm text-slate-600">
+                      <span>${priceMin}</span>
+                      <span>{priceMax >= 200 ? "Any" : `$${priceMax}`}</span>
+                    </div>
+
+                    <div className="relative h-9 px-1">
+                      <div className="absolute left-1 right-1 top-4 h-1 rounded-full bg-slate-200" />
+                      <div
+                        className="absolute top-4 h-1 rounded-full bg-amber-500"
+                        style={{
+                          left: `${(priceMin / 200) * 100}%`,
+                          width: `${((priceMax - priceMin) / 200) * 100}%`
+                        }}
+                      />
+
+                      <input
+                        type="range"
+                        min={0}
+                        max={200}
+                        step={10}
+                        value={priceMin}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setPriceMin(Math.min(value, priceMax));
+                        }}
+                        className="pointer-events-none absolute left-0 top-2 h-5 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+                        aria-label="Minimum price"
+                      />
+
+                      <input
+                        type="range"
+                        min={0}
+                        max={200}
+                        step={10}
+                        value={priceMax}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setPriceMax(Math.max(value, priceMin));
+                        }}
+                        className="pointer-events-none absolute left-0 top-2 h-5 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+                        aria-label="Maximum price"
+                      />
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-1.5">
+                      {[
+                        { label: "Under $80", min: 0, max: 80 },
+                        { label: "$80–120", min: 80, max: 120 },
+                        { label: "$120+", min: 120, max: 200 }
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => {
+                            setPriceMin(preset.min);
+                            setPriceMax(preset.max);
+                          }}
+                          className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenFilter(openFilter === "rating" ? null : "rating")}
+                  className={filterPillClass(ratingActive)}
+                  aria-haspopup="true"
+                  aria-expanded={openFilter === "rating"}
+                >
+                  <span>{ratingActive ? `${minRating}.0+ ★` : "Rating"}</span>
+                  <ChevronIcon />
+                </button>
+
+                {openFilter === "rating" ? (
+                  <div className="absolute left-0 top-full z-50 mt-2 w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                    <p className="px-1 pb-2 text-sm font-semibold text-slate-700">
+                      Minimum rating
+                    </p>
+
+                    <div className="flex items-center gap-1 px-1 py-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => {
+                            setMinRating(star);
+                            setOpenFilter(null);
+                          }}
+                          className={star <= minRating ? "text-amber-400" : "text-gray-300"}
+                          aria-label={`${star} stars and up`}
+                        >
+                          <StarIcon className="h-6 w-6" />
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMinRating(0);
+                        setOpenFilter(null);
+                      }}
+                      className={popoverOptionClass(minRating === 0)}
+                    >
+                      Any rating
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setFreeTrialOnly((current) => !current)}
+                className={filterPillClass(freeTrialOnly)}
               >
-                Grid
+                Free trial
               </button>
-              <button data-testid="app-marketplace-page-button-6"
-                onClick={() => setView("list")}
-                className={`rounded-lg border px-3 py-2 text-sm ${
-                  view === "list"
-                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                    : "border-gray-200 text-slate-500"
-                }`}
-              >
-                List
-              </button>
 
-              <select data-testid="app-marketplace-page-select-2"
-                value={sort}
-                onChange={(event) => setSort(event.target.value as SortValue)}
-                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+              <button
+                type="button"
+                onClick={() => setNewOnly((current) => !current)}
+                className={filterPillClass(newOnly)}
               >
-                {sortOptions.map((item) => (
-                  <option data-testid="app-marketplace-page-option-2" key={item.value} value={item.value}>
-                    Sort: {item.label}
-                  </option>
-                ))}
-              </select>
+                New this month
+              </button>
+            </div>
+
+            <div className="ml-auto flex shrink-0 items-center gap-3 pl-2">
+              <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setView("grid")}
+                  className={viewButtonClass(view === "grid")}
+                  aria-label="Grid view"
+                  aria-pressed={view === "grid"}
+                >
+                  <GridIcon />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setView("list")}
+                  className={viewButtonClass(view === "list")}
+                  aria-label="List view"
+                  aria-pressed={view === "list"}
+                >
+                  <ListIcon />
+                </button>
+              </div>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900"
+                  aria-haspopup="true"
+                  aria-expanded={openFilter === "sort"}
+                >
+                  Sort:
+                  <span className="font-semibold text-slate-800">{sortLabel}</span>
+                  <ChevronIcon />
+                </button>
+
+                {openFilter === "sort" ? (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                    {sortOptions.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => {
+                          setSort(item.value);
+                          setOpenFilter(null);
+                        }}
+                        className={popoverOptionClass(sort === item.value)}
+                      >
+                        <span>{item.label}</span>
+                        {sort === item.value ? <CheckIcon /> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
+
+          {activeFilters.length ? (
+            <div className="flex flex-wrap items-center gap-2 pb-3">
+              <span className="text-xs font-medium text-slate-400">Filters:</span>
+
+              {activeFilters.map((filter) => (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => clearFilter(filter.key)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+                >
+                  {filter.label}
+                  <XIcon />
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="text-xs font-semibold text-slate-500 underline-offset-2 transition hover:text-amber-600 hover:underline"
+              >
+                Clear all
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -577,43 +876,7 @@ export default function MarketplacePage() {
         </div>
       </section>
 
-      <footer data-testid="app-marketplace-page-footer-1" className="border-t border-gray-100 bg-white py-12">
-        <div data-testid="app-marketplace-page-div-41" className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div data-testid="app-marketplace-page-div-42" className="grid grid-cols-2 gap-8 md:grid-cols-5">
-            <div data-testid="app-marketplace-page-div-43" className="col-span-2 md:col-span-1">
-              <div data-testid="app-marketplace-page-div-44" className="flex items-center gap-2.5">
-                <span data-testid="app-marketplace-page-span-15" className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white">
-                  ●
-                </span>
-                <span data-testid="app-marketplace-page-span-16" className="text-xl font-extrabold tracking-tight text-slate-900">
-                  CORE
-                </span>
-              </div>
-              <p data-testid="app-marketplace-page-p-11" className="mt-3 max-w-xs text-sm text-slate-500">
-                The marketplace for AI agents that run the busywork of your
-                business.
-              </p>
-            </div>
-
-            <FooterGroup title="Product" items={["Marketplace", "For Architects", "Pricing"]} />
-            <FooterGroup title="Company" items={["About", "Blog", "Contact"]} />
-            <FooterGroup title="Resources" items={["Docs", "Help center", "Status"]} />
-            <FooterGroup title="Legal" items={["Privacy", "Terms", "Security"]} />
-          </div>
-
-          <div data-testid="app-marketplace-page-div-45" className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-gray-100 pt-6 sm:flex-row">
-            <p data-testid="app-marketplace-page-p-12" className="text-sm text-slate-400">
-              © {new Date().getFullYear()} CORE AI Agent Platform. All rights
-              reserved.
-            </p>
-            <div data-testid="app-marketplace-page-div-46" className="flex items-center gap-3 text-sm text-slate-400">
-              <span data-testid="app-marketplace-page-span-17">X</span>
-              <span data-testid="app-marketplace-page-span-18">LinkedIn</span>
-              <span data-testid="app-marketplace-page-span-19">GitHub</span>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <CoreFooter/>
     </main>
   );
 }
@@ -636,11 +899,10 @@ function Message({
 }) {
   return (
     <div data-testid="app-marketplace-page-div-48"
-      className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-sm ${
-        mine
-          ? "ml-auto rounded-br-md bg-amber-500 text-white"
-          : "mr-auto rounded-bl-md bg-white text-slate-700"
-      }`}
+      className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-sm ${mine
+        ? "ml-auto rounded-br-md bg-amber-500 text-white"
+        : "mr-auto rounded-bl-md bg-white text-slate-700"
+        }`}
     >
       {children}
     </div>
@@ -771,5 +1033,127 @@ function FooterGroup({ title, items }: { title: string; items: string[] }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+function filterPillClass(active: boolean) {
+  return [
+    "inline-flex shrink-0 items-center gap-1.5 rounded-xl border bg-white px-3.5 py-2 text-sm font-medium transition",
+    active
+      ? "border-amber-300 bg-amber-50 text-amber-700"
+      : "border-gray-200 text-slate-600 hover:border-amber-300 hover:text-slate-900"
+  ].join(" ");
+}
+
+function popoverOptionClass(active: boolean) {
+  return [
+    "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition",
+    active
+      ? "bg-amber-50 font-semibold text-amber-700"
+      : "text-slate-600 hover:bg-amber-50 hover:text-amber-700"
+  ].join(" ");
+}
+
+function viewButtonClass(active: boolean) {
+  return [
+    "grid h-8 w-8 place-items-center rounded-md transition",
+    active ? "bg-amber-50 text-amber-600" : "text-slate-400 hover:text-slate-700"
+  ].join(" ");
+}
+
+function ChevronIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function StarIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="m12 3.4 2.6 5.34 5.9.86-4.27 4.16 1 5.88L12 16.9l-5.27 2.77 1-5.88L3.46 9.6l5.9-.86L12 3.4Z" />
+    </svg>
+  );
+}
+
+function GridIcon() {
+  return (
+    <svg
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg
+      className="h-[18px] w-[18px]"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 6h12M8 12h12M8 18h12" />
+      <path d="M4 6h.01M4 12h.01M4 18h.01" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m5 12.5 4.2 4.2L19 7" />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg
+      className="h-3 w-3"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 6 18 18M18 6 6 18" />
+    </svg>
   );
 }
