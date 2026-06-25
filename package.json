@@ -3,13 +3,15 @@
   "private": true,
   "workspaces": [
     "apps/frontend",
-    "apps/backend"
+    "apps/backend",
+    "packages/shared"
   ],
   "scripts": {
     "dev": "npm run dev:backend & npm run dev:frontend",
     "dev:frontend": "npm run dev --workspace=@coreai/frontend",
     "dev:backend": "npm run dev --workspace=@coreai/backend",
-    "build": "npm run build:backend && npm run build:frontend",
+    "build": "npm run build:shared && npm run build:backend && npm run build:frontend",
+    "build:shared": "npm run build --workspace=@coreai/shared",
     "build:frontend": "npm run build --workspace=@coreai/frontend",
     "build:backend": "npm run build --workspace=@coreai/backend",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
@@ -22,7 +24,8 @@
     "prisma:studio": "npm run prisma:studio --workspace=@coreai/backend",
     "clean": "rm -rf node_modules package-lock.json apps/frontend/node_modules apps/backend/node_modules apps/frontend/.next apps/backend/dist",
     "clean:apple": "find . -name '._*' -delete",
-    "reinstall": "npm run clean && npm install"
+    "reinstall": "npm run clean && npm install",
+    "postinstall": "npm run build:shared"
   },
   "dependencies": {
     "firebase": "^12.15.0",

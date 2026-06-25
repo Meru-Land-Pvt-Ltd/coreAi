@@ -30,6 +30,7 @@ type BusinessRuntimeContext = {
   tone?: string;
   escalationRules?: string;
   knowledge: string[];
+  hours?: unknown;
 };
 
 type ResolvedAgent = {
@@ -191,6 +192,7 @@ function buildBusinessContext(business: any, phoneNumber?: string | null): Busin
     faqs: faqStrings(profile?.faqsJson),
     tone: profile?.tone ?? "friendly",
     escalationRules: profile?.escalationRules ?? undefined,
+    hours: profile?.hoursJson ?? undefined,
     knowledge: knowledgeBases
       .map((item: any) => `${item.title ? `${item.title}: ` : ""}${item.content ?? ""}`.trim())
       .filter(Boolean)
@@ -307,6 +309,7 @@ function runInputFromContext({
     tone: business?.tone,
     escalationRules: business?.escalationRules,
     knowledge: business?.knowledge,
+    businessHours: business?.hours,
     callStatus: "no-answer",
     callTimestamp: new Date().toISOString(),
     missedCallReason: reason,
@@ -670,7 +673,8 @@ async function runMissedCallAgent({
     ? (run.context.sentSms as { body?: string; id?: string | null })
     : null;
 
-  if (sentSms?.body) {
+  // Skip if a Save Conversation node in the workflow already persisted the reply.
+  if (sentSms?.body && !run.context.conversationSaved) {
     await upsertConversation({
       businessId: agent.business?.businessId,
       customerPhone: callerNumber,
@@ -695,14 +699,17 @@ async function runMissedCallAgent({
     console.error("Vapi follow-up call failed", error);
   });
 
-  await upsertLead({
-    businessId: agent.business?.businessId,
-    phoneNumber: callerNumber,
-    source: "TWILIO_MISSED_CALL",
-    status: "CAPTURED",
-    notes: reason,
-    name: callerName
-  });
+  // Skip if a Save Lead node in the workflow already persisted the lead.
+  if (!run.context.leadSaved) {
+    await upsertLead({
+      businessId: agent.business?.businessId,
+      phoneNumber: callerNumber,
+      source: "TWILIO_MISSED_CALL",
+      status: "CAPTURED",
+      notes: reason,
+      name: callerName
+    });
+  }
 
   return run;
 }

@@ -1,4 +1,5 @@
-import type { AgentTemplate, LibraryGroup } from "./types";
+import { CORE_CONNECTOR, CORE_CONNECTOR_ACTIONS, comingSoonNodes } from "@coreai/shared";
+import type { AgentTemplate, ComingSoonItem, LibraryGroup } from "./types";
 import { createGmailReplyFlow, createMissedCallTextBackFlow } from "./workflow-factories";
 
 export const libraryGroups: LibraryGroup[] = [
@@ -15,6 +16,32 @@ export const libraryGroups: LibraryGroup[] = [
           title: "Customer Calls",
           subtitle: "When someone calls and no one picks up",
           footer: "Twilio detects the missed call instantly"
+        }
+      },
+      {
+        nodeKind: "trigger",
+        label: "Inbound SMS",
+        helper: "Twilio inbound text",
+        icon: "message",
+        accent: "amber",
+        testId: "node-trigger-twilio-inbound-sms",
+        overrides: {
+          title: "Inbound SMS",
+          subtitle: "When a customer replies by text",
+          footer: "Handled by the Twilio SMS webhook"
+        }
+      },
+      {
+        nodeKind: "trigger",
+        label: "Vapi Tool Call",
+        helper: "Voice booking webhook",
+        icon: "phone-call",
+        accent: "violet",
+        testId: "node-trigger-vapi-tool-call",
+        overrides: {
+          title: "Vapi Tool Call",
+          subtitle: "When Vapi calls a tool (e.g. book_appointment)",
+          footer: "Handled by the Vapi webhook"
         }
       }
     ]
@@ -82,6 +109,73 @@ export const libraryGroups: LibraryGroup[] = [
           subtitle: "Book appointments, answer FAQs, or route to team",
           connector: "SMS",
           connectorAction: "capture_lead"
+        }
+      }
+    ]
+  },
+  {
+    title: "Save & Route",
+    items: [
+      {
+        nodeKind: "connector",
+        label: "Save Lead",
+        helper: "Persist the caller as a lead",
+        icon: "capture",
+        accent: "blue",
+        testId: "node-action-save-lead",
+        overrides: {
+          title: "Save Lead",
+          subtitle: "Store or update the caller as a lead for this business",
+          connector: CORE_CONNECTOR,
+          connectorAction: CORE_CONNECTOR_ACTIONS.saveLead,
+          leadSource: "WORKFLOW",
+          leadStatus: "CAPTURED"
+        }
+      },
+      {
+        nodeKind: "connector",
+        label: "Save Conversation",
+        helper: "Store a conversation message",
+        icon: "message",
+        accent: "green",
+        testId: "node-action-save-conversation-message",
+        overrides: {
+          title: "Save Conversation",
+          subtitle: "Record an inbound, outbound, or system message",
+          connector: CORE_CONNECTOR,
+          connectorAction: CORE_CONNECTOR_ACTIONS.saveConversationMessage,
+          conversationDirection: "OUTBOUND",
+          conversationBody: "{{sentSms.body}}"
+        }
+      },
+      {
+        nodeKind: "connector",
+        label: "Human Handoff",
+        helper: "Escalate to a team member",
+        icon: "phone-call",
+        accent: "red",
+        testId: "node-action-human-handoff",
+        overrides: {
+          title: "Human Handoff",
+          subtitle: "Escalate the lead and notify the team",
+          connector: CORE_CONNECTOR,
+          connectorAction: CORE_CONNECTOR_ACTIONS.humanHandoff,
+          handoffReason: "{{business.escalationRules}}"
+        }
+      },
+      {
+        nodeKind: "connector",
+        label: "Next Workflow",
+        helper: "Trigger another workflow",
+        icon: "diamond",
+        accent: "orange",
+        testId: "node-action-trigger-next-workflow",
+        overrides: {
+          title: "Next Workflow",
+          subtitle: "Run a follow-up workflow with the same context",
+          connector: CORE_CONNECTOR,
+          connectorAction: CORE_CONNECTOR_ACTIONS.triggerNextWorkflow,
+          nextWorkflowId: ""
         }
       }
     ]
@@ -206,3 +300,13 @@ export const agentTemplates: AgentTemplate[] = [
     flow: createGmailReplyFlow
   }
 ];
+
+// Future nodes surfaced in the builder as non-executable "Coming soon" chips.
+// They cannot be added to the canvas, so they can never end up in a published
+// or executed workflow.
+export const comingSoonItems: ComingSoonItem[] = comingSoonNodes().map((node) => ({
+  type: node.type,
+  label: node.label,
+  description: node.description,
+  testId: node.testId
+}));
