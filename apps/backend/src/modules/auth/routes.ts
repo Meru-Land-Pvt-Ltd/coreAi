@@ -55,12 +55,10 @@ authRoutes.post("/send-verification-code", async (c) => {
   try {
     const input = sendVerificationCodeSchema.parse(await c.req.json());
 
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await prisma.user.findFirst({
       where: {
-        email_role: {
-          email: input.email,
-          role: input.role
-        }
+        email: input.email,
+        role: input.role
       },
       select: {
         id: true,
@@ -236,18 +234,15 @@ authRoutes.post("/verify-code", async (c) => {
       }
     });
 
-    let user = await prisma.user.findUnique({
+    let user = await prisma.user.findFirst({
       where: {
-        email_role: {
-          email: input.email,
-          role: input.role
-        }
+        email: input.email,
+        role: input.role
       },
       include: {
         architectProfile: true
       }
     });
-
     if (user?.isSuspended) {
       return errorResponse(
         c,
@@ -267,8 +262,8 @@ authRoutes.post("/verify-code", async (c) => {
           architectProfile:
             input.role === "ARCHITECT"
               ? {
-                  create: {}
-                }
+                create: {}
+              }
               : undefined
         },
         include: {
@@ -344,12 +339,10 @@ authRoutes.post("/firebase-login", async (c) => {
         ? decodedToken.name.trim()
         : getNameFromEmail(email);
 
-    let user = await prisma.user.findUnique({
+    let user = await prisma.user.findFirst({
       where: {
-        email_role: {
-          email,
-          role: input.role
-        }
+        email,
+        role: input.role
       },
       include: {
         architectProfile: true
@@ -375,8 +368,8 @@ authRoutes.post("/firebase-login", async (c) => {
           architectProfile:
             input.role === "ARCHITECT"
               ? {
-                  create: {}
-                }
+                create: {}
+              }
               : undefined
         },
         include: {
@@ -434,12 +427,10 @@ authRoutes.post("/login", async (c) => {
   try {
     const input = loginSchema.parse(await c.req.json());
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: {
-        email_role: {
-          email: input.email,
-          role: input.role
-        }
+        email: input.email,
+        role: input.role
       },
       include: {
         architectProfile: true
