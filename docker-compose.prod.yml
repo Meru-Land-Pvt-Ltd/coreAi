@@ -39,7 +39,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8787
-      DATABASE_URL: postgresql://coreai:1@1@Coreai@postgres:5432/coreai
+      DATABASE_URL: "postgresql://coreai:1%401%40Coreai@postgres:5432/coreai"
       REDIS_URL: redis://redis:6379
       FRONTEND_URL: https://globalbrandgrowth.com
       BACKEND_URL: https://globalbrandgrowth.com/api
