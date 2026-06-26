@@ -1014,7 +1014,7 @@ export default function HomePage() {
               Hi! Need help finding the right AI agent?
             </p>
 
-            <a data-testid="app-page-a-23" href="mailto:hello@usecore.ai" className="mt-2 inline-block text-sm font-semibold text-amber-600 transition hover:text-amber-600">
+            <a data-testid="app-page-a-23" href="mailto:info@meruland.com" className="mt-2 inline-block text-sm font-semibold text-amber-600 transition hover:text-amber-600">
               info@meruland.com
             </a>
           </div>
