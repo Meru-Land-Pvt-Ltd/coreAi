@@ -50,7 +50,7 @@ const businessNavItems = [
 export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeNav, setActiveNav] = useState("Overview");
+    const [locationHash, setLocationHash] = useState("");
     const router = useRouter();
     const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
@@ -59,6 +59,17 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     useEffect(() => {
         setCurrentUser(readCoreAiUser());
     }, []);
+
+    useEffect(() => {
+        const syncHash = () => setLocationHash(window.location.hash);
+
+        syncHash();
+        window.addEventListener("hashchange", syncHash);
+
+        return () => window.removeEventListener("hashchange", syncHash);
+    }, [pathname]);
+
+    const marketplaceActive = isMarketplaceRoute(pathname);
 
     const displayName = getDisplayName(currentUser);
     const subtitle = getUserSubtitle(currentUser);
@@ -95,15 +106,15 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 aria-label="Primary"
             >
                 <div className="flex items-center gap-3 p-6">
-                    <Link href="/" className="flex items-center gap-3" onClick={closeSidebar}>
-                        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 shadow-sm">
-                            <LogoIcon />
-                        </span>
-
-                        <span className="text-lg font-extrabold tracking-tight text-slate-900">
+                    <a href="/business/dashboard" className="flex items-center gap-2.5" aria-label="CORE home">
+                        <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+                            <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
+                            <circle cx="14" cy="14" r="4" fill="#fbbf24" />
+                        </svg>
+                        <span className="text-xl font-extrabold tracking-tight text-amber-500">
                             CORE
                         </span>
-                    </Link>
+                    </a>
 
                     <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:hidden">
                         Beta
@@ -123,17 +134,14 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 <nav className="mt-6 flex flex-col gap-1 px-3" aria-label="Sections">
                     {businessNavItems.map((item) => {
                         const active =
-                            activeNav === item.label ||
-                            (item.label === "Overview" && pathname === "/business/dashboard");
+                            !marketplaceActive &&
+                            isBusinessNavItemActive(item, pathname, locationHash);
 
                         return (
                             <Link
                                 key={item.label}
                                 href={item.href as any}
-                                onClick={() => {
-                                    setActiveNav(item.label);
-                                    closeSidebar();
-                                }}
+                                onClick={closeSidebar}
                                 className={`group flex items-center gap-3 rounded-r-lg border-l-[3px] px-4 py-2.5 text-left transition-colors duration-300 ${active
                                     ? "border-amber-500 bg-amber-50 font-semibold text-amber-700"
                                     : "border-transparent text-slate-600 hover:bg-gray-50"
@@ -159,7 +167,11 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                     <Link
                         href={BUSINESS_MARKETPLACE_PATH}
                         onClick={closeSidebar}
-                        className="flex items-center gap-3 rounded-lg px-4 py-2 text-sm text-slate-500 transition-colors duration-300 hover:bg-gray-50 hover:text-slate-700"
+                        aria-current={marketplaceActive ? "page" : undefined}
+                        className={`flex items-center gap-3 rounded-r-lg border-l-[3px] px-4 py-2.5 text-sm transition-colors duration-300 ${marketplaceActive
+                            ? "border-amber-500 bg-amber-50 font-semibold text-amber-700"
+                            : "border-transparent text-slate-500 hover:bg-gray-50 hover:text-slate-700"
+                            }`}
                     >
                         <Icon name="marketplace" className="h-[18px] w-[18px]" />
                         <span>Marketplace</span>
@@ -358,6 +370,24 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
             <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
     );
+}
+
+function isMarketplaceRoute(pathname: string) {
+    return pathname === BUSINESS_MARKETPLACE_PATH || pathname.startsWith(`${BUSINESS_MARKETPLACE_PATH}/`);
+}
+
+function isBusinessNavItemActive(
+    item: (typeof businessNavItems)[number],
+    pathname: string,
+    hash: string
+) {
+    if (pathname !== "/business/dashboard") return false;
+
+    if (item.label === "Overview") return hash === "" || hash === "#";
+    if (item.label === "My Agents") return hash === "#agents";
+    if (item.label === "Billing & Usage") return hash === "#billing";
+
+    return false;
 }
 
 function readCoreAiUser(): CoreAiUser | null {
