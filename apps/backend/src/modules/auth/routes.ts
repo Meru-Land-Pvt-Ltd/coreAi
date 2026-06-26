@@ -7,7 +7,7 @@ import { createAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth } from "../../middleware/auth";
 import { sendVerificationEmail } from "../../lib/mailer";
-import { firebaseAdminAuth } from "../../lib/firebase-admin";
+import { getFirebaseAdminAuth } from "../../lib/firebase-admin";
 import {
   loginSchema,
   sendVerificationCodeSchema,
@@ -321,7 +321,7 @@ authRoutes.post("/firebase-login", async (c) => {
   try {
     const input = firebaseLoginSchema.parse(await c.req.json());
 
-    const decodedToken = await firebaseAdminAuth.verifyIdToken(input.idToken);
+    const decodedToken = await getFirebaseAdminAuth().verifyIdToken(input.idToken);
 
     if (!decodedToken.email) {
       return errorResponse(
