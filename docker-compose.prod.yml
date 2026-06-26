@@ -4,13 +4,13 @@ services:
     container_name: coreai-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: coreai
+      POSTGRES_USER: coreai
+      POSTGRES_PASSWORD: Priyanshu30
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U coreai -d coreai"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -35,14 +35,14 @@ services:
     container_name: coreai-backend
     restart: unless-stopped
     env_file:
-      - .env.production
+      - apps/backend/.env.production
     environment:
       NODE_ENV: production
       PORT: 8787
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://coreai:Priyanshu30@postgres:5432/coreai
       REDIS_URL: redis://redis:6379
-      FRONTEND_URL: ${FRONTEND_URL}
-      BACKEND_URL: ${BACKEND_URL}
+      FRONTEND_URL: https://globalbrandgrowth.com
+      BACKEND_URL: https://globalbrandgrowth.com/api
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,21 +56,26 @@ services:
       context: .
       dockerfile: apps/frontend/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        API_INTERNAL_URL: ${API_INTERNAL_URL}
-        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
-        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
-        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
-        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
-        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
-        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        NEXT_PUBLIC_API_URL: "https://globalbrandgrowth.com/api"
+        NEXT_PUBLIC_FIREBASE_API_KEY: "AIzaSyB3_E0DdwP9xw0i8Kt-yd4baQMCu0yf7Ds"
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "collabglam-production-b3c42.firebaseapp.com"
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: "collabglam-production-b3c42"
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "collabglam-production-b3c42.firebasestorage.app"
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "781591295257"
+        NEXT_PUBLIC_FIREBASE_APP_ID: "1:781591295257:web:782479892925f6057dc188"
     container_name: coreai-frontend
     restart: unless-stopped
     env_file:
-      - .env.production
+      - apps/frontend/.env.production
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-      API_INTERNAL_URL: ${API_INTERNAL_URL}
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: "https://globalbrandgrowth.com/api"
+      NEXT_PUBLIC_FIREBASE_API_KEY: "AIzaSyB3_E0DdwP9xw0i8Kt-yd4baQMCu0yf7Ds"
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "collabglam-production-b3c42.firebaseapp.com"
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: "collabglam-production-b3c42"
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "collabglam-production-b3c42.firebasestorage.app"
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "781591295257"
+      NEXT_PUBLIC_FIREBASE_APP_ID: "1:781591295257:web:782479892925f6057dc188"
     depends_on:
       - backend
     ports:

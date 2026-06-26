@@ -7,6 +7,356 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                   String                @id @default(cuid())
+  email                String                @unique
+  passwordHash         String?
+  role                 UserRole
+  fullName             String?
+  isSuspended          Boolean               @default(false)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  listings             AgentListing[]
+  architectProfile     ArchitectProfile?
+  businesses           Business[]
+  connectorCredentials ConnectorCredential[]
+  proposals            ProjectProposal[]
+  workflows            WorkflowDefinition[]
+
+  @@index([role])
+  @@index([createdAt])
+}
+
+model ArchitectProfile {
+  id              String          @id @default(cuid())
+  userId          String          @unique
+  title           String?
+  bio             String?
+  portfolioUrl    String?
+  skills          String[]
+  approvalStatus  ArchitectStatus @default(PENDING)
+  rating          Float           @default(0)
+  completedJobs   Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  hourlyRateCents Int?
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([approvalStatus])
+}
+
+model WorkflowDefinition {
+  id              String           @id @default(cuid())
+  name            String
+  description     String?
+  workflowJson    Json
+  isTemplate      Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  architectUserId String
+  listings        AgentListing[]
+  installedAgents InstalledAgent[]
+  architect       User             @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@index([architectUserId])
+  @@index([createdAt])
+}
+
+model AgentListing {
+  id                 String              @id @default(cuid())
+  name               String
+  shortDescription   String
+  description        String?
+  priceCents         Int                 @default(0)
+  status             ListingStatus       @default(DRAFT)
+  requiredConnectors String[]
+  supportedLlms      String[]
+  tags               String[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  architectUserId    String
+  workflowId         String?
+  architect          User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  workflow           WorkflowDefinition? @relation(fields: [workflowId], references: [id])
+  installedAgents    InstalledAgent[]
+
+  @@index([architectUserId])
+  @@index([workflowId])
+  @@index([status])
+}
+
+model Project {
+  id                 String            @id @default(cuid())
+  title              String
+  requirementBrief   String
+  requiredConnectors String[]
+  preferredLlms      String[]
+  budgetMinCents     Int?
+  budgetMaxCents     Int?
+  status             ProjectStatus     @default(OPEN)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  proposals          ProjectProposal[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ProjectProposal {
+  id              String         @id @default(cuid())
+  projectId       String
+  architectUserId String
+  coverLetter     String
+  bidAmountCents  Int?
+  etaDays         Int?
+  status          ProposalStatus @default(PENDING)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  architect       User           @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, architectUserId])
+  @@index([architectUserId])
+  @@index([projectId])
+  @@index([status])
+}
+
+model ConnectorCredential {
+  id                   String            @id @default(cuid())
+  userId               String
+  provider             ConnectorProvider
+  externalAccountEmail String?
+  accessTokenEnc       String?
+  refreshTokenEnc      String?
+  scope                String?
+  tokenType            String?
+  expiresAt            DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+  @@index([provider])
+}
+
+model EmailVerificationCode {
+  id         String    @id @default(cuid())
+  email      String
+  role       UserRole
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([email, role])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
+model Business {
+  id              String                  @id @default(cuid())
+  ownerId         String
+  name            String
+  type            String
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  appointments    Appointment[]
+  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  knowledgeBases  BusinessKnowledgeBase[]
+  phoneNumbers    BusinessPhoneNumber[]
+  profile         BusinessProfile?
+  conversations   Conversation[]
+  installedAgents InstalledAgent[]
+  leads           Lead[]
+  vapiCalls       VapiCall[]
+
+  @@index([ownerId])
+  @@index([type])
+}
+
+model BusinessProfile {
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  serviceArea       String?
+  bookingUrl        String?
+  teamPhone         String?
+  hoursJson         Json?
+  tone              String   @default("friendly")
+  escalationRules   String?
+  services          String[]
+  faqsJson          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  calendarId        String?  @default("primary")
+  timeZone          String   @default("America/New_York")
+  vapiAssistantId   String?
+  vapiPhoneNumberId String?
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model BusinessPhoneNumber {
+  id                   String          @id @default(cuid())
+  businessId           String
+  installedAgentId     String?
+  phoneNumber          String          @unique
+  twilioPhoneNumberSid String?
+  forwardToPhone       String?
+  isActive             Boolean         @default(true)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  business             Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent       InstalledAgent? @relation(fields: [installedAgentId], references: [id])
+
+  @@index([businessId])
+  @@index([installedAgentId])
+  @@index([isActive])
+}
+
+model InstalledAgent {
+  id           String                @id @default(cuid())
+  businessId   String
+  workflowId   String
+  listingId    String?
+  name         String
+  status       String                @default("ACTIVE")
+  configJson   Json?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  phoneNumbers BusinessPhoneNumber[]
+  business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  listing      AgentListing?         @relation(fields: [listingId], references: [id])
+  workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([workflowId])
+  @@index([listingId])
+  @@index([status])
+}
+
+model BusinessKnowledgeBase {
+  id          String   @id @default(cuid())
+  businessId  String
+  title       String
+  content     String
+  contentJson Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model Conversation {
+  id            String                @id @default(cuid())
+  businessId    String
+  channel       String
+  customerPhone String
+  status        String                @default("OPEN")
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  business      Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages      ConversationMessage[]
+
+  @@unique([businessId, channel, customerPhone])
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([channel, customerPhone])
+}
+
+model ConversationMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  direction      String
+  body           String
+  providerId     String?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model Lead {
+  id             String   @id @default(cuid())
+  businessId     String
+  conversationId String?
+  phoneNumber    String
+  name           String?
+  source         String
+  status         String   @default("NEW")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, phoneNumber])
+  @@index([businessId])
+  @@index([phoneNumber])
+  @@index([status])
+}
+
+model Appointment {
+  id              String   @id @default(cuid())
+  businessId      String
+  conversationId  String?
+  customerPhone   String
+  customerName    String?
+  service         String?
+  startAt         DateTime
+  endAt           DateTime
+  timeZone        String?
+  calendarEventId String?
+  status          String   @default("BOOKED")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([startAt])
+  @@index([calendarEventId])
+}
+
+model VapiCall {
+  id             String    @id @default(cuid())
+  businessId     String
+  conversationId String?
+  callId         String    @unique
+  customerPhone  String
+  status         String    @default("STARTED")
+  transcript     String?
+  summary        String?
+  metadataJson   Json?
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  business       Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([status])
+}
+
+model PlatformPhoneNumber {
+  id          String              @id @default(cuid())
+  phoneNumber String              @unique
+  provider    ConnectorProvider   @default(TWILIO)
+  status      PlatformPhoneStatus @default(AVAILABLE)
+  twilioSid   String?
+  businessId  String?
+  assignedAt  DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([status])
+  @@index([businessId])
+}
+
 enum UserRole {
   ADMIN
   BUSINESS
@@ -46,8 +396,8 @@ enum ListingStatus {
 
 enum ConnectorProvider {
   GMAIL
-  GOOGLE_CALENDAR
   TWILIO
+  GOOGLE_CALENDAR
   VAPI
 }
 
@@ -55,374 +405,4 @@ enum PlatformPhoneStatus {
   AVAILABLE
   ASSIGNED
   DISABLED
-}
-
-model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String?
-  role         UserRole
-  fullName     String?
-  isSuspended  Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  architectProfile     ArchitectProfile?
-  workflows            WorkflowDefinition[]
-  listings             AgentListing[]
-  proposals            ProjectProposal[]
-  connectorCredentials ConnectorCredential[]
-  businesses           Business[]
-
-  @@index([role])
-  @@index([createdAt])
-}
-
-model ArchitectProfile {
-  id              String          @id @default(cuid())
-  userId          String          @unique
-  title           String?
-  bio             String?
-  portfolioUrl    String?
-  skills          String[]
-  hourlyRateCents Int?
-  approvalStatus  ArchitectStatus @default(PENDING)
-  rating          Float           @default(0)
-  completedJobs   Int             @default(0)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([approvalStatus])
-}
-
-model WorkflowDefinition {
-  id              String   @id @default(cuid())
-  architectUserId String
-  name            String
-  description     String?
-  workflowJson    Json
-  isTemplate      Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  architect       User             @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  listings        AgentListing[]
-  installedAgents InstalledAgent[]
-
-  @@index([architectUserId])
-  @@index([createdAt])
-}
-
-model AgentListing {
-  id                 String        @id @default(cuid())
-  architectUserId    String
-  workflowId         String?
-  name               String
-  shortDescription   String
-  description        String?
-  priceCents         Int           @default(0)
-  status             ListingStatus @default(DRAFT)
-  tags               String[]
-  requiredConnectors String[]
-  supportedLlms      String[]
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-
-  architect       User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  workflow        WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
-  installedAgents InstalledAgent[]
-
-  @@index([architectUserId])
-  @@index([workflowId])
-  @@index([status])
-}
-
-model Project {
-  id                 String        @id @default(cuid())
-  title              String
-  requirementBrief   String
-  requiredConnectors String[]
-  preferredLlms      String[]
-  budgetMinCents     Int?
-  budgetMaxCents     Int?
-  status             ProjectStatus @default(OPEN)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-
-  proposals ProjectProposal[]
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-model ProjectProposal {
-  id              String         @id @default(cuid())
-  projectId       String
-  architectUserId String
-  coverLetter     String
-  bidAmountCents  Int?
-  etaDays         Int?
-  status          ProposalStatus @default(PENDING)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  architect User    @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-
-  @@unique([projectId, architectUserId])
-  @@index([architectUserId])
-  @@index([projectId])
-  @@index([status])
-}
-
-model ConnectorCredential {
-  id                   String            @id @default(cuid())
-  userId               String
-  provider             ConnectorProvider
-  externalAccountEmail String?
-  accessTokenEnc       String?
-  refreshTokenEnc      String?
-  scope                String?
-  tokenType            String?
-  expiresAt            DateTime?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, provider])
-  @@index([userId])
-  @@index([provider])
-}
-
-model EmailVerificationCode {
-  id         String    @id @default(cuid())
-  email      String
-  role       UserRole
-  codeHash   String
-  attempts   Int       @default(0)
-  expiresAt  DateTime
-  consumedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  @@index([email, role])
-  @@index([expiresAt])
-  @@index([createdAt])
-}
-
-model Business {
-  id        String   @id @default(cuid())
-  ownerId   String
-  name      String
-  type      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  profile         BusinessProfile?
-  phoneNumbers    BusinessPhoneNumber[]
-  installedAgents InstalledAgent[]
-  knowledgeBases  BusinessKnowledgeBase[]
-  conversations   Conversation[]
-  leads           Lead[]
-  appointments    Appointment[]
-  vapiCalls       VapiCall[]
-
-  @@index([ownerId])
-  @@index([type])
-}
-
-model BusinessProfile {
-  id                String   @id @default(cuid())
-  businessId        String   @unique
-  serviceArea       String?
-  bookingUrl        String?
-  teamPhone         String?
-  calendarId        String?  @default("primary")
-  timeZone          String   @default("America/New_York")
-  vapiAssistantId   String?
-  vapiPhoneNumberId String?
-  hoursJson         Json?
-  tone              String   @default("friendly")
-  escalationRules   String?
-  services          String[]
-  faqsJson          Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-}
-
-model BusinessPhoneNumber {
-  id                   String   @id @default(cuid())
-  businessId           String
-  installedAgentId     String?
-  phoneNumber          String   @unique
-  twilioPhoneNumberSid String?
-  forwardToPhone       String?
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
-
-  @@index([businessId])
-  @@index([installedAgentId])
-  @@index([isActive])
-}
-
-model InstalledAgent {
-  id         String   @id @default(cuid())
-  businessId String
-  workflowId String
-  listingId  String?
-  name       String
-  status     String   @default("ACTIVE")
-  configJson Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  listing      AgentListing?         @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  phoneNumbers BusinessPhoneNumber[]
-
-  @@index([businessId])
-  @@index([workflowId])
-  @@index([listingId])
-  @@index([status])
-}
-
-model BusinessKnowledgeBase {
-  id          String   @id @default(cuid())
-  businessId  String
-  title       String
-  content     String
-  contentJson Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@index([businessId])
-}
-
-model Conversation {
-  id            String   @id @default(cuid())
-  businessId    String
-  channel       String
-  customerPhone String
-  status        String   @default("OPEN")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  business Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  messages ConversationMessage[]
-
-  @@unique([businessId, channel, customerPhone])
-  @@index([businessId])
-  @@index([customerPhone])
-  @@index([channel, customerPhone])
-}
-
-model ConversationMessage {
-  id             String   @id @default(cuid())
-  conversationId String
-  direction      String
-  body           String
-  providerId     String?
-  createdAt      DateTime @default(now())
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
-  @@index([createdAt])
-}
-
-model Lead {
-  id             String   @id @default(cuid())
-  businessId     String
-  conversationId String?
-  phoneNumber    String
-  name           String?
-  source         String
-  status         String   @default("NEW")
-  notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@unique([businessId, phoneNumber])
-  @@index([businessId])
-  @@index([phoneNumber])
-  @@index([status])
-}
-
-model Appointment {
-  id              String   @id @default(cuid())
-  businessId      String
-  conversationId  String?
-  customerPhone   String
-  customerName    String?
-  service         String?
-  startAt         DateTime
-  endAt           DateTime
-  timeZone        String?
-  calendarEventId String?
-  status          String   @default("BOOKED")
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@index([businessId])
-  @@index([customerPhone])
-  @@index([startAt])
-  @@index([calendarEventId])
-}
-
-model VapiCall {
-  id             String    @id @default(cuid())
-  businessId     String
-  conversationId String?
-  callId         String    @unique
-  customerPhone  String
-  status         String    @default("STARTED")
-  transcript     String?
-  summary        String?
-  metadataJson   Json?
-  startedAt      DateTime  @default(now())
-  endedAt        DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@index([businessId])
-  @@index([customerPhone])
-  @@index([status])
-}
-
-// Pre-provisioned CoreAI phone numbers that the platform assigns to businesses
-// during the buyer setup flow. Businesses never enter Twilio credentials; they
-// receive an AVAILABLE number that becomes ASSIGNED to their business.
-model PlatformPhoneNumber {
-  id          String              @id @default(cuid())
-  phoneNumber String              @unique
-  provider    ConnectorProvider   @default(TWILIO)
-  status      PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid   String?
-  businessId  String?
-  assignedAt  DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-
-  @@index([status])
-  @@index([businessId])
 }

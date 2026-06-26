@@ -204,8 +204,14 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
 
       saveAuthSession(result.data.token, result.data.user);
       router.push(roleContent[role].dashboardPath);
-    } catch {
-      setError("Google login failed. Please try again.");
+    } catch (err) {
+      console.error("Google login failed:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Google login failed. Please try again."
+      );
     } finally {
       setIsGoogleLoading(false);
     }
