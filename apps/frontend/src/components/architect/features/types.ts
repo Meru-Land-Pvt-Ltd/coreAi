@@ -11,6 +11,20 @@ export type ArchitectProfile = {
   completedJobs: number;
 };
 
+export type ArchitectListingStatus =
+  | "DRAFT"
+  | "PENDING_REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | "SUSPENDED";
+
+export type ArchitectWorkflowListing = {
+  id: string;
+  name: string;
+  status: ArchitectListingStatus;
+  createdAt: string;
+};
+
 export type ArchitectWorkflow = {
   id: string;
   name: string;
@@ -21,6 +35,8 @@ export type ArchitectWorkflow = {
   };
   isTemplate: boolean;
   createdAt: string;
+  // Latest listing for this workflow (most recent first), included by GET /architect/workflows.
+  listings?: ArchitectWorkflowListing[];
 };
 
 export type ArchitectListing = {

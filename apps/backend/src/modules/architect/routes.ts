@@ -64,6 +64,49 @@ architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioI
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
 
+async function listCompletedListings(c: Context) {
+  const allListings = await prisma.agentListing.findMany({
+    where: {
+      status: { in: ["APPROVED", "PENDING_REVIEW"] }
+    },
+    include: {
+      workflow: true,
+      architect: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          architectProfile: {
+            select: {
+              title: true,
+              rating: true,
+              completedJobs: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  // Buyers should see one card per workflow — keep the latest buyer-visible
+  // listing per workflow; standalone (no-workflow) listings are always kept.
+  const seenWorkflowIds = new Set<string>();
+  const listings = allListings.filter((listing) => {
+    if (!listing.workflowId) return true;
+    if (seenWorkflowIds.has(listing.workflowId)) return false;
+    seenWorkflowIds.add(listing.workflowId);
+    return true;
+  });
+
+  return successResponse(c, { listings });
+}
+
+architectRoutes.get("/listings/completed", requireAuth, listCompletedListings);
+architectRoutes.post("/listings/completed", requireAuth, listCompletedListings);
+
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));
 
@@ -485,6 +528,20 @@ architectRoutes.get("/workflows", async (c) => {
     where: {
       architectUserId: authUser.id
     },
+    include: {
+      listings: {
+        orderBy: {
+          createdAt: "desc"
+        },
+        take: 1,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          createdAt: true
+        }
+      }
+    },
     orderBy: {
       createdAt: "desc"
     }
@@ -711,7 +768,7 @@ architectRoutes.post("/workflows/:workflowId/run-live", async (c) => {
 architectRoutes.get("/listings", async (c) => {
   const authUser = c.get("authUser");
 
-  const listings = await prisma.agentListing.findMany({
+  const allListings = await prisma.agentListing.findMany({
     where: {
       architectUserId: authUser.id
     },
@@ -721,6 +778,13 @@ architectRoutes.get("/listings", async (c) => {
     orderBy: {
       createdAt: "desc"
     }
+  });
+  const seenWorkflowIds = new Set<string>();
+  const listings = allListings.filter((listing) => {
+    if (!listing.workflowId) return true;
+    if (seenWorkflowIds.has(listing.workflowId)) return false;
+    seenWorkflowIds.add(listing.workflowId);
+    return true;
   });
 
   return successResponse(c, {
@@ -746,19 +810,43 @@ architectRoutes.post("/listings", async (c) => {
         return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
       }
     }
+    const existingListing = workflowId
+      ? await prisma.agentListing.findFirst({
+        where: {
+          architectUserId: authUser.id,
+          workflowId
+        },
+        orderBy: {
+          createdAt: "desc"
+        }
+      })
+      : null;
+
+    const listingData = {
+      name: input.name,
+      shortDescription: input.shortDescription,
+      description: input.description || null,
+      priceCents: input.priceCents,
+      tags: input.tags,
+      requiredConnectors: input.requiredConnectors,
+      supportedLlms: input.supportedLlms,
+      status: "PENDING_REVIEW" as const
+    };
+
+    if (existingListing) {
+      const listing = await prisma.agentListing.update({
+        where: { id: existingListing.id },
+        data: listingData
+      });
+
+      return successResponse(c, { listing }, "Agent listing updated and resubmitted for review");
+    }
 
     const listing = await prisma.agentListing.create({
       data: {
         architectUserId: authUser.id,
         workflowId,
-        name: input.name,
-        shortDescription: input.shortDescription,
-        description: input.description || null,
-        priceCents: input.priceCents,
-        tags: input.tags,
-        requiredConnectors: input.requiredConnectors,
-        supportedLlms: input.supportedLlms,
-        status: "PENDING_REVIEW"
+        ...listingData
       }
     });
 

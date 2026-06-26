@@ -4,6 +4,8 @@ export function ConfigurePanel({
   agentName,
   tagline,
   price,
+  saving = false,
+  statusMessage = "",
   onAgentNameChange,
   onTaglineChange,
   onPriceChange,
@@ -12,6 +14,8 @@ export function ConfigurePanel({
   agentName: string;
   tagline: string;
   price: string;
+  saving?: boolean;
+  statusMessage?: string;
   onAgentNameChange: (value: string) => void;
   onTaglineChange: (value: string) => void;
   onPriceChange: (value: string) => void;
@@ -126,13 +130,23 @@ export function ConfigurePanel({
           </div>
         </div>
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex items-center justify-end gap-3">
+          {statusMessage ? (
+            <span
+              data-testid="components-architect-ui-workflow-builder-configure-panel-status"
+              className="text-xs font-semibold text-slate-500"
+            >
+              {saving ? "Saving..." : statusMessage}
+            </span>
+          ) : null}
           <button
+            data-testid="components-architect-ui-workflow-builder-configure-panel-save"
             type="button"
             onClick={onSave}
-            className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+            disabled={saving}
+            className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
           >
-            Save configuration
+            {saving ? "Saving..." : "Save configuration"}
           </button>
         </div>
       </div>
