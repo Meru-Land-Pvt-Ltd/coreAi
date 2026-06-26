@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: coreai
       POSTGRES_USER: coreai
-      POSTGRES_PASSWORD: Priyanshu30
+      POSTGRES_PASSWORD: 1@1@Coreai
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,7 +39,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8787
-      DATABASE_URL: postgresql://coreai:Priyanshu30@postgres:5432/coreai
+      DATABASE_URL: postgresql://coreai:1@1@Coreai@postgres:5432/coreai
       REDIS_URL: redis://redis:6379
       FRONTEND_URL: https://globalbrandgrowth.com
       BACKEND_URL: https://globalbrandgrowth.com/api
