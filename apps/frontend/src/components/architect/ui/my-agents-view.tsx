@@ -150,7 +150,11 @@ function AgentRow({ agent }: { agent: ArchitectListing }) {
         </p>
 
         <Link data-testid="components-architect-ui-my-agents-view-link-2"
-          href={"/architect/agents/publish" as Route}
+          href={
+            (agent.workflowId
+              ? `/architect/workflows/${agent.workflowId}/builder`
+              : "/architect/agents/publish") as Route
+          }
           className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white transition hover:bg-slate-800"
         >
           Update

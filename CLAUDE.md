@@ -197,5 +197,60 @@ Google Calendar:
 * Do not include `.env` files in ZIPs.
 * Do not change production PM2 process ids 1 or 5.
 * Do not make broad UI rewrites unless explicitly asked.
-* Prefer focused changes, then run typecheck.
-* Always run backend/frontend typecheck after changes.
+* Prefer focused changes, then run typecheck.Continue the Architect Publish + All Agents fix.
+
+I accidentally rejected the needed backend route edit. Re-apply it carefully.
+
+Issue found:
+
+* Architect publish/listing backend mostly exists.
+* Architect My Agents / All Agents use real backend data.
+* Marketplace/business side calls:
+  GET /architect/listings/completed
+* Backend does not have this endpoint, so marketplace cannot load published/completed agents.
+
+Implement the smallest safe fix:
+
+1. Add GET `/architect/listings/completed`.
+2. This route must be buyer-visible, not ARCHITECT-only.
+3. Register it before `architectRoutes.use("*", requireRole(["ARCHITECT"]))`.
+4. Keep it protected with auth if the current marketplace requires login. If the route is before requireAuth, explicitly add `requireAuth`.
+5. Do not duplicate existing route patterns.
+6. Do not change UI.
+7. Do not change className values.
+8. Do not remove or rename data-testid attributes.
+9. Do not break Architect publish.
+
+Return listings with:
+
+* listing data
+* workflow data if needed by frontend
+* architect basic info/profile if needed by frontend
+
+For MVP visibility:
+
+* Include listings with status `APPROVED`
+* Also include `PENDING_REVIEW` if there is no admin approval flow yet, so newly published agents can appear during MVP testing.
+* Exclude `DRAFT`, `REJECTED`, `SUSPENDED`.
+
+After adding route:
+Run:
+npm run build:shared
+npm run typecheck:backend
+npm run typecheck:frontend
+
+Then manually verify:
+
+1. Architect can publish an agent.
+2. Architect My Agents / All Agents shows it.
+3. Marketplace no longer 404s on `/architect/listings/completed`.
+4. Published/PENDING_REVIEW agent appears in marketplace data.
+5. Missed Call Text-Back flow remains untouched.
+
+Final response:
+
+* What was broken
+* What was fixed
+* Files changed
+* Endpoint added
+* Typecheck results

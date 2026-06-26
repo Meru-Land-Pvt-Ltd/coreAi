@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
-    businessAgentPath
+    businessSetupPath
 } from "@/lib/routes";
 
 type Agent = {
@@ -351,7 +351,8 @@ export default function MarketplacePage() {
     }, [selectedAgent]);
 
     function openAgentPage(agent: Agent) {
-        router.push(businessAgentPath(agent.id));
+        // Install / Start free trial → business setup wizard (not architect publish).
+        router.push(businessSetupPath(agent.id));
     }
 
     function openDetailsModal(agent: Agent) {

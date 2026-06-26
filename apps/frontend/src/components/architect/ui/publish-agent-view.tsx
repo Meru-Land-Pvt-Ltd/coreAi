@@ -54,9 +54,22 @@ export function PublishAgentView() {
 
     const formData = new FormData(event.currentTarget);
     const priceRupees = Number(formData.get("priceRupees") ?? 0);
+    const selectedWorkflowId = String(formData.get("workflowId") ?? "").trim();
+
+    // A listing must be anchored to a workflow so publish stays consistent with
+    // the builder publish flow. Do not create a disconnected listing.
+    if (!selectedWorkflowId) {
+      setMessage(
+        workflows.length
+          ? "Choose a workflow to publish before submitting."
+          : "Create a workflow in the builder first, then publish it here."
+      );
+      setSaving(false);
+      return;
+    }
 
     const result = await createArchitectListing({
-      workflowId: String(formData.get("workflowId") ?? "") || undefined,
+      workflowId: selectedWorkflowId,
       name: String(formData.get("name") ?? ""),
       shortDescription: String(formData.get("shortDescription") ?? ""),
       description: String(formData.get("description") ?? ""),

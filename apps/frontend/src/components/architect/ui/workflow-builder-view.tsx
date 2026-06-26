@@ -13,8 +13,11 @@ import {
   type NodeTypes
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
+  createArchitectListing,
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
@@ -41,6 +44,7 @@ import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } 
 import { agentTemplates } from "./workflow-builder/library";
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
+  const router = useRouter();
   const [workflow, setWorkflow] = useState<ArchitectWorkflow | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -64,6 +68,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("Unsaved changes");
+  const [publishError, setPublishError] = useState("");
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -245,6 +250,60 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     if (showMessage) setMessage("Saved just now");
     return true;
+  }
+
+  // Publish the current builder workflow as a marketplace AgentListing.
+  // Saves the workflow first, then creates the listing (status PENDING_REVIEW
+  // server-side) and routes to My Agents. Surfaces validation/API errors instead
+  // of failing silently.
+  async function publishAgent() {
+    const name = agentName.trim();
+    const shortDescription = tagline.trim();
+
+    // Validation errors stay visible on the Publish tab (no silent tab switch).
+    setPublishError("");
+
+    if (!workflowId) {
+      setPublishError("Save this workflow before publishing.");
+      return;
+    }
+
+    if (name.length < 2 || shortDescription.length < 10) {
+      setPublishError(
+        "Please add an Agent name and a tagline (at least 10 characters) in Configure before publishing."
+      );
+      return;
+    }
+
+    setMessage("Submitting for review...");
+
+    const saved = await saveAgent(false);
+    if (!saved) {
+      setPublishError("Could not save the workflow before publishing. Please try again.");
+      return;
+    }
+
+    setSaving(true);
+    const result = await createArchitectListing({
+      workflowId,
+      name,
+      shortDescription,
+      description: tagline,
+      priceCents: Math.max(0, Math.round(Number(price) * 100) || 0),
+      tags: [],
+      requiredConnectors: [],
+      supportedLlms: []
+    });
+    setSaving(false);
+
+    if (!result.success) {
+      setPublishError(result.error ?? "Could not publish agent. Please try again.");
+      setMessage(result.error ?? "Could not publish agent");
+      return;
+    }
+
+    setMessage("Submitted for review");
+    router.push("/architect/agents" as Route);
   }
 
   async function runAgent(mode: "test" | "live") {
@@ -509,6 +568,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             agentName={agentName}
             tagline={tagline}
             price={price}
+            saving={saving}
+            statusMessage={message}
             onAgentNameChange={setAgentName}
             onTaglineChange={setTagline}
             onPriceChange={setPrice}
@@ -523,7 +584,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             tagline={tagline}
             price={price}
             saving={saving}
-            onSave={() => void saveAgent()}
+            statusMessage={message}
+            errorMessage={publishError}
+            onGoConfigure={() => setActiveTab("configure")}
+            onSave={() => void publishAgent()}
           />
         ) : null}
       </main>

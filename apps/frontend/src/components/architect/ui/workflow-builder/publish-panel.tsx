@@ -8,6 +8,9 @@ export function PublishPanel({
   tagline,
   price,
   saving,
+  statusMessage = "",
+  errorMessage = "",
+  onGoConfigure,
   onSave
 }: {
   workflowId: string;
@@ -15,6 +18,9 @@ export function PublishPanel({
   tagline: string;
   price: string;
   saving: boolean;
+  statusMessage?: string;
+  errorMessage?: string;
+  onGoConfigure?: () => void;
   onSave: () => void;
 }) {
   return (
@@ -71,7 +77,26 @@ export function PublishPanel({
               <ChecklistItem done title="Pricing set" text={`$${price} / month - 14-day trial`} />
               <ChecklistItem title="Add a cover image" text="Optional, but boosts installs by about 40%" />
             </div>
+            {errorMessage ? (
+              <div
+                data-testid="components-architect-ui-workflow-builder-publish-panel-error"
+                className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+              >
+                <p>{errorMessage}</p>
+                {onGoConfigure ? (
+                  <button
+                    data-testid="components-architect-ui-workflow-builder-publish-panel-goconfigure"
+                    type="button"
+                    onClick={onGoConfigure}
+                    className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100"
+                  >
+                    Go to Configure
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <button
+              data-testid="components-architect-ui-workflow-builder-publish-panel-submit"
               type="button"
               onClick={onSave}
               disabled={saving}
@@ -80,6 +105,14 @@ export function PublishPanel({
             >
               {saving ? "Submitting..." : "Submit for review"}
             </button>
+            {statusMessage ? (
+              <p
+                data-testid="components-architect-ui-workflow-builder-publish-panel-status"
+                className="mt-2 text-center text-xs font-semibold text-slate-500"
+              >
+                {saving ? "Submitting for review..." : statusMessage}
+              </p>
+            ) : null}
             <p className="mt-2 text-center text-[11px] text-slate-400">You&apos;ll be notified once your agent is approved and live.</p>
           </div>
         </div>

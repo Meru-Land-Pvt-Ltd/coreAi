@@ -17,6 +17,37 @@ function getWorkflowStats(workflow: ArchitectWorkflow) {
   };
 }
 
+// Single source of truth for the card badge: derive from the latest AgentListing
+// if one exists, otherwise fall back to the workflow draft/empty state.
+function getWorkflowStatus(workflow: ArchitectWorkflow, isEmpty: boolean) {
+  const listing = workflow.listings?.[0];
+
+  if (listing) {
+    switch (listing.status) {
+      case "PENDING_REVIEW":
+        return { label: "Pending Review", className: "bg-amber-50 text-amber-700" };
+      case "APPROVED":
+        return { label: "Published", className: "bg-emerald-50 text-emerald-700" };
+      case "REJECTED":
+        return { label: "Rejected", className: "bg-rose-50 text-rose-700" };
+      case "SUSPENDED":
+        return { label: "Suspended", className: "bg-rose-50 text-rose-700" };
+      default:
+        return { label: "Draft", className: "bg-amber-50 text-amber-700" };
+    }
+  }
+
+  return isEmpty
+    ? { label: "Empty", className: "bg-slate-100 text-slate-600" }
+    : { label: "Draft", className: "bg-amber-50 text-amber-700" };
+}
+
+// Card title priority: published/submitted listing name, then workflow name,
+// then a safe fallback (never an old template placeholder).
+function getWorkflowDisplayName(workflow: ArchitectWorkflow) {
+  return workflow.listings?.[0]?.name || workflow.name || "Untitled Agent";
+}
+
 function AgentGlyph({ className = "" }: { className?: string }) {
   return (
     <svg data-testid="components-architect-ui-workflows-view-svg-1" className={cn("h-5 w-5", className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -186,6 +217,7 @@ export function ArchitectWorkflowsView() {
 
           {workflows.map((workflow) => {
             const isEmpty = getWorkflowStats(workflow).nodes === 0;
+            const status = getWorkflowStatus(workflow, isEmpty);
 
             return (
               <article data-testid="components-architect-ui-workflows-view-article-1"
@@ -205,12 +237,10 @@ export function ArchitectWorkflowsView() {
                   <span data-testid="components-architect-ui-workflows-view-span-2"
                     className={cn(
                       "rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide",
-                      isEmpty
-                        ? "bg-slate-100 text-slate-600"
-                        : "bg-amber-50 text-amber-700"
+                      status.className
                     )}
                   >
-                    {isEmpty ? "Empty" : "Draft"}
+                    {status.label}
                   </span>
 
                   <button data-testid="components-architect-ui-workflows-view-button-2"
@@ -233,7 +263,7 @@ export function ArchitectWorkflowsView() {
 
                 <div data-testid="components-architect-ui-workflows-view-div-13" className="mt-8 flex flex-1 flex-col items-center justify-center">
                   <h2 data-testid="components-architect-ui-workflows-view-h2-2" className="max-w-[18rem] text-center text-xl font-black leading-tight text-slate-950">
-                    {workflow.name || "Enoylity Media Creations LLC"}
+                    {getWorkflowDisplayName(workflow)}
                   </h2>
 
                   <p data-testid="components-architect-ui-workflows-view-p-7" className="mt-3 line-clamp-3 max-w-sm text-center text-sm font-semibold leading-6 text-slate-500">

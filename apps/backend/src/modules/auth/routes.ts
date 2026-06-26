@@ -57,7 +57,10 @@ authRoutes.post("/send-verification-code", async (c) => {
 
     const existingUser = await prisma.user.findUnique({
       where: {
-        email: input.email
+        email_role: {
+          email: input.email,
+          role: input.role
+        }
       },
       select: {
         id: true,
@@ -65,15 +68,6 @@ authRoutes.post("/send-verification-code", async (c) => {
         isSuspended: true
       }
     });
-
-    if (existingUser && existingUser.role !== input.role) {
-      return errorResponse(
-        c,
-        `This email is already registered as ${existingUser.role}`,
-        403,
-        "ROLE_MISMATCH"
-      );
-    }
 
     if (existingUser?.isSuspended) {
       return errorResponse(
@@ -244,21 +238,15 @@ authRoutes.post("/verify-code", async (c) => {
 
     let user = await prisma.user.findUnique({
       where: {
-        email: input.email
+        email_role: {
+          email: input.email,
+          role: input.role
+        }
       },
       include: {
         architectProfile: true
       }
     });
-
-    if (user && user.role !== input.role) {
-      return errorResponse(
-        c,
-        `This email is already registered as ${user.role}`,
-        403,
-        "ROLE_MISMATCH"
-      );
-    }
 
     if (user?.isSuspended) {
       return errorResponse(
@@ -358,21 +346,15 @@ authRoutes.post("/firebase-login", async (c) => {
 
     let user = await prisma.user.findUnique({
       where: {
-        email
+        email_role: {
+          email,
+          role: input.role
+        }
       },
       include: {
         architectProfile: true
       }
     });
-
-    if (user && user.role !== input.role) {
-      return errorResponse(
-        c,
-        `This email is already registered as ${user.role}`,
-        403,
-        "ROLE_MISMATCH"
-      );
-    }
 
     if (user?.isSuspended) {
       return errorResponse(
@@ -454,7 +436,10 @@ authRoutes.post("/login", async (c) => {
 
     const user = await prisma.user.findUnique({
       where: {
-        email: input.email
+        email_role: {
+          email: input.email,
+          role: input.role
+        }
       },
       include: {
         architectProfile: true
@@ -464,18 +449,9 @@ authRoutes.post("/login", async (c) => {
     if (!user) {
       return errorResponse(
         c,
-        "Invalid email or password",
+        `This email is not registered as ${input.role}`,
         401,
         "INVALID_CREDENTIALS"
-      );
-    }
-
-    if (user.role !== input.role) {
-      return errorResponse(
-        c,
-        `This email is not registered as ${input.role}`,
-        403,
-        "ROLE_MISMATCH"
       );
     }
 
