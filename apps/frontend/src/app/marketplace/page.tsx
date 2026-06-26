@@ -302,6 +302,32 @@ export default function MarketplacePage() {
   }
 
   useEffect(() => {
+    if (!openFilter) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
+      const trigger = document.querySelector(`[data-filter-trigger="${openFilter}"]`);
+      const panel = document.querySelector(`[data-filter-panel="${openFilter}"]`);
+
+      if (trigger?.contains(target) || panel?.contains(target)) return;
+
+      setOpenFilter(null);
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenFilter(null);
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openFilter]);
+
+  useEffect(() => {
     if (!selectedAgent) return;
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -566,16 +592,20 @@ export default function MarketplacePage() {
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
                   data-testid="marketplace-filter-industry"
+                  data-filter-trigger="industry"
                   className={filterPillClass(industry !== "all")}
                   aria-haspopup="true"
                   aria-expanded={openFilter === "industry"}
                 >
                   <span>{industryLabel}</span>
-                  <ChevronIcon />
+                  <ChevronIcon open={openFilter === "industry"} />
                 </button>
 
                 {openFilter === "industry" ? (
-                  <div className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                  <div
+                    data-filter-panel="industry"
+                    className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                  >
                     {industries.map((item) => {
                       const unlocked = isIndustryUnlocked(item.id);
 
@@ -613,6 +643,7 @@ export default function MarketplacePage() {
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "price" ? null : "price")}
                   data-testid="marketplace-filter-price"
+                  data-filter-trigger="price"
                   className={filterPillClass(priceActive)}
                   aria-haspopup="true"
                   aria-expanded={openFilter === "price"}
@@ -624,11 +655,14 @@ export default function MarketplacePage() {
                         : `$${priceMin}–$${priceMax}`
                       : "Price range"}
                   </span>
-                  <ChevronIcon />
+                  <ChevronIcon open={openFilter === "price"} />
                 </button>
 
                 {openFilter === "price" ? (
-                  <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                  <div
+                    data-filter-panel="price"
+                    className="absolute left-0 top-full z-50 mt-2 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                  >
                     <div className="mb-2 flex items-center justify-between px-1">
                       <span className="text-sm font-semibold text-slate-700">Price range</span>
                       <button
@@ -717,16 +751,20 @@ export default function MarketplacePage() {
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "rating" ? null : "rating")}
                   data-testid="marketplace-filter-rating"
+                  data-filter-trigger="rating"
                   className={filterPillClass(ratingActive)}
                   aria-haspopup="true"
                   aria-expanded={openFilter === "rating"}
                 >
                   <span>{ratingActive ? `${minRating}.0+ ★` : "Rating"}</span>
-                  <ChevronIcon />
+                  <ChevronIcon open={openFilter === "rating"} />
                 </button>
 
                 {openFilter === "rating" ? (
-                  <div className="absolute left-0 top-full z-50 mt-2 w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                  <div
+                    data-filter-panel="rating"
+                    className="absolute left-0 top-full z-50 mt-2 w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                  >
                     <p className="px-1 pb-2 text-sm font-semibold text-slate-700">
                       Minimum rating
                     </p>
@@ -813,17 +851,21 @@ export default function MarketplacePage() {
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
                   data-testid="marketplace-filter-sort"
+                  data-filter-trigger="sort"
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900"
                   aria-haspopup="true"
                   aria-expanded={openFilter === "sort"}
                 >
                   Sort:
                   <span className="font-semibold text-slate-800">{sortLabel}</span>
-                  <ChevronIcon />
+                  <ChevronIcon open={openFilter === "sort"} />
                 </button>
 
                 {openFilter === "sort" ? (
-                  <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]">
+                  <div
+                    data-filter-panel="sort"
+                    className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                  >
                     {sortOptions.map((item) => (
                       <button
                         key={item.value}
@@ -1319,10 +1361,10 @@ function viewButtonClass(active: boolean) {
   ].join(" ");
 }
 
-function ChevronIcon() {
+function ChevronIcon({ open = false }: { open?: boolean }) {
   return (
     <svg
-      className="h-4 w-4"
+      className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

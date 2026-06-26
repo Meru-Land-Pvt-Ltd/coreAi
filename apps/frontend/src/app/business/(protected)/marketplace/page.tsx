@@ -99,6 +99,22 @@ const sortOptions = [
 ] as const;
 
 type SortValue = (typeof sortOptions)[number]["value"];
+type OpenFilter = "industry" | "sort" | null;
+
+function filterDropdownOptionClass(active: boolean) {
+    return `flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${active
+        ? "bg-amber-50 font-medium text-amber-700"
+        : "text-slate-600 hover:bg-slate-50"
+        }`;
+}
+
+function FilterChevronIcon() {
+    return (
+        <svg className="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        </svg>
+    );
+}
 
 function normalizeFilterValue(value: string) {
     return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -260,6 +276,7 @@ export default function MarketplacePage() {
     const [view, setView] = useState<"grid" | "list">("grid");
     const [freeTrialOnly, setFreeTrialOnly] = useState(false);
     const [newOnly, setNewOnly] = useState(false);
+    const [openFilter, setOpenFilter] = useState<OpenFilter>(null);
     const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
     useEffect(() => {
@@ -335,6 +352,32 @@ export default function MarketplacePage() {
     }, [authReady]);
 
     useEffect(() => {
+        if (!openFilter) return;
+
+        function handleClickOutside(event: MouseEvent) {
+            const target = event.target as Node;
+            const trigger = document.querySelector(`[data-filter-trigger="${openFilter}"]`);
+            const panel = document.querySelector(`[data-filter-panel="${openFilter}"]`);
+
+            if (trigger?.contains(target) || panel?.contains(target)) return;
+
+            setOpenFilter(null);
+        }
+
+        function handleEscape(event: KeyboardEvent) {
+            if (event.key === "Escape") setOpenFilter(null);
+        }
+
+        document.addEventListener("mousedown", handleClickOutside);
+        document.addEventListener("keydown", handleEscape);
+
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("keydown", handleEscape);
+        };
+    }, [openFilter]);
+
+    useEffect(() => {
         if (!selectedAgent) return;
 
         function handleKeyDown(event: KeyboardEvent) {
@@ -361,6 +404,12 @@ export default function MarketplacePage() {
 
     const industries = useMemo(() => buildIndustries(agents), [agents]);
     const featuredAgent = agents[0] ?? null;
+
+    const industryLabel =
+        industries.find((item) => item.id === industry)?.label ?? "All industries";
+
+    const sortLabel =
+        sortOptions.find((item) => item.value === sort)?.label ?? "Most popular";
 
     const filteredAgents = useMemo(() => {
         const cleanQuery = query.trim().toLowerCase();
@@ -603,21 +652,53 @@ export default function MarketplacePage() {
             <section className="sticky top-[73px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6">
                     <div className="flex items-center gap-3 overflow-x-auto py-3">
-                        <select
-                            value={industry}
-                            onChange={(event) => setIndustry(event.target.value)}
-                            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-                        >
-                            {industries.map((item) => (
-                                <option key={item.id} value={item.id}>
-                                    {item.label}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="relative shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
+                                data-testid="marketplace-filter-industry"
+                                data-filter-trigger="industry"
+                                className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-4 py-2 text-sm font-medium outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100 ${industry !== "all"
+                                    ? "border-amber-300 text-amber-700"
+                                    : "border-gray-200 text-slate-600"
+                                    }`}
+                                aria-haspopup="listbox"
+                                aria-expanded={openFilter === "industry"}
+                            >
+                                <span>{industryLabel}</span>
+                                <FilterChevronIcon />
+                            </button>
+
+                            {openFilter === "industry" ? (
+                                <div
+                                    data-filter-panel="industry"
+                                    className="absolute left-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                                >
+                                    {industries.map((item) => (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            data-testid={`marketplace-industry-option-${item.id}`}
+                                            onClick={() => {
+                                                setIndustry(item.id);
+                                                setOpenFilter(null);
+                                            }}
+                                            className={filterDropdownOptionClass(industry === item.id)}
+                                        >
+                                            <span>{item.label}</span>
+                                            <span className="text-xs text-slate-400">{item.count}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
+                        </div>
 
                         <button
                             type="button"
-                            onClick={() => setFreeTrialOnly((current) => !current)}
+                            onClick={() => {
+                                setOpenFilter(null);
+                                setFreeTrialOnly((current) => !current);
+                            }}
                             data-testid="marketplace-filter-free-trial"
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${freeTrialOnly
                                 ? "border-amber-300 bg-amber-50 text-amber-700"
@@ -629,7 +710,10 @@ export default function MarketplacePage() {
 
                         <button
                             type="button"
-                            onClick={() => setNewOnly((current) => !current)}
+                            onClick={() => {
+                                setOpenFilter(null);
+                                setNewOnly((current) => !current);
+                            }}
                             data-testid="marketplace-filter-new"
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${newOnly
                                 ? "border-amber-300 bg-amber-50 text-amber-700"
@@ -642,7 +726,10 @@ export default function MarketplacePage() {
                         <div className="ml-auto flex shrink-0 items-center gap-3">
                             <button
                                 type="button"
-                                onClick={() => setView("grid")}
+                                onClick={() => {
+                                    setOpenFilter(null);
+                                    setView("grid");
+                                }}
                                 data-testid="marketplace-view-grid"
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "grid"
                                     ? "border-amber-300 bg-amber-50 text-amber-700"
@@ -654,7 +741,10 @@ export default function MarketplacePage() {
 
                             <button
                                 type="button"
-                                onClick={() => setView("list")}
+                                onClick={() => {
+                                    setOpenFilter(null);
+                                    setView("list");
+                                }}
                                 data-testid="marketplace-view-list"
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "list"
                                     ? "border-amber-300 bg-amber-50 text-amber-700"
@@ -664,17 +754,42 @@ export default function MarketplacePage() {
                                 List
                             </button>
 
-                            <select
-                                value={sort}
-                                onChange={(event) => setSort(event.target.value as SortValue)}
-                                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-                            >
-                                {sortOptions.map((item) => (
-                                    <option key={item.value} value={item.value}>
-                                        Sort: {item.label}
-                                    </option>
-                                ))}
-                            </select>
+                            <div className="relative shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
+                                    data-testid="marketplace-filter-sort"
+                                    data-filter-trigger="sort"
+                                    className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+                                    aria-haspopup="listbox"
+                                    aria-expanded={openFilter === "sort"}
+                                >
+                                    <span>Sort: {sortLabel}</span>
+                                    <FilterChevronIcon />
+                                </button>
+
+                                {openFilter === "sort" ? (
+                                    <div
+                                        data-filter-panel="sort"
+                                        className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                                    >
+                                        {sortOptions.map((item) => (
+                                            <button
+                                                key={item.value}
+                                                type="button"
+                                                data-testid={`marketplace-sort-option-${item.value}`}
+                                                onClick={() => {
+                                                    setSort(item.value);
+                                                    setOpenFilter(null);
+                                                }}
+                                                className={filterDropdownOptionClass(sort === item.value)}
+                                            >
+                                                {item.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </div>
                         </div>
                     </div>
                 </div>
