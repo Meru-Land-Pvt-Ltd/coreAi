@@ -100,7 +100,6 @@ export function PublishPanel({
               type="button"
               onClick={onSave}
               disabled={saving}
-              data-testid="publish-submit-review"
               className="mt-4 w-full rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
             >
               {saving ? "Submitting..." : "Submit for review"}

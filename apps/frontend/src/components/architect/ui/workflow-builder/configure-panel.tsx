@@ -140,10 +140,9 @@ export function ConfigurePanel({
             </span>
           ) : null}
           <button
-            data-testid="components-architect-ui-workflow-builder-configure-panel-save"
+            data-testid="configure-save"
             type="button"
             onClick={onSave}
-            data-testid="configure-save"
             disabled={saving}
             className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
           >
