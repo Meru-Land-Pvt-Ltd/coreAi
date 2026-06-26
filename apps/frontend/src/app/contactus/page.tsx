@@ -222,6 +222,7 @@ export default function ContactPage() {
 
                 <button
                   type="submit"
+                  data-testid="contact-submit"
                   className="mt-6 w-full rounded-xl bg-amber-500 py-3 font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-amber-600 hover:shadow-[0_8px_20px_-6px_rgba(245,158,11,0.5)] active:scale-[0.99]"
                 >
                   Send Message
@@ -252,6 +253,7 @@ export default function ContactPage() {
 
                 <button
                   type="button"
+                  data-testid="contact-send-another"
                   onClick={() => {
                     setSubmitted(false);
                     setForm(initialForm);

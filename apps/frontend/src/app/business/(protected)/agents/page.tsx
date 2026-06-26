@@ -477,6 +477,7 @@ export default function MissedCallTextBackPage() {
           <button
             type="button"
             onClick={() => setMenuOpen((current) => !current)}
+            data-testid="agent-detail-menu-toggle"
             className="inline-flex items-center justify-center rounded-lg p-2 text-slate-600 transition hover:bg-gray-100 hover:text-slate-900 md:hidden"
             aria-label="Toggle menu"
             aria-expanded={menuOpen}
@@ -617,6 +618,7 @@ export default function MissedCallTextBackPage() {
                   <button
                     type="button"
                     onClick={() => setDemoOpen(true)}
+                    data-testid="agent-detail-watch-demo"
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-6 py-3.5 text-base font-semibold text-slate-700 transition duration-200 hover:border-amber-400 hover:text-amber-600"
                   >
                     ▶ Watch Demo
@@ -766,6 +768,7 @@ export default function MissedCallTextBackPage() {
                 type="button"
                 onClick={() => setTechOpen((current) => !current)}
                 aria-expanded={techOpen}
+                data-testid="agent-detail-tech-toggle"
                 className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
               >
                 <span className="text-lg font-semibold text-slate-900">Technical Details</span>
@@ -928,6 +931,7 @@ export default function MissedCallTextBackPage() {
             <button
               type="button"
               onClick={() => setDemoOpen(false)}
+              data-testid="agent-detail-demo-close"
               className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-900"
               aria-label="Close"
             >
@@ -950,6 +954,7 @@ export default function MissedCallTextBackPage() {
             <button
               type="button"
               onClick={scrollToDemo}
+              data-testid="agent-detail-view-preview"
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-slate-950 transition duration-200 hover:bg-amber-400"
             >
               View the live preview

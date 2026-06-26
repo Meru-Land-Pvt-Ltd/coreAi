@@ -425,6 +425,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                     <button
                       type="button"
                       onClick={() => loadTemplate("missed-call")}
+                      data-testid="builder-load-template-missed-call"
                       className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-amber-600"
                     >
                       Build Missed Call Text-Back
@@ -432,6 +433,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                     <button
                       type="button"
                       onClick={() => loadTemplate("gmail-reply")}
+                      data-testid="builder-load-template-gmail-reply"
                       className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50"
                     >
                       Build Gmail Reply Flow

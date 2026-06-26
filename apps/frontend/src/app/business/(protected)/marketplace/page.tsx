@@ -495,6 +495,7 @@ export default function MarketplacePage() {
                                         <button
                                             type="button"
                                             onClick={() => openAgentPage(featuredAgent)}
+                                            data-testid="marketplace-featured-open"
                                             className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                                         >
                                             Open agent
@@ -503,6 +504,7 @@ export default function MarketplacePage() {
                                         <button
                                             type="button"
                                             onClick={() => openDetailsModal(featuredAgent)}
+                                            data-testid="marketplace-featured-details"
                                             className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600"
                                         >
                                             View details
@@ -576,6 +578,7 @@ export default function MarketplacePage() {
                                     <button
                                         key={item.id}
                                         type="button"
+                                        data-testid={`marketplace-industry-${item.id}`}
                                         onClick={() => setIndustry(item.id)}
                                         className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
                                             ? "border-amber-300 ring-4 ring-amber-100"
@@ -614,6 +617,7 @@ export default function MarketplacePage() {
                         <button
                             type="button"
                             onClick={() => setFreeTrialOnly((current) => !current)}
+                            data-testid="marketplace-filter-free-trial"
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${freeTrialOnly
                                 ? "border-amber-300 bg-amber-50 text-amber-700"
                                 : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
@@ -625,6 +629,7 @@ export default function MarketplacePage() {
                         <button
                             type="button"
                             onClick={() => setNewOnly((current) => !current)}
+                            data-testid="marketplace-filter-new"
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${newOnly
                                 ? "border-amber-300 bg-amber-50 text-amber-700"
                                 : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
@@ -637,6 +642,7 @@ export default function MarketplacePage() {
                             <button
                                 type="button"
                                 onClick={() => setView("grid")}
+                                data-testid="marketplace-view-grid"
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "grid"
                                     ? "border-amber-300 bg-amber-50 text-amber-700"
                                     : "border-gray-200 text-slate-500"
@@ -648,6 +654,7 @@ export default function MarketplacePage() {
                             <button
                                 type="button"
                                 onClick={() => setView("list")}
+                                data-testid="marketplace-view-list"
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "list"
                                     ? "border-amber-300 bg-amber-50 text-amber-700"
                                     : "border-gray-200 text-slate-500"
@@ -740,6 +747,7 @@ export default function MarketplacePage() {
                                     setFreeTrialOnly(false);
                                     setNewOnly(false);
                                 }}
+                                data-testid="marketplace-clear-filters"
                                 className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
                             >
                                 Clear filters
@@ -846,6 +854,7 @@ function AgentGridCard({
                     onOpen();
                 }
             }}
+            data-testid={`marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-xl"
         >
             <div className="flex-1 p-6">
@@ -898,6 +907,7 @@ function AgentGridCard({
                         event.stopPropagation();
                         onViewDetails();
                     }}
+                    data-testid={`marketplace-agent-details-${agent.id}`}
                     className="w-full rounded-xl border-2 border-amber-500 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
                 >
                     View details
@@ -927,6 +937,7 @@ function AgentListCard({
                     onOpen();
                 }
             }}
+            data-testid={`marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg sm:flex-row sm:items-center"
         >
             <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-50 text-xl ring-1 ring-amber-100">
@@ -972,6 +983,7 @@ function AgentListCard({
                         event.stopPropagation();
                         onViewDetails();
                     }}
+                    data-testid={`marketplace-agent-details-${agent.id}`}
                     className="rounded-xl border-2 border-amber-500 px-5 py-2 text-sm font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
                 >
                     View details
@@ -1012,6 +1024,7 @@ function AgentDetailsModal({
                 <button
                     type="button"
                     onClick={onClose}
+                    data-testid="marketplace-modal-close"
                     className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full text-2xl font-light text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                     aria-label="Close modal"
                 >
@@ -1139,6 +1152,7 @@ function AgentDetailsModal({
                         <button
                             type="button"
                             onClick={onOpenAgent}
+                            data-testid="marketplace-modal-start-trial"
                             className="inline-flex min-w-[150px] items-center justify-center rounded-xl border-2 border-amber-500 bg-white px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
                         >
                             Start free trial
@@ -1147,6 +1161,7 @@ function AgentDetailsModal({
                         <button
                             type="button"
                             onClick={onOpenAgent}
+                            data-testid="marketplace-modal-install"
                             className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
                         >
                             <span className="text-base">⇩</span>

@@ -25,6 +25,7 @@ export function NodeInspector({
         <button
           type="button"
           onClick={onClearSelection}
+          data-testid="node-inspector-clear"
           className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
           aria-label="Deselect node"
         >
@@ -48,6 +49,7 @@ export function NodeInspector({
         <button
           type="button"
           onClick={onDeleteNode}
+          data-testid="node-inspector-delete"
           className="w-full rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100"
         >
           Delete Node

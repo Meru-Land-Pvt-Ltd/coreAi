@@ -40,14 +40,7 @@ export function CoreHeader({
         </a>
 
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-4 md:flex lg:gap-7 xl:gap-8">
-          <a href="#architects" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-            For Architects
-          </a>
-
-          <a href="#businesses" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
-            For Businesses
-          </a>
-
+          
           <Link href="/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Marketplace
           </Link>
@@ -87,6 +80,7 @@ export function CoreHeader({
         <button
           type="button"
           onClick={onToggleMenu}
+          data-testid="header-menu-toggle"
           className="inline-flex items-center justify-center rounded-lg p-2 text-slate-600 transition hover:bg-gray-100 hover:text-slate-900 md:hidden"
           aria-label="Toggle menu"
           aria-controls="mobile-menu"

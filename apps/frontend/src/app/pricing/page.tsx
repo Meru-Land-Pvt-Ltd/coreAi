@@ -307,6 +307,7 @@ export default function PricingPage() {
                       <button
                         key={price}
                         type="button"
+                        data-testid={`pricing-price-option-${price}`}
                         onClick={() => setAgentPrice(price)}
                         className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
                           agentPrice === price
@@ -569,13 +570,14 @@ export default function PricingPage() {
 
             <div className="mt-10 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
               <div className="divide-y divide-gray-100 px-6">
-                {faqItems.map((item) => {
+                {faqItems.map((item, index) => {
                   const open = openFaq === item.question;
 
                   return (
                     <div key={item.question}>
                       <button
                         type="button"
+                        data-testid={`pricing-faq-toggle-${index}`}
                         onClick={() => setOpenFaq(open ? null : item.question)}
                         className="flex w-full items-center justify-between gap-4 py-5 text-left"
                         aria-expanded={open}

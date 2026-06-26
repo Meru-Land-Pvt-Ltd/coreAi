@@ -177,6 +177,7 @@ export default function NotFoundPage() {
               <button
                 type="submit"
                 aria-label="Search"
+                data-testid="notfound-search-submit"
                 className="absolute inset-y-0 right-1 flex w-11 items-center justify-center rounded-lg text-slate-400 transition hover:bg-amber-50 hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
               >
                 <ArrowRightIcon />

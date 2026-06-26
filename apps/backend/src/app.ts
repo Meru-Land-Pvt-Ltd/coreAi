@@ -8,6 +8,7 @@ import { authRoutes } from "./modules/auth/routes";
 import { healthRoutes } from "./modules/health/routes";
 import { architectRoutes } from "./modules/architect/routes";
 import { businessRoutes } from "./modules/business/routes";
+import { mailRoutes } from "./modules/mails/routes";
 
 export const app = new Hono();
 
@@ -27,6 +28,7 @@ app.route("/health", healthRoutes);
 app.route("/auth", authRoutes);
 app.route("/architect", architectRoutes);
 app.route("/business", businessRoutes);
+app.route("/mail",mailRoutes);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

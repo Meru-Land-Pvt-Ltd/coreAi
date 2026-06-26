@@ -4,6 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
+import { ASSIGNMENT_PATH } from "@/lib/routes";
 
 type Agent = {
   id: string;
@@ -325,14 +326,15 @@ export default function MarketplacePage() {
       <nav data-testid="app-marketplace-page-nav-1" className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 shadow-sm backdrop-blur">
         <div data-testid="app-marketplace-page-div-1" className="mx-auto max-w-7xl px-4 sm:px-6">
           <div data-testid="app-marketplace-page-div-2" className="flex flex-wrap items-center gap-3 py-3">
-            <Link data-testid="app-marketplace-page-link-1" href={HOME_PATH} className="flex shrink-0 items-center gap-2.5">
-              <span data-testid="app-marketplace-page-span-1" className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30">
-                ●
-              </span>
-              <span data-testid="app-marketplace-page-span-2" className="text-xl font-extrabold tracking-tight text-slate-900">
+            <a href="/" className="flex items-center gap-2.5" aria-label="CORE home">
+              <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+                <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
+                <circle cx="14" cy="14" r="4" fill="#fbbf24" />
+              </svg>
+              <span className="text-xl font-extrabold tracking-tight text-amber-500">
                 CORE
               </span>
-            </Link>
+            </a>
 
             <div data-testid="app-marketplace-page-div-3" className="order-3 w-full md:order-2 md:flex-1 md:px-4">
               <div data-testid="app-marketplace-page-div-4" className="relative mx-auto max-w-2xl">
@@ -362,7 +364,7 @@ export default function MarketplacePage() {
                 Log in
               </Link>
               <Link data-testid="app-marketplace-page-link-4"
-                href={BUSINESS_LOGIN_PATH}
+                href={ASSIGNMENT_PATH}
                 className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-amber-500/30 transition hover:bg-amber-600"
               >
                 Get started
@@ -392,7 +394,7 @@ export default function MarketplacePage() {
             </p>
 
             <div data-testid="app-marketplace-page-div-10" className="mt-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-              <Metric label="Agents" value="50+" />
+              <Metric label="Agents" value="Verified" />
               <Metric label="Businesses" value="2,400+" />
               <Metric label="Average rating" value="4.9 ⭐" />
             </div>
@@ -563,6 +565,7 @@ export default function MarketplacePage() {
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
+                  data-testid="marketplace-filter-industry"
                   className={filterPillClass(industry !== "all")}
                   aria-haspopup="true"
                   aria-expanded={openFilter === "industry"}
@@ -581,6 +584,7 @@ export default function MarketplacePage() {
                           key={item.id}
                           type="button"
                           disabled={!unlocked}
+                          data-testid={`marketplace-industry-option-${item.id}`}
                           onClick={() => {
                             if (!unlocked) return;
                             setIndustry(item.id);
@@ -608,6 +612,7 @@ export default function MarketplacePage() {
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "price" ? null : "price")}
+                  data-testid="marketplace-filter-price"
                   className={filterPillClass(priceActive)}
                   aria-haspopup="true"
                   aria-expanded={openFilter === "price"}
@@ -632,6 +637,7 @@ export default function MarketplacePage() {
                           setPriceMin(0);
                           setPriceMax(200);
                         }}
+                        data-testid="marketplace-price-reset"
                         className="text-xs font-medium text-amber-600 transition hover:text-amber-700"
                       >
                         Reset
@@ -695,6 +701,7 @@ export default function MarketplacePage() {
                             setPriceMin(preset.min);
                             setPriceMax(preset.max);
                           }}
+                          data-testid={`marketplace-price-preset-${preset.min}-${preset.max}`}
                           className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
                         >
                           {preset.label}
@@ -709,6 +716,7 @@ export default function MarketplacePage() {
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "rating" ? null : "rating")}
+                  data-testid="marketplace-filter-rating"
                   className={filterPillClass(ratingActive)}
                   aria-haspopup="true"
                   aria-expanded={openFilter === "rating"}
@@ -732,6 +740,7 @@ export default function MarketplacePage() {
                             setMinRating(star);
                             setOpenFilter(null);
                           }}
+                          data-testid={`marketplace-rating-star-${star}`}
                           className={star <= minRating ? "text-amber-400" : "text-gray-300"}
                           aria-label={`${star} stars and up`}
                         >
@@ -746,6 +755,7 @@ export default function MarketplacePage() {
                         setMinRating(0);
                         setOpenFilter(null);
                       }}
+                      data-testid="marketplace-rating-any"
                       className={popoverOptionClass(minRating === 0)}
                     >
                       Any rating
@@ -757,6 +767,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 onClick={() => setFreeTrialOnly((current) => !current)}
+                data-testid="marketplace-filter-free-trial"
                 className={filterPillClass(freeTrialOnly)}
               >
                 Free trial
@@ -765,6 +776,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 onClick={() => setNewOnly((current) => !current)}
+                data-testid="marketplace-filter-new"
                 className={filterPillClass(newOnly)}
               >
                 New this month
@@ -776,6 +788,7 @@ export default function MarketplacePage() {
                 <button
                   type="button"
                   onClick={() => setView("grid")}
+                  data-testid="marketplace-view-grid"
                   className={viewButtonClass(view === "grid")}
                   aria-label="Grid view"
                   aria-pressed={view === "grid"}
@@ -786,6 +799,7 @@ export default function MarketplacePage() {
                 <button
                   type="button"
                   onClick={() => setView("list")}
+                  data-testid="marketplace-view-list"
                   className={viewButtonClass(view === "list")}
                   aria-label="List view"
                   aria-pressed={view === "list"}
@@ -798,6 +812,7 @@ export default function MarketplacePage() {
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
+                  data-testid="marketplace-filter-sort"
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900"
                   aria-haspopup="true"
                   aria-expanded={openFilter === "sort"}
@@ -817,6 +832,7 @@ export default function MarketplacePage() {
                           setSort(item.value);
                           setOpenFilter(null);
                         }}
+                        data-testid={`marketplace-sort-option-${item.value}`}
                         className={popoverOptionClass(sort === item.value)}
                       >
                         <span>{item.label}</span>
@@ -838,6 +854,7 @@ export default function MarketplacePage() {
                   key={filter.key}
                   type="button"
                   onClick={() => clearFilter(filter.key)}
+                  data-testid={`marketplace-active-filter-${filter.key}`}
                   className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
                 >
                   {filter.label}
@@ -848,6 +865,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 onClick={clearAllFilters}
+                data-testid="marketplace-clear-all-filters"
                 className="text-xs font-semibold text-slate-500 underline-offset-2 transition hover:text-amber-600 hover:underline"
               >
                 Clear all
@@ -1145,6 +1163,7 @@ function AgentDetailsModal({
         <button
           type="button"
           onClick={onClose}
+          data-testid="marketplace-modal-close"
           className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full text-2xl font-light text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
           aria-label="Close modal"
         >
@@ -1234,7 +1253,7 @@ function AgentDetailsModal({
 
             <Link
               href={BUSINESS_SETUP_PATH}
-              
+
               className="inline-flex min-w-[150px] items-center justify-center rounded-xl border-2 border-amber-500 bg-white px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
             >
               View Details

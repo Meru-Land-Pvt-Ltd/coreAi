@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
+import { usePathname, useRouter } from "next/navigation";
+import { BUSINESS_LOGIN_PATH, BUSINESS_MARKETPLACE_PATH } from "@/lib/routes";
 
 
 type CoreAiUser = {
@@ -51,6 +51,8 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeNav, setActiveNav] = useState("Overview");
+    const router = useRouter();
+    const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
     const [currentUser, setCurrentUser] = useState<CoreAiUser | null>(null);
 
@@ -66,6 +68,14 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
         setSidebarOpen(false);
     }
 
+    function handleLogout() {
+        localStorage.clear();
+        sessionStorage.clear();
+        setAccountMenuOpen(false);
+        closeSidebar();
+        router.replace(BUSINESS_LOGIN_PATH);
+    }
+
 
     return (
         <div className="min-h-screen bg-gray-50 text-slate-900">
@@ -73,6 +83,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 <button
                     type="button"
                     aria-label="Close menu overlay"
+                    data-testid="business-sidebar-overlay"
                     onClick={closeSidebar}
                     className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[1px] lg:hidden"
                 />
@@ -101,6 +112,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                     <button
                         type="button"
                         onClick={closeSidebar}
+                        data-testid="business-sidebar-close"
                         className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
                         aria-label="Close menu"
                     >
@@ -169,13 +181,32 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             <p className="truncate text-xs text-slate-500">{subtitle}</p>
                         </div>
 
-                        <button
-                            type="button"
-                            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-50 hover:text-slate-600"
-                            aria-label="Account settings"
-                        >
-                            <Icon name="settings" className="h-[18px] w-[18px]" />
-                        </button>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={() => setAccountMenuOpen((open) => !open)}
+                                data-testid="business-account-menu-toggle"
+                                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-50 hover:text-slate-600"
+                                aria-label="Account settings"
+                                aria-haspopup="true"
+                                aria-expanded={accountMenuOpen}
+                            >
+                                <Icon name="settings" className="h-[18px] w-[18px]" />
+                            </button>
+
+                            {accountMenuOpen ? (
+                                <div className="absolute bottom-full right-0 z-50 mb-2 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
+                                    <button
+                                        type="button"
+                                        onClick={handleLogout}
+                                        data-testid="business-logout"
+                                        className="flex w-full items-center px-3.5 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+                                    >
+                                        Logout
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
             </aside>
@@ -185,6 +216,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                     <button
                         type="button"
                         onClick={() => setSidebarOpen(true)}
+                        data-testid="business-sidebar-open"
                         className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
                         aria-label="Open menu"
                     >

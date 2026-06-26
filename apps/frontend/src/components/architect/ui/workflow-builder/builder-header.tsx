@@ -8,16 +8,19 @@ import type { BuilderTab } from "./types";
 function HeaderButton({
   children,
   onClick,
-  active = false
+  active = false,
+  testId
 }: {
   children: ReactNode;
   onClick: () => void;
   active?: boolean;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-testid={testId}
       className={cn(
         "flex items-center border-b-2 px-4 text-sm transition",
         active
@@ -88,7 +91,7 @@ export function BuilderHeader({
 
       <div className="ml-5 hidden items-stretch md:flex">
         {(["build", "test", "configure", "publish"] as const).map((tab) => (
-          <HeaderButton key={tab} onClick={() => onTabChange(tab)} active={activeTab === tab}>
+          <HeaderButton key={tab} onClick={() => onTabChange(tab)} active={activeTab === tab} testId={`builder-tab-${tab}`}>
             {tab[0].toUpperCase() + tab.slice(1)}
           </HeaderButton>
         ))}
@@ -98,6 +101,7 @@ export function BuilderHeader({
         <button
           type="button"
           onClick={onMobileLibrary}
+          data-testid="builder-mobile-library"
           className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-slate-600 xl:hidden"
           aria-label="Open components"
         >
@@ -117,6 +121,7 @@ export function BuilderHeader({
         <button
           type="button"
           onClick={onPreview}
+          data-testid="builder-preview"
           className="hidden items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-sm text-slate-600 transition hover:border-amber-300 hover:text-slate-800 sm:flex"
         >
           <BuilderIcon name="eye" className="h-4 w-4" />
@@ -126,6 +131,7 @@ export function BuilderHeader({
           type="button"
           onClick={onRunTest}
           disabled={running}
+          data-testid="builder-run-test"
           className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
         >
           <BuilderIcon name="play" className="h-3.5 w-3.5" />
@@ -138,6 +144,7 @@ export function BuilderHeader({
             onTabChange("publish");
           }}
           disabled={saving}
+          data-testid="builder-publish-marketplace"
           className="hidden rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60 md:inline-flex"
         >
           Publish to Marketplace

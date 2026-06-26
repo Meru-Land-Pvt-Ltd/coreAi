@@ -19,11 +19,12 @@ export function PreviewModal({
       aria-label="End-user preview"
       style={{ animation: "fadeIn .2s ease" }}
     >
-      <button type="button" className="absolute inset-0" aria-label="Close preview" onClick={onClose} />
+      <button type="button" data-testid="preview-modal-backdrop" className="absolute inset-0" aria-label="Close preview" onClick={onClose} />
       <div className="workflow-modal-card relative z-10 flex flex-col items-center">
         <button
           type="button"
           onClick={onClose}
+          data-testid="preview-modal-close"
           className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-500 shadow-lg transition hover:text-slate-800 md:-right-12 md:top-0"
           aria-label="Close preview"
         >

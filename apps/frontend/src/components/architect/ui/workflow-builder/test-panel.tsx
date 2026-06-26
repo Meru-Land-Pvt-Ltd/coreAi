@@ -68,6 +68,7 @@ export function TestPanel({
                 type="button"
                 onClick={onConnectGmail}
                 disabled={connectingGmail}
+                data-testid="test-connect-gmail"
                 className="rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:opacity-60"
               >
                 {connectingGmail ? "Connecting..." : "Connect Gmail"}
@@ -77,6 +78,7 @@ export function TestPanel({
               type="button"
               onClick={onRunTest}
               disabled={running}
+              data-testid="test-run"
               className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
             >
               <BuilderIcon name="play" className="h-4 w-4" />
@@ -87,6 +89,7 @@ export function TestPanel({
                 type="button"
                 onClick={onRunLive}
                 disabled={running}
+                data-testid="test-send-live"
                 className="hidden rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:opacity-60 sm:block"
               >
                 Send live

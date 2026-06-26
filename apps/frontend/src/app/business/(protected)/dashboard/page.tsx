@@ -314,6 +314,7 @@ export default function BusinessDashboardPage() {
                                 setBellOpen((open) => !open);
                                 setActiveAgentMenu(null);
                             }}
+                            data-testid="dashboard-notifications-toggle"
                             className="relative rounded-xl border border-gray-200 bg-white p-2.5 text-slate-600 shadow-sm transition-colors hover:border-amber-300 hover:text-amber-600"
                             aria-label="Notifications"
                             aria-haspopup="true"
@@ -329,7 +330,7 @@ export default function BusinessDashboardPage() {
                             <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl">
                                 <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
                                     <p className="text-sm font-bold text-slate-900">Notifications</p>
-                                    <button type="button" className="text-xs font-medium text-amber-600 hover:text-amber-700">
+                                    <button type="button" data-testid="dashboard-mark-all-read" className="text-xs font-medium text-amber-600 hover:text-amber-700">
                                         Mark all read
                                     </button>
                                 </div>
@@ -373,6 +374,7 @@ export default function BusinessDashboardPage() {
                     <button
                         type="button"
                         onClick={closeMenus}
+                        data-testid="dashboard-add-agent"
                         className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:bg-amber-600 hover:shadow-md"
                     >
                         <Icon name="plus" className="h-4 w-4" />
@@ -430,6 +432,7 @@ export default function BusinessDashboardPage() {
                                     <button
                                         key={metric}
                                         type="button"
+                                        data-testid={`dashboard-chart-metric-${metric}`}
                                         onClick={() => setChartMetric(metric)}
                                         className={`rounded-lg px-3 py-1 text-sm transition-colors duration-300 ${chartMetric === metric
                                             ? "bg-amber-50 font-semibold text-amber-700"
@@ -535,11 +538,11 @@ export default function BusinessDashboardPage() {
                                 Browse more agents
                             </Link>
 
-                            <button className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700">
+                            <button data-testid="dashboard-view-billing" className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700">
                                 View billing details
                             </button>
 
-                            <button className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-red-300 hover:text-red-600">
+                            <button data-testid="dashboard-pause-all-agents" className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-red-300 hover:text-red-600">
                                 Pause all agents
                             </button>
 
@@ -671,6 +674,7 @@ function AgentRow({
                 <button
                     type="button"
                     onClick={onToggle}
+                    data-testid={`dashboard-agent-menu-${agent.id}`}
                     className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-600"
                     aria-label={`Manage ${agent.name}`}
                     aria-haspopup="true"
@@ -705,6 +709,7 @@ function AgentMenuButton({
     return (
         <button
             type="button"
+            data-testid={`dashboard-agent-action-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm transition-colors ${danger ? "text-red-600 hover:bg-red-50" : "text-slate-600 hover:bg-gray-50"
                 }`}
         >

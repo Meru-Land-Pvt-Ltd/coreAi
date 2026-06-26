@@ -624,16 +624,16 @@ export default function BusinessCheckoutPage() {
                                     </p>
 
                                     <div className="flex overflow-x-auto" role="tablist" aria-label="Payment options">
-                                        <PaymentTabButton active={paymentTab === "credit"} onClick={() => setPaymentTab("credit")}>
+                                        <PaymentTabButton active={paymentTab === "credit"} onClick={() => setPaymentTab("credit")} testId="checkout-payment-tab-credit">
                                             <CardIcon />
                                             Credit card
                                         </PaymentTabButton>
 
-                                        <PaymentTabButton active={paymentTab === "google"} onClick={() => setPaymentTab("google")}>
+                                        <PaymentTabButton active={paymentTab === "google"} onClick={() => setPaymentTab("google")} testId="checkout-payment-tab-google">
                                             Google&nbsp;Pay
                                         </PaymentTabButton>
 
-                                        <PaymentTabButton active={paymentTab === "apple"} onClick={() => setPaymentTab("apple")}>
+                                        <PaymentTabButton active={paymentTab === "apple"} onClick={() => setPaymentTab("apple")} testId="checkout-payment-tab-apple">
                                             Apple&nbsp;Pay
                                         </PaymentTabButton>
                                     </div>
@@ -806,6 +806,7 @@ export default function BusinessCheckoutPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setPromoOpen((current) => !current)}
+                                                    data-testid="checkout-promo-toggle"
                                                     className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700"
                                                 >
                                                     🏷 Have a promo code?
@@ -827,6 +828,7 @@ export default function BusinessCheckoutPage() {
                                                         <button
                                                             type="button"
                                                             onClick={applyPromo}
+                                                            data-testid="checkout-apply-promo"
                                                             className="shrink-0 rounded-xl border border-gray-200 px-5 py-4 font-semibold text-slate-600 transition-colors hover:border-amber-300 hover:text-amber-600"
                                                         >
                                                             Apply
@@ -858,6 +860,7 @@ export default function BusinessCheckoutPage() {
                                     <button
                                         type="button"
                                         onClick={handleStartTrial}
+                                        data-testid="checkout-start-trial"
                                         className="cta hidden lg:inline-flex"
                                         disabled={!formReady || processing}
                                         aria-disabled={!formReady || processing}
@@ -917,6 +920,7 @@ export default function BusinessCheckoutPage() {
                         <button
                             type="button"
                             onClick={handleStartTrial}
+                            data-testid="checkout-start-trial-mobile"
                             className="cta flex-1"
                             style={{ paddingTop: ".85rem", paddingBottom: ".85rem", fontSize: "1rem" }}
                             disabled={!formReady || processing}
@@ -1052,16 +1056,19 @@ function StepCircle({
 function PaymentTabButton({
     active,
     onClick,
-    children
+    children,
+    testId
 }: {
     active: boolean;
     onClick: () => void;
     children: ReactNode;
+    testId?: string;
 }) {
     return (
         <button
             type="button"
             onClick={onClick}
+            data-testid={testId}
             className={`pay-tab ${active ? "active" : ""}`}
             role="tab"
             aria-selected={active}
@@ -1257,6 +1264,7 @@ function ConfirmationView({
                 <button
                     type="button"
                     onClick={onSetup}
+                    data-testid="checkout-setup-agent"
                     className="cta px-8 py-3.5 sm:w-auto"
                     style={{ boxShadow: "0 10px 24px -8px rgba(245,158,11,.55)" }}
                 >
@@ -1267,6 +1275,7 @@ function ConfirmationView({
                 <button
                     type="button"
                     onClick={onDashboard}
+                    data-testid="checkout-go-dashboard"
                     className="rounded-xl border border-gray-200 px-8 py-3.5 font-semibold text-slate-600 transition-colors hover:border-amber-300 hover:text-amber-600"
                 >
                     Go to dashboard

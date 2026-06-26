@@ -26,9 +26,7 @@ export function CoreFooter() {
                         title="Product"
                         links={[
                             { label: "Platform", href: "/#platform" },
-                            { label: "Pricing", href: "/pricing" },
-                            { label: "Docs", href: "/#footer" },
-                            { label: "API", href: "/#footer" }
+                            { label: "Pricing", href: "/pricing" }
                         ]}
                     />
 
@@ -36,26 +34,22 @@ export function CoreFooter() {
                         title="Company"
                         links={[
                             { label: "About", href: "/about" },
-                            { label: "Contact Us", href: "/contactus" },
-                            { label: "Blog", href: "/blog" },
-                            { label: "Careers", href: "/careers" }
+                            { label: "Contact Us", href: "/contactus" }
                         ]}
                     />
 
                     <FooterColumn
                         title="Legal"
                         links={[
-                            { label: "Privacy", href: "/privacy" },
-                            { label: "Terms", href: "/terms" },
-                            { label: "Help Center", href: "/contact" }
+                            { label: "Privacy", href: "/privacy", newTab: true },
+                            { label: "Terms", href: "/terms", newTab: true },
+                            { label: "Help Center", href: "/contact", newTab: true }
                         ]}
                     />
 
                     <FooterColumn
                         title="Connect"
                         links={[
-                            { label: "Twitter", href: "#" },
-                            { label: "LinkedIn", href: "#" },
                             { label: "Email", href: "mailto:hello@usecore.ai" }
                         ]}
                     />
@@ -79,6 +73,7 @@ function FooterColumn({
     links: {
         label: string;
         href: string;
+        newTab?: boolean;
     }[];
 }) {
     return (
@@ -91,6 +86,15 @@ function FooterColumn({
                         {link.href.startsWith("mailto:") ? (
                             <a
                                 href={link.href}
+                                className="text-slate-500 transition hover:text-amber-600"
+                            >
+                                {link.label}
+                            </a>
+                        ) : link.newTab ? (
+                            <a
+                                href={link.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="text-slate-500 transition hover:text-amber-600"
                             >
                                 {link.label}

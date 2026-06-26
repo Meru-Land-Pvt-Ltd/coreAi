@@ -198,6 +198,104 @@ const BUSINESS_TYPES = [
   "Restaurant", "Auto Repair", "E-commerce", "Coaching", "Insurance", "Salon & Beauty", "Other"
 ];
 
+function BusinessTypeDropdown({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!dropdownRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        data-testid="assignment-business-type-toggle"
+        className="flex w-full items-center justify-between rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-left text-slate-900 transition focus:border-amber-400 focus:outline-none"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={value ? "truncate text-slate-900" : "truncate text-slate-500"}>
+          {value || "Select your business type"}
+        </span>
+
+        <svg
+          className={`ml-3 h-4 w-4 shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          className="absolute left-0 top-full z-[80] mt-2 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.14)]"
+        >
+          {BUSINESS_TYPES.map((businessType) => {
+            const active = value === businessType;
+
+            return (
+              <button
+                key={businessType}
+                type="button"
+                role="option"
+                aria-selected={active}
+                data-testid={`assignment-business-type-option-${businessType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                onClick={() => {
+                  onChange(businessType);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[15px] leading-5 transition ${active
+                  ? "bg-amber-50 text-orange-700"
+                  : "bg-white text-slate-700 hover:bg-amber-50 hover:text-orange-700"
+                  }`}
+              >
+                <span className="truncate">{businessType}</span>
+
+                {active ? (
+                  <IconCheck className="h-4 w-4 shrink-0 text-amber-600" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AssignmentPage() {
   const [screen, setScreen] = useState<"intro" | "questions" | "results">("intro");
   const [contact, setContact] = useState<Contact>({ name: "", email: "", phone: "", business: "" });
@@ -306,9 +404,9 @@ export default function AssignmentPage() {
     });
 
     let tier: Tier;
-    if (score <= 3) tier = { color: "#f87171", cls: "text-red-600", label: "Critical — You're losing significant revenue every day" };
-    else if (score <= 6) tier = { color: "#fbbf24", cls: "text-amber-600", label: "Needs Work — There's major room for improvement" };
-    else tier = { color: "#34d399", cls: "text-emerald-600", label: "Good Foundation — Let's optimize and scale" };
+    if (score <= 3) tier = { color: "#f87171", cls: "text-red-600", label: "Critical. You're missing valuable opportunities." };
+    else if (score <= 6) tier = { color: "#fbbf24", cls: "text-amber-600", label: "Needs Work. A few changes can make a big difference." };
+    else tier = { color: "#34d399", cls: "text-emerald-600", label: "Good Foundation. Let's optimize and scale." };
 
     const isNo = (id: string) => a[id] === "No";
     const cats: { qs: string[]; icon: IconKey; g: [string, string]; s: [string, string] }[] = [
@@ -337,7 +435,7 @@ export default function AssignmentPage() {
     let cta: [string, string];
     if (a.q14 === "C" || a.q14 === "D") cta = ["Book a 1-on-1 Strategy Call", "Our team will build a custom AI agent for your exact needs. 15-minute call. No obligation."];
     else if (a.q14 === "B") cta = ["Join Our Next Live Demo", "See CORE in action with other business owners. Free. 30 minutes."];
-    else cta = ["Watch the Free Training", "Learn how businesses like yours are using AI agents to recover lost revenue."];
+    else cta = ["Watch the Free Training", "Browse AI agents built for your business"];
 
     return { score, tier, insights, rec, cta };
   };
@@ -405,9 +503,8 @@ export default function AssignmentPage() {
       {/* navbar */}
       <header data-testid="app-assignment-page-header-1"
         id="navbar"
-        className={`fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md transition ${
-          navScrolled ? "border-gray-200 bg-white/90 shadow-[0_1px_3px_0_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.06)]" : "border-transparent"
-        }`}
+        className={`fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md transition ${navScrolled ? "border-gray-200 bg-white/90 shadow-[0_1px_3px_0_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.06)]" : "border-transparent"
+          }`}
       >
         <nav data-testid="app-assignment-page-nav-1" className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link data-testid="app-assignment-page-link-1" href="/" className="flex items-center gap-2.5" aria-label="CORE home">
@@ -476,7 +573,7 @@ export default function AssignmentPage() {
               </div>
               <div data-testid="app-assignment-page-div-10">
                 <label data-testid="app-assignment-page-label-3" htmlFor="f-phone" className="mb-1.5 block text-sm font-medium text-slate-600">
-                  Phone number <span data-testid="app-assignment-page-span-6" className="font-normal text-slate-500">— Optional, for SMS results</span>
+                  Phone number <span data-testid="app-assignment-page-span-6" className="font-normal text-slate-500">(Optional)</span>
                 </label>
                 <input data-testid="app-assignment-page-input-3"
                   id="f-phone"
@@ -491,18 +588,15 @@ export default function AssignmentPage() {
               </div>
               <div data-testid="app-assignment-page-div-11">
                 <label data-testid="app-assignment-page-label-4" htmlFor="f-biz" className="mb-1.5 block text-sm font-medium text-slate-600">Business type</label>
-                <select data-testid="app-assignment-page-select-1"
-                  id="f-biz"
-                  name="business"
+                <BusinessTypeDropdown
                   value={contact.business}
-                  onChange={(e) => setContact((c) => ({ ...c, business: e.target.value }))}
-                  className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-slate-900 transition focus:border-amber-400 focus:outline-none"
-                >
-                  <option data-testid="app-assignment-page-option-1" value="">Select your business type</option>
-                  {BUSINESS_TYPES.map((b) => (
-                    <option data-testid="app-assignment-page-option-2" key={b}>{b}</option>
-                  ))}
-                </select>
+                  onChange={(business) => {
+                    setContact((current) => ({
+                      ...current,
+                      business
+                    }));
+                  }}
+                />
               </div>
               <div data-testid="app-assignment-page-div-12" className="pt-2">
                 <button data-testid="app-assignment-page-button-1" type="submit" className="inline-flex w-full max-w-sm items-center justify-center gap-2 rounded-lg bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition hover:scale-[1.02] hover:bg-amber-400">
@@ -546,38 +640,38 @@ export default function AssignmentPage() {
                     <div data-testid="app-assignment-page-div-18" className="mt-6 grid gap-3">
                       {q.type === "yesno"
                         ? ["Yes", "No"].map((v) => {
-                            const sel = answers[q.id] === v;
-                            return (
-                              <button data-testid="app-assignment-page-button-3"
-                                key={v}
-                                type="button"
-                                onClick={() => selectOption(q, v)}
-                                className={`opt flex cursor-pointer items-center justify-between rounded-lg border p-4 text-left text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 ${sel ? "border-amber-500 bg-amber-50" : "border-gray-300 bg-white"}`}
-                              >
-                                <span data-testid="app-assignment-page-span-7" className="font-medium">{v}</span>
-                                <span data-testid="app-assignment-page-span-8" className={`text-amber-600 ${sel ? "" : "opacity-0"}`}>
-                                  <IconCheck />
-                                </span>
-                              </button>
-                            );
-                          })
+                          const sel = answers[q.id] === v;
+                          return (
+                            <button data-testid="app-assignment-page-button-3"
+                              key={v}
+                              type="button"
+                              onClick={() => selectOption(q, v)}
+                              className={`opt flex cursor-pointer items-center justify-between rounded-lg border p-4 text-left text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 ${sel ? "border-amber-500 bg-amber-50" : "border-gray-300 bg-white"}`}
+                            >
+                              <span data-testid="app-assignment-page-span-7" className="font-medium">{v}</span>
+                              <span data-testid="app-assignment-page-span-8" className={`text-amber-600 ${sel ? "" : "opacity-0"}`}>
+                                <IconCheck />
+                              </span>
+                            </button>
+                          );
+                        })
                         : (q.options || []).map((o) => {
-                            const sel = answers[q.id] === o.key;
-                            return (
-                              <button data-testid="app-assignment-page-button-4"
-                                key={o.key}
-                                type="button"
-                                onClick={() => selectOption(q, o.key)}
-                                className={`opt flex cursor-pointer items-center gap-3 rounded-lg border p-4 text-left text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 ${sel ? "border-amber-500 bg-amber-50" : "border-gray-300 bg-white"}`}
-                              >
-                                <span data-testid="app-assignment-page-span-9" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-amber-300 bg-amber-50 text-xs font-bold text-amber-600">{o.key}</span>
-                                <span data-testid="app-assignment-page-span-10" className="flex-1">{o.label}</span>
-                                <span data-testid="app-assignment-page-span-11" className={`text-amber-600 ${sel ? "" : "opacity-0"}`}>
-                                  <IconCheck />
-                                </span>
-                              </button>
-                            );
-                          })}
+                          const sel = answers[q.id] === o.key;
+                          return (
+                            <button data-testid="app-assignment-page-button-4"
+                              key={o.key}
+                              type="button"
+                              onClick={() => selectOption(q, o.key)}
+                              className={`opt flex cursor-pointer items-center gap-3 rounded-lg border p-4 text-left text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 ${sel ? "border-amber-500 bg-amber-50" : "border-gray-300 bg-white"}`}
+                            >
+                              <span data-testid="app-assignment-page-span-9" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-amber-300 bg-amber-50 text-xs font-bold text-amber-600">{o.key}</span>
+                              <span data-testid="app-assignment-page-span-10" className="flex-1">{o.label}</span>
+                              <span data-testid="app-assignment-page-span-11" className={`text-amber-600 ${sel ? "" : "opacity-0"}`}>
+                                <IconCheck />
+                              </span>
+                            </button>
+                          );
+                        })}
                     </div>
                   )}
                 </div>
@@ -626,22 +720,16 @@ export default function AssignmentPage() {
                   ))}
                 </div>
               </div>
-
-              <div data-testid="app-assignment-page-div-29" className="mt-10 rounded-xl border border-amber-400 bg-amber-50 p-8 shadow-glow">
-                <p data-testid="app-assignment-page-p-9" className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-600">Recommended for you</p>
-                <h3 data-testid="app-assignment-page-h3-2" className="mt-2 text-2xl font-bold text-slate-900">{results.rec[0]}</h3>
-                <p data-testid="app-assignment-page-p-10" className="mt-2 leading-relaxed text-slate-600">{results.rec[1]}</p>
-              </div>
-
               <div data-testid="app-assignment-page-div-30" className="mt-10 text-center">
-                <a data-testid="app-assignment-page-a-1" href="#" className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-8 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition hover:scale-[1.03] hover:bg-amber-400">
+                <Link
+                  data-testid="app-assignment-page-a-1"
+                  href="/marketplace"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-8 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition hover:scale-[1.03] hover:bg-amber-400"
+                >
                   {results.cta[0]}
                   <IconArrow />
-                </a>
+                </Link>
                 <p data-testid="app-assignment-page-p-11" className="mx-auto mt-4 max-w-md leading-relaxed text-slate-500">{results.cta[1]}</p>
-                <p data-testid="app-assignment-page-p-12" className="mt-6 text-sm text-slate-500">
-                  Your full report has been sent to <span data-testid="app-assignment-page-span-15" className="font-medium text-slate-600">{contact.email || "your inbox"}</span>. Check your inbox.
-                </p>
                 <button data-testid="app-assignment-page-button-5" type="button" onClick={retake} className="mt-8 text-xs text-slate-500 underline-offset-4 transition hover:text-slate-600 hover:underline">Retake the assessment</button>
               </div>
             </div>

@@ -51,6 +51,7 @@ export function ComponentLibrary({
           <button
             type="button"
             onClick={() => onLoadTemplate("missed-call")}
+            data-testid="library-template-missed-call"
             className="rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-left transition hover:border-amber-400"
           >
             <span className="block text-xs font-semibold text-slate-900">Missed Call</span>
@@ -59,6 +60,7 @@ export function ComponentLibrary({
           <button
             type="button"
             onClick={() => onLoadTemplate("gmail-reply")}
+            data-testid="library-template-gmail-reply"
             className="rounded-xl border-2 border-gray-200 bg-white px-3 py-2 text-left transition hover:border-amber-200"
           >
             <span className="block text-xs font-semibold text-slate-900">Gmail Reply</span>

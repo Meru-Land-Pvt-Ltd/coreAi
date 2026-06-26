@@ -496,6 +496,7 @@ export default function HelpPage() {
                         key={item.id}
                         type="button"
                         role="option"
+                        data-testid={`help-search-result-${item.id}`}
                         onMouseEnter={() => setActiveIndex(index)}
                         onClick={() => selectResult(item)}
                         className={`flex w-full items-start gap-3 border-b border-gray-50 px-4 py-3 text-left transition-colors last:border-0 hover:bg-slate-50 ${
@@ -546,6 +547,7 @@ export default function HelpPage() {
                 <button
                   key={tag}
                   type="button"
+                  data-testid={`help-popular-search-${tag.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                   onClick={() => {
                     setQuery(tag);
                     inputRef.current?.focus();
@@ -585,6 +587,7 @@ export default function HelpPage() {
                   <div key={faq.id} id={faq.id} className="scroll-mt-28">
                     <button
                       type="button"
+                      data-testid={`help-faq-toggle-${faq.id}`}
                       onClick={() => {
                         const nextOpen = open ? null : faq.id;
                         setOpenFaq(nextOpen);
@@ -653,6 +656,7 @@ export default function HelpPage() {
 
                 <button
                   type="button"
+                  data-testid="help-start-chat"
                   onClick={() => showToast("Starting live chat…")}
                   className="mt-4 inline-flex items-center justify-center rounded-xl border border-amber-500 px-6 py-3 font-semibold text-amber-600 transition-colors hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                 >
@@ -779,6 +783,7 @@ function CategoryCardItem({
     <div>
       <button
         type="button"
+        data-testid={`help-category-${category.id}`}
         onClick={() => showToast(`Opening ${category.name}…`)}
         className="group flex h-full w-full cursor-pointer flex-col rounded-2xl border border-gray-100 bg-white p-6 text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
       >

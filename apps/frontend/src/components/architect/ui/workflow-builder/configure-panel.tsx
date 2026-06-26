@@ -85,11 +85,11 @@ export function ConfigurePanel({
           <div className="p-5">
             <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400">Pricing</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button type="button" className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-left transition">
+              <button type="button" data-testid="configure-pricing-monthly" className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-left transition">
                 <span className="text-sm font-semibold text-slate-900">Monthly subscription</span>
                 <p className="mt-0.5 text-xs text-slate-500">Recurring revenue per install</p>
               </button>
-              <button type="button" className="rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition hover:border-amber-200">
+              <button type="button" data-testid="configure-pricing-onetime" className="rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-left transition hover:border-amber-200">
                 <span className="text-sm font-semibold text-slate-900">One-time purchase</span>
                 <p className="mt-0.5 text-xs text-slate-500">Single upfront payment</p>
               </button>
@@ -130,6 +130,7 @@ export function ConfigurePanel({
           <button
             type="button"
             onClick={onSave}
+            data-testid="configure-save"
             className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
           >
             Save configuration
