@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
     BUSINESS_MARKETPLACE_PATH,
     businessSetupPath
@@ -70,7 +70,22 @@ type ConfettiPiece = {
 
 const CONFETTI_COLORS = ["#f59e0b", "#fbbf24", "#fcd34d", "#10b981", "#34d399", "#f97316"];
 
-export default function BusinessPaymentSuccessPage() {
+function PaymentSuccessFallback() {
+    return (
+        <div className="psuccess-root relative min-h-screen overflow-x-clip bg-gray-50 text-slate-900">
+            <style dangerouslySetInnerHTML={{ __html: SUCCESS_STYLES }} />
+            <div className="top-glow" aria-hidden="true" />
+            <div className="relative z-10 mx-auto flex min-h-screen max-w-[640px] items-center justify-center px-4">
+                <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-lg">
+                    <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-emerald-100" />
+                    <p className="text-sm font-semibold text-slate-700">Loading payment status...</p>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function BusinessPaymentSuccessContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -123,6 +138,7 @@ export default function BusinessPaymentSuccessPage() {
         if (navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(`Order #${orderNumber}`).catch(() => undefined);
         }
+
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1800);
     }
@@ -171,7 +187,9 @@ export default function BusinessPaymentSuccessPage() {
                     </div>
 
                     <div className="check-pop mx-auto grid h-20 w-20 place-items-center rounded-full bg-emerald-100 ring-8 ring-emerald-50">
-                        <svg className="h-10 w-10 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                        <svg className="h-10 w-10 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                        </svg>
                     </div>
 
                     <div role="alert">
@@ -192,7 +210,10 @@ export default function BusinessPaymentSuccessPage() {
                             className="group inline-flex items-center gap-2 rounded-full bg-slate-100 px-3.5 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200"
                         >
                             <span>{copied ? "Copied!" : `Order #${orderNumber}`}</span>
-                            <svg className="h-3.5 w-3.5 text-slate-400 transition-colors group-hover:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+                            <svg className="h-3.5 w-3.5 text-slate-400 transition-colors group-hover:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="9" y="9" width="11" height="11" rx="2" />
+                                <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                            </svg>
                         </button>
                     </div>
                 </section>
@@ -202,7 +223,9 @@ export default function BusinessPaymentSuccessPage() {
                         <div className="p-6 sm:p-7">
                             <div className="flex items-start gap-4">
                                 <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-white shadow-sm">
-                                    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 9 9 0 0 1-4-1L3 20l1.5-5a8.4 8.4 0 0 1-1-4 8.5 8.5 0 0 1 8.5-8.5 8.4 8.4 0 0 1 8.5 8.5z" /></svg>
+                                    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 9 9 0 0 1-4-1L3 20l1.5-5a8.4 8.4 0 0 1-1-4 8.5 8.5 0 0 1 8.5-8.5 8.4 8.4 0 0 1 8.5 8.5z" />
+                                    </svg>
                                 </div>
                                 <div className="min-w-0">
                                     <h2 className="text-lg font-semibold leading-tight">{agentName}</h2>
@@ -236,12 +259,17 @@ export default function BusinessPaymentSuccessPage() {
 
                             <div className="flex items-center gap-3 text-[11px] text-slate-400">
                                 <span className="inline-flex items-center gap-1">
-                                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+                                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <rect x="5" y="11" width="14" height="9" rx="2" />
+                                        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                                    </svg>
                                     Secured by Stripe
                                 </span>
                                 <span className="h-3 w-px bg-slate-200" aria-hidden="true" />
                                 <span className="inline-flex items-center gap-1">
-                                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.4-3 7.5-7 9-4-1.5-7-4.6-7-9V6z" /></svg>
+                                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <path d="M12 3l7 3v5c0 4.4-3 7.5-7 9-4-1.5-7-4.6-7-9V6z" />
+                                    </svg>
                                     256-bit TLS encrypted
                                 </span>
                             </div>
@@ -300,7 +328,9 @@ export default function BusinessPaymentSuccessPage() {
                             className="cta cta-pulse btn-glow group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-4 text-base font-semibold text-slate-900 transition-colors hover:bg-amber-600"
                         >
                             Set up your agent
-                            <svg className="cta-arrow h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m0 0-5-5m5 5-5 5" /></svg>
+                            <svg className="cta-arrow h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M5 12h14m0 0-5-5m5 5-5 5" />
+                            </svg>
                         </button>
                     </div>
                     <div className="rise mt-3 text-center" style={{ animationDelay: "1.1s" }}>
@@ -317,7 +347,9 @@ export default function BusinessPaymentSuccessPage() {
 
                 <section className="rise mt-9" style={{ animationDelay: "1.2s" }} aria-label="Receipt">
                     <p className="inline-flex items-center gap-2 text-sm text-slate-600">
-                        <svg className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                        <svg className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M20 6 9 17l-5-5" />
+                        </svg>
                         Receipt sent to <span className="font-medium text-slate-800">{email}</span>
                     </p>
                 </section>
@@ -325,16 +357,30 @@ export default function BusinessPaymentSuccessPage() {
                 <div className="rise mt-10" style={{ animationDelay: "1.3s" }}>
                     <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] text-slate-400">
                         <span className="inline-flex items-center gap-1.5">
-                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="5" y="11" width="14" height="9" rx="2" />
+                                <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                            </svg>
                             Secured by Stripe
                         </span>
                         <span className="inline-flex items-center gap-1.5">
-                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 5-5" /></svg>
+                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M8.5 12.5l2.5 2.5 5-5" />
+                            </svg>
                             14-day money-back guarantee
                         </span>
                     </div>
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function BusinessPaymentSuccessPage() {
+    return (
+        <Suspense fallback={<PaymentSuccessFallback />}>
+            <BusinessPaymentSuccessContent />
+        </Suspense>
     );
 }
