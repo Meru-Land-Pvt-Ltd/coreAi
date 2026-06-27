@@ -583,8 +583,7 @@ export default function MarketplacePage() {
                       className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl transition ${hasAgents
                         ? "bg-amber-50 group-hover:scale-105 group-hover:bg-amber-500"
                         : "bg-slate-100 grayscale"
-                        }`}
-                     data-testid="marketplace-icon-text">
+                        }`}>
                       {item.icon}
                     </span>
 
