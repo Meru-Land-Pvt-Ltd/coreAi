@@ -10,7 +10,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed:numbers": "tsx scripts/seed-platform-numbers.ts",
-    "list:numbers": "tsx scripts/list-platform-numbers.ts"
+    "list:numbers": "tsx scripts/list-platform-numbers.ts",
+    "seed:admin": "tsx scripts/seed-admin.ts"
   },
   "dependencies": {
     "@coreai/shared": "*",
