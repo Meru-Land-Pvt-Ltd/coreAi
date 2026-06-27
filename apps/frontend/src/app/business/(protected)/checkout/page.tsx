@@ -3,7 +3,6 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { getAuthToken, getAuthUser } from "@/lib/auth";

@@ -2,6 +2,7 @@
 
 import { apiPost } from "@/lib/api";
 import type { Route } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CoreHeader } from "../components/common/header";
@@ -817,11 +818,17 @@ export default function HomePage() {
                   alt: "James Kapoor testimonial photo"
                 }
               ].map((t) => (
-                <figure data-testid="app-page-figure-1" key={t.initials} className="flex flex-col rounded-xl border border-gray-200 bg-white p-8 shadow-sm backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:shadow-glow">
+                <figure data-testid="app-page-figure-1" key={t.name} className="flex flex-col rounded-xl border border-gray-200 bg-white p-8 shadow-sm backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:shadow-glow">
                   <Stars />
                   <blockquote data-testid="app-page-blockquote-1" className="flex-1 text-lg leading-relaxed text-slate-700">{t.quote}</blockquote>
                   <figcaption data-testid="app-page-figcaption-1" className="mt-6 flex items-center gap-3 border-t border-gray-200 pt-6">
-                    <span data-testid="app-page-span-24" className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-600 ring-1 ring-amber-300">{t.initials}</span>
+                    <Image
+                      src={t.image}
+                      alt={t.alt}
+                      width={40}
+                      height={40}
+                      className="h-10 w-10 rounded-full object-cover ring-1 ring-amber-300"
+                    />
                     <span data-testid="app-page-span-25">
                       <span data-testid="app-page-span-26" className="block text-sm font-semibold text-slate-900">{t.name}</span>
                       <span data-testid="app-page-span-27" className="block text-xs text-slate-500">{t.role}</span>

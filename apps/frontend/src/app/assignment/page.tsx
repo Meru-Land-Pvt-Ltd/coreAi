@@ -4,6 +4,7 @@ import { CoreFooter } from "@/components/common/footer";
 import { CoreHeader } from "@/components/common/header";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { BUSINESS_MARKETPLACE_PUBLIC_PATH } from "@/lib/routes";
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -712,7 +713,7 @@ export default function AssignmentPage() {
               </div>
               <div className="mt-10 text-center">
                 <Link data-testid="assignment-marketplace-link"
-                  href={"/marketplace" as Route}
+                  href={BUSINESS_MARKETPLACE_PUBLIC_PATH}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-8 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition hover:scale-[1.03] hover:bg-amber-400"
                 >
                   {results.cta[0]}
