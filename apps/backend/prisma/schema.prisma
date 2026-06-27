@@ -168,12 +168,14 @@ model Business {
   type                 String
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
+
   // Stripe billing (AI Receptionist subscription).
   stripeCustomerId     String?
   stripeSubscriptionId String?
   subscriptionStatus   String?                 @default("inactive")
   subscriptionPriceId  String?
   currentPeriodEnd     DateTime?
+
   appointments         Appointment[]
   owner                User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   knowledgeBases       BusinessKnowledgeBase[]
@@ -368,6 +370,34 @@ model PlatformPhoneNumber {
   @@index([businessId])
 }
 
+model Payment {
+  id                   String        @id @default(cuid())
+  userId               String
+  listingId            String?
+  amountCents          Int           @default(0)
+  currency             String        @default("usd")
+  status               PaymentStatus @default(PENDING)
+
+  stripeCustomerId     String?
+  stripeSessionId      String?
+  stripeSubscriptionId String?
+  stripePaymentId      String?
+
+  description          String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing              AgentListing? @relation(fields: [listingId], references: [id])
+
+  @@index([userId])
+  @@index([listingId])
+  @@index([status])
+  @@index([stripeCustomerId])
+  @@index([stripeSessionId])
+  @@index([stripeSubscriptionId])
+}
+
 enum UserRole {
   ADMIN
   BUSINESS
@@ -416,27 +446,6 @@ enum PlatformPhoneStatus {
   AVAILABLE
   ASSIGNED
   DISABLED
-}
-
-model Payment {
-  id                   String        @id @default(cuid())
-  userId               String
-  listingId            String?
-  amountCents          Int           @default(0)
-  currency             String        @default("usd")
-  status               PaymentStatus @default(PENDING)
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  stripePaymentId      String?
-  description          String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listing              AgentListing? @relation(fields: [listingId], references: [id])
-
-  @@index([userId])
-  @@index([listingId])
-  @@index([status])
 }
 
 enum PaymentStatus {
