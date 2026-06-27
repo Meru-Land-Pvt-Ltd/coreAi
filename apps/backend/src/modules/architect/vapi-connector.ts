@@ -1,4 +1,50 @@
 import { env } from "../../config/env";
+import { prisma } from "../../lib/prisma";
+
+/**
+ * True only when a real (non-placeholder) Vapi API key is configured. Used so the
+ * missed-call flow degrades non-fatally to SMS-only when Vapi isn't set up.
+ */
+export function isVapiConfigured(): boolean {
+  const key = env.VAPI_API_KEY;
+  return Boolean(key && !key.includes("your_") && !key.includes("xxx"));
+}
+
+function isRealId(value?: string | null): boolean {
+  return Boolean(value && !value.includes("your_") && !value.includes("xxx"));
+}
+
+/**
+ * Ensure a business install has a Vapi assistant id resolved and stored on its
+ * BusinessProfile. MVP uses a shared assistant template (the platform default)
+ * and injects per-business context at call time via assistantOverrides; the id is
+ * persisted so each business has its own resolved config. To clone a dedicated
+ * assistant per business later, create one via the Vapi API here and store its id.
+ * Returns null (non-fatal) when Vapi is not configured.
+ */
+export async function ensureBusinessVapiAssistant(businessId: string): Promise<string | null> {
+  if (!isVapiConfigured()) return null;
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    include: { profile: true }
+  });
+  if (!business) return null;
+
+  const existing = business.profile?.vapiAssistantId;
+  if (isRealId(existing)) return existing as string;
+
+  const assistantId = env.VAPI_DEFAULT_ASSISTANT_ID;
+  if (!isRealId(assistantId)) return null;
+
+  if (business.profile) {
+    await prisma.businessProfile.update({
+      where: { businessId },
+      data: { vapiAssistantId: assistantId }
+    });
+  }
+  return assistantId ?? null;
+}
 
 export type VapiCallResult = {
   id: string | null;

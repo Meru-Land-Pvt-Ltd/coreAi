@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -251,7 +252,7 @@ function PhoneMockup({ agentName }: { agentName: string }) {
         <div className="rounded-[2.5rem] border border-gray-200 bg-white p-2.5 shadow-2xl">
           <div className="overflow-hidden rounded-[2rem] bg-gray-50">
             <div className="flex items-center justify-between px-5 pb-1 pt-3 text-[10px] font-semibold text-slate-500">
-              <span>9:41</span>
+              <span data-testid="business-protected-agents-9-41-text">9:41</span>
               <span className="inline-flex items-center gap-1" aria-hidden="true">
                 5G
               </span>
@@ -465,8 +466,8 @@ export default function BusinessAgentDetailPage() {
       <div className="border-b border-gray-100 bg-white">
         <nav className="mx-auto max-w-6xl px-6 py-3 text-sm" aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-2 text-slate-500">
-            <li>
-              <Link href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
+            <li data-testid="business-protected-agents-marketplace-item">
+              <Link data-testid="agent-detail-marketplace-link-2" href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
                 Marketplace
               </Link>
             </li>
@@ -529,7 +530,7 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
                   ⚡ $0 for the first 7 days
                 </span>
 
@@ -538,7 +539,7 @@ export default function BusinessAgentDetailPage() {
                   <span className="text-lg font-medium text-slate-500">/month</span>
                 </div>
 
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
                   per business location · billed after your free trial
                 </p>
 
@@ -571,7 +572,7 @@ export default function BusinessAgentDetailPage() {
 
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
                 {["7-day free trial", "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
-                  <span key={item} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                  <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
                     <CheckIcon className="h-4 w-4 text-emerald-500" />
                     {item}
                   </span>
@@ -601,7 +602,7 @@ export default function BusinessAgentDetailPage() {
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
                     ⚡
                   </span>
-                  <p className="pt-1.5 text-slate-700">{feature}</p>
+                  <p className="pt-1.5 text-slate-700" data-testid="business-protected-agents-feature-text">{feature}</p>
                 </div>
               ))}
             </div>
@@ -615,9 +616,9 @@ export default function BusinessAgentDetailPage() {
             <div className="mt-10 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
               <ul className="divide-y divide-gray-100">
                 {includedItems.map((item) => (
-                  <li key={item} className="flex items-center gap-3 px-6 py-3.5">
+                  <li key={item} data-testid={`agent-detail-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-6 py-3.5">
                     <CheckIcon className="h-5 w-5 shrink-0 text-emerald-500" />
-                    <span className="text-slate-700">{item}</span>
+                    <span className="text-slate-700" data-testid={`agent-detail-included-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
                   </li>
                 ))}
               </ul>
@@ -635,7 +636,7 @@ export default function BusinessAgentDetailPage() {
                 data-testid="agent-detail-tech-toggle"
                 className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
               >
-                <span className="text-lg font-semibold text-slate-900">Technical Details</span>
+                <span className="text-lg font-semibold text-slate-900" data-testid="business-protected-agents-technical-details-text">Technical Details</span>
                 <svg
                   className={`h-5 w-5 text-slate-400 transition ${techOpen ? "rotate-180" : ""}`}
                   viewBox="0 0 24 24"
@@ -762,7 +763,7 @@ export default function BusinessAgentDetailPage() {
               ▶
             </div>
 
-            <h2 id="demo-title" className="mt-5 text-2xl font-bold tracking-tight text-slate-900">
+            <h2 id="demo-title" className="mt-5 text-2xl font-bold tracking-tight text-slate-900" data-testid="business-protected-agents-see-the-agent-in-action-heading">
               See the agent in action
             </h2>
 
@@ -788,8 +789,8 @@ export default function BusinessAgentDetailPage() {
 function SectionHeader({ title, description }: { title: string; description?: string }) {
   return (
     <div className="mx-auto max-w-2xl text-center">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">{title}</h2>
-      {description ? <p className="mt-3 text-lg text-slate-600">{description}</p> : null}
+      <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl" data-testid="business-protected-agents-title-heading-2">{title}</h2>
+      {description ? <p className="mt-3 text-lg text-slate-600" data-testid="business-protected-agents-description-text">{description}</p> : null}
     </div>
   );
 }

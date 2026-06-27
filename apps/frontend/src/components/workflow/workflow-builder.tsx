@@ -69,9 +69,9 @@ export function WorkflowBuilder() {
   };
 
   return (
-    <div data-testid="components-workflow-workflow-builder-div-1" className="grid gap-4">
-      <div data-testid="components-workflow-workflow-builder-div-2" className="flex justify-end">
-        <button data-testid="components-workflow-workflow-builder-button-1"
+    <div className="grid gap-4">
+      <div className="flex justify-end">
+        <button data-testid="workflow-builder-run-prototype-workflow-button"
           type="button"
           onClick={runPrototype}
           className="rounded-full bg-orange-500 px-5 py-2 text-sm font-semibold text-white"
@@ -80,25 +80,25 @@ export function WorkflowBuilder() {
         </button>
       </div>
 
-      <div data-testid="components-workflow-workflow-builder-div-3" className="h-[62vh] rounded-3xl border border-orange-200 bg-white">
+      <div className="h-[62vh] rounded-3xl border border-orange-200 bg-white">
         <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
           <Background />
           <Controls />
         </ReactFlow>
       </div>
 
-      <div data-testid="components-workflow-workflow-builder-div-4" className="rounded-3xl soft-card p-4">
-        <h3 data-testid="components-workflow-workflow-builder-h3-1" className="font-semibold text-orange-950">Execution Logs</h3>
+      <div className="rounded-3xl soft-card p-4">
+        <h3 className="font-semibold text-orange-950" data-testid="workflow-workflow-builder-execution-logs-heading">Execution Logs</h3>
 
-        <div data-testid="components-workflow-workflow-builder-div-5" className="mt-3 space-y-2 text-sm text-orange-800">
+        <div className="mt-3 space-y-2 text-sm text-orange-800">
           {logs.length ? (
             logs.map((log) => (
-              <div data-testid="components-workflow-workflow-builder-div-6" key={log} className="rounded-xl bg-orange-50 px-3 py-2">
+              <div key={log} className="rounded-xl bg-orange-50 px-3 py-2">
                 {log}
               </div>
             ))
           ) : (
-            <p data-testid="components-workflow-workflow-builder-p-1" className="text-orange-700/70">Run the workflow to see step-by-step logs.</p>
+            <p className="text-orange-700/70" data-testid="workflow-workflow-builder-run-the-workflow-to-see-step-by-text">Run the workflow to see step-by-step logs.</p>
           )}
         </div>
       </div>

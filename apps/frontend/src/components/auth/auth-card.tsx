@@ -330,8 +330,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
             </span>
           </Link>
 
-          <Link
-            data-testid="components-auth-auth-card-link-2"
+          <Link data-testid="auth-back-to-home-link"
             href={HOME_ROUTE}
             className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors duration-200"
           >
@@ -380,8 +379,8 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
               </button>
             </div>
 
-            <div data-testid="components-auth-auth-card-div-6" className="p-8">
-              <p data-testid="components-auth-auth-card-p-1" className="text-center text-sm text-slate-500 mb-6">
+            <div className="p-8">
+              <p className="text-center text-sm text-slate-500 mb-6" data-testid="auth-auth-card-role-content-role-subtitle-text">
                 {roleContent[role].subtitle}
               </p>
 
@@ -391,7 +390,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     Welcome to Triven
                   </h1>
 
-                  <p data-testid="components-auth-auth-card-p-2" className="mt-2 text-sm text-slate-600 text-center">
+                  <p className="mt-2 text-sm text-slate-600 text-center" data-testid="auth-auth-card-login-with-email-otp-or-google-text">
                     Login with email OTP or Google
                   </p>
 
@@ -422,16 +421,16 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     </span>
                   </button>
 
-                  <div data-testid="components-auth-auth-card-div-8" className="my-6 flex items-center gap-3">
-                    <div data-testid="components-auth-auth-card-div-9" className="h-px flex-1 bg-gray-100" />
-                    <span data-testid="components-auth-auth-card-span-5" className="text-xs font-medium text-slate-400">
+                  <div className="my-6 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-gray-100" />
+                    <span className="text-xs font-medium text-slate-400" data-testid="auth-auth-card-or-text">
                       OR
                     </span>
-                    <div data-testid="components-auth-auth-card-div-10" className="h-px flex-1 bg-gray-100" />
+                    <div className="h-px flex-1 bg-gray-100" />
                   </div>
 
-                  <form data-testid="components-auth-auth-card-form-1" onSubmit={handleEmailSubmit} noValidate>
-                    <label data-testid="components-auth-auth-card-label-1" htmlFor="email-input" className="sr-only">
+                  <form data-testid="auth-email-form" onSubmit={handleEmailSubmit} noValidate>
+                    <label htmlFor="email-input" className="sr-only" data-testid="auth-auth-card-work-email-label">
                       Work email
                     </label>
 
@@ -453,7 +452,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     />
 
                     {error ? (
-                      <p data-testid="components-auth-auth-card-p-3" className="mt-2 text-sm text-red-500" role="alert">
+                      <p className="mt-2 text-sm text-red-500" role="alert" data-testid="auth-auth-card-error-text">
                         {error}
                       </p>
                     ) : null}
@@ -475,14 +474,14 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
               ) : null}
 
               {step === 2 ? (
-                <div data-testid="components-auth-auth-card-div-11">
-                  <h1 data-testid="components-auth-auth-card-h1-2" className="text-2xl font-extrabold text-slate-900 text-center">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-slate-900 text-center" data-testid="auth-auth-card-check-your-email-heading">
                     Check your email
                   </h1>
 
-                  <p data-testid="components-auth-auth-card-p-5" className="mt-2 text-sm text-slate-600 text-center">
+                  <p className="mt-2 text-sm text-slate-600 text-center" data-testid="auth-auth-card-we-sent-a-code-to-email-text">
                     We sent a code to{" "}
-                    <span data-testid="components-auth-auth-card-span-6" className="font-semibold text-slate-900">{email}</span>
+                    <span className="font-semibold text-slate-900" data-testid="auth-auth-card-email-text">{email}</span>
                   </p>
 
                   <div
@@ -535,7 +534,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                       className="text-amber-600 font-medium hover:text-amber-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Resend code{" "}
-                      {secondsLeft > 0 ? <span data-testid="components-auth-auth-card-span-7">({secondsLeft}s)</span> : null}
+                      {secondsLeft > 0 ? <span data-testid="auth-auth-card-seconds-left-s-text">({secondsLeft}s)</span> : null}
                     </button>
 
                     <button
@@ -566,11 +565,11 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     </svg>
                   </div>
 
-                  <h1 data-testid="components-auth-auth-card-h1-3" className="mt-5 text-xl font-extrabold text-slate-900">
+                  <h1 className="mt-5 text-xl font-extrabold text-slate-900" data-testid="auth-auth-card-verified-heading">
                     Verified!
                   </h1>
 
-                  <p data-testid="components-auth-auth-card-p-7" className="mt-2 text-sm text-slate-500">
+                  <p className="mt-2 text-sm text-slate-500" data-testid="auth-auth-card-redirecting-to-your-dashboard-text">
                     Redirecting to your dashboard…
                   </p>
                 </div>
@@ -583,7 +582,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
               Join 2,400+ businesses already using Triven
             </p>
 
-            <p data-testid="components-auth-auth-card-p-9" className="mt-1.5 text-xs text-slate-400">
+            <p className="mt-1.5 text-xs text-slate-400" data-testid="auth-auth-card-trusted-by-dentists-hvac-companies-law-firms-text">
               Trusted by dentists, HVAC companies, law firms & more
             </p>
 

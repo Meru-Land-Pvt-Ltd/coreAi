@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useState } from "react";
 import { CoreHeader } from "../../components/common/header";
@@ -96,7 +97,7 @@ export default function AboutPage() {
 
       <section className="pb-20 pt-32 md:pb-28 md:pt-40">
         <div className="mx-auto max-w-6xl px-6 text-center">
-          <h1 className="mx-auto max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-slate-900 md:text-5xl">
+          <h1 className="mx-auto max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-slate-900 md:text-5xl" data-testid="about-ai-agents-that-actually-work-for-your-heading">
             AI Agents That Actually Work for Your Business
           </h1>
 
@@ -109,7 +110,7 @@ export default function AboutPage() {
 
       <section className="border-y border-gray-100 bg-gray-50 py-20">
         <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-3xl font-extrabold text-slate-900">Our Mission</h2>
+          <h2 className="text-3xl font-extrabold text-slate-900" data-testid="about-our-mission-heading">Our Mission</h2>
 
           <p className="mt-5 text-lg leading-relaxed text-slate-600">
           We believe every small business deserves enterprise-level 
@@ -121,7 +122,7 @@ export default function AboutPage() {
 
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-center text-3xl font-extrabold text-slate-900">
+          <h2 className="text-center text-3xl font-extrabold text-slate-900" data-testid="about-how-it-works-heading">
             How It Works
           </h2>
 
@@ -135,9 +136,9 @@ export default function AboutPage() {
                   {item.step}
                 </div>
 
-                <h3 className="mt-5 text-lg font-bold text-slate-900">{item.title}</h3>
+                <h3 className="mt-5 text-lg font-bold text-slate-900" data-testid="about-title-heading">{item.title}</h3>
 
-                <p className="mt-3 leading-relaxed text-slate-600">{item.description}</p>
+                <p className="mt-3 leading-relaxed text-slate-600" data-testid="about-description-text">{item.description}</p>
               </div>
             ))}
           </div>
@@ -149,10 +150,10 @@ export default function AboutPage() {
           <div className="grid grid-cols-2 gap-8 text-center md:grid-cols-4">
             {stats.map((item) => (
               <div key={item.label}>
-                <p className="text-3xl font-extrabold text-amber-500 md:text-4xl">
+                <p className="text-3xl font-extrabold text-amber-500 md:text-4xl" data-testid="about-3xl-extrabold-500-md-text">
                   {item.value}
                 </p>
-                <p className="mt-2 text-sm text-slate-500">{item.label}</p>
+                <p className="mt-2 text-sm text-slate-500" data-testid="about-label-text">{item.label}</p>
               </div>
             ))}
           </div>
@@ -161,7 +162,7 @@ export default function AboutPage() {
 
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-center text-3xl font-extrabold text-slate-900">
+          <h2 className="text-center text-3xl font-extrabold text-slate-900" data-testid="about-who-we-serve-heading">
             Who We Serve
           </h2>
 
@@ -171,11 +172,11 @@ export default function AboutPage() {
                 key={card.tag}
                 className="card-hover rounded-xl border border-gray-100 bg-white p-8 shadow-sm"
               >
-                <span className="inline-block rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-600">
+                <span className="inline-block rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-600" data-testid="about-card-tag-text">
                   {card.tag}
                 </span>
 
-                <p className="mt-5 leading-relaxed text-slate-600">{card.description}</p>
+                <p className="mt-5 leading-relaxed text-slate-600" data-testid="about-card-description-text">{card.description}</p>
               </div>
             ))}
           </div>
@@ -184,11 +185,11 @@ export default function AboutPage() {
 
       <section className="border-y border-gray-100 bg-gray-50 py-20">
         <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-3xl font-extrabold text-slate-900">
+          <h2 className="text-3xl font-extrabold text-slate-900" data-testid="about-built-by-operators-not-just-engineers-heading">
             Built by Operators, Not Just Engineers
           </h2>
 
-          <p className="mt-5 text-lg leading-relaxed text-slate-600">
+          <p className="mt-5 text-lg leading-relaxed text-slate-600" data-testid="about-our-team-combines-deep-ai-expertise-with-text">
             Our team combines deep AI expertise with real-world business operations
             experience. We&apos;ve run the businesses we&apos;re building for. We know
             what&apos;s broken and how to fix it.
@@ -198,16 +199,16 @@ export default function AboutPage() {
 
       <section className="py-20 md:py-24">
         <div className="mx-auto max-w-2xl px-6 text-center">
-          <h2 className="text-3xl font-extrabold text-slate-900 md:text-4xl">
+          <h2 className="text-3xl font-extrabold text-slate-900 md:text-4xl" data-testid="about-ready-to-stop-losing-leads-heading">
             Ready to Stop Losing Leads?
           </h2>
 
-          <p className="mt-4 text-lg text-slate-600">
+          <p className="mt-4 text-lg text-slate-600" data-testid="about-take-the-free-2-minute-assessment-and-text">
             Take the free 2-minute assessment and discover which AI agent fits your business.
           </p>
 
-          <Link
-            href="/assignment"
+          <Link data-testid="about-start-free-assessment-link"
+            href={"/assignment" as Route}
             className="btn-amber mt-8 inline-flex rounded-xl bg-amber-500 px-8 py-3.5 font-semibold text-white hover:bg-amber-600"
           >
             Start Free Assessment

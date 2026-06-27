@@ -1,14 +1,18 @@
 import { z } from "zod";
 
+// Login may target any role (ADMIN included).
 export const authRoleSchema = z.enum(["ADMIN", "BUSINESS", "ARCHITECT"]);
 
+// OTP and public signup must never create ADMIN accounts — admins come only from
+// the seed script. Keep ADMIN out of these role schemas.
 export const otpAuthRoleSchema = z.enum(["BUSINESS", "ARCHITECT"]);
+export const publicSignupRoleSchema = z.enum(["BUSINESS", "ARCHITECT"]);
 
 export const signupSchema = z.object({
   fullName: z.string().trim().min(2, "Full name is required"),
   email: z.string().trim().toLowerCase().email("Valid email is required"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: authRoleSchema
+  role: publicSignupRoleSchema
 });
 
 export const loginSchema = z.object({

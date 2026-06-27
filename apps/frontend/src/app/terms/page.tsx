@@ -118,7 +118,7 @@ const termsSections = [
     afterNode: (
       <>
         Email:{" "}
-        <a href="mailto:legal@trycore.ai" className="font-medium text-amber-600 hover:text-amber-700">
+        <a data-testid="terms-legal-trycore-ai-link" href="mailto:legal@trycore.ai" className="font-medium text-amber-600 hover:text-amber-700">
           legal@trycore.ai
         </a>
         <br />
@@ -179,9 +179,9 @@ function LegalPageShell({ children }: { children: React.ReactNode }) {
 function LegalHero({ title }: { title: string }) {
   return (
     <section className="mx-auto max-w-3xl px-6 pb-8 pt-32 md:pt-36">
-      <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">{title}</h1>
-      <p className="mt-4 text-sm text-slate-500">Last updated: June 2025</p>
-      <p className="mt-1 text-sm text-slate-500">Effective date: June 2025</p>
+      <h1 className="text-4xl font-extrabold tracking-tight text-slate-900" data-testid="terms-title-heading">{title}</h1>
+      <p className="mt-4 text-sm text-slate-500" data-testid="terms-last-updated-june-2025-text">Last updated: June 2025</p>
+      <p className="mt-1 text-sm text-slate-500" data-testid="terms-effective-date-june-2025-text">Effective date: June 2025</p>
     </section>
   );
 }
@@ -190,11 +190,11 @@ function LegalToc({ items }: { items: { href: string; label: string }[] }) {
   return (
     <section className="mx-auto max-w-3xl px-6 pb-10">
       <div className="rounded-xl border border-gray-100 px-6 py-5">
-        <p className="mb-3 text-sm font-semibold text-slate-900">On this page</p>
+        <p className="mb-3 text-sm font-semibold text-slate-900" data-testid="terms-on-this-page-text">On this page</p>
         <ol className="grid list-inside list-decimal gap-x-6 gap-y-2 text-sm text-slate-600 sm:grid-cols-2">
           {items.map((item) => (
-            <li key={item.href}>
-              <a href={item.href} className="transition hover:text-amber-600">
+            <li key={item.href} data-testid="terms-label-item">
+              <a data-testid="terms-link" href={item.href} className="transition hover:text-amber-600">
                 {item.label}
               </a>
             </li>
@@ -221,10 +221,10 @@ function LegalSection({
 }) {
   return (
     <section id={section.id} className={`pb-8 ${isLast ? "" : "border-b border-gray-100"}`}>
-      <h2 className="mt-10 text-xl font-bold text-slate-900">{section.title}</h2>
+      <h2 className="mt-10 text-xl font-bold text-slate-900" data-testid="terms-section-title-heading">{section.title}</h2>
 
       {section.body?.map((paragraph) => (
-        <p key={paragraph} className="mt-4 text-base leading-relaxed text-slate-600">
+        <p key={paragraph} className="mt-4 text-base leading-relaxed text-slate-600" data-testid="terms-paragraph-text">
           {paragraph}
         </p>
       ))}
@@ -232,8 +232,8 @@ function LegalSection({
       {section.list ? (
         <ul className="mt-4 list-inside list-disc space-y-3 text-base leading-relaxed text-slate-600">
           {section.list.map((item) => (
-            <li key={`${item.label ?? ""}${item.text}`}>
-              {item.label ? <span className="font-medium text-slate-800">{item.label} </span> : null}
+            <li key={`${item.label ?? ""}${item.text}`} data-testid="terms-label-item-2">
+              {item.label ? <span className="font-medium text-slate-800" data-testid="terms-label-text">{item.label} </span> : null}
               {item.text}
             </li>
           ))}
@@ -241,11 +241,11 @@ function LegalSection({
       ) : null}
 
       {section.after ? (
-        <p className="mt-4 text-base leading-relaxed text-slate-600">{section.after}</p>
+        <p className="mt-4 text-base leading-relaxed text-slate-600" data-testid="terms-section-after-text">{section.after}</p>
       ) : null}
 
       {section.afterNode ? (
-        <p className="mt-4 text-base leading-relaxed text-slate-600">{section.afterNode}</p>
+        <p className="mt-4 text-base leading-relaxed text-slate-600" data-testid="terms-section-after-node-text">{section.afterNode}</p>
       ) : null}
     </section>
   );

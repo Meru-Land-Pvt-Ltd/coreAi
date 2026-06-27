@@ -24,7 +24,7 @@ export function CoreFooter() {
                             </span>
                         </Link>
 
-                        <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500">
+                        <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500" data-testid="common-footer-the-ai-agent-marketplace-where-businesses-and-text">
                             The AI agent marketplace where businesses and architects build the future of work together.
                         </p>
                     </div>
@@ -85,20 +85,20 @@ function FooterColumn({
 }) {
     return (
         <div>
-            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+            <h4 className="text-sm font-semibold text-slate-900" data-testid="common-footer-title-heading">{title}</h4>
 
             <ul className="mt-4 space-y-3 text-sm">
                 {links.map((link) => (
-                    <li key={link.label}>
+                    <li key={link.label} data-testid="common-footer-link-starts-with-mailto-link-label-link-item">
                         {link.href.startsWith("mailto:") ? (
-                            <a
+                            <a data-testid={`footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-link`}
                                 href={link.href}
                                 className="text-slate-500 transition hover:text-amber-600"
                             >
                                 {link.label}
                             </a>
                         ) : link.newTab ? (
-                            <a
+                            <a data-testid={`footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-link`}
                                 href={link.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
@@ -107,7 +107,7 @@ function FooterColumn({
                                 {link.label}
                             </a>
                         ) : (
-                            <Link
+                            <Link data-testid={`footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-link`}
                                 href={link.href as any}
                                 className="text-slate-500 transition hover:text-amber-600"
                             >

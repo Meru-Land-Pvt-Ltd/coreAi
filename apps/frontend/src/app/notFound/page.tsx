@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
@@ -47,8 +48,8 @@ export default function NotFoundPage() {
       </div>
 
       <nav className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-6">
-        <Link
-          href="/"
+        <Link data-testid="notfound-core-link"
+          href={"/" as Route}
           aria-label="CORE home"
           className="flex items-center gap-2.5 rounded-lg px-1 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
         >
@@ -68,13 +69,13 @@ export default function NotFoundPage() {
             </svg>
           </span>
 
-          <span className="text-[15px] font-bold tracking-tight text-slate-900">
+          <span className="text-[15px] font-bold tracking-tight text-slate-900" data-testid="notfound-core-text">
             CORE
           </span>
         </Link>
 
-        <Link
-          href="/"
+        <Link data-testid="notfound-back-to-home-link"
+          href={"/" as Route}
           className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
         >
           <svg
@@ -97,7 +98,7 @@ export default function NotFoundPage() {
       <main className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-2xl text-center">
           <div className="flex flex-col items-center">
-            <span className="select-none bg-gradient-to-b from-amber-300 to-amber-600 bg-clip-text text-[80px] font-extrabold leading-none tracking-tighter text-transparent drop-shadow-[0_16px_30px_rgba(217,119,6,0.18)] md:text-[120px]">
+            <span className="select-none bg-gradient-to-b from-amber-300 to-amber-600 bg-clip-text text-[80px] font-extrabold leading-none tracking-tighter text-transparent drop-shadow-[0_16px_30px_rgba(217,119,6,0.18)] md:text-[120px]" data-testid="notfound-404-text">
               404
             </span>
 
@@ -107,30 +108,30 @@ export default function NotFoundPage() {
             </div>
           </div>
 
-          <h1 className="mt-6 text-2xl font-bold text-slate-900">
+          <h1 className="mt-6 text-2xl font-bold text-slate-900" data-testid="notfound-this-page-doesn-apos-t-exist-heading">
             This page doesn&apos;t exist
           </h1>
 
-          <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-slate-500">
+          <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-slate-500" data-testid="notfound-the-page-you-apos-re-looking-for-text">
             The page you&apos;re looking for may have been moved, deleted, or never existed.
             Let&apos;s get you back on track.
           </p>
 
           <div className="mt-8 flex flex-col items-center gap-3">
-            <Link
-              href="/"
+            <Link data-testid="notfound-go-to-homepage-link"
+              href={"/" as Route}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px hover:bg-amber-600 hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
             >
               <HomeIcon />
               Go to homepage
             </Link>
 
-            <span className="text-sm text-slate-400">or</span>
+            <span className="text-sm text-slate-400" data-testid="notfound-or-text">or</span>
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
             {destinations.map((item) => (
-              <Link
+              <Link data-testid="notfound-link"
                 key={item.title}
                 href={item.href as any}
                 className="group flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-left transition hover:-translate-y-0.5 hover:border-amber-200 hover:bg-amber-50/60 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
@@ -139,11 +140,11 @@ export default function NotFoundPage() {
                   <DestinationIcon name={item.icon} />
                 </span>
 
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-slate-800">
+                <span className="min-w-0" data-testid="notfound-title-text">
+                  <span className="block text-sm font-semibold text-slate-800" data-testid="notfound-title-text-2">
                     {item.title}
                   </span>
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-slate-500" data-testid="notfound-subtitle-text">
                     {item.subtitle}
                   </span>
                 </span>
@@ -152,11 +153,11 @@ export default function NotFoundPage() {
           </div>
 
           <div className="mt-8">
-            <label htmlFor="search-input" className="mb-2 block text-sm text-slate-500">
+            <label htmlFor="search-input" className="mb-2 block text-sm text-slate-500" data-testid="notfound-or-search-for-what-you-need-label">
               Or search for what you need
             </label>
 
-            <form onSubmit={handleSearch} role="search" className="relative mx-auto max-w-sm">
+            <form data-testid="notfound-search-form" onSubmit={handleSearch} role="search" className="relative mx-auto max-w-sm">
               <span
                 className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400"
                 aria-hidden="true"
@@ -164,7 +165,7 @@ export default function NotFoundPage() {
                 <SearchIcon />
               </span>
 
-              <input
+              <input data-testid="notfound-search-input"
                 id="search-input"
                 name="q"
                 type="text"
@@ -185,10 +186,10 @@ export default function NotFoundPage() {
             </form>
           </div>
 
-          <p className="mt-12 text-xs text-slate-400">
+          <p className="mt-12 text-xs text-slate-400" data-testid="notfound-if-you-believe-this-is-an-error-text">
             If you believe this is an error, contact{" "}
-            <a
-              href="mailto:support@coreplatform.ai"
+            <a data-testid="notfound-support-coreplatform-ai-link"
+              href={"mailto:support@coreplatform.ai" as Route}
               className="rounded font-medium text-slate-500 underline-offset-2 transition hover:text-amber-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
             >
               support@coreplatform.ai

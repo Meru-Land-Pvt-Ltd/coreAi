@@ -476,8 +476,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             <div className="canvas-grid relative flex-1 overflow-hidden">
               {nodes.length === 0 ? (
                 <div className="absolute inset-x-4 top-4 z-10 rounded-2xl border border-dashed border-amber-200 bg-white/90 p-4 shadow-sm backdrop-blur sm:left-6 sm:right-auto sm:max-w-md">
-                  <p className="text-sm font-black text-slate-900">New agent canvas is empty</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                  <p className="text-sm font-black text-slate-900" data-testid="architect-ui-workflow-builder-view-new-agent-canvas-is-empty-text">New agent canvas is empty</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500" data-testid="architect-ui-workflow-builder-view-use-the-component-library-or-load-the-text">
                     Use the component library or load the first CORE agent: Missed Call Text-Back.
                   </p>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -524,13 +524,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               </ReactFlow>
 
               <div className="absolute right-4 top-4 z-10 hidden items-center gap-3 rounded-xl border border-gray-200 bg-white/90 px-3 py-2 text-[11px] text-slate-500 shadow-sm backdrop-blur md:flex">
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-scroll-zoom-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Scroll</kbd> zoom
                 </span>
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-space-pan-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Space</kbd> pan
                 </span>
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-del-remove-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Del</kbd> remove
                 </span>
               </div>

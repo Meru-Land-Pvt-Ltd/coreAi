@@ -63,7 +63,7 @@ export function BuilderHeader({
   return (
     <header className="fixed left-0 top-0 z-50 flex h-14 w-full items-stretch border-b border-gray-200 bg-white px-3">
       <div className="flex min-w-0 items-center gap-2.5 pr-1">
-        <Link
+        <Link data-testid="builder-header-back-to-workflows"
           href={"/architect/workflows" as Route}
           className="rounded-lg p-2 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
           aria-label="Back to dashboard"
@@ -74,18 +74,18 @@ export function BuilderHeader({
         <div className="hidden h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-amber-400 to-amber-500 text-[11px] font-extrabold text-white shadow-sm sm:flex">
           C
         </div>
-        <input
+        <input data-testid="builder-agent-name-input"
           value={agentName}
           onChange={(event) => onAgentNameChange(event.target.value)}
           className="min-w-0 max-w-[210px] cursor-text rounded-sm border-b border-transparent bg-transparent px-0.5 text-[15px] font-semibold text-slate-900 outline-none transition hover:border-amber-300 focus:border-amber-400 md:max-w-[280px]"
           aria-label="Agent name"
         />
-        <span className="hidden rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 sm:inline-flex">
+        <span className="hidden rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 sm:inline-flex" data-testid="architect-ui-workflow-builder-builder-header-draft-text">
           Draft
         </span>
-        <span className="ml-1 hidden items-center gap-1.5 text-xs text-slate-400 lg:flex">
+        <span className="ml-1 hidden items-center gap-1.5 text-xs text-slate-400 lg:flex" data-testid="architect-ui-workflow-builder-builder-header-saving-message-text">
           <span className={cn("h-1.5 w-1.5 rounded-full bg-green-500", saving && "save-pop")} />
-          <span>{saving ? "Saving..." : message}</span>
+          <span data-testid="architect-ui-workflow-builder-builder-header-saving-message-text-3">{saving ? "Saving..." : message}</span>
         </span>
       </div>
 
@@ -107,7 +107,7 @@ export function BuilderHeader({
         >
           <BuilderIcon name="menu" className="h-4 w-4" />
         </button>
-        <select
+        <select data-testid="builder-mobile-tab-select"
           value={activeTab}
           onChange={(event) => onTabChange(event.target.value as BuilderTab)}
           className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm font-semibold text-slate-700 md:hidden"

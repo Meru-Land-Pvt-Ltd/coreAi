@@ -16,6 +16,8 @@ type TwilioBody = Record<string, unknown>;
 type BusinessRuntimeContext = {
   businessId?: string;
   ownerId?: string;
+  installedAgentId?: string;
+  listingId?: string;
   businessName: string;
   businessType?: string;
   businessPhoneNumber?: string;
@@ -172,13 +174,19 @@ function faqStrings(value: unknown): string[] {
   return [];
 }
 
-function buildBusinessContext(business: any, phoneNumber?: string | null): BusinessRuntimeContext {
+function buildBusinessContext(
+  business: any,
+  phoneNumber?: string | null,
+  installedAgent?: { id?: string; listingId?: string | null } | null
+): BusinessRuntimeContext {
   const profile = business?.profile;
   const knowledgeBases = Array.isArray(business?.knowledgeBases) ? business.knowledgeBases : [];
 
   return {
     businessId: business?.id,
     ownerId: business?.ownerId,
+    installedAgentId: installedAgent?.id,
+    listingId: installedAgent?.listingId ?? undefined,
     businessName: business?.name ?? env.TWILIO_DEFAULT_BUSINESS_NAME ?? "the business",
     businessType: business?.type ?? undefined,
     businessPhoneNumber: phoneNumber ?? undefined,
@@ -232,7 +240,11 @@ async function resolveAgent({
         userId: phoneNumber.installedAgent.workflow.architectUserId,
         workflowJson: phoneNumber.installedAgent.workflow.workflowJson,
         forwardToPhone: phoneNumber.forwardToPhone ?? undefined,
-        business: buildBusinessContext(phoneNumber.business, phoneNumber.phoneNumber)
+        business: buildBusinessContext(
+          phoneNumber.business,
+          phoneNumber.phoneNumber,
+          phoneNumber.installedAgent
+        )
       };
     }
   }
@@ -295,6 +307,8 @@ function runInputFromContext({
     callerName,
     businessId: business?.businessId,
     businessOwnerId: business?.ownerId,
+    installedAgentId: business?.installedAgentId,
+    listingId: business?.listingId,
     businessName: business?.businessName,
     businessType: business?.businessType,
     businessPhoneNumber: business?.businessPhoneNumber,

@@ -423,6 +423,32 @@ authRoutes.post("/firebase-login", async (c) => {
   }
 });
 
+/**
+ * Security stub only. There is NO public password signup in this product —
+ * BUSINESS/ARCHITECT sign in via email OTP or Google, and ADMINs are created
+ * exclusively by the seed script. This route exists purely to return an explicit
+ * 403 for any ADMIN signup attempt (and 404 NOT_IMPLEMENTED for everything else).
+ */
+authRoutes.post("/signup", async (c) => {
+  const rawBody = (await c.req.json().catch(() => ({}))) as { role?: unknown };
+
+  if (rawBody.role === "ADMIN") {
+    return errorResponse(
+      c,
+      "Admin accounts can only be created by the seed script.",
+      403,
+      "ADMIN_SIGNUP_DISABLED"
+    );
+  }
+
+  return errorResponse(
+    c,
+    "Public signup is not available. Please use email OTP or Google login.",
+    404,
+    "NOT_IMPLEMENTED"
+  );
+});
+
 authRoutes.post("/login", async (c) => {
   try {
     const input = loginSchema.parse(await c.req.json());

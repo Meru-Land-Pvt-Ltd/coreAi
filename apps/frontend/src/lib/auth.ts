@@ -34,12 +34,18 @@ export function getAuthUser(): AuthUser | null {
   }
 }
 
-export function logout() {
+// Clear the stored session without navigating. Use when the caller wants to
+// control the post-clear redirect (e.g. send a wrong-role user to a specific login).
+export function clearAuthSession() {
   if (typeof window === "undefined") return;
 
   localStorage.removeItem("coreai-token");
   localStorage.removeItem("coreai-user");
   localStorage.removeItem("coreai-role");
+}
 
+export function logout() {
+  clearAuthSession();
+  if (typeof window === "undefined") return;
   window.location.href = "/";
 }

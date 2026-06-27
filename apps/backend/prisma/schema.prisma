@@ -162,21 +162,27 @@ model EmailVerificationCode {
 }
 
 model Business {
-  id              String                  @id @default(cuid())
-  ownerId         String
-  name            String
-  type            String
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
-  appointments    Appointment[]
-  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  knowledgeBases  BusinessKnowledgeBase[]
-  phoneNumbers    BusinessPhoneNumber[]
-  profile         BusinessProfile?
-  conversations   Conversation[]
-  installedAgents InstalledAgent[]
-  leads           Lead[]
-  vapiCalls       VapiCall[]
+  id                   String                  @id @default(cuid())
+  ownerId              String
+  name                 String
+  type                 String
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  // Stripe billing (AI Receptionist subscription).
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  subscriptionStatus   String?                 @default("inactive")
+  subscriptionPriceId  String?
+  currentPeriodEnd     DateTime?
+  appointments         Appointment[]
+  owner                User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  knowledgeBases       BusinessKnowledgeBase[]
+  phoneNumbers         BusinessPhoneNumber[]
+  profile              BusinessProfile?
+  conversations        Conversation[]
+  installedAgents      InstalledAgent[]
+  leads                Lead[]
+  vapiCalls            VapiCall[]
 
   @@index([ownerId])
   @@index([type])

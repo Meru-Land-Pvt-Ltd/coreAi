@@ -48,20 +48,20 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
       <div className={cn("node-card relative rounded-2xl border-2 bg-white shadow-lg", palette.border)}>
         <div className={cn("flex items-center gap-2 rounded-t-[14px] border-b px-4 py-2.5", palette.headerBg, palette.headerBorder)}>
           <span className={cn("h-2 w-2 rounded-full", palette.dot)} />
-          <span className={cn("text-[11px] font-bold uppercase tracking-wider", palette.text)}>{data.kind}</span>
+          <span className={cn("text-[11px] font-bold uppercase tracking-wider", palette.text)} data-testid="architect-ui-workflow-builder-core-node-kind-text-2">{data.kind}</span>
         </div>
 
         <div className="px-4 py-3">
           <div className="flex items-center gap-2">
             <BuilderIcon name={data.icon} className={cn("h-4 w-4 shrink-0", palette.icon)} />
-            <span className="node-title truncate text-sm font-semibold leading-tight text-slate-900">{data.title}</span>
+            <span className="node-title truncate text-sm font-semibold leading-tight text-slate-900" data-testid="architect-ui-workflow-builder-core-node-title-text">{data.title}</span>
           </div>
-          {data.subtitle ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{data.subtitle}</p> : null}
+          {data.subtitle ? <p className="mt-1 line-clamp-2 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-core-node-subtitle-text">{data.subtitle}</p> : null}
         </div>
 
         {data.footer ? (
           <div className="rounded-b-[14px] border-t border-gray-100 bg-gray-50 px-4 py-2">
-            <span className="font-mono text-[11px] text-slate-400">{data.footer}</span>
+            <span className="font-mono text-[11px] text-slate-400" data-testid="architect-ui-workflow-builder-core-node-footer-text">{data.footer}</span>
           </div>
         ) : null}
       </div>
@@ -82,8 +82,8 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
             className="core-port"
             style={{ left: "70%", background: "#ef4444" }}
           />
-          <span className="absolute -bottom-[23px] left-[30%] -translate-x-1/2 text-[10px] font-bold text-green-600">Yes</span>
-          <span className="absolute -bottom-[23px] left-[70%] -translate-x-1/2 text-[10px] font-bold text-red-500">No</span>
+          <span className="absolute -bottom-[23px] left-[30%] -translate-x-1/2 text-[10px] font-bold text-green-600" data-testid="architect-ui-workflow-builder-core-node-yes-text">Yes</span>
+          <span className="absolute -bottom-[23px] left-[70%] -translate-x-1/2 text-[10px] font-bold text-red-500" data-testid="architect-ui-workflow-builder-core-node-no-text">No</span>
         </>
       ) : (
         <Handle

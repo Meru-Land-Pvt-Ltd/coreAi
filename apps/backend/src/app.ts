@@ -9,6 +9,7 @@ import { healthRoutes } from "./modules/health/routes";
 import { architectRoutes } from "./modules/architect/routes";
 import { businessRoutes } from "./modules/business/routes";
 import { mailRoutes } from "./modules/mails/routes";
+import { adminRoutes } from "./modules/admin/routes";
 import { paymentRoutes } from "./modules/payments/routes";
 
 export const app = new Hono();
@@ -30,6 +31,7 @@ app.route("/auth", authRoutes);
 app.route("/architect", architectRoutes);
 app.route("/business", businessRoutes);
 app.route("/mail",mailRoutes);
+app.route("/admin", adminRoutes);
 app.route("/payments", paymentRoutes);
 
 app.notFound((c) => {

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { CoreHeader } from "@/components/common/header";
@@ -121,11 +122,11 @@ export default function ContactPage() {
       <main>
         <section className="px-6 pb-16 pt-36 text-center md:pb-20 md:pt-40">
           <div className="mx-auto max-w-3xl">
-            <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 md:text-5xl">
+            <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 md:text-5xl" data-testid="contactus-get-in-touch-heading">
               Get in Touch
             </h1>
 
-            <p className="mt-5 text-lg leading-relaxed text-slate-600">
+            <p className="mt-5 text-lg leading-relaxed text-slate-600" data-testid="contactus-have-a-question-need-support-or-want-text">
               Have a question, need support, or want to partner with us? We typically
               respond within 2 hours.
             </p>
@@ -135,13 +136,13 @@ export default function ContactPage() {
         <section className="px-6">
           <div className="mx-auto max-w-lg rounded-2xl border border-gray-100 bg-white p-8 shadow-lg">
             {!submitted ? (
-              <form noValidate onSubmit={handleSubmit}>
+              <form data-testid="contact-form" noValidate onSubmit={handleSubmit}>
                 <div>
-                  <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="contactus-full-label">
                     Full Name
                   </label>
 
-                  <input
+                  <input data-testid="contact-name-input"
                     id="name"
                     name="name"
                     type="text"
@@ -156,11 +157,11 @@ export default function ContactPage() {
                 </div>
 
                 <div className="mt-5">
-                  <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="contactus-email-address-label">
                     Email Address
                   </label>
 
-                  <input
+                  <input data-testid="contact-email-input"
                     id="email"
                     name="email"
                     type="email"
@@ -175,11 +176,11 @@ export default function ContactPage() {
                 </div>
 
                 <div className="mt-5">
-                  <label htmlFor="subject" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label htmlFor="subject" className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="contactus-subject-label">
                     Subject
                   </label>
 
-                  <select
+                  <select data-testid="contact-subject-select"
                     id="subject"
                     name="subject"
                     required
@@ -202,11 +203,11 @@ export default function ContactPage() {
                 </div>
 
                 <div className="mt-5">
-                  <label htmlFor="message" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  <label htmlFor="message" className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="contactus-message-label">
                     Message
                   </label>
 
-                  <textarea
+                  <textarea data-testid="contact-message-textarea"
                     id="message"
                     name="message"
                     rows={5}
@@ -243,11 +244,11 @@ export default function ContactPage() {
                   </svg>
                 </div>
 
-                <h2 className="mt-5 text-xl font-extrabold text-slate-900">
+                <h2 className="mt-5 text-xl font-extrabold text-slate-900" data-testid="contactus-message-sent-heading">
                   Message sent!
                 </h2>
 
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-2 text-sm text-slate-500" data-testid="contactus-we-apos-ll-get-back-to-you-text">
                   We&apos;ll get back to you within 2 hours.
                 </p>
 
@@ -280,7 +281,7 @@ export default function ContactPage() {
 
         <section className="border-y border-gray-100 bg-white py-16">
           <div className="mx-auto max-w-3xl px-6 text-center">
-            <h2 className="text-2xl font-extrabold text-slate-900">
+            <h2 className="text-2xl font-extrabold text-slate-900" data-testid="contactus-looking-for-answers-heading">
               Looking for answers?
             </h2>
 
@@ -300,10 +301,10 @@ export default function ContactPage() {
 
         <section className="bg-white py-12 text-center">
           <div className="mx-auto max-w-4xl px-6">
-            <h2 className="text-xl font-bold text-slate-900">Ready to get started?</h2>
+            <h2 className="text-xl font-bold text-slate-900" data-testid="contactus-ready-to-get-started-heading">Ready to get started?</h2>
 
-            <Link
-              href="/marketplace"
+            <Link data-testid="contact-browse-ai-agents-link"
+              href={"/marketplace" as Route}
               className="mt-4 inline-flex items-center justify-center rounded-xl bg-amber-500 px-8 py-3.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition-all hover:-translate-y-0.5 hover:bg-amber-600 hover:shadow-amber-500/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
             >
               Browse AI Agents
@@ -331,16 +332,16 @@ function isValidEmail(value: string) {
 }
 
 function ErrorMessage({ children }: { children: string }) {
-  return <p className="mt-1.5 text-sm text-red-500">{children}</p>;
+  return <p className="mt-1.5 text-sm text-red-500" data-testid="contactus-1-5-sm-red-text">{children}</p>;
 }
 
 function ContactInfo({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600" data-testid="contactus-label-text">
         {label}
       </p>
-      <p className="mt-2 font-medium text-slate-900">{value}</p>
+      <p className="mt-2 font-medium text-slate-900" data-testid="contactus-2-900-text">{value}</p>
     </div>
   );
 }

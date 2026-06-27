@@ -52,12 +52,12 @@ export function TestPanel({
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Test console</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <h2 className="text-xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-test-panel-console-heading">Test console</h2>
+            <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-send-a-sample-trigger-through-the-workflow-text">
               Send a sample trigger through the workflow and watch each step run in real time.
             </p>
             {hasGmailFlow ? (
-              <p className="mt-2 text-xs font-medium text-blue-600">
+              <p className="mt-2 text-xs font-medium text-blue-600" data-testid="architect-ui-workflow-builder-test-panel-gmail-connected-gmail-connected-gmail-email-gmail-text">
                 {gmailConnected ? `Gmail connected: ${gmailEmail ?? "Gmail"}` : "Gmail flow selected. Connect Gmail before a live Gmail run."}
               </p>
             ) : null}
@@ -99,11 +99,11 @@ export function TestPanel({
         </div>
 
         <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-          <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400">Simulate a missed call</h3>
+          <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">Simulate a missed call</h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label>
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Caller number</span>
-              <input
+            <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">Caller number</span>
+              <input data-testid="builder-test-caller-number-input"
                 type="text"
                 value={callerNumber}
                 onChange={(event) => onCallerNumberChange(event.target.value)}
@@ -111,9 +111,9 @@ export function TestPanel({
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
-            <label>
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Caller name</span>
-              <input
+            <label data-testid="architect-ui-workflow-builder-test-panel-caller-on-caller-change-event-placeholder-jordan-label">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-text">Caller name</span>
+              <input data-testid="builder-test-caller-name-input"
                 type="text"
                 value={callerName}
                 onChange={(event) => onCallerNameChange(event.target.value)}
@@ -121,18 +121,18 @@ export function TestPanel({
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
-            <label>
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Time of call</span>
-              <input
+            <label data-testid="architect-ui-workflow-builder-test-panel-time-of-call-label">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-time-of-call-text">Time of call</span>
+              <input data-testid="builder-test-message-input"
                 type="text"
                 value="Today - 2:14 PM"
                 readOnly
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
-            <label>
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Business</span>
-              <input
+            <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-business-text">Business</span>
+              <input data-testid="builder-test-business-name-input"
                 type="text"
                 value={businessName}
                 onChange={(event) => onBusinessNameChange(event.target.value)}
@@ -148,25 +148,25 @@ export function TestPanel({
             <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
             <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-            <span className="ml-2 font-mono text-xs text-slate-400">execution.log</span>
+            <span className="ml-2 font-mono text-xs text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-execution-log-text-4">execution.log</span>
           </div>
           <div className="min-h-[190px] space-y-1.5 p-4 font-mono text-xs leading-relaxed text-slate-300">
             {runLogs.length > 0 ? (
               runLogs.map((log, index) => (
-                <p key={`${log.nodeId}-${index}`} className={logColor(log.status)}>
+                <p key={`${log.nodeId}-${index}`} className={logColor(log.status)} data-testid="architect-ui-workflow-builder-test-panel-log-label-log-message-text">
                   $ {log.label} - {log.message}
                 </p>
               ))
             ) : (
-              <p className="text-slate-500">$ Awaiting run - press "Run test" to execute the workflow...</p>
+              <p className="text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-awaiting-run-press-run-to-execute-the-text">$ Awaiting run - press "Run test" to execute the workflow...</p>
             )}
-            {capturedLead ? <p className="text-blue-300">$ Lead captured - {capturedLead.callerNumber} - {capturedLead.status}</p> : null}
+            {capturedLead ? <p className="text-blue-300" data-testid="architect-ui-workflow-builder-test-panel-lead-captured-lead-caller-number-captured-lead-text">$ Lead captured - {capturedLead.callerNumber} - {capturedLead.status}</p> : null}
           </div>
         </div>
 
         {hasResult ? (
           <div className="mt-6">
-            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
               {hasGmailFlow ? "Email result" : "Message the patient receives"}
             </h3>
             <div className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -181,11 +181,11 @@ export function TestPanel({
                     <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
                       {sentSms?.body ?? "Hi! We noticed we missed your call at Mitchell Dental. Sorry about that! Would you like to schedule an appointment? Reply YES and we will get you booked."}
                     </div>
-                    <p className="mt-2 font-mono text-xs text-slate-400">
+                    <p className="mt-2 font-mono text-xs text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-sent-sms-provider-called-sent-sms-twilio-text">
                       {sentSms?.providerCalled ? (sentSms.twilioTestMode ? "Twilio test accepted" : "Delivered") : "Dry run"} - {sentSms?.body?.length ?? 142} characters - est. cost $0.15
                     </p>
-                    {vapiCall ? <p className="mt-2 font-mono text-xs text-violet-500">Vapi voice: {vapiCall.providerCalled ? "Started" : "Dry run"} {vapiCall.status ? `- ${vapiCall.status}` : ""}</p> : null}
-                    {calendarAppointment ? <p className="mt-2 font-mono text-xs text-blue-500">Calendar: {calendarAppointment.id ? "Booked" : "Dry run"} - {calendarAppointment.summary}</p> : null}
+                    {vapiCall ? <p className="mt-2 font-mono text-xs text-violet-500" data-testid="architect-ui-workflow-builder-test-panel-vapi-voice-vapi-call-provider-called-started-text">Vapi voice: {vapiCall.providerCalled ? "Started" : "Dry run"} {vapiCall.status ? `- ${vapiCall.status}` : ""}</p> : null}
+                    {calendarAppointment ? <p className="mt-2 font-mono text-xs text-blue-500" data-testid="architect-ui-workflow-builder-test-panel-calendar-appointment-booked-dry-run-calendar-appointmen">Calendar: {calendarAppointment.id ? "Booked" : "Dry run"} - {calendarAppointment.summary}</p> : null}
                   </>
                 )}
               </div>
@@ -209,29 +209,29 @@ function EmailResult({
   if (sentEmail) {
     return (
       <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-        <p className="font-bold">Sent: {sentEmail.subject}</p>
-        <p className="mt-1 text-xs text-slate-500">To: {sentEmail.to}</p>
-        <p className="mt-2">{sentEmail.body}</p>
+        <p className="font-bold" data-testid="architect-ui-workflow-builder-test-panel-sent-email-subject-text">Sent: {sentEmail.subject}</p>
+        <p className="mt-1 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-to-sent-email-to-text">To: {sentEmail.to}</p>
+        <p className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-sent-email-body-text">{sentEmail.body}</p>
       </div>
     );
   }
   if (draftEmail) {
     return (
       <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-        <p className="font-bold">Draft: {draftEmail.subject}</p>
-        <p className="mt-1 text-xs text-slate-500">To: {draftEmail.to}</p>
-        <p className="mt-2">{draftEmail.body}</p>
+        <p className="font-bold" data-testid="architect-ui-workflow-builder-test-panel-draft-email-subject-text">Draft: {draftEmail.subject}</p>
+        <p className="mt-1 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-to-draft-email-to-text">To: {draftEmail.to}</p>
+        <p className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-draft-email-body-text">{draftEmail.body}</p>
       </div>
     );
   }
   if (gmailRead) {
     return (
       <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-        <p className="font-bold">Read: {gmailRead.subject}</p>
-        <p className="mt-1 text-xs text-slate-500">From: {gmailRead.senderEmail}</p>
-        <p className="mt-2">{gmailRead.body}</p>
+        <p className="font-bold" data-testid="architect-ui-workflow-builder-test-panel-read-gmail-read-subject-text">Read: {gmailRead.subject}</p>
+        <p className="mt-1 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-from-gmail-read-sender-email-text">From: {gmailRead.senderEmail}</p>
+        <p className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-gmail-read-body-text">{gmailRead.body}</p>
       </div>
     );
   }
-  return <p className="text-sm text-slate-500">Run the agent to see the email result.</p>;
+  return <p className="text-sm text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-run-the-agent-to-see-the-email-text">Run the agent to see the email result.</p>;
 }

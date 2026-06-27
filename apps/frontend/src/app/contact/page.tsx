@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { CoreHeader } from "@/components/common/header";
@@ -444,11 +445,11 @@ export default function HelpPage() {
               Average answer time: under 10 seconds
             </span>
 
-            <h1 className="mt-5 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
+            <h1 className="mt-5 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl" data-testid="contact-how-can-we-help-heading">
               How can we help?
             </h1>
 
-            <p className="mt-3 text-lg text-slate-500">
+            <p className="mt-3 text-lg text-slate-500" data-testid="contact-search-our-knowledge-base-or-browse-topics-text">
               Search our knowledge base or browse topics below.
             </p>
 
@@ -458,7 +459,7 @@ export default function HelpPage() {
                   <SearchIcon />
                 </span>
 
-                <input
+                <input data-testid="help-search-the-help-center-input"
                   ref={inputRef}
                   value={query}
                   onChange={(event) => {
@@ -511,10 +512,10 @@ export default function HelpPage() {
                           <span className="block truncate text-sm font-semibold text-slate-900">
                             <HighlightedText text={item.title} query={query} />
                           </span>
-                          <span className="mt-0.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                          <span className="mt-0.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400" data-testid="contact-help-center-category-text">
                             Help Center › {item.category}
                           </span>
-                          <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-slate-500">
+                          <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-slate-500" data-testid="contact-preview-text">
                             {item.preview}
                           </span>
                         </span>
@@ -539,7 +540,7 @@ export default function HelpPage() {
             </div>
 
             <div className="mt-5 flex flex-wrap justify-center gap-2">
-              <span className="self-center pr-1 text-sm font-medium text-slate-400">
+              <span className="self-center pr-1 text-sm font-medium text-slate-400" data-testid="contact-popular-text">
                 Popular:
               </span>
 
@@ -571,11 +572,11 @@ export default function HelpPage() {
 
         <section className="mx-auto mt-20 max-w-4xl px-5 sm:px-8">
           <div>
-            <h2 className="text-center text-2xl font-bold text-slate-900">
+            <h2 className="text-center text-2xl font-bold text-slate-900" data-testid="contact-frequently-asked-questions-heading">
               Frequently asked questions
             </h2>
 
-            <p className="mt-2 text-center text-slate-500">
+            <p className="mt-2 text-center text-slate-500" data-testid="contact-quick-answers-to-the-most-common-questions-text">
               Quick answers to the most common questions.
             </p>
 
@@ -596,7 +597,7 @@ export default function HelpPage() {
                       className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition-colors hover:bg-slate-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
                       aria-expanded={open}
                     >
-                      <span className="text-base font-semibold text-slate-900">
+                      <span className="text-base font-semibold text-slate-900" data-testid="contact-faq-question-text">
                         {faq.question}
                       </span>
 
@@ -621,9 +622,9 @@ export default function HelpPage() {
 
         <section id="contact" className="mt-16 bg-gray-50 py-16">
           <div className="mx-auto max-w-4xl px-5 text-center sm:px-8">
-            <h2 className="text-2xl font-bold text-slate-900">Still need help?</h2>
+            <h2 className="text-2xl font-bold text-slate-900" data-testid="contact-still-need-help-heading">Still need help?</h2>
 
-            <p className="mt-2 text-slate-500">
+            <p className="mt-2 text-slate-500" data-testid="contact-our-team-typically-responds-within-2-hours-text">
               Our team typically responds within 2 hours during business hours.
             </p>
 
@@ -633,8 +634,8 @@ export default function HelpPage() {
                   <MailIcon />
                 </span>
 
-                <h3 className="mt-3 text-lg font-bold text-slate-900">Email Support</h3>
-                <p className="mt-1 text-sm text-slate-500">Get a response within 2 hours</p>
+                <h3 className="mt-3 text-lg font-bold text-slate-900" data-testid="contact-email-support-heading">Email Support</h3>
+                <p className="mt-1 text-sm text-slate-500" data-testid="contact-get-a-response-within-2-hours-text">Get a response within 2 hours</p>
 
                 <a
                   href="mailto:info@triven.ai"
@@ -649,8 +650,8 @@ export default function HelpPage() {
                   <ChatIcon />
                 </span>
 
-                <h3 className="mt-3 text-lg font-bold text-slate-900">Live Chat</h3>
-                <p className="mt-1 text-sm text-slate-500">
+                <h3 className="mt-3 text-lg font-bold text-slate-900" data-testid="contact-live-chat-heading">Live Chat</h3>
+                <p className="mt-1 text-sm text-slate-500" data-testid="contact-available-mon-fri-9am-6pm-est-text">
                   Available Mon-Fri, 9am-6pm EST
                 </p>
 
@@ -669,7 +670,7 @@ export default function HelpPage() {
 
         <section className="border-t border-gray-100 bg-white py-12 text-center">
           <div className="mx-auto max-w-4xl px-5 sm:px-8">
-            <h2 className="text-xl font-bold text-slate-900">Ready to get started?</h2>
+            <h2 className="text-xl font-bold text-slate-900" data-testid="contact-ready-to-get-started-heading">Ready to get started?</h2>
 
             <Link
               href={BUSINESS_MARKETPLACE_PUBLIC_PATH}
@@ -693,7 +694,7 @@ export default function HelpPage() {
             <span className="inline-grid h-5 w-5 shrink-0 place-items-center rounded-full bg-amber-400 text-slate-900">
               <CheckIcon />
             </span>
-            <span>{toast.message}</span>
+            <span data-testid="contact-toast-message-text">{toast.message}</span>
           </div>
         ))}
       </div>
@@ -761,7 +762,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
             {part}
           </mark>
         ) : (
-          <span key={`${part}-${index}`}>{part}</span>
+          <span key={`${part}-${index}`} data-testid="contact-part-text">{part}</span>
         )
       )}
     </>
@@ -791,9 +792,9 @@ function CategoryCardItem({
           <CategoryIcon name={category.icon} />
         </span>
 
-        <h3 className="mt-4 text-lg font-bold text-slate-900">{category.name}</h3>
+        <h3 className="mt-4 text-lg font-bold text-slate-900" data-testid="contact-category-heading">{category.name}</h3>
 
-        <p className="mt-2 text-sm leading-relaxed text-slate-500">
+        <p className="mt-2 text-sm leading-relaxed text-slate-500" data-testid="contact-category-description-text">
           {category.description}
         </p>
 
@@ -803,7 +804,7 @@ function CategoryCardItem({
         </div>
 
         {category.id === "for-architects" ? (
-          <span className="mt-2 inline-flex w-fit items-center gap-1 rounded text-xs font-semibold text-amber-600 transition-colors group-hover:text-amber-700">
+          <span className="mt-2 inline-flex w-fit items-center gap-1 rounded text-xs font-semibold text-amber-600 transition-colors group-hover:text-amber-700" data-testid="contact-go-to-architect-docs-text">
             Go to Architect Docs <span aria-hidden="true">→</span>
           </span>
         ) : null}
