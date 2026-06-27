@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { apiPost } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -460,7 +461,7 @@ export default function MarketplacePage() {
                             🔍
                         </span>
 
-                        <input
+                        <input data-testid="business-marketplace-search-input"
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
                             placeholder="Search agents by name, industry, or problem..."
@@ -476,16 +477,16 @@ export default function MarketplacePage() {
 
                 <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
                     <div className="mx-auto max-w-3xl text-center">
-                        <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-amber-700">
+                        <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-amber-700" data-testid="business-protected-marketplace-live-marketplace-agents-text">
                             ✨ Live marketplace agents
                         </span>
 
-                        <h1 className="mt-5 text-4xl font-black leading-[1.05] tracking-tight text-slate-900 sm:text-5xl">
+                        <h1 className="mt-5 text-4xl font-black leading-[1.05] tracking-tight text-slate-900 sm:text-5xl" data-testid="business-protected-marketplace-ai-agents-that-work-while-you-sleep-heading">
                             AI Agents That Work
                             <br className="hidden sm:block" /> While You Sleep
                         </h1>
 
-                        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600 sm:text-xl">
+                        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600 sm:text-xl" data-testid="business-protected-marketplace-browse-pre-built-ai-agents-install-in-text">
                             Browse pre-built AI agents. Install in minutes. No code required.
                         </p>
 
@@ -513,30 +514,30 @@ export default function MarketplacePage() {
                             <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl border border-amber-100 bg-white p-7 shadow-[0_30px_80px_-28px_rgba(245,158,11,.55)] sm:p-9 md:grid-cols-2">
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white" data-testid="business-protected-marketplace-featured-text">
                                             ⭐ Featured
                                         </span>
 
-                                        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                                        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700" data-testid="business-protected-marketplace-featured-agent-category-text">
                                             {featuredAgent.category}
                                         </span>
                                     </div>
 
-                                    <h2 className="mt-4 text-3xl font-extrabold text-slate-900">
+                                    <h2 className="mt-4 text-3xl font-extrabold text-slate-900" data-testid="business-protected-marketplace-featured-agent-heading">
                                         {featuredAgent.name}
                                     </h2>
 
-                                    <p className="mt-3 text-slate-600">
+                                    <p className="mt-3 text-slate-600" data-testid="business-protected-marketplace-featured-agent-description-text">
                                         {featuredAgent.description}
                                     </p>
 
                                     <div className="mt-5 flex flex-wrap items-center gap-3">
-                                        <span className="text-2xl font-black text-slate-900">
+                                        <span className="text-2xl font-black text-slate-900" data-testid="business-protected-marketplace-featured-agent-price-text">
                                             ${featuredAgent.price}
                                         </span>
-                                        <span className="text-sm text-slate-500">one-time</span>
+                                        <span className="text-sm text-slate-500" data-testid="business-protected-marketplace-one-time-text">one-time</span>
                                         <span className="h-4 w-px bg-gray-200" />
-                                        <span className="text-sm font-semibold text-amber-600">
+                                        <span className="text-sm font-semibold text-amber-600" data-testid="business-protected-marketplace-featured-agent-rating-to-fixed-1-text-2">
                                             ⭐ {featuredAgent.rating.toFixed(1)}
                                         </span>
                                     </div>
@@ -545,7 +546,7 @@ export default function MarketplacePage() {
                                         <button
                                             type="button"
                                             onClick={() => openAgentPage(featuredAgent)}
-                                            data-testid="marketplace-featured-open"
+                                            data-testid="business-marketplace-featured-open"
                                             className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                                         >
                                             Open agent
@@ -554,7 +555,7 @@ export default function MarketplacePage() {
                                         <button
                                             type="button"
                                             onClick={() => openDetailsModal(featuredAgent)}
-                                            data-testid="marketplace-featured-details"
+                                            data-testid="business-marketplace-featured-details"
                                             className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600"
                                         >
                                             View details
@@ -566,14 +567,14 @@ export default function MarketplacePage() {
                                     <div className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
                                         <div className="overflow-hidden rounded-[1.7rem] bg-slate-50">
                                             <div className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
-                                                <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white">
+                                                <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white" data-testid="business-protected-marketplace-ai-text">
                                                     AI
                                                 </span>
                                                 <div>
-                                                    <p className="text-[13px] font-semibold text-slate-900">
+                                                    <p className="text-[13px] font-semibold text-slate-900" data-testid="business-protected-marketplace-featured-agent-text">
                                                         {featuredAgent.name}
                                                     </p>
-                                                    <p className="text-[10px] text-emerald-500">● Active now</p>
+                                                    <p className="text-[10px] text-emerald-500" data-testid="business-protected-marketplace-active-now-text">● Active now</p>
                                                 </div>
                                             </div>
 
@@ -613,10 +614,10 @@ export default function MarketplacePage() {
                 <section className="bg-white py-16">
                     <div className="mx-auto max-w-6xl px-4 sm:px-6">
                         <div className="text-center">
-                            <h2 className="text-3xl font-bold text-slate-900">
+                            <h2 className="text-3xl font-bold text-slate-900" data-testid="business-protected-marketplace-browse-by-industry-heading">
                                 Browse by industry
                             </h2>
-                            <p className="mt-2 text-slate-600">
+                            <p className="mt-2 text-slate-600" data-testid="business-protected-marketplace-find-agents-built-specifically-for-your-business-text">
                                 Find agents built specifically for your business type.
                             </p>
                         </div>
@@ -628,20 +629,20 @@ export default function MarketplacePage() {
                                     <button
                                         key={item.id}
                                         type="button"
-                                        data-testid={`marketplace-industry-${item.id}`}
+                                        data-testid={`business-marketplace-industry-${item.id}`}
                                         onClick={() => setIndustry(item.id)}
                                         className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
                                             ? "border-amber-300 ring-4 ring-amber-100"
                                             : "border-gray-100"
                                             }`}
                                     >
-                                        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-105 group-hover:bg-amber-500">
+                                        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-105 group-hover:bg-amber-500" data-testid="business-protected-marketplace-icon-text">
                                             {item.icon}
                                         </span>
-                                        <p className="mt-3 font-semibold text-slate-900">
+                                        <p className="mt-3 font-semibold text-slate-900" data-testid="business-protected-marketplace-label-text">
                                             {item.label}
                                         </p>
-                                        <p className="text-sm text-slate-500">{item.count} agents</p>
+                                        <p className="text-sm text-slate-500" data-testid="business-protected-marketplace-count-agents-text">{item.count} agents</p>
                                     </button>
                                 ))}
                         </div>
@@ -656,7 +657,7 @@ export default function MarketplacePage() {
                             <button
                                 type="button"
                                 onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
-                                data-testid="marketplace-filter-industry"
+                                data-testid="business-marketplace-filter-industry"
                                 data-filter-trigger="industry"
                                 className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-4 py-2 text-sm font-medium outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100 ${industry !== "all"
                                     ? "border-amber-300 text-amber-700"
@@ -665,7 +666,7 @@ export default function MarketplacePage() {
                                 aria-haspopup="listbox"
                                 aria-expanded={openFilter === "industry"}
                             >
-                                <span>{industryLabel}</span>
+                                <span data-testid="business-protected-marketplace-industry-label-text">{industryLabel}</span>
                                 <FilterChevronIcon />
                             </button>
 
@@ -678,15 +679,15 @@ export default function MarketplacePage() {
                                         <button
                                             key={item.id}
                                             type="button"
-                                            data-testid={`marketplace-industry-option-${item.id}`}
+                                            data-testid={`business-marketplace-industry-option-${item.id}`}
                                             onClick={() => {
                                                 setIndustry(item.id);
                                                 setOpenFilter(null);
                                             }}
                                             className={filterDropdownOptionClass(industry === item.id)}
                                         >
-                                            <span>{item.label}</span>
-                                            <span className="text-xs text-slate-400">{item.count}</span>
+                                            <span data-testid="business-protected-marketplace-label-text-2">{item.label}</span>
+                                            <span className="text-xs text-slate-400" data-testid="business-protected-marketplace-count-text">{item.count}</span>
                                         </button>
                                     ))}
                                 </div>
@@ -699,7 +700,7 @@ export default function MarketplacePage() {
                                 setOpenFilter(null);
                                 setFreeTrialOnly((current) => !current);
                             }}
-                            data-testid="marketplace-filter-free-trial"
+                            data-testid="business-marketplace-filter-free-trial"
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${freeTrialOnly
                                 ? "border-amber-300 bg-amber-50 text-amber-700"
                                 : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
@@ -714,7 +715,7 @@ export default function MarketplacePage() {
                                 setOpenFilter(null);
                                 setNewOnly((current) => !current);
                             }}
-                            data-testid="marketplace-filter-new"
+                            data-testid="business-marketplace-filter-new"
                             className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${newOnly
                                 ? "border-amber-300 bg-amber-50 text-amber-700"
                                 : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
@@ -730,7 +731,7 @@ export default function MarketplacePage() {
                                     setOpenFilter(null);
                                     setView("grid");
                                 }}
-                                data-testid="marketplace-view-grid"
+                                data-testid="business-marketplace-view-grid"
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "grid"
                                     ? "border-amber-300 bg-amber-50 text-amber-700"
                                     : "border-gray-200 text-slate-500"
@@ -745,7 +746,7 @@ export default function MarketplacePage() {
                                     setOpenFilter(null);
                                     setView("list");
                                 }}
-                                data-testid="marketplace-view-list"
+                                data-testid="business-marketplace-view-list"
                                 className={`rounded-lg border px-3 py-2 text-sm ${view === "list"
                                     ? "border-amber-300 bg-amber-50 text-amber-700"
                                     : "border-gray-200 text-slate-500"
@@ -758,13 +759,13 @@ export default function MarketplacePage() {
                                 <button
                                     type="button"
                                     onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
-                                    data-testid="marketplace-filter-sort"
+                                    data-testid="business-marketplace-filter-sort"
                                     data-filter-trigger="sort"
                                     className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
                                     aria-haspopup="listbox"
                                     aria-expanded={openFilter === "sort"}
                                 >
-                                    <span>Sort: {sortLabel}</span>
+                                    <span data-testid="business-protected-marketplace-sort-label-text">Sort: {sortLabel}</span>
                                     <FilterChevronIcon />
                                 </button>
 
@@ -777,7 +778,7 @@ export default function MarketplacePage() {
                                             <button
                                                 key={item.value}
                                                 type="button"
-                                                data-testid={`marketplace-sort-option-${item.value}`}
+                                                data-testid={`business-marketplace-sort-option-${item.value}`}
                                                 onClick={() => {
                                                     setSort(item.value);
                                                     setOpenFilter(null);
@@ -811,10 +812,10 @@ export default function MarketplacePage() {
                             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-red-50 text-2xl">
                                 ⚠️
                             </div>
-                            <h3 className="mt-4 text-lg font-semibold text-slate-900">
+                            <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="business-protected-marketplace-could-not-load-marketplace-agents-heading">
                                 Could not load marketplace agents
                             </h3>
-                            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+                            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500" data-testid="business-protected-marketplace-api-error-text">
                                 {apiError}
                             </p>
                         </div>
@@ -849,10 +850,10 @@ export default function MarketplacePage() {
                             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
                                 🔍
                             </div>
-                            <h3 className="mt-4 text-lg font-semibold text-slate-900">
+                            <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="business-protected-marketplace-no-agents-match-those-filters-heading">
                                 No agents match those filters
                             </h3>
-                            <p className="mt-1 text-sm text-slate-500">
+                            <p className="mt-1 text-sm text-slate-500" data-testid="business-protected-marketplace-try-clearing-search-or-selecting-another-industry-text">
                                 Try clearing search or selecting another industry.
                             </p>
                             <button
@@ -863,7 +864,7 @@ export default function MarketplacePage() {
                                     setFreeTrialOnly(false);
                                     setNewOnly(false);
                                 }}
-                                data-testid="marketplace-clear-filters"
+                                data-testid="business-marketplace-clear-filters"
                                 className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
                             >
                                 Clear filters
@@ -872,7 +873,7 @@ export default function MarketplacePage() {
                     )}
 
                     {!isLoading && !apiError ? (
-                        <p className="mt-8 text-center text-sm text-slate-400">
+                        <p className="mt-8 text-center text-sm text-slate-400" data-testid="business-protected-marketplace-showing-filtered-agents-of-agents-text">
                             Showing {filteredAgents.length} of {agents.length} agents
                         </p>
                     ) : null}
@@ -884,15 +885,15 @@ export default function MarketplacePage() {
                     <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
                         ✨
                     </div>
-                    <h2 className="text-3xl font-bold text-slate-900">
+                    <h2 className="text-3xl font-bold text-slate-900" data-testid="business-protected-marketplace-not-sure-which-agent-is-right-heading">
                         Not sure which agent is right?
                     </h2>
-                    <p className="mx-auto mt-3 max-w-xl text-slate-600">
+                    <p className="mx-auto mt-3 max-w-xl text-slate-600" data-testid="business-protected-marketplace-take-a-free-2-minute-assessment-and-text">
                         Take a free 2-minute assessment and get a personalized
                         recommendation built around your business.
                     </p>
-                    <Link
-                        href="/assignment"
+                    <Link data-testid="business-marketplace-ai-score-link"
+                        href={"/assignment" as Route}
                         className="mx-auto mt-7 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                     >
                         Get your free AI score →
@@ -925,8 +926,8 @@ export default function MarketplacePage() {
 function Metric({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-900">{value}</span>
-            <span className="text-slate-500">{label}</span>
+            <span className="font-bold text-slate-900" data-testid={`business-marketplace-metric-value-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{value}</span>
+            <span className="text-slate-500" data-testid="business-protected-marketplace-label-text-3">{label}</span>
         </div>
     );
 }
@@ -970,7 +971,7 @@ function AgentGridCard({
                     onOpen();
                 }
             }}
-            data-testid={`marketplace-agent-card-${agent.id}`}
+            data-testid={`business-marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-xl"
         >
             <div className="flex-1 p-6">
@@ -979,41 +980,41 @@ function AgentGridCard({
                         🤖
                     </span>
 
-                    <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white">
+                    <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-protected-marketplace-agent-price-text">
                         ${agent.price}
                     </span>
                 </div>
 
-                <h3 className="mt-4 flex items-center gap-2 text-lg font-bold text-slate-900">
+                <h3 className="mt-4 flex items-center gap-2 text-lg font-bold text-slate-900" data-testid="business-protected-marketplace-agent-is-new-heading">
                     {agent.name}
                     {agent.isNew ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-marketplace-new-text">
                             New
                         </span>
                     ) : null}
                 </h3>
 
                 <div className="mt-2 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600">
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text">
                         {agent.category}
                     </span>
 
-                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="business-protected-marketplace-agent-industry-all-industries-format-label-agent-text">
                         {agent.industry === "all" ? "All industries" : formatLabel(agent.industry)}
                     </span>
                 </div>
 
-                <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600">
+                <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="business-protected-marketplace-agent-description-text">
                     {agent.description}
                 </p>
             </div>
 
             <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
-                <span className="text-xs text-slate-500">{agent.installs} installs</span>
-                <span className="text-xs font-semibold text-amber-600">
+                <span className="text-xs text-slate-500" data-testid="business-protected-marketplace-agent-installs-text">{agent.installs} installs</span>
+                <span className="text-xs font-semibold text-amber-600" data-testid="business-protected-marketplace-agent-rating-to-fixed-1-text">
                     ⭐ {agent.rating.toFixed(1)}
                 </span>
-                <span className="truncate text-xs text-slate-500">By {agent.author}</span>
+                <span className="truncate text-xs text-slate-500" data-testid="business-protected-marketplace-by-agent-author-text">By {agent.author}</span>
             </div>
 
             <div className="px-6 pb-6 pt-4">
@@ -1023,7 +1024,7 @@ function AgentGridCard({
                         event.stopPropagation();
                         onViewDetails();
                     }}
-                    data-testid={`marketplace-agent-details-${agent.id}`}
+                    data-testid={`business-marketplace-agent-details-${agent.id}`}
                     className="w-full rounded-xl border-2 border-amber-500 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
                 >
                     View details
@@ -1053,7 +1054,7 @@ function AgentListCard({
                     onOpen();
                 }
             }}
-            data-testid={`marketplace-agent-card-${agent.id}`}
+            data-testid={`business-marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg sm:flex-row sm:items-center"
         >
             <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-50 text-xl ring-1 ring-amber-100">
@@ -1062,34 +1063,34 @@ function AgentListCard({
 
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-bold text-slate-900">{agent.name}</h3>
+                    <h3 className="text-base font-bold text-slate-900" data-testid="business-protected-marketplace-agent-heading">{agent.name}</h3>
 
-                    <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
+                    <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text-2">
                         {agent.category}
                     </span>
 
                     {agent.isNew ? (
-                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase text-amber-700">
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase text-amber-700" data-testid="business-protected-marketplace-new-text-2">
                             New
                         </span>
                     ) : null}
                 </div>
 
-                <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">
+                <p className="mt-1.5 line-clamp-2 text-sm text-slate-600" data-testid="business-protected-marketplace-agent-description-text-2">
                     {agent.description}
                 </p>
 
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                    <span>{agent.installs} installs</span>
-                    <span className="font-semibold text-amber-600">
+                    <span data-testid="business-protected-marketplace-agent-installs-text-2">{agent.installs} installs</span>
+                    <span className="font-semibold text-amber-600" data-testid="business-protected-marketplace-agent-rating-to-fixed-1-text-2">
                         ⭐ {agent.rating.toFixed(1)}
                     </span>
-                    <span>By {agent.author}</span>
+                    <span data-testid="business-protected-marketplace-by-agent-author-text-2">By {agent.author}</span>
                 </div>
             </div>
 
             <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-3">
-                <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white">
+                <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-protected-marketplace-agent-price-text-2">
                     ${agent.price}
                 </span>
 
@@ -1099,7 +1100,7 @@ function AgentListCard({
                         event.stopPropagation();
                         onViewDetails();
                     }}
-                    data-testid={`marketplace-agent-details-${agent.id}`}
+                    data-testid={`business-marketplace-agent-details-${agent.id}`}
                     className="rounded-xl border-2 border-amber-500 px-5 py-2 text-sm font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
                 >
                     View details
@@ -1140,7 +1141,7 @@ function AgentDetailsModal({
                 <button
                     type="button"
                     onClick={onClose}
-                    data-testid="marketplace-modal-close"
+                    data-testid="business-marketplace-modal-close"
                     className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full text-2xl font-light text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                     aria-label="Close modal"
                 >
@@ -1167,43 +1168,43 @@ function AgentDetailsModal({
 
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text-3">
                                     {agent.category}
                                 </span>
 
-                                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="business-protected-marketplace-agent-industry-all-industries-format-label-agent-text-2">
                                     {agent.industry === "all" ? "All industries" : formatLabel(agent.industry)}
                                 </span>
                             </div>
 
-                            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-[26px]">
+                            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-[26px]" data-testid="business-protected-marketplace-agent-heading-2">
                                 {agent.name}
                             </h2>
 
                             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                                <span className="font-semibold text-amber-500">
+                                <span className="font-semibold text-amber-500" data-testid="business-protected-marketplace-agent-rating-to-fixed-1-text-3">
                                     ★★★★★ {agent.rating.toFixed(1)}
                                 </span>
 
                                 <span className="text-slate-300">·</span>
 
-                                <span className="text-slate-500">{agent.installs} installs</span>
+                                <span className="text-slate-500" data-testid="business-protected-marketplace-agent-installs-text-3">{agent.installs} installs</span>
 
                                 <span className="text-slate-300">·</span>
 
-                                <span className="text-slate-500">By {agent.author}</span>
+                                <span className="text-slate-500" data-testid="business-protected-marketplace-by-agent-author-text-3">By {agent.author}</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <div className="overflow-y-auto px-6 py-7 sm:px-7">
-                    <p className="text-[17px] leading-8 text-slate-600">
+                    <p className="text-[17px] leading-8 text-slate-600" data-testid="business-protected-marketplace-agent-description-text-3">
                         {agent.description}
                     </p>
 
                     <div className="mt-7">
-                        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
+                        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400" data-testid="business-protected-marketplace-what-you-get-heading">
                             What you get
                         </h3>
 
@@ -1211,7 +1212,7 @@ function AgentDetailsModal({
                             {features.map((feature) => (
                                 <div key={feature} className="flex items-start gap-3">
                                     <span className="mt-0.5 text-sm font-black text-amber-500">✓</span>
-                                    <p className="text-sm leading-6 text-slate-600">{feature}</p>
+                                    <p className="text-sm leading-6 text-slate-600" data-testid="business-protected-marketplace-feature-text">{feature}</p>
                                 </div>
                             ))}
                         </div>
@@ -1219,7 +1220,7 @@ function AgentDetailsModal({
 
                     {agent.requiredConnectors.length ? (
                         <div className="mt-7">
-                            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
+                            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400" data-testid="business-protected-marketplace-required-connectors-heading">
                                 Required connectors
                             </h3>
 
@@ -1228,7 +1229,7 @@ function AgentDetailsModal({
                                     <span
                                         key={connector}
                                         className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"
-                                    >
+                                     data-testid="business-protected-marketplace-connector-text">
                                         {connector}
                                     </span>
                                 ))}
@@ -1238,7 +1239,7 @@ function AgentDetailsModal({
 
                     {agent.supportedLlms.length ? (
                         <div className="mt-7">
-                            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
+                            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400" data-testid="business-protected-marketplace-supported-llms-heading">
                                 Supported LLMs
                             </h3>
 
@@ -1247,7 +1248,7 @@ function AgentDetailsModal({
                                     <span
                                         key={llm}
                                         className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
-                                    >
+                                     data-testid="business-protected-marketplace-llm-text">
                                         {llm}
                                     </span>
                                 ))}
@@ -1258,17 +1259,17 @@ function AgentDetailsModal({
 
                 <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                     <div className="flex items-end gap-2">
-                        <span className="text-3xl font-black tracking-tight text-slate-950">
+                        <span className="text-3xl font-black tracking-tight text-slate-950" data-testid="business-protected-marketplace-agent-price-text-3">
                             ${agent.price}
                         </span>
-                        <span className="pb-1 text-sm font-medium text-slate-400">one-time</span>
+                        <span className="pb-1 text-sm font-medium text-slate-400" data-testid="business-protected-marketplace-one-time-text-2">one-time</span>
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row">
                         <button
                             type="button"
                             onClick={onOpenAgent}
-                            data-testid="marketplace-modal-start-trial"
+                            data-testid="business-marketplace-modal-start-trial"
                             className="inline-flex min-w-[150px] items-center justify-center rounded-xl border-2 border-amber-500 bg-white px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
                         >
                             Start free trial
@@ -1277,7 +1278,7 @@ function AgentDetailsModal({
                         <button
                             type="button"
                             onClick={onOpenAgent}
-                            data-testid="marketplace-modal-install"
+                            data-testid="business-marketplace-modal-install"
                             className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
                         >
                             <span className="text-base">⇩</span>
@@ -1311,12 +1312,12 @@ function FooterGroup({
 }) {
     return (
         <div>
-            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+            <h4 className="text-sm font-semibold text-slate-900" data-testid="business-protected-marketplace-title-heading">{title}</h4>
 
             <ul className="mt-3 space-y-2">
                 {items.map((item) => (
-                    <li key={item.label}>
-                        <Link
+                    <li key={item.label} data-testid="business-protected-marketplace-label-item">
+                        <Link data-testid="business-marketplace-footer-link"
                             href={item.href as any}
                             className="text-sm text-slate-500 transition hover:text-amber-600"
                         >

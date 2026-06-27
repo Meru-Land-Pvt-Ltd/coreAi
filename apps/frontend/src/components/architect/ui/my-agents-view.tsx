@@ -13,7 +13,7 @@ import type { ArchitectListing } from "@/components/architect/features/types";
 
 function AgentGlyph() {
   return (
-    <svg data-testid="components-architect-ui-my-agents-view-svg-1"
+    <svg
       className="h-5 w-5"
       viewBox="0 0 24 24"
       fill="none"
@@ -22,25 +22,26 @@ function AgentGlyph() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <rect data-testid="components-architect-ui-my-agents-view-rect-1" x="4" y="8" width="16" height="12" rx="2.5" />
-      <path data-testid="components-architect-ui-my-agents-view-path-1" d="M12 8V4.5" />
-      <circle data-testid="components-architect-ui-my-agents-view-circle-1" cx="9" cy="14" r="1.1" />
-      <circle data-testid="components-architect-ui-my-agents-view-circle-2" cx="15" cy="14" r="1.1" />
+      <rect x="4" y="8" width="16" height="12" rx="2.5" />
+      <path d="M12 8V4.5" />
+      <circle cx="9" cy="14" r="1.1" />
+      <circle cx="15" cy="14" r="1.1" />
     </svg>
   );
 }
 
 function EmptyAgentsState() {
   return (
-    <div data-testid="components-architect-ui-my-agents-view-div-1" className="pt-2">
-      <Link data-testid="components-architect-ui-my-agents-view-link-1"
+    <div className="pt-2">
+      <Link
+        data-testid="my-agents-empty-publish-agent-link"
         href={"/architect/agents/publish" as Route}
         className="group relative flex min-h-[360px] w-full max-w-[448px] flex-col overflow-hidden rounded-[1.8rem] border border-dashed border-amber-300 bg-[#fffdf6] p-8 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:bg-white hover:shadow-xl hover:shadow-amber-500/10"
       >
-        <div data-testid="components-architect-ui-my-agents-view-div-2" className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.10),transparent_38%)] opacity-80" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.10),transparent_38%)] opacity-80" />
 
-        <div data-testid="components-architect-ui-my-agents-view-div-3" className="relative grid h-14 w-14 place-items-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/30 transition duration-300 group-hover:scale-105 group-hover:bg-amber-400">
-          <svg data-testid="components-architect-ui-my-agents-view-svg-2"
+        <div className="relative grid h-14 w-14 place-items-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/30 transition duration-300 group-hover:scale-105 group-hover:bg-amber-400">
+          <svg
             className="h-8 w-8"
             viewBox="0 0 24 24"
             fill="none"
@@ -50,17 +51,17 @@ function EmptyAgentsState() {
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <path data-testid="components-architect-ui-my-agents-view-path-2" d="M12 5v14" />
-            <path data-testid="components-architect-ui-my-agents-view-path-3" d="M5 12h14" />
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
           </svg>
         </div>
 
-        <div data-testid="components-architect-ui-my-agents-view-div-4" className="relative mt-auto">
-          <h3 data-testid="components-architect-ui-my-agents-view-h3-1" className="text-2xl font-black tracking-tight text-slate-950">
+        <div className="relative mt-auto">
+          <h3 className="text-2xl font-black tracking-tight text-slate-950" data-testid="architect-ui-my-agents-view-publish-new-agent-heading">
             Publish New Agent
           </h3>
 
-          <p data-testid="components-architect-ui-my-agents-view-p-1" className="mt-3 max-w-sm text-sm font-semibold leading-6 text-slate-500">
+          <p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-slate-500" data-testid="architect-ui-my-agents-view-start-with-an-empty-canvas-then-load-text">
             Start with an empty canvas. Then load Missed Call Text-Back or build
             your own flow.
           </p>
@@ -72,36 +73,36 @@ function EmptyAgentsState() {
 
 function AgentRow({ agent }: { agent: ArchitectListing }) {
   return (
-    <div data-testid="components-architect-ui-my-agents-view-div-5" className="grid gap-4 border-b border-amber-100/80 px-5 py-5 transition hover:bg-white/70 lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.55fr_0.45fr] lg:items-center">
-      <div data-testid="components-architect-ui-my-agents-view-div-6" className="flex min-w-0 items-start gap-4">
-        <span data-testid="components-architect-ui-my-agents-view-span-1" className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-700 ring-1 ring-amber-200">
+    <div className="grid gap-4 border-b border-amber-100/80 px-5 py-5 transition hover:bg-white/70 lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.55fr_0.45fr] lg:items-center">
+      <div className="flex min-w-0 items-start gap-4">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-700 ring-1 ring-amber-200">
           <AgentGlyph />
         </span>
 
-        <div data-testid="components-architect-ui-my-agents-view-div-7" className="min-w-0">
-          <div data-testid="components-architect-ui-my-agents-view-div-8" className="flex flex-wrap items-center gap-2">
-            <h2 data-testid="components-architect-ui-my-agents-view-h2-1" className="truncate text-base font-black text-slate-950">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="truncate text-base font-black text-slate-950" data-testid="architect-ui-my-agents-view-agent-heading">
               {agent.name}
             </h2>
             <ArchitectStatusPill status={agent.status} />
           </div>
 
-          <p data-testid="components-architect-ui-my-agents-view-p-2" className="mt-1 line-clamp-2 max-w-3xl text-sm leading-6 text-slate-600">
+          <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-6 text-slate-600" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
             {agent.shortDescription || "No description added yet."}
           </p>
 
-          <div data-testid="components-architect-ui-my-agents-view-div-9" className="mt-3 flex flex-wrap gap-2 lg:hidden">
+          <div className="mt-3 flex flex-wrap gap-2 lg:hidden">
             {agent.tags.length ? (
               agent.tags.map((tag) => (
-                <span data-testid="components-architect-ui-my-agents-view-span-2"
+                <span
                   key={`${agent.id}-${tag}`}
                   className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-amber-100"
-                >
+                 data-testid="architect-ui-my-agents-view-tag-text">
                   {tag}
                 </span>
               ))
             ) : (
-              <span data-testid="components-architect-ui-my-agents-view-span-3" className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-amber-100">
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-amber-100" data-testid="architect-ui-my-agents-view-no-tags-text">
                 No tags
               </span>
             )}
@@ -109,47 +110,48 @@ function AgentRow({ agent }: { agent: ArchitectListing }) {
         </div>
       </div>
 
-      <div data-testid="components-architect-ui-my-agents-view-div-10" className="hidden flex-wrap gap-2 lg:flex">
+      <div className="hidden flex-wrap gap-2 lg:flex">
         {agent.tags.length ? (
           agent.tags.slice(0, 3).map((tag) => (
-            <span data-testid="components-architect-ui-my-agents-view-span-4"
+            <span
               key={`${agent.id}-${tag}`}
               className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-amber-100"
-            >
+             data-testid="architect-ui-my-agents-view-tag-text-2">
               {tag}
             </span>
           ))
         ) : (
-          <span data-testid="components-architect-ui-my-agents-view-span-5" className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-amber-100">
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-amber-100" data-testid="architect-ui-my-agents-view-no-tags-text-2">
             No tags
           </span>
         )}
       </div>
 
-      <div data-testid="components-architect-ui-my-agents-view-div-11">
-        <p data-testid="components-architect-ui-my-agents-view-p-3" className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:hidden">
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:hidden" data-testid="architect-ui-my-agents-view-price-text">
           Price
         </p>
-        <p data-testid="components-architect-ui-my-agents-view-p-4" className="text-sm font-black text-slate-950">
+        <p className="text-sm font-black text-slate-950" data-testid="architect-ui-my-agents-view-format-money-agent-price-cents-text">
           {formatMoney(agent.priceCents)}
         </p>
       </div>
 
-      <div data-testid="components-architect-ui-my-agents-view-div-12">
-        <p data-testid="components-architect-ui-my-agents-view-p-5" className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:hidden">
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:hidden" data-testid="architect-ui-my-agents-view-created-text">
           Created
         </p>
-        <p data-testid="components-architect-ui-my-agents-view-p-6" className="text-sm font-bold text-slate-600">
+        <p className="text-sm font-bold text-slate-600" data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text">
           {formatDate(agent.createdAt)}
         </p>
       </div>
 
-      <div data-testid="components-architect-ui-my-agents-view-div-13" className="flex items-center justify-between gap-3 lg:justify-end">
-        <p data-testid="components-architect-ui-my-agents-view-p-7" className="max-w-[12rem] truncate text-xs font-semibold text-slate-500 lg:hidden">
+      <div className="flex items-center justify-between gap-3 lg:justify-end">
+        <p className="max-w-[12rem] truncate text-xs font-semibold text-slate-500 lg:hidden" data-testid="architect-ui-my-agents-view-agent-workflow-from-agent-workflow-marketplace-package-text">
           {agent.workflow?.name ? `From ${agent.workflow.name}` : "Marketplace package"}
         </p>
 
-        <Link data-testid="components-architect-ui-my-agents-view-link-2"
+        <Link
+          data-testid={`my-agents-update-${agent.id}-link`}
           href={
             (agent.workflowId
               ? `/architect/workflows/${agent.workflowId}/builder`
@@ -193,29 +195,31 @@ export function MyAgentsView() {
   );
 
   return (
-    <div data-testid="components-architect-ui-my-agents-view-div-14" className="-m-4 min-h-screen bg-[#fffaf3] p-4 sm:-m-6 sm:p-6 lg:-m-8 lg:p-8">
-      <section data-testid="components-architect-ui-my-agents-view-section-1" className="px-1 py-2 sm:px-2">
-        <div data-testid="components-architect-ui-my-agents-view-div-15" className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
-          <div data-testid="components-architect-ui-my-agents-view-div-16">
-            <h1 data-testid="components-architect-ui-my-agents-view-h1-1" className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+    <div className="-m-4 min-h-screen bg-[#fffaf3] p-4 sm:-m-6 sm:p-6 lg:-m-8 lg:p-8">
+      <section className="px-1 py-2 sm:px-2">
+        <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
+          <div>
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl" data-testid="architect-ui-my-agents-view-agents-heading">
               My Agents
             </h1>
 
-            <p data-testid="components-architect-ui-my-agents-view-p-8" className="mt-3 max-w-4xl text-sm leading-6 text-slate-600 sm:text-base">
+            <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-600 sm:text-base" data-testid="architect-ui-my-agents-view-manage-marketplace-agents-from-one-clean-workspace-text">
               Manage marketplace agents from one clean workspace. Track drafts, reviews,
               approvals, pricing, and published packages without heavy card layouts.
             </p>
           </div>
 
-          <div data-testid="components-architect-ui-my-agents-view-div-17" className="flex flex-col gap-3 sm:flex-row">
-            <Link data-testid="components-architect-ui-my-agents-view-link-3"
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              data-testid="my-agents-build-workflow-link"
               href={"/architect/workflows" as Route}
               className="inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-amber-400 hover:text-amber-700"
             >
               Build Workflow
             </Link>
 
-            <Link data-testid="components-architect-ui-my-agents-view-link-4"
+            <Link
+              data-testid="my-agents-publish-agent-link"
               href={"/architect/agents/publish" as Route}
               className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400"
             >
@@ -224,41 +228,41 @@ export function MyAgentsView() {
           </div>
         </div>
 
-        <div data-testid="components-architect-ui-my-agents-view-div-18" className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div data-testid="components-architect-ui-my-agents-view-div-19" className="border-l-4 border-amber-500 bg-white/70 px-5 py-4">
-            <p data-testid="components-architect-ui-my-agents-view-p-9" className="text-xs font-bold text-slate-500">Total agents</p>
-            <p data-testid="components-architect-ui-my-agents-view-p-10" className="mt-1 text-3xl font-black text-slate-950">{counts.total}</p>
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="border-l-4 border-amber-500 bg-white/70 px-5 py-4">
+            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-total-agents-text">Total agents</p>
+            <p className="mt-1 text-3xl font-black text-slate-950" data-testid="architect-ui-my-agents-view-counts-total-text">{counts.total}</p>
           </div>
 
-          <div data-testid="components-architect-ui-my-agents-view-div-20" className="border-l-4 border-emerald-500 bg-white/70 px-5 py-4">
-            <p data-testid="components-architect-ui-my-agents-view-p-11" className="text-xs font-bold text-slate-500">Approved</p>
-            <p data-testid="components-architect-ui-my-agents-view-p-12" className="mt-1 text-3xl font-black text-emerald-700">{counts.approved}</p>
+          <div className="border-l-4 border-emerald-500 bg-white/70 px-5 py-4">
+            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-approved-text">Approved</p>
+            <p className="mt-1 text-3xl font-black text-emerald-700" data-testid="architect-ui-my-agents-view-counts-approved-text">{counts.approved}</p>
           </div>
 
-          <div data-testid="components-architect-ui-my-agents-view-div-21" className="border-l-4 border-orange-500 bg-white/70 px-5 py-4">
-            <p data-testid="components-architect-ui-my-agents-view-p-13" className="text-xs font-bold text-slate-500">In review</p>
-            <p data-testid="components-architect-ui-my-agents-view-p-14" className="mt-1 text-3xl font-black text-orange-700">{counts.review}</p>
+          <div className="border-l-4 border-orange-500 bg-white/70 px-5 py-4">
+            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-in-review-text">In review</p>
+            <p className="mt-1 text-3xl font-black text-orange-700" data-testid="architect-ui-my-agents-view-counts-review-text">{counts.review}</p>
           </div>
 
-          <div data-testid="components-architect-ui-my-agents-view-div-22" className="border-l-4 border-slate-400 bg-white/70 px-5 py-4">
-            <p data-testid="components-architect-ui-my-agents-view-p-15" className="text-xs font-bold text-slate-500">Drafts</p>
-            <p data-testid="components-architect-ui-my-agents-view-p-16" className="mt-1 text-3xl font-black text-slate-800">{counts.draft}</p>
+          <div className="border-l-4 border-slate-400 bg-white/70 px-5 py-4">
+            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-drafts-text">Drafts</p>
+            <p className="mt-1 text-3xl font-black text-slate-800" data-testid="architect-ui-my-agents-view-counts-draft-text">{counts.draft}</p>
           </div>
         </div>
       </section>
 
-      <section data-testid="components-architect-ui-my-agents-view-section-2" className="mt-10">
-        <div data-testid="components-architect-ui-my-agents-view-div-23" className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div data-testid="components-architect-ui-my-agents-view-div-24">
-            <p data-testid="components-architect-ui-my-agents-view-p-17" className="text-[11px] font-black uppercase tracking-[0.24em] text-amber-600">
+      <section className="mt-10">
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-amber-600" data-testid="architect-ui-my-agents-view-inventory-text">
               Inventory
             </p>
 
-            <h2 data-testid="components-architect-ui-my-agents-view-h2-2" className="mt-1 text-2xl font-black tracking-tight text-slate-950">
+            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950" data-testid="architect-ui-my-agents-view-marketplace-inventory-heading">
               Marketplace inventory
             </h2>
 
-            <p data-testid="components-architect-ui-my-agents-view-p-18" className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-slate-600" data-testid="architect-ui-my-agents-view-loading-your-agents-marketplace-package-agents-1-text">
               {loading
                 ? "Loading your agents..."
                 : agents.length
@@ -269,22 +273,22 @@ export function MyAgentsView() {
         </div>
 
         {agents.length ? (
-          <div data-testid="components-architect-ui-my-agents-view-div-25" className="hidden border-b border-amber-100 pb-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:grid lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.55fr_0.45fr]">
-            <span data-testid="components-architect-ui-my-agents-view-span-6">Agent</span>
-            <span data-testid="components-architect-ui-my-agents-view-span-7">Tags</span>
-            <span data-testid="components-architect-ui-my-agents-view-span-8">Price</span>
-            <span data-testid="components-architect-ui-my-agents-view-span-9">Created</span>
-            <span data-testid="components-architect-ui-my-agents-view-span-10" className="text-right">Action</span>
+          <div className="hidden border-b border-amber-100 pb-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:grid lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.55fr_0.45fr]">
+            <span data-testid="architect-ui-my-agents-view-agent-text">Agent</span>
+            <span data-testid="architect-ui-my-agents-view-tags-text">Tags</span>
+            <span data-testid="architect-ui-my-agents-view-price-text-2">Price</span>
+            <span data-testid="architect-ui-my-agents-view-created-text-2">Created</span>
+            <span className="text-right" data-testid="architect-ui-my-agents-view-action-text">Action</span>
           </div>
         ) : null}
 
         {loading ? (
-          <div data-testid="components-architect-ui-my-agents-view-div-26" className="py-10">
-            <div data-testid="components-architect-ui-my-agents-view-div-27" className="h-3 w-48 animate-pulse rounded-full bg-amber-200" />
+          <div className="py-10">
+            <div className="h-3 w-48 animate-pulse rounded-full bg-amber-200" />
 
-            <div data-testid="components-architect-ui-my-agents-view-div-28" className="mt-6 space-y-4">
+            <div className="mt-6 space-y-4">
               {Array.from({ length: 4 }).map((_, index) => (
-                <div data-testid="components-architect-ui-my-agents-view-div-29"
+                <div
                   key={index}
                   className="h-20 animate-pulse rounded-2xl bg-white/70 ring-1 ring-amber-100"
                 />
@@ -292,13 +296,13 @@ export function MyAgentsView() {
             </div>
           </div>
         ) : agents.length ? (
-          <div data-testid="components-architect-ui-my-agents-view-div-30" className="divide-y divide-amber-100/80">
+          <div className="divide-y divide-amber-100/80">
             {agents.map((agent) => (
               <AgentRow key={agent.id} agent={agent} />
             ))}
           </div>
         ) : (
-          <div data-testid="components-architect-ui-my-agents-view-div-31" className="pt-4">
+          <div className="pt-4">
             <EmptyAgentsState />
           </div>
         )}

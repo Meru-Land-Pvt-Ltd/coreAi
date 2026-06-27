@@ -306,7 +306,7 @@ function SetupWizard() {
   return (
     <form data-testid="business-setup-form" onSubmit={handleSubmit} className="space-y-5">
       <div data-testid="business-setup-number-notice" className={cardClass}>
-        <h2 className={sectionTitleClass}>CoreAI phone number</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-core-ai-phone-number-heading">CoreAI phone number</h2>
         <p data-testid="business-setup-number-notice-text" className="mt-2 text-sm text-orange-800/80">
           {assignedNumber
             ? "Your CoreAI phone number is assigned and ready."
@@ -320,7 +320,7 @@ function SetupWizard() {
       </div>
 
       <div data-testid="business-setup-basics" className={cardClass}>
-        <h2 className={sectionTitleClass}>Business details</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-business-details-heading">Business details</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
             <label data-testid="business-setup-label-name" htmlFor="business-name" className={labelClass}>
@@ -354,7 +354,7 @@ function SetupWizard() {
       </div>
 
       <div data-testid="business-setup-call-handling" className={cardClass}>
-        <h2 className={sectionTitleClass}>Call handling</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-call-handling-heading">Call handling</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
             <label data-testid="business-setup-label-forward" htmlFor="forward-phone" className={labelClass}>
@@ -391,7 +391,7 @@ function SetupWizard() {
       </div>
 
       <div data-testid="business-setup-services" className={cardClass}>
-        <h2 className={sectionTitleClass}>Services</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-services-heading">Services</h2>
         <label data-testid="business-setup-label-services" htmlFor="services" className="sr-only">
           Services
         </label>
@@ -408,7 +408,7 @@ function SetupWizard() {
 
       <div data-testid="business-setup-faqs" className={cardClass}>
         <div className="flex items-center justify-between">
-          <h2 className={sectionTitleClass}>FAQs</h2>
+          <h2 className={sectionTitleClass} data-testid="business-agents-setup-faqs-heading">FAQs</h2>
           <button
             data-testid="business-setup-faq-add"
             type="button"
@@ -472,7 +472,7 @@ function SetupWizard() {
       </div>
 
       <div data-testid="business-setup-hours" className={cardClass}>
-        <h2 className={sectionTitleClass}>Business hours</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-business-hours-heading">Business hours</h2>
         <div className="mt-4 space-y-2">
           {hours.map((entry, index) => (
             <div
@@ -491,7 +491,7 @@ function SetupWizard() {
                 onChange={(event) => updateHours(index, { open: event.target.value })}
                 className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-orange-950 disabled:opacity-50"
               />
-              <span className="text-sm text-orange-700">to</span>
+              <span className="text-sm text-orange-700" data-testid="business-agents-setup-to-text">to</span>
               <input
                 data-testid="business-setup-hours-close"
                 type="time"
@@ -515,7 +515,7 @@ function SetupWizard() {
       </div>
 
       <div data-testid="business-setup-booking" className={cardClass}>
-        <h2 className={sectionTitleClass}>Booking &amp; tone</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-booking-and-tone-heading">Booking &amp; tone</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
             <label data-testid="business-setup-label-booking" htmlFor="booking-url" className={labelClass}>
@@ -567,7 +567,7 @@ function SetupWizard() {
 
       <div data-testid="business-setup-knowledge" className={cardClass}>
         <div className="flex items-center justify-between">
-          <h2 className={sectionTitleClass}>Knowledge base</h2>
+          <h2 className={sectionTitleClass} data-testid="business-agents-setup-knowledge-base-heading">Knowledge base</h2>
           <button
             data-testid="business-setup-knowledge-add"
             type="button"
@@ -633,7 +633,7 @@ function SetupWizard() {
       </div>
 
       <div data-testid="business-setup-integrations" className={cardClass}>
-        <h2 className={sectionTitleClass}>Integrations</h2>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-integrations-heading">Integrations</h2>
 
         <div data-testid="business-setup-calendar" className="mt-4 rounded-2xl bg-orange-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">

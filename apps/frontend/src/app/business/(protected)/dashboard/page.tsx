@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
@@ -312,12 +313,12 @@ export default function BusinessDashboardPage() {
         <main className="p-5 sm:p-8">
             <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
                 <div>
-                    <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900">
+                    <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900" data-testid="business-protected-dashboard-get-greeting-user-first-heading">
                         {getGreeting()}, {userFirstName}
                         <WaveIcon />
                     </h1>
 
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-slate-500" data-testid="business-protected-dashboard-here-apos-s-how-your-agents-performed-text">
                         Here&apos;s how your agents performed today.
                     </p>
                 </div>
@@ -332,7 +333,7 @@ export default function BusinessDashboardPage() {
                     </span>
 
                     {fullDate ? (
-                        <span className="hidden text-sm font-medium text-slate-600 md:inline">
+                        <span className="hidden text-sm font-medium text-slate-600 md:inline" data-testid="business-protected-dashboard-full-date-text">
                             {fullDate}
                         </span>
                     ) : null}
@@ -351,7 +352,7 @@ export default function BusinessDashboardPage() {
                             aria-expanded={bellOpen}
                         >
                             <Icon name="bell" className="h-5 w-5" />
-                            <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-gray-50">
+                            <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-gray-50" data-testid="business-protected-dashboard-3-text">
                                 3
                             </span>
                         </button>
@@ -359,7 +360,7 @@ export default function BusinessDashboardPage() {
                         {bellOpen ? (
                             <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl">
                                 <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                                    <p className="text-sm font-bold text-slate-900">Notifications</p>
+                                    <p className="text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-notifications-text">Notifications</p>
                                     <button type="button" data-testid="dashboard-mark-all-read" className="text-xs font-medium text-amber-600 hover:text-amber-700">
                                         Mark all read
                                     </button>
@@ -367,9 +368,9 @@ export default function BusinessDashboardPage() {
 
                                 <div className="divide-y divide-gray-50">
                                     {notifications.map((item) => (
-                                        <Link
+                                        <Link data-testid="dashboard-control-link"
                                             key={item.title}
-                                            href="#"
+                                            href={"#" as Route}
                                             className="flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50"
                                         >
                                             <span
@@ -384,15 +385,15 @@ export default function BusinessDashboardPage() {
                                             </span>
 
                                             <div className="min-w-0">
-                                                <p className="text-sm font-medium text-slate-800">{item.title}</p>
-                                                <p className="mt-0.5 text-xs text-slate-400">{item.meta}</p>
+                                                <p className="text-sm font-medium text-slate-800" data-testid="business-protected-dashboard-title-text">{item.title}</p>
+                                                <p className="mt-0.5 text-xs text-slate-400" data-testid="business-protected-dashboard-meta-text">{item.meta}</p>
                                             </div>
                                         </Link>
                                     ))}
                                 </div>
 
-                                <Link
-                                    href="#"
+                                <Link data-testid="dashboard-view-all-notifications-link"
+                                    href={"#" as Route}
                                     className="block border-t border-gray-100 px-4 py-3 text-center text-sm font-medium text-amber-600 transition-colors hover:bg-amber-50"
                                 >
                                     View all notifications
@@ -408,7 +409,7 @@ export default function BusinessDashboardPage() {
                         className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:bg-amber-600 hover:shadow-md"
                     >
                         <Icon name="plus" className="h-4 w-4" />
-                        <span className="hidden sm:inline">Add Agent</span>
+                        <span className="hidden sm:inline" data-testid="business-protected-dashboard-add-agent-text">Add Agent</span>
                     </button>
                 </div>
             </div>
@@ -421,38 +422,38 @@ export default function BusinessDashboardPage() {
                 ) : (
                     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
                         <div data-testid="dashboard-overview-subscription">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Subscription</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-subscription-text">Subscription</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-subscription-active-overview-subscription-status-inactive">
                                 {overview?.subscription.active ? "Active" : (overview?.subscription.status ?? "inactive")}
                             </p>
                         </div>
                         <div data-testid="dashboard-overview-agent">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Installed agent</p>
-                            <p className="mt-1 truncate text-sm font-bold text-slate-900">{overview?.installedAgent?.name ?? "Not installed"}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-installed-agent-text">Installed agent</p>
+                            <p className="mt-1 truncate text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-installed-agent-not-installed-text">{overview?.installedAgent?.name ?? "Not installed"}</p>
                         </div>
                         <div data-testid="dashboard-overview-number">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">CoreAI number</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.phoneNumber?.phoneNumber ?? "Not assigned"}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-core-ai-number-text">CoreAI number</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-phone-number-phone-number-not-assigned-text">{overview?.phoneNumber?.phoneNumber ?? "Not assigned"}</p>
                         </div>
                         <div data-testid="dashboard-overview-leads">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Leads</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.counts.leads ?? 0}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-leads-text">Leads</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-counts-leads-0-text">{overview?.counts.leads ?? 0}</p>
                         </div>
                         <div data-testid="dashboard-overview-conversations">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Conversations</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.counts.conversations ?? 0}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-conversations-text">Conversations</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-counts-conversations-0-text">{overview?.counts.conversations ?? 0}</p>
                         </div>
                         <div data-testid="dashboard-overview-appointments">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Appointments</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.counts.appointments ?? 0}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-appointments-text">Appointments</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-counts-appointments-0-text">{overview?.counts.appointments ?? 0}</p>
                         </div>
                         <div data-testid="dashboard-overview-calendar">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Calendar</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.calendarConnected ? "Connected" : "Not connected"}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-calendar-text">Calendar</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-calendar-connected-not-connected-text">{overview?.calendarConnected ? "Connected" : "Not connected"}</p>
                         </div>
                         <div data-testid="dashboard-overview-missed">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Recent missed calls</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.recentMissedCalls.length ?? 0}</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-recent-missed-calls-text">Recent missed calls</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-recent-missed-calls-0-text">{overview?.recentMissedCalls.length ?? 0}</p>
                         </div>
                     </div>
                 )}
@@ -471,9 +472,9 @@ export default function BusinessDashboardPage() {
                         className="scroll-mt-24 overflow-visible rounded-2xl border border-gray-100 bg-white shadow-sm"
                     >
                         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-                            <h2 className="text-lg font-bold text-slate-900">My Agents</h2>
-                            <Link
-                                href="#"
+                            <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agents-heading">My Agents</h2>
+                            <Link data-testid="dashboard-view-all-link"
+                                href={"#" as Route}
                                 className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 transition-colors hover:text-amber-700"
                             >
                                 View all <span aria-hidden="true">→</span>
@@ -497,9 +498,9 @@ export default function BusinessDashboardPage() {
 
                     <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
                         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-                            <h2 className="text-lg font-bold text-slate-900">
+                            <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agent-activity-last-30-days-heading">
                                 Agent Activity{" "}
-                                <span className="font-medium text-slate-400">— Last 30 days</span>
+                                <span className="font-medium text-slate-400" data-testid="business-protected-dashboard-last-30-days-text">— Last 30 days</span>
                             </h2>
 
                             <div className="flex gap-1 rounded-xl bg-gray-50 p-1" role="tablist" aria-label="Chart metric">
@@ -525,7 +526,7 @@ export default function BusinessDashboardPage() {
                         <div className="flex gap-3">
                             <div className="flex h-64 w-12 flex-col justify-between py-0 text-right text-xs text-slate-400">
                                 {yAxis.map((label) => (
-                                    <span key={label}>{label}</span>
+                                    <span key={label} data-testid="business-protected-dashboard-label-text">{label}</span>
                                 ))}
                             </div>
 
@@ -572,7 +573,7 @@ export default function BusinessDashboardPage() {
                             <div className="w-12" />
                             <div className="flex flex-1 justify-between text-xs text-slate-400">
                                 {chartLabels.map((label) => (
-                                    <span key={label}>{label}</span>
+                                    <span key={label} data-testid="business-protected-dashboard-label-text-2">{label}</span>
                                 ))}
                             </div>
                         </div>
@@ -585,7 +586,7 @@ export default function BusinessDashboardPage() {
                         className="scroll-mt-24 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
                     >
                         <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
-                            <h2 className="font-bold text-slate-900">Live Activity</h2>
+                            <h2 className="font-bold text-slate-900" data-testid="business-protected-dashboard-live-activity-heading">Live Activity</h2>
                             <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-green-600">
                                 <span className="relative flex h-2 w-2">
                                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
@@ -603,10 +604,10 @@ export default function BusinessDashboardPage() {
                     </section>
 
                     <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                        <h2 className="mb-4 font-bold text-slate-900">Quick Actions</h2>
+                        <h2 className="mb-4 font-bold text-slate-900" data-testid="business-protected-dashboard-quick-actions-heading">Quick Actions</h2>
 
                         <div className="flex flex-col gap-3">
-                            <Link
+                            <Link data-testid="dashboard-browse-more-agents-link"
                                 href={BUSINESS_MARKETPLACE_PATH}
                                 className="w-full rounded-xl border-2 border-amber-500 py-3 text-center font-semibold text-amber-600 transition-all duration-300 hover:bg-amber-500 hover:text-white"
                             >
@@ -621,7 +622,7 @@ export default function BusinessDashboardPage() {
                                 Pause all agents
                             </button>
 
-                            <Link
+                            <Link data-testid="dashboard-get-support-link"
                                 href={HELP_PATH}
                                 className="w-full rounded-xl border border-gray-200 py-3 text-center text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700"
                             >
@@ -635,8 +636,8 @@ export default function BusinessDashboardPage() {
                         className="scroll-mt-24 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 p-5"
                     >
                         <div className="flex items-center justify-between">
-                            <h2 className="font-bold text-slate-900">January summary</h2>
-                            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                            <h2 className="font-bold text-slate-900" data-testid="business-protected-dashboard-january-summary-heading">January summary</h2>
+                            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-amber-700" data-testid="business-protected-dashboard-day-15-of-31-text">
                                 Day 15 of 31
                             </span>
                         </div>
@@ -651,18 +652,18 @@ export default function BusinessDashboardPage() {
                         <div className="my-3 border-t border-amber-200" />
 
                         <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-slate-900">Total cost</span>
-                            <span className="text-sm font-bold text-slate-900">$62.40</span>
+                            <span className="text-sm font-semibold text-slate-900" data-testid="business-protected-dashboard-total-cost-text">Total cost</span>
+                            <span className="text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-62-40-text">$62.40</span>
                         </div>
 
-                        <p className="mt-1 text-xs text-amber-700">
+                        <p className="mt-1 text-xs text-amber-700" data-testid="business-protected-dashboard-that-apos-s-just-0-42-per-text">
                             That&apos;s just $0.42 per customer interaction.
                         </p>
                     </section>
                 </div>
             </div>
 
-            <p className="mt-8 text-center text-xs text-slate-400">
+            <p className="mt-8 text-center text-xs text-slate-400" data-testid="business-protected-dashboard-core-ai-agent-platform-syncs-in-real-text">
                 CORE AI Agent Platform · Data syncs in real time · Last updated just now
             </p>
         </main>
@@ -678,27 +679,27 @@ function MetricCard({ metric }: { metric: MetricCard }) {
                 </span>
 
                 {metric.trend ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-600">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-600" data-testid="business-protected-dashboard-metric-trend-text">
                         <TrendIcon />
                         {metric.trend}
                     </span>
                 ) : null}
 
                 {metric.badge ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-600">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-600" data-testid="business-protected-dashboard-metric-badge-text">
                         {metric.badge}
                     </span>
                 ) : null}
             </div>
 
-            <p className="mt-5 text-sm font-medium text-slate-500">{metric.label}</p>
-            <p className="mt-1 text-3xl font-black tracking-tight text-slate-900">
+            <p className="mt-5 text-sm font-medium text-slate-500" data-testid="business-protected-dashboard-metric-label-text">{metric.label}</p>
+            <p className="mt-1 text-3xl font-black tracking-tight text-slate-900" data-testid="business-protected-dashboard-metric-text">
                 {metric.value}
             </p>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-slate-400" data-testid="business-protected-dashboard-metric-subtitle-includes-vs-last-month-this-text">
                 {metric.subtitle.includes("vs last month") ? (
                     <>
-                        this month · <span className="text-green-600">vs last month</span>
+                        this month · <span className="text-green-600" data-testid="business-protected-dashboard-vs-last-month-text">vs last month</span>
                     </>
                 ) : (
                     metric.subtitle
@@ -719,7 +720,7 @@ function AgentRow({
 }) {
     return (
         <div className="group flex flex-wrap items-center gap-4 px-6 py-5 transition-colors hover:bg-gray-50">
-            <span className="relative flex h-2.5 w-2.5 shrink-0" title="Active">
+            <span className="relative flex h-2.5 w-2.5 shrink-0" title="Active" data-testid="business-protected-dashboard-active-text">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
             </span>
@@ -729,19 +730,19 @@ function AgentRow({
             </span>
 
             <div className="min-w-0 flex-1">
-                <p className="font-semibold text-slate-900">{agent.name}</p>
-                <p className="text-xs text-slate-400">{agent.since}</p>
+                <p className="font-semibold text-slate-900" data-testid="business-protected-dashboard-agent-text">{agent.name}</p>
+                <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-agent-since-text">{agent.since}</p>
             </div>
 
             <div className="flex items-center gap-8">
                 <div className="text-right">
-                    <p className="text-sm font-semibold text-slate-700">{agent.runs}</p>
-                    <p className="text-xs text-slate-400">this month</p>
+                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-runs-text">{agent.runs}</p>
+                    <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-this-month-text">this month</p>
                 </div>
 
                 <div className="text-right">
-                    <p className="text-sm font-semibold text-slate-700">{agent.cost}</p>
-                    <p className="text-xs text-slate-400">cost</p>
+                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">{agent.cost}</p>
+                    <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">cost</p>
                 </div>
             </div>
 
@@ -804,9 +805,9 @@ function ActivityItem({ activity }: { activity: Activity }) {
 
     return (
         <div className="px-5 py-4">
-            <p className="mb-1 text-xs text-slate-400">{activity.time}</p>
-            <p className="text-sm text-slate-700">{activity.text}</p>
-            <span className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`}>
+            <p className="mb-1 text-xs text-slate-400" data-testid="business-protected-dashboard-activity-time-text">{activity.time}</p>
+            <p className="text-sm text-slate-700" data-testid="business-protected-dashboard-activity-text">{activity.text}</p>
+            <span className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`} data-testid="business-protected-dashboard-activity-badge-activity-check-text">
                 {activity.badge}
                 {activity.check ? <CheckIcon /> : null}
             </span>
@@ -825,8 +826,8 @@ function SummaryRow({
 }) {
     return (
         <div className="flex justify-between">
-            <span className="text-slate-600">{label}</span>
-            <span className={`font-semibold ${green ? "text-green-700" : "text-slate-900"}`}>
+            <span className="text-slate-600" data-testid="business-protected-dashboard-label-text-3">{label}</span>
+            <span data-testid={`business-dashboard-detail-value-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className={`font-semibold ${green ? "text-green-700" : "text-slate-900"}`}>
                 {value}
             </span>
         </div>

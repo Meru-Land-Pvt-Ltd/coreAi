@@ -46,7 +46,7 @@ export default function BillingSuccessPage() {
                 <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">
                     <span className="text-2xl">✓</span>
                 </div>
-                <h1 className="mt-5 text-2xl font-black text-slate-950">Subscription confirmed</h1>
+                <h1 className="mt-5 text-2xl font-black text-slate-950" data-testid="business-protected-billing-success-subscription-confirmed-heading">Subscription confirmed</h1>
                 <p data-testid="business-billing-success-status" className="mt-3 text-sm font-semibold leading-6 text-slate-600">
                     {state === "checking"
                         ? "Confirming your subscription..."

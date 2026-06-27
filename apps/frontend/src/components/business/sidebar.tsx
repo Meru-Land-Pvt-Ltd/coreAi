@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -106,17 +107,17 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 aria-label="Primary"
             >
                 <div className="flex items-center gap-3 p-6">
-                    <a href="/business/dashboard" className="flex items-center gap-2.5" aria-label="CORE home">
+                    <a data-testid="business-sidebar-core-home-link" href={"/business/dashboard" as Route} className="flex items-center gap-2.5" aria-label="CORE home">
                         <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
                             <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
                             <circle cx="14" cy="14" r="4" fill="#fbbf24" />
                         </svg>
-                        <span className="text-xl font-extrabold tracking-tight text-amber-500">
+                        <span className="text-xl font-extrabold tracking-tight text-amber-500" data-testid="business-sidebar-core-text">
                             CORE
                         </span>
                     </a>
 
-                    <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:hidden">
+                    <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:hidden" data-testid="business-sidebar-beta-text">
                         Beta
                     </span>
 
@@ -138,7 +139,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             isBusinessNavItemActive(item, pathname, locationHash);
 
                         return (
-                            <Link
+                            <Link data-testid="business-sidebar-link"
                                 key={item.label}
                                 href={item.href as any}
                                 onClick={closeSidebar}
@@ -149,10 +150,10 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                                 aria-current={active ? "page" : undefined}
                             >
                                 <Icon name={item.icon} className="h-5 w-5" />
-                                <span>{item.label}</span>
+                                <span data-testid="business-sidebar-label-text">{item.label}</span>
 
                                 {item.count ? (
-                                    <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+                                    <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500" data-testid="business-sidebar-count-text">
                                         {item.count}
                                     </span>
                                 ) : null}
@@ -164,7 +165,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 <div className="mx-4 my-4 border-t border-gray-100" />
 
                 <div className="flex flex-col gap-1 px-3">
-                    <Link
+                    <Link data-testid="business-sidebar-marketplace-link"
                         href={BUSINESS_MARKETPLACE_PATH}
                         onClick={closeSidebar}
                         aria-current={marketplaceActive ? "page" : undefined}
@@ -174,7 +175,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             }`}
                     >
                         <Icon name="marketplace" className="h-[18px] w-[18px]" />
-                        <span>Marketplace</span>
+                        <span data-testid="business-sidebar-marketplace-text">Marketplace</span>
                         <Icon name="external" className="ml-auto h-3.5 w-3.5 text-slate-400" />
                     </Link>
 
@@ -182,15 +183,15 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
 
                 <div className="mt-auto border-t border-gray-100 p-4">
                     <div className="flex items-center gap-3">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700" data-testid="business-sidebar-initials-text">
                             {initials}
                         </span>
 
                         <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-slate-900">
+                            <p className="truncate text-sm font-semibold text-slate-900" data-testid="business-sidebar-display-text">
                                 {displayName}
                             </p>
-                            <p className="truncate text-xs text-slate-500">{subtitle}</p>
+                            <p className="truncate text-xs text-slate-500" data-testid="business-sidebar-subtitle-text">{subtitle}</p>
                         </div>
 
                         <div className="relative">
@@ -235,7 +236,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         <Icon name="menu" className="h-6 w-6" />
                     </button>
 
-                    <span className="text-sm font-bold tracking-tight text-slate-900">CORE</span>
+                    <span className="text-sm font-bold tracking-tight text-slate-900" data-testid="business-sidebar-core-text-2">CORE</span>
 
                     <span className="h-10 w-10" />
                 </div>

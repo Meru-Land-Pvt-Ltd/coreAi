@@ -304,20 +304,19 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
   }
 
   return (
-    <div data-testid="components-auth-auth-card-div-1" className="min-h-screen bg-gray-50 flex flex-col">
-      <header data-testid="components-auth-auth-card-header-1" className="w-full px-6 py-5">
-        <div data-testid="components-auth-auth-card-div-2" className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link data-testid="components-auth-auth-card-link-1" href={HOME_ROUTE} className="flex items-center gap-2">
-            <span data-testid="components-auth-auth-card-span-1" className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
-              <span data-testid="components-auth-auth-card-span-2" className="w-3 h-3 rounded-full bg-white" />
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <header className="w-full px-6 py-5">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <Link data-testid="auth-logo-home-link" href={HOME_ROUTE} className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
+              <span className="w-3 h-3 rounded-full bg-white" />
             </span>
-            <span data-testid="components-auth-auth-card-span-3" className="text-xl font-extrabold text-slate-900 tracking-tight">
+            <span className="text-xl font-extrabold text-slate-900 tracking-tight" data-testid="auth-auth-card-core-text">
               CORE
             </span>
           </Link>
 
-          <Link
-            data-testid="components-auth-auth-card-link-2"
+          <Link data-testid="auth-back-to-home-link"
             href={HOME_ROUTE}
             className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors duration-200"
           >
@@ -326,15 +325,15 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
         </div>
       </header>
 
-      <main data-testid="components-auth-auth-card-main-1" className="flex-1 flex items-center justify-center px-6 py-10">
-        <div data-testid="components-auth-auth-card-div-3" className="w-full max-w-md">
-          <div data-testid="components-auth-auth-card-div-4" className="bg-white shadow-lg rounded-2xl border border-gray-100 overflow-hidden">
-            <div data-testid="components-auth-auth-card-div-5"
+      <main className="flex-1 flex items-center justify-center px-6 py-10">
+        <div className="w-full max-w-md">
+          <div className="bg-white shadow-lg rounded-2xl border border-gray-100 overflow-hidden">
+            <div
               className="flex border-b border-gray-100"
               role="tablist"
               aria-label="Account type"
             >
-              <button data-testid="components-auth-auth-card-button-1"
+              <button data-testid="auth-role-business-tab"
                 type="button"
                 role="tab"
                 aria-selected={role === "BUSINESS"}
@@ -347,7 +346,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                 {roleContent.BUSINESS.tab}
               </button>
 
-              <button data-testid="components-auth-auth-card-button-2"
+              <button data-testid="auth-role-architect-tab"
                 type="button"
                 role="tab"
                 aria-selected={role === "ARCHITECT"}
@@ -361,70 +360,70 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
               </button>
             </div>
 
-            <div data-testid="components-auth-auth-card-div-6" className="p-8">
-              <p data-testid="components-auth-auth-card-p-1" className="text-center text-sm text-slate-500 mb-6">
+            <div className="p-8">
+              <p className="text-center text-sm text-slate-500 mb-6" data-testid="auth-auth-card-role-content-role-subtitle-text">
                 {roleContent[role].subtitle}
               </p>
 
               {step === 1 ? (
-                <div data-testid="components-auth-auth-card-div-7">
-                  <h1 data-testid="components-auth-auth-card-h1-1" className="text-2xl font-extrabold text-slate-900 text-center">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-slate-900 text-center" data-testid="auth-auth-card-welcome-to-core-heading">
                     Welcome to CORE
                   </h1>
 
-                  <p data-testid="components-auth-auth-card-p-2" className="mt-2 text-sm text-slate-600 text-center">
+                  <p className="mt-2 text-sm text-slate-600 text-center" data-testid="auth-auth-card-login-with-email-otp-or-google-text">
                     Login with email OTP or Google
                   </p>
 
-                  <button data-testid="components-auth-auth-card-button-3"
+                  <button data-testid="auth-google-login"
                     type="button"
                     onClick={handleGoogleLogin}
                     disabled={isGoogleLoading || isSending}
                     className="mt-6 flex h-14 w-full items-center justify-center gap-4 rounded-full border border-[#747775] bg-white px-6 text-[18px] font-medium text-[#1f1f1f] transition hover:bg-gray-50 active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <svg data-testid="components-auth-auth-card-svg-1"
+                    <svg
                       width="24"
                       height="24"
                       viewBox="0 0 48 48"
                       aria-hidden="true"
                       focusable="false"
                     >
-                      <path data-testid="components-auth-auth-card-path-1"
+                      <path
                         fill="#EA4335"
                         d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
                       />
-                      <path data-testid="components-auth-auth-card-path-2"
+                      <path
                         fill="#4285F4"
                         d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
                       />
-                      <path data-testid="components-auth-auth-card-path-3"
+                      <path
                         fill="#FBBC05"
                         d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"
                       />
-                      <path data-testid="components-auth-auth-card-path-4"
+                      <path
                         fill="#34A853"
                         d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
                       />
-                      <path data-testid="components-auth-auth-card-path-5" fill="none" d="M0 0h48v48H0z" />
+                      <path fill="none" d="M0 0h48v48H0z" />
                     </svg>
 
-                    <span data-testid="components-auth-auth-card-span-4">{isGoogleLoading ? "Connecting..." : "Continue with Google"}</span>
+                    <span data-testid="auth-auth-card-is-google-loading-connecting-continue-with-google-text">{isGoogleLoading ? "Connecting..." : "Continue with Google"}</span>
                   </button>
 
-                  <div data-testid="components-auth-auth-card-div-8" className="my-6 flex items-center gap-3">
-                    <div data-testid="components-auth-auth-card-div-9" className="h-px flex-1 bg-gray-100" />
-                    <span data-testid="components-auth-auth-card-span-5" className="text-xs font-medium text-slate-400">
+                  <div className="my-6 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-gray-100" />
+                    <span className="text-xs font-medium text-slate-400" data-testid="auth-auth-card-or-text">
                       OR
                     </span>
-                    <div data-testid="components-auth-auth-card-div-10" className="h-px flex-1 bg-gray-100" />
+                    <div className="h-px flex-1 bg-gray-100" />
                   </div>
 
-                  <form data-testid="components-auth-auth-card-form-1" onSubmit={handleEmailSubmit} noValidate>
-                    <label data-testid="components-auth-auth-card-label-1" htmlFor="email-input" className="sr-only">
+                  <form data-testid="auth-email-form" onSubmit={handleEmailSubmit} noValidate>
+                    <label htmlFor="email-input" className="sr-only" data-testid="auth-auth-card-work-email-label">
                       Work email
                     </label>
 
-                    <input data-testid="components-auth-auth-card-input-1"
+                    <input data-testid="auth-email-input"
                       id="email-input"
                       type="email"
                       value={email}
@@ -440,12 +439,12 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     />
 
                     {error ? (
-                      <p data-testid="components-auth-auth-card-p-3" className="mt-2 text-sm text-red-500" role="alert">
+                      <p className="mt-2 text-sm text-red-500" role="alert" data-testid="auth-auth-card-error-text">
                         {error}
                       </p>
                     ) : null}
 
-                    <button data-testid="components-auth-auth-card-button-4"
+                    <button data-testid="auth-send-verification-code"
                       type="submit"
                       disabled={isSending || isGoogleLoading}
                       className="mt-4 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
@@ -454,7 +453,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     </button>
                   </form>
 
-                  <p data-testid="components-auth-auth-card-p-4" className="mt-4 text-xs text-slate-400 text-center leading-relaxed">
+                  <p className="mt-4 text-xs text-slate-400 text-center leading-relaxed" data-testid="auth-auth-card-we-apos-ll-send-a-6-digit-text">
                     We&apos;ll send a 6-digit code to verify your email. No
                     password needed.
                   </p>
@@ -462,22 +461,22 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
               ) : null}
 
               {step === 2 ? (
-                <div data-testid="components-auth-auth-card-div-11">
-                  <h1 data-testid="components-auth-auth-card-h1-2" className="text-2xl font-extrabold text-slate-900 text-center">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-slate-900 text-center" data-testid="auth-auth-card-check-your-email-heading">
                     Check your email
                   </h1>
 
-                  <p data-testid="components-auth-auth-card-p-5" className="mt-2 text-sm text-slate-600 text-center">
+                  <p className="mt-2 text-sm text-slate-600 text-center" data-testid="auth-auth-card-we-sent-a-code-to-email-text">
                     We sent a code to{" "}
-                    <span data-testid="components-auth-auth-card-span-6" className="font-semibold text-slate-900">{email}</span>
+                    <span className="font-semibold text-slate-900" data-testid="auth-auth-card-email-text">{email}</span>
                   </p>
 
-                  <div data-testid="components-auth-auth-card-div-12"
+                  <div
                     className="mt-6 flex justify-center gap-2"
                     aria-label="6-digit verification code"
                   >
                     {otp.map((digit, index) => (
-                      <input data-testid="components-auth-auth-card-input-2"
+                      <input data-testid={`auth-otp-digit-${index + 1}`}
                         key={index}
                         ref={(element) => {
                           otpRefs.current[index] = element;
@@ -498,15 +497,15 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                   </div>
 
                   {error ? (
-                    <p data-testid="components-auth-auth-card-p-6"
+                    <p
                       className="mt-3 text-sm text-red-500 text-center"
                       role="alert"
-                    >
+                     data-testid="auth-auth-card-error-text-2">
                       {error}
                     </p>
                   ) : null}
 
-                  <button data-testid="components-auth-auth-card-button-5"
+                  <button data-testid="auth-verify-code"
                     type="button"
                     onClick={handleVerify}
                     disabled={isVerifying}
@@ -515,18 +514,18 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     {isVerifying ? "Verifying..." : "Verify & Continue"}
                   </button>
 
-                  <div data-testid="components-auth-auth-card-div-13" className="mt-5 flex items-center justify-between text-sm">
-                    <button data-testid="components-auth-auth-card-button-6"
+                  <div className="mt-5 flex items-center justify-between text-sm">
+                    <button data-testid="auth-resend-code-button"
                       type="button"
                       onClick={handleResend}
                       disabled={secondsLeft > 0 || isSending}
                       className="text-amber-600 font-medium hover:text-amber-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Resend code{" "}
-                      {secondsLeft > 0 ? <span data-testid="components-auth-auth-card-span-7">({secondsLeft}s)</span> : null}
+                      {secondsLeft > 0 ? <span data-testid="auth-auth-card-seconds-left-s-text">({secondsLeft}s)</span> : null}
                     </button>
 
-                    <button data-testid="components-auth-auth-card-button-7"
+                    <button data-testid="auth-use-a-different-email-button"
                       type="button"
                       onClick={useDifferentEmail}
                       className="text-slate-400 hover:text-slate-600 transition-colors duration-200"
@@ -538,9 +537,9 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
               ) : null}
 
               {step === 3 ? (
-                <div data-testid="components-auth-auth-card-div-14" className="text-center py-6">
-                  <div data-testid="components-auth-auth-card-div-15" className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
-                    <svg data-testid="components-auth-auth-card-svg-2"
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
+                    <svg
                       xmlns="http://www.w3.org/2000/svg"
                       className="w-9 h-9 text-green-600"
                       fill="none"
@@ -548,7 +547,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                       stroke="currentColor"
                       strokeWidth={3}
                     >
-                      <path data-testid="components-auth-auth-card-path-6"
+                      <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         d="M5 13l4 4L19 7"
@@ -556,11 +555,11 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
                     </svg>
                   </div>
 
-                  <h1 data-testid="components-auth-auth-card-h1-3" className="mt-5 text-xl font-extrabold text-slate-900">
+                  <h1 className="mt-5 text-xl font-extrabold text-slate-900" data-testid="auth-auth-card-verified-heading">
                     Verified!
                   </h1>
 
-                  <p data-testid="components-auth-auth-card-p-7" className="mt-2 text-sm text-slate-500">
+                  <p className="mt-2 text-sm text-slate-500" data-testid="auth-auth-card-redirecting-to-your-dashboard-text">
                     Redirecting to your dashboard…
                   </p>
                 </div>
@@ -568,16 +567,16 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
             </div>
           </div>
 
-          <div data-testid="components-auth-auth-card-div-16" className="mt-8 text-center">
-            <p data-testid="components-auth-auth-card-p-8" className="text-sm font-medium text-slate-600">
+          <div className="mt-8 text-center">
+            <p className="text-sm font-medium text-slate-600" data-testid="auth-auth-card-2-400-businesses-already-using-core-text">
               Join 2,400+ businesses already using CORE
             </p>
 
-            <p data-testid="components-auth-auth-card-p-9" className="mt-1.5 text-xs text-slate-400">
+            <p className="mt-1.5 text-xs text-slate-400" data-testid="auth-auth-card-trusted-by-dentists-hvac-companies-law-firms-text">
               Trusted by dentists, HVAC companies, law firms & more
             </p>
 
-            <p data-testid="components-auth-auth-card-p-10" className="mt-4 text-xs text-slate-400 tracking-wide">
+            <p className="mt-4 text-xs text-slate-400 tracking-wide" data-testid="auth-auth-card-256-bit-encryption-soc-2-compliant-no-text">
               256-bit encryption &nbsp;•&nbsp; SOC 2 compliant &nbsp;•&nbsp; No
               credit card required
             </p>
@@ -585,22 +584,22 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
         </div>
       </main>
 
-      <footer data-testid="components-auth-auth-card-footer-1" className="w-full px-6 py-6">
-        <div data-testid="components-auth-auth-card-div-17" className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
-          <div data-testid="components-auth-auth-card-div-18" className="flex items-center gap-4">
-            <Link data-testid="components-auth-auth-card-link-3" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
+      <footer className="w-full px-6 py-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+          <div className="flex items-center gap-4">
+            <Link data-testid="auth-privacy-policy-link" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
               Privacy Policy
             </Link>
 
-            <Link data-testid="components-auth-auth-card-link-4" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="auth-terms-of-service-link" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
               Terms of Service
             </Link>
-            <Link data-testid="components-auth-auth-card-link-5" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
+            <Link data-testid="auth-help-link" href={HOME_ROUTE} className="hover:text-slate-600 transition-colors duration-200">
               Help
             </Link>
           </div>
 
-          <p data-testid="components-auth-auth-card-p-11">© {currentYear} CORE AI Agent Platform</p>
+          <p data-testid="auth-auth-card-current-year-core-ai-agent-platform-text">© {currentYear} CORE AI Agent Platform</p>
         </div>
       </footer>
     </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -278,14 +279,14 @@ function PhoneMockup() {
         <div className="rounded-[2.5rem] border border-gray-200 bg-white p-2.5 shadow-2xl">
           <div className="overflow-hidden rounded-[2rem] bg-gray-50">
             <div className="flex items-center justify-between px-5 pb-1 pt-3 text-[10px] font-semibold text-slate-500">
-              <span>9:41</span>
+              <span data-testid="business-protected-agents-9-41-text">9:41</span>
               <span className="inline-flex items-center gap-1" aria-hidden="true">
                 5G
               </span>
             </div>
 
             <div className="flex items-center gap-2 border-b border-gray-100 bg-white px-4 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700" data-testid="business-protected-agents-bs-text">
                 BS
               </span>
               <div className="min-w-0">
@@ -321,7 +322,7 @@ function PhoneMockup() {
               <div className="flex">
                 <div className="max-w-[86%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm">
                   I&apos;d be happy to help! Here are our available slots this week:{" "}
-                  <span className="font-semibold text-amber-600 underline">View available times</span>
+                  <span className="font-semibold text-amber-600 underline" data-testid="business-protected-agents-view-available-times-text">View available times</span>
                 </div>
               </div>
 
@@ -439,35 +440,35 @@ export default function MissedCallTextBackPage() {
         }`}
       >
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2.5" aria-label="CORE home">
+          <Link data-testid="agent-detail-core-link" href={"/" as Route} className="flex items-center gap-2.5" aria-label="CORE home">
             <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
               <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth="2" />
               <circle cx="14" cy="14" r="4" fill="#f59e0b" />
             </svg>
-            <span className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
+            <span className="text-xl font-extrabold tracking-tight text-amber-500" data-testid="business-protected-agents-core-text">CORE</span>
           </Link>
 
           <div className="hidden items-center gap-8 md:flex">
-            <Link href="/" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+            <Link data-testid="agent-detail-home-link" href={"/" as Route} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               Home
             </Link>
-            <Link href={BUSINESS_MARKETPLACE_PATH} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+            <Link data-testid="agent-detail-marketplace-link" href={BUSINESS_MARKETPLACE_PATH} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               Marketplace
             </Link>
-            <a href="#bottom-cta" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+            <a data-testid="agent-detail-pricing-link" href={"#bottom-cta" as Route} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               Pricing
             </a>
-            <a href="#reviews" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+            <a data-testid="agent-detail-about-link" href={"#reviews" as Route} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               About
             </a>
-            <a href="#footer" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+            <a data-testid="agent-detail-contact-link" href={"#footer" as Route} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
               Contact
             </a>
           </div>
 
           <div className="hidden items-center gap-3 md:flex">
-            <a
-              href="#hero-cta"
+            <a data-testid="agent-detail-get-started-link"
+              href={"#hero-cta" as Route}
               className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow-sm transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
             >
               Get Started
@@ -498,7 +499,7 @@ export default function MissedCallTextBackPage() {
   { label: "About", href: FOOTER_HASH_PATH },
   { label: "Contact", href: FOOTER_HASH_PATH }
 ].map((item) => (
-  <Link
+  <Link data-testid="agent-detail-link"
     key={item.label}
     href={item.href}
     onClick={() => setMenuOpen(false)}
@@ -508,8 +509,8 @@ export default function MissedCallTextBackPage() {
   </Link>
 ))}
 
-              <a
-                href="#hero-cta"
+              <a data-testid="agent-detail-get-started-link-2"
+                href={"#hero-cta" as Route}
                 onClick={() => setMenuOpen(false)}
                 className="mt-3 rounded-xl bg-amber-500 px-4 py-2.5 text-center text-sm font-semibold text-slate-950 transition hover:bg-amber-400"
               >
@@ -523,19 +524,19 @@ export default function MissedCallTextBackPage() {
       <div className="border-b border-gray-100 bg-white">
         <nav className="mx-auto max-w-6xl px-6 py-3 text-sm" aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-2 text-slate-500">
-            <li>
-              <Link href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
+            <li data-testid="business-protected-agents-marketplace-item">
+              <Link data-testid="agent-detail-marketplace-link-2" href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
                 Marketplace
               </Link>
             </li>
-            <li className="text-slate-300">›</li>
-            <li>
-              <a href="#" className="transition hover:text-amber-600">
+            <li className="text-slate-300" data-testid="agent-detail-breadcrumb-separator-1">›</li>
+            <li data-testid="business-protected-agents-communication-item">
+              <a data-testid="agent-detail-communication-link" href={"#" as Route} className="transition hover:text-amber-600">
                 Communication
               </a>
             </li>
-            <li className="text-slate-300">›</li>
-            <li className="font-medium text-slate-700">Missed Call Text-Back</li>
+            <li className="text-slate-300" data-testid="agent-detail-breadcrumb-separator-2">›</li>
+            <li className="font-medium text-slate-700" data-testid="business-protected-agents-missed-call-back-item">Missed Call Text-Back</li>
           </ol>
         </nav>
       </div>
@@ -554,15 +555,15 @@ export default function MissedCallTextBackPage() {
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="business-protected-agents-missed-call-back-heading">
                   Missed Call Text-Back
                 </h1>
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700" data-testid="business-protected-agents-communication-text">
                   Communication
                 </span>
               </div>
 
-              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">
+              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600" data-testid="business-protected-agents-never-lose-a-lead-to-a-missed-text">
                 Never lose a lead to a missed call again. Automatically texts back within 5 seconds.
               </p>
 
@@ -573,42 +574,42 @@ export default function MissedCallTextBackPage() {
                       <StarIcon key={index} />
                     ))}
                   </div>
-                  <span className="text-sm font-semibold text-slate-900">4.9</span>
-                  <span className="text-sm text-slate-500">(47 reviews)</span>
+                  <span className="text-sm font-semibold text-slate-900" data-testid="business-protected-agents-4-9-text">4.9</span>
+                  <span className="text-sm text-slate-500" data-testid="business-protected-agents-47-reviews-text">(47 reviews)</span>
                 </div>
 
                 <div className="inline-flex items-center gap-2 text-sm text-slate-600">
                   <span className="text-amber-500">👥</span>
-                  <span className="font-semibold text-slate-900">1,240+</span> businesses using this agent
+                  <span className="font-semibold text-slate-900" data-testid="business-protected-agents-1-240-text">1,240+</span> businesses using this agent
                 </div>
               </div>
 
               <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-slate-600">
                 Built by{" "}
-                <span className="inline-flex items-center gap-1 font-semibold text-slate-900">
+                <span className="inline-flex items-center gap-1 font-semibold text-slate-900" data-testid="business-protected-agents-core-official-text">
                   CORE Official <span className="text-amber-500">✓</span>
                 </span>
               </div>
 
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
                   ⚡ $0 for the first 7 days
                 </span>
 
                 <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tight text-slate-900">$149</span>
-                  <span className="text-lg font-medium text-slate-500">/month</span>
+                  <span className="text-4xl font-extrabold tracking-tight text-slate-900" data-testid="business-protected-agents-149-text">$149</span>
+                  <span className="text-lg font-medium text-slate-500" data-testid="business-protected-agents-month-text">/month</span>
                 </div>
 
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
                   per business location · billed after your free trial
                 </p>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  <a
+                  <a data-testid="agent-detail-start-7-day-free-trial-link"
                     ref={heroCtaRef}
                     id="hero-cta"
-                    href="#bottom-cta"
+                    href={"#bottom-cta" as Route}
                     className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
                   >
                     Start 7-Day Free Trial
@@ -625,14 +626,14 @@ export default function MissedCallTextBackPage() {
                   </button>
                 </div>
 
-                <p className="mt-3 text-xs text-slate-500">
+                <p className="mt-3 text-xs text-slate-500" data-testid="business-protected-agents-no-credit-card-required-to-start-149-text">
                   No credit card required to start. $149/month after trial.
                 </p>
               </div>
 
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
                 {["7-day free trial", "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
-                  <span key={item} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                  <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
                     <CheckIcon className="h-4 w-4 text-emerald-500" />
                     {item}
                   </span>
@@ -649,8 +650,8 @@ export default function MissedCallTextBackPage() {
         <section className="bg-gray-50 px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">How It Works</h2>
-              <p className="mt-3 text-lg text-slate-600">From missed call to captured lead in three automatic steps.</p>
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl" data-testid="business-protected-agents-how-it-works-heading">How It Works</h2>
+              <p className="mt-3 text-lg text-slate-600" data-testid="business-protected-agents-from-missed-call-to-captured-lead-in-text">From missed call to captured lead in three automatic steps.</p>
             </div>
 
             <div className="relative mt-14">
@@ -666,8 +667,8 @@ export default function MissedCallTextBackPage() {
                     <div className="relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-lg font-bold text-slate-950 shadow-glow-sm ring-4 ring-gray-50">
                       {number}
                     </div>
-                    <h3 className="mt-5 text-lg font-semibold text-slate-900">{title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{text}</p>
+                    <h3 className="mt-5 text-lg font-semibold text-slate-900" data-testid="business-protected-agents-title-heading">{title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600" data-testid="business-protected-agents-2-sm-leading-relaxed-text">{text}</p>
                   </div>
                 ))}
               </div>
@@ -700,7 +701,7 @@ export default function MissedCallTextBackPage() {
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
                     ⚡
                   </span>
-                  <p className="pt-1.5 text-slate-700">{feature}</p>
+                  <p className="pt-1.5 text-slate-700" data-testid="business-protected-agents-feature-text">{feature}</p>
                 </div>
               ))}
             </div>
@@ -714,16 +715,16 @@ export default function MissedCallTextBackPage() {
             <div className="mt-10 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
               <ul className="divide-y divide-gray-100">
                 {includedItems.map((item) => (
-                  <li key={item} className="flex items-center gap-3 px-6 py-3.5">
+                  <li key={item} data-testid={`agent-detail-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-6 py-3.5">
                     <CheckIcon className="h-5 w-5 shrink-0 text-emerald-500" />
-                    <span className="text-slate-700">{item}</span>
+                    <span className="text-slate-700" data-testid={`agent-detail-included-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
                   </li>
                 ))}
 
                 {excludedItems.map((item) => (
-                  <li key={item} className="flex items-center gap-3 px-6 py-3.5">
-                    <span className="text-gray-300">✕</span>
-                    <span className="text-slate-400">{item}</span>
+                  <li key={item} data-testid={`agent-detail-excluded-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-6 py-3.5">
+                    <span className="text-gray-300" data-testid={`agent-detail-excluded-icon-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>✕</span>
+                    <span className="text-slate-400" data-testid={`agent-detail-excluded-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
                   </li>
                 ))}
               </ul>
@@ -741,12 +742,12 @@ export default function MissedCallTextBackPage() {
                   <Stars />
                   <blockquote className="flex-1 leading-relaxed text-slate-700">{review.quote}</blockquote>
                   <figcaption className="mt-6 flex items-center gap-3 border-t border-gray-100 pt-6">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700" data-testid="business-protected-agents-review-initials-text">
                       {review.initials}
                     </span>
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-900">{review.name}</span>
-                      <span className="block text-xs text-slate-500">{review.company}</span>
+                    <span data-testid="business-protected-agents-review-text">
+                      <span className="block text-sm font-semibold text-slate-900" data-testid="business-protected-agents-review-text-2">{review.name}</span>
+                      <span className="block text-xs text-slate-500" data-testid="business-protected-agents-review-company-text">{review.company}</span>
                     </span>
                   </figcaption>
                 </figure>
@@ -754,7 +755,7 @@ export default function MissedCallTextBackPage() {
             </div>
 
             <div className="mt-8 text-center">
-              <a href="#" className="inline-flex items-center gap-2 text-sm font-semibold text-amber-600 transition hover:gap-3 hover:text-amber-700">
+              <a data-testid="agent-detail-see-all-47-reviews-link" href={"#" as Route} className="inline-flex items-center gap-2 text-sm font-semibold text-amber-600 transition hover:gap-3 hover:text-amber-700">
                 See all 47 reviews <ArrowIcon />
               </a>
             </div>
@@ -771,7 +772,7 @@ export default function MissedCallTextBackPage() {
                 data-testid="agent-detail-tech-toggle"
                 className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
               >
-                <span className="text-lg font-semibold text-slate-900">Technical Details</span>
+                <span className="text-lg font-semibold text-slate-900" data-testid="business-protected-agents-technical-details-text">Technical Details</span>
                 <svg
                   className={`h-5 w-5 text-slate-400 transition ${techOpen ? "rotate-180" : ""}`}
                   viewBox="0 0 24 24"
@@ -797,8 +798,8 @@ export default function MissedCallTextBackPage() {
                     ["Languages", "English (Spanish coming soon)"]
                   ].map(([label, value]) => (
                     <div key={label}>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-                      <dd className="mt-1 text-slate-700">{value}</dd>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500" data-testid="business-protected-agents-label-term">{label}</dt>
+                      <dd className="mt-1 text-slate-700" data-testid={`agent-detail-spec-value-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -823,13 +824,13 @@ export default function MissedCallTextBackPage() {
                   <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
                     ⚡
                   </span>
-                  <h3 className="mt-4 text-lg font-semibold text-slate-900">{agent.title}</h3>
+                  <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="business-protected-agents-agent-title-heading">{agent.title}</h3>
                   <div className="mt-1 text-sm font-bold text-amber-600">
                     {agent.price}
-                    <span className="font-medium text-slate-500">/month</span>
+                    <span className="font-medium text-slate-500" data-testid="business-protected-agents-month-text-2">/month</span>
                   </div>
-                  <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{agent.description}</p>
-                  <a href="#" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600" data-testid="business-protected-agents-agent-description-text">{agent.description}</p>
+                  <a data-testid="agent-detail-view-agent-link" href={"#" as Route} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">
                     View agent <ArrowIcon />
                   </a>
                 </div>
@@ -841,22 +842,22 @@ export default function MissedCallTextBackPage() {
         <section id="bottom-cta" className="scroll-mt-24 px-6 py-16 sm:py-20">
           <div className="relative mx-auto max-w-4xl overflow-hidden rounded-3xl border border-amber-200 bg-amber-50 px-6 py-14 text-center shadow-glow sm:px-12">
             <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(50%_70%_at_50%_0%,rgba(245,158,11,0.12),transparent_70%)]" />
-            <h2 className="text-balance text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+            <h2 className="text-balance text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="business-protected-agents-stop-losing-4-200-month-to-missed-heading">
               Stop Losing $4,200/Month to Missed Calls
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-lg text-slate-600">
+            <p className="mx-auto mt-4 max-w-xl text-lg text-slate-600" data-testid="business-protected-agents-1-240-businesses-that-never-miss-a-text">
               Join 1,240+ businesses that never miss a lead. Start free, cancel anytime.
             </p>
             <div className="mt-8">
-              <a
-                href="#"
+              <a data-testid="agent-detail-start-7-day-free-trial-link-2"
+                href={"#" as Route}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-9 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
               >
                 Start 7-Day Free Trial
                 <ArrowIcon className="h-5 w-5" />
               </a>
             </div>
-            <p className="mt-5 text-sm text-slate-500">
+            <p className="mt-5 text-sm text-slate-500" data-testid="business-protected-agents-no-credit-card-required-149-month-after-text">
               No credit card required. $149/month after trial. 30-day money-back guarantee.
             </p>
           </div>
@@ -867,14 +868,14 @@ export default function MissedCallTextBackPage() {
         <div className="mx-auto max-w-6xl">
           <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
             <div className="col-span-2 md:col-span-1">
-              <Link href="/" className="flex items-center gap-2.5" aria-label="CORE home">
+              <Link data-testid="agent-detail-core-link-2" href={"/" as Route} className="flex items-center gap-2.5" aria-label="CORE home">
                 <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
                   <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth="2" />
                   <circle cx="14" cy="14" r="4" fill="#f59e0b" />
                 </svg>
-                <span className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
+                <span className="text-xl font-extrabold tracking-tight text-amber-500" data-testid="business-protected-agents-core-text-2">CORE</span>
               </Link>
-              <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500">
+              <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500" data-testid="business-protected-agents-the-ai-agent-marketplace-where-businesses-and-text">
                 The AI agent marketplace where businesses and architects build the future of work together.
               </p>
             </div>
@@ -886,7 +887,7 @@ export default function MissedCallTextBackPage() {
           </div>
 
           <div className="mt-12 border-t border-gray-200 pt-8">
-            <p className="text-sm text-slate-500">© 2026 CORE. All rights reserved.</p>
+            <p className="text-sm text-slate-500" data-testid="business-protected-agents-2026-core-all-rights-reserved-text">© 2026 CORE. All rights reserved.</p>
           </div>
         </div>
       </footer>
@@ -901,12 +902,12 @@ export default function MissedCallTextBackPage() {
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">Missed Call Text-Back</p>
-            <p className="truncate text-xs text-slate-500">Start free — $0 for 7 days, then $149/mo</p>
+            <p className="truncate text-sm font-semibold text-slate-900" data-testid="business-protected-agents-missed-call-back-text">Missed Call Text-Back</p>
+            <p className="truncate text-xs text-slate-500" data-testid="business-protected-agents-start-free-0-for-7-days-then-text">Start free — $0 for 7 days, then $149/mo</p>
           </div>
 
-          <a
-            href="#bottom-cta"
+          <a data-testid="agent-detail-start-free-trial-link"
+            href={"#bottom-cta" as Route}
             className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-glow-sm transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
           >
             Start Free Trial
@@ -942,11 +943,11 @@ export default function MissedCallTextBackPage() {
               ▶
             </div>
 
-            <h2 id="demo-title" className="mt-5 text-2xl font-bold tracking-tight text-slate-900">
+            <h2 id="demo-title" className="mt-5 text-2xl font-bold tracking-tight text-slate-900" data-testid="business-protected-agents-see-the-agent-in-action-heading">
               See the agent in action
             </h2>
 
-            <p className="mx-auto mt-2 max-w-sm text-slate-600">
+            <p className="mx-auto mt-2 max-w-sm text-slate-600" data-testid="business-protected-agents-the-full-90-second-product-walkthrough-is-text">
               The full 90-second product walkthrough is on the way. In the meantime,
               scroll up to watch the live text-back flow on the phone preview.
             </p>
@@ -969,8 +970,8 @@ export default function MissedCallTextBackPage() {
 function SectionHeader({ title, description }: { title: string; description?: string }) {
   return (
     <div className="mx-auto max-w-2xl text-center">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">{title}</h2>
-      {description ? <p className="mt-3 text-lg text-slate-600">{description}</p> : null}
+      <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl" data-testid="business-protected-agents-title-heading-2">{title}</h2>
+      {description ? <p className="mt-3 text-lg text-slate-600" data-testid="business-protected-agents-description-text">{description}</p> : null}
     </div>
   );
 }
@@ -987,11 +988,11 @@ function Metric({ value, label }: { value: React.ReactNode; label: string }) {
 function FooterColumn({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
-      <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+      <h4 className="text-sm font-semibold text-slate-900" data-testid="business-protected-agents-title-heading-3">{title}</h4>
       <ul className="mt-4 space-y-3 text-sm">
         {items.map((item) => (
-          <li key={item}>
-            <a href="#" className="text-slate-500 transition hover:text-amber-600">
+          <li key={item} data-testid={`agent-detail-footer-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+            <a data-testid="agent-detail-link-2" href={"#" as Route} className="text-slate-500 transition hover:text-amber-600">
               {item}
             </a>
           </li>

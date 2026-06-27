@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { BUSINESS_CHECKOUT_PATH, BUSINESS_MARKETPLACE_PATH } from "@/lib/routes";
 
@@ -10,8 +11,8 @@ export default function BillingCancelPage() {
                 <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-slate-200 text-slate-600">
                     <span className="text-2xl">↩</span>
                 </div>
-                <h1 className="mt-5 text-2xl font-black text-slate-950">Checkout canceled</h1>
-                <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+                <h1 className="mt-5 text-2xl font-black text-slate-950" data-testid="business-protected-billing-cancel-checkout-canceled-heading">Checkout canceled</h1>
+                <p className="mt-3 text-sm font-semibold leading-6 text-slate-600" data-testid="business-protected-billing-cancel-no-charge-was-made-you-can-restart-text">
                     No charge was made. You can restart checkout whenever you&apos;re ready to activate your AI Receptionist.
                 </p>
                 <div className="mt-6 flex flex-col gap-3">

@@ -8,20 +8,20 @@ export default function AdminDashboardPage() {
       title="Admin Dashboard"
       subtitle="Manage users, approvals, AI Architects, Businesses, projects, and marketplace quality."
     >
-      <div data-testid="app-admin-dashboard-page-div-1" className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-4">
         <StatCard label="Users" value="126" hint="Prototype count" />
         <StatCard label="Businesses" value="38" hint="Registered companies" />
         <StatCard label="AI Architects" value="24" hint="Builder profiles" />
         <StatCard label="Pending Reviews" value="9" hint="Need admin action" />
       </div>
 
-      <section data-testid="app-admin-dashboard-page-section-1" className="mt-6 rounded-3xl soft-card p-6">
-        <h2 data-testid="app-admin-dashboard-page-h2-1" className="text-xl font-bold">Admin Actions</h2>
+      <section className="mt-6 rounded-3xl soft-card p-6">
+        <h2 className="text-xl font-bold" data-testid="admin-dashboard-admin-actions-heading">Admin Actions</h2>
 
-        <div data-testid="app-admin-dashboard-page-div-2" className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
           {["Approve AI Architects", "Review Agent Listings", "Monitor Workflow Runs"].map(
             (item) => (
-              <div data-testid="app-admin-dashboard-page-div-3" key={item} className="rounded-2xl bg-orange-50 p-4 text-sm font-semibold">
+              <div key={item} className="rounded-2xl bg-orange-50 p-4 text-sm font-semibold">
                 {item}
               </div>
             )

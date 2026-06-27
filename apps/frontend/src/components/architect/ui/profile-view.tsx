@@ -63,13 +63,13 @@ export function ArchitectProfileView() {
   if (loading) {
     return (
       <ArchitectCard>
-        <p data-testid="components-architect-ui-profile-view-p-1" className="text-sm font-bold text-amber-700">Loading profile...</p>
+        <p className="text-sm font-bold text-amber-700" data-testid="architect-ui-profile-view-loading-profile-text">Loading profile...</p>
       </ArchitectCard>
     );
   }
 
   return (
-    <div data-testid="components-architect-ui-profile-view-div-1">
+    <div>
       <ArchitectPageHeader
         eyebrow="Public Profile"
         title="Architect Profile"
@@ -79,39 +79,39 @@ export function ArchitectProfileView() {
       />
 
       {message ? (
-        <div data-testid="components-architect-ui-profile-view-div-2" className="mb-5 rounded-2xl border border-amber-100 bg-white px-5 py-4 text-sm font-black text-amber-700 shadow-sm">{message}</div>
+        <div className="mb-5 rounded-2xl border border-amber-100 bg-white px-5 py-4 text-sm font-black text-amber-700 shadow-sm">{message}</div>
       ) : null}
 
-      <div data-testid="components-architect-ui-profile-view-div-3" className="grid gap-5 lg:grid-cols-[360px_1fr]">
-        <div data-testid="components-architect-ui-profile-view-div-4" className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
+        <div className="space-y-5">
           <ArchitectCard title="Profile Status">
-            <div data-testid="components-architect-ui-profile-view-div-5" className="flex items-center gap-4">
-              <div data-testid="components-architect-ui-profile-view-div-6" className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-xl font-black text-white shadow-lg shadow-amber-500/25">A</div>
-              <div data-testid="components-architect-ui-profile-view-div-7">
+            <div className="flex items-center gap-4">
+              <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-xl font-black text-white shadow-lg shadow-amber-500/25">A</div>
+              <div>
                 <ArchitectStatusPill status={profile?.approvalStatus ?? "PENDING"} />
-                <p data-testid="components-architect-ui-profile-view-p-2" className="mt-3 text-sm font-semibold text-slate-500">Marketplace approval</p>
+                <p className="mt-3 text-sm font-semibold text-slate-500" data-testid="architect-ui-profile-view-marketplace-approval-text">Marketplace approval</p>
               </div>
             </div>
 
-            <div data-testid="components-architect-ui-profile-view-div-8" className="mt-6">
+            <div className="mt-6">
               <MiniProgress value={completion} label="Profile completion" />
             </div>
           </ArchitectCard>
 
           <ArchitectCard title="Performance Snapshot">
-            <div data-testid="components-architect-ui-profile-view-div-9" className="space-y-4">
-              <div data-testid="components-architect-ui-profile-view-div-10" className="rounded-2xl bg-slate-50 p-4">
-                <p data-testid="components-architect-ui-profile-view-p-3" className="text-sm font-bold text-slate-500">Hourly Rate</p>
-                <h3 data-testid="components-architect-ui-profile-view-h3-1" className="mt-1 text-2xl font-black text-slate-950">{formatMoney(profile?.hourlyRateCents)}</h3>
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-bold text-slate-500" data-testid="architect-ui-profile-view-hourly-rate-text">Hourly Rate</p>
+                <h3 className="mt-1 text-2xl font-black text-slate-950" data-testid="architect-ui-profile-view-format-money-profile-hourly-rate-cents-heading">{formatMoney(profile?.hourlyRateCents)}</h3>
               </div>
-              <div data-testid="components-architect-ui-profile-view-div-11" className="grid grid-cols-2 gap-3">
-                <div data-testid="components-architect-ui-profile-view-div-12" className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
-                  <p data-testid="components-architect-ui-profile-view-p-4" className="text-sm font-bold text-amber-700">Jobs</p>
-                  <h3 data-testid="components-architect-ui-profile-view-h3-2" className="mt-1 text-2xl font-black text-slate-950">{profile?.completedJobs ?? 0}</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
+                  <p className="text-sm font-bold text-amber-700" data-testid="architect-ui-profile-view-jobs-text">Jobs</p>
+                  <h3 className="mt-1 text-2xl font-black text-slate-950" data-testid="architect-ui-profile-view-profile-completed-jobs-0-heading">{profile?.completedJobs ?? 0}</h3>
                 </div>
-                <div data-testid="components-architect-ui-profile-view-div-13" className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
-                  <p data-testid="components-architect-ui-profile-view-p-5" className="text-sm font-bold text-emerald-700">Rating</p>
-                  <h3 data-testid="components-architect-ui-profile-view-h3-3" className="mt-1 text-2xl font-black text-slate-950">{profile?.rating ?? 0}/5</h3>
+                <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                  <p className="text-sm font-bold text-emerald-700" data-testid="architect-ui-profile-view-rating-text">Rating</p>
+                  <h3 className="mt-1 text-2xl font-black text-slate-950" data-testid="architect-ui-profile-view-profile-rating-0-5-heading">{profile?.rating ?? 0}/5</h3>
                 </div>
               </div>
             </div>
@@ -119,15 +119,15 @@ export function ArchitectProfileView() {
         </div>
 
         <ArchitectCard title="Edit Profile" description="These details power your public storefront and proposal credibility.">
-          <form data-testid="components-architect-ui-profile-view-form-1" onSubmit={handleSubmit} className="grid gap-4">
-            <div data-testid="components-architect-ui-profile-view-div-14" className="grid gap-4 lg:grid-cols-2">
+          <form data-testid="architect-profile-form" onSubmit={handleSubmit} className="grid gap-4">
+            <div className="grid gap-4 lg:grid-cols-2">
               <ArchitectField name="title" label="Professional Title" placeholder="AI Workflow Architect" defaultValue={profile?.title ?? ""} required />
               <ArchitectField name="hourlyRate" label="Hourly Rate in INR" placeholder="1500" type="number" min={0} defaultValue={profile?.hourlyRateCents ? String(profile.hourlyRateCents / 100) : ""} />
             </div>
             <ArchitectTextarea name="bio" label="Bio" placeholder="Tell businesses what kind of agents and automations you build." defaultValue={profile?.bio ?? ""} minLength={10} required />
             <ArchitectField name="portfolioUrl" label="Portfolio URL" placeholder="https://yourportfolio.com" defaultValue={profile?.portfolioUrl ?? ""} />
             <ArchitectField name="skills" label="Skills comma separated" placeholder="OpenAI, CRM, Gmail, Automation, Sales" defaultValue={profile?.skills.join(", ") ?? ""} />
-            <div data-testid="components-architect-ui-profile-view-div-15" className="flex justify-end">
+            <div className="flex justify-end">
               <ArchitectPrimaryButton>Save Profile</ArchitectPrimaryButton>
             </div>
           </form>

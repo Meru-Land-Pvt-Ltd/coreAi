@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -625,7 +626,7 @@ export default function BusinessCheckoutPage() {
                         <div className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-12">
                             <div className="order-2 space-y-6 lg:order-1 lg:col-span-3">
                                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
-                                    <h2 className="text-xl font-bold tracking-tight">Your account</h2>
+                                    <h2 className="text-xl font-bold tracking-tight" data-testid="business-protected-checkout-your-account-heading">Your account</h2>
 
                                     <div className="mt-5">
                                         <div className="flex items-center gap-3 rounded-xl border border-green-100 bg-green-50 p-4 text-green-700">
@@ -634,16 +635,16 @@ export default function BusinessCheckoutPage() {
                                             </span>
 
                                             <div className="min-w-0">
-                                                <p className="text-sm font-semibold text-green-800">Signed in</p>
-                                                <p className="truncate text-sm text-green-700">{email}</p>
+                                                <p className="text-sm font-semibold text-green-800" data-testid="business-protected-checkout-signed-in-text">Signed in</p>
+                                                <p className="truncate text-sm text-green-700" data-testid="business-protected-checkout-email-text">{email}</p>
                                             </div>
                                         </div>
                                     </div>
                                 </section>
 
                                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
-                                    <h2 className="text-xl font-bold tracking-tight">Payment method</h2>
-                                    <p className="mb-6 mt-1 text-sm text-slate-500">
+                                    <h2 className="text-xl font-bold tracking-tight" data-testid="business-protected-checkout-payment-method-heading">Payment method</h2>
+                                    <p className="mb-6 mt-1 text-sm text-slate-500" data-testid="business-protected-checkout-you-won-apos-t-be-charged-until-text">
                                         You won&apos;t be charged until your 7-day trial ends.
                                     </p>
 
@@ -665,12 +666,12 @@ export default function BusinessCheckoutPage() {
                                     {paymentTab === "credit" ? (
                                         <div className="-mt-px rounded-b-xl rounded-tr-xl border border-gray-200 p-5 sm:p-6">
                                             <div>
-                                                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                                                <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-card-number-label">
                                                     Card number
                                                 </label>
 
                                                 <div className="field-wrap">
-                                                    <input
+                                                    <input data-testid="checkout-card-number-input"
                                                         type="text"
                                                         inputMode="numeric"
                                                         autoComplete="cc-number"
@@ -689,18 +690,18 @@ export default function BusinessCheckoutPage() {
                                                 </div>
 
                                                 {!validations.card && showError("card") ? (
-                                                    <p className="error-msg">Enter a valid card number</p>
+                                                    <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-card-number-text">Enter a valid card number</p>
                                                 ) : null}
                                             </div>
 
                                             <div className="mt-4 grid grid-cols-2 gap-4">
                                                 <div>
-                                                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                                                    <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-expiry-date-label">
                                                         Expiry date
                                                     </label>
 
                                                     <div className="field-wrap">
-                                                        <input
+                                                        <input data-testid="checkout-card-expiry-input"
                                                             type="text"
                                                             inputMode="numeric"
                                                             autoComplete="cc-exp"
@@ -719,17 +720,17 @@ export default function BusinessCheckoutPage() {
                                                     </div>
 
                                                     {!validations.expiry && showError("expiry") ? (
-                                                        <p className="error-msg">Enter a valid expiry</p>
+                                                        <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-expiry-text">Enter a valid expiry</p>
                                                     ) : null}
                                                 </div>
 
                                                 <div>
-                                                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                                                    <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-security-code-label">
                                                         Security code
                                                     </label>
 
                                                     <div className="field-wrap">
-                                                        <input
+                                                        <input data-testid="checkout-card-cvc-input"
                                                             type="text"
                                                             inputMode="numeric"
                                                             autoComplete="cc-csc"
@@ -748,18 +749,18 @@ export default function BusinessCheckoutPage() {
                                                     </div>
 
                                                     {!validations.cvc && showError("cvc") ? (
-                                                        <p className="error-msg">Enter the {requiredCvcLength}-digit code</p>
+                                                        <p className="error-msg" data-testid="business-protected-checkout-enter-the-required-cvc-digit-code-text">Enter the {requiredCvcLength}-digit code</p>
                                                     ) : null}
                                                 </div>
                                             </div>
 
                                             <div className="mt-4">
-                                                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                                                <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-on-card-label">
                                                     Name on card
                                                 </label>
 
                                                 <div className="field-wrap">
-                                                    <input
+                                                    <input data-testid="checkout-cardholder-name-input"
                                                         type="text"
                                                         autoComplete="cc-name"
                                                         value={cardName}
@@ -777,16 +778,16 @@ export default function BusinessCheckoutPage() {
                                                 </div>
 
                                                 {!validations.name && showError("name") ? (
-                                                    <p className="error-msg">Enter the name on your card</p>
+                                                    <p className="error-msg" data-testid="business-protected-checkout-enter-the-on-your-card-text">Enter the name on your card</p>
                                                 ) : null}
                                             </div>
 
                                             <div className="mt-6">
-                                                <h3 className="mb-2.5 text-sm font-medium text-slate-700">
+                                                <h3 className="mb-2.5 text-sm font-medium text-slate-700" data-testid="business-protected-checkout-billing-address-heading">
                                                     Billing address
                                                 </h3>
 
-                                                <select
+                                                <select data-testid="checkout-country-select"
                                                     value={country}
                                                     onChange={(event) => setCountry(event.target.value)}
                                                     className="field"
@@ -803,7 +804,7 @@ export default function BusinessCheckoutPage() {
                                                 </select>
 
                                                 <div className="field-wrap mt-3">
-                                                    <input
+                                                    <input data-testid="checkout-zip-code-input"
                                                         type="text"
                                                         inputMode="numeric"
                                                         autoComplete="postal-code"
@@ -822,7 +823,7 @@ export default function BusinessCheckoutPage() {
                                                 </div>
 
                                                 {!validations.zip && showError("zip") ? (
-                                                    <p className="error-msg">Enter a valid ZIP / postal code</p>
+                                                    <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-zip-postal-code-text">Enter a valid ZIP / postal code</p>
                                                 ) : null}
                                             </div>
 
@@ -838,7 +839,7 @@ export default function BusinessCheckoutPage() {
 
                                                 <div className={`reveal ${promoOpen ? "open mt-3" : ""}`}>
                                                     <div className="flex gap-3">
-                                                        <input
+                                                        <input data-testid="checkout-promo-code-input"
                                                             type="text"
                                                             value={promoCode}
                                                             onChange={(event) => {
@@ -860,11 +861,11 @@ export default function BusinessCheckoutPage() {
                                                     </div>
 
                                                     {promoApplied ? (
-                                                        <p className="mt-2 text-xs text-green-600">
+                                                        <p className="mt-2 text-xs text-green-600" data-testid="business-protected-checkout-code-applied-10-off-your-first-charge-text">
                                                             ✓ Code applied — 10% off your first charge.
                                                         </p>
                                                     ) : promoError ? (
-                                                        <p className="mt-2 text-xs text-red-500">{promoError}</p>
+                                                        <p className="mt-2 text-xs text-red-500" data-testid="business-protected-checkout-promo-error-text">{promoError}</p>
                                                     ) : null}
                                                 </div>
                                             </div>
@@ -910,19 +911,19 @@ export default function BusinessCheckoutPage() {
                                         )}
                                     </button>
 
-                                    <p className="mt-3 text-center text-xs text-slate-400">
+                                    <p className="mt-3 text-center text-xs text-slate-400" data-testid="business-protected-checkout-you-apos-ll-be-charged-future-amount-text">
                                         You&apos;ll be charged{" "}
-                                        <span className="font-medium text-slate-500">${futureAmount}</span> on{" "}
-                                        <span className="font-medium text-slate-500">{trialDate}</span> unless you cancel.
+                                        <span className="font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-text">${futureAmount}</span> on{" "}
+                                        <span className="font-medium text-slate-500" data-testid="business-protected-checkout-trial-date-text">{trialDate}</span> unless you cancel.
                                     </p>
 
-                                    <p className="mt-1.5 text-center text-xs text-slate-400">
+                                    <p className="mt-1.5 text-center text-xs text-slate-400" data-testid="business-protected-checkout-by-proceeding-you-agree-to-our-terms-text">
                                         By proceeding, you agree to our{" "}
-                                        <a href="#" className="font-medium text-amber-600 hover:text-amber-700">
+                                        <a data-testid="checkout-terms-of-service-link" href={"#" as Route} className="font-medium text-amber-600 hover:text-amber-700">
                                             Terms of Service
                                         </a>{" "}
                                         and{" "}
-                                        <a href="#" className="font-medium text-amber-600 hover:text-amber-700">
+                                        <a data-testid="checkout-privacy-policy-link" href={"#" as Route} className="font-medium text-amber-600 hover:text-amber-700">
                                             Privacy Policy
                                         </a>
                                         .
@@ -945,8 +946,8 @@ export default function BusinessCheckoutPage() {
                         style={{ boxShadow: "0 -10px 28px -14px rgba(0,0,0,.18)" }}
                     >
                         <div className="shrink-0 leading-tight">
-                            <p className="text-[0.7rem] text-slate-400">Due today</p>
-                            <p className="tnum text-lg font-bold text-slate-900">$0.00</p>
+                            <p className="text-[0.7rem] text-slate-400" data-testid="business-protected-checkout-due-today-text">Due today</p>
+                            <p className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text">$0.00</p>
                         </div>
 
                         <button
@@ -992,8 +993,7 @@ export default function BusinessCheckoutPage() {
                             background: piece.background,
                             animationDelay: piece.delay,
                             animationDuration: piece.duration
-                        }}
-                    />
+                        }} />
                 ))}
             </div>
         </div>
@@ -1004,7 +1004,7 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
     return (
         <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-5 py-4 sm:px-8">
             <div className="mx-auto grid max-w-6xl grid-cols-3 items-center gap-2">
-                <Link href={BUSINESS_MARKETPLACE_PATH} className="group flex w-fit items-center gap-2.5">
+                <Link data-testid="checkout-logo-home-link" href={BUSINESS_MARKETPLACE_PATH} className="group flex w-fit items-center gap-2.5">
                     <span
                         className="relative inline-grid h-9 w-9 place-items-center rounded-full"
                         style={{
@@ -1016,7 +1016,7 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                         <span className="absolute h-1 w-1 rounded-full bg-white" />
                     </span>
 
-                    <span className="text-[1.35rem] font-extrabold tracking-tight text-slate-900 transition-colors group-hover:text-amber-600">
+                    <span className="text-[1.35rem] font-extrabold tracking-tight text-slate-900 transition-colors group-hover:text-amber-600" data-testid="business-protected-checkout-core-text">
                         CORE
                     </span>
                 </Link>
@@ -1027,7 +1027,7 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                             <CheckIcon className="h-3.5 w-3.5" />
                         </StepCircle>
 
-                        <span className="ml-2 hidden text-sm font-semibold text-amber-600 sm:inline">
+                        <span className="ml-2 hidden text-sm font-semibold text-amber-600 sm:inline" data-testid="business-protected-checkout-account-text">
                             Account
                         </span>
 
@@ -1040,7 +1040,7 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                         <span
                             className={`ml-2 hidden text-sm sm:inline ${confirmation ? "font-semibold text-amber-600" : "font-bold text-amber-600"
                                 }`}
-                        >
+                         data-testid="business-protected-checkout-payment-text">
                             Payment
                         </span>
 
@@ -1051,19 +1051,19 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                         <span
                             className={`ml-2 hidden text-sm font-semibold sm:inline ${confirmation ? "text-amber-600" : "text-slate-400"
                                 }`}
-                        >
+                         data-testid="business-protected-checkout-confirmation-text">
                             Confirmation
                         </span>
                     </nav>
 
                     <div className="mt-1.5 flex items-center gap-1.5 text-slate-400">
                         <LockIcon className="h-3 w-3" />
-                        <span className="text-[0.7rem] font-medium">Secure Checkout</span>
+                        <span className="text-[0.7rem] font-medium" data-testid="business-protected-checkout-secure-checkout-text">Secure Checkout</span>
                     </div>
                 </div>
 
                 <div className="text-right">
-                    <Link
+                    <Link data-testid="checkout-back-to-marketplace-link"
                         href={BUSINESS_MARKETPLACE_PATH}
                         className="hidden items-center gap-1 text-sm font-medium text-slate-500 transition-colors hover:text-amber-600 sm:inline-flex"
                     >
@@ -1082,7 +1082,7 @@ function StepCircle({
     status: "todo" | "active" | "done";
     children: ReactNode;
 }) {
-    return <span className={`step-circle ${status}`}>{children}</span>;
+    return <span data-testid={`checkout-step-circle-${status}`} className={`step-circle ${status}`}>{children}</span>;
 }
 
 function PaymentTabButton({
@@ -1117,22 +1117,22 @@ function WalletPanel({ tab }: { tab: Exclude<PaymentTab, "credit"> }) {
         <div className="-mt-px rounded-b-xl rounded-tr-xl border border-gray-200 p-8 text-center">
             <div className="mb-4 flex justify-center">
                 {tab === "google" ? (
-                    <span className="text-2xl font-black text-slate-700">
-                        <span className="text-blue-500">G</span>
-                        <span className="text-red-500">o</span>
-                        <span className="text-yellow-500">o</span>
-                        <span className="text-blue-500">g</span>
-                        <span className="text-green-500">l</span>
-                        <span className="text-red-500">e</span>
+                    <span className="text-2xl font-black text-slate-700" data-testid="business-protected-checkout-g-text">
+                        <span className="text-blue-500" data-testid="business-protected-checkout-g-text-2">G</span>
+                        <span className="text-red-500" data-testid="business-protected-checkout-o-text">o</span>
+                        <span className="text-yellow-500" data-testid="business-protected-checkout-o-text-2">o</span>
+                        <span className="text-blue-500" data-testid="business-protected-checkout-g-text-3">g</span>
+                        <span className="text-green-500" data-testid="business-protected-checkout-l-text">l</span>
+                        <span className="text-red-500" data-testid="business-protected-checkout-e-text">e</span>
                     </span>
                 ) : (
                     <span className="text-4xl"></span>
                 )}
             </div>
 
-            <p className="text-base font-semibold text-slate-900">Pay with {name}</p>
+            <p className="text-base font-semibold text-slate-900" data-testid="business-protected-checkout-pay-with-text">Pay with {name}</p>
 
-            <p className="mx-auto mt-1.5 max-w-sm text-sm text-slate-500">
+            <p className="mx-auto mt-1.5 max-w-sm text-sm text-slate-500" data-testid="business-protected-checkout-no-card-details-needed-you-apos-ll-text">
                 No card details needed. You&apos;ll confirm payment securely after starting your trial.
             </p>
 
@@ -1157,7 +1157,7 @@ function OrderSummary({
         <div className="lg:sticky lg:top-28">
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
                 <div className="border-b border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 px-6 py-5">
-                    <h2 className="text-lg font-bold text-slate-900">Order summary</h2>
+                    <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-checkout-order-summary-heading">Order summary</h2>
                 </div>
 
                 <div className="flex gap-4 border-b border-gray-50 px-6 py-5">
@@ -1166,24 +1166,24 @@ function OrderSummary({
                     </span>
 
                     <div className="min-w-0">
-                        <p className="font-bold leading-tight text-slate-900">{agent.name}</p>
-                        <p className="mt-0.5 text-sm text-slate-500">by {agent.author}</p>
-                        <p className="mt-1 flex items-center gap-1 text-sm text-amber-500">
+                        <p className="font-bold leading-tight text-slate-900" data-testid="business-protected-checkout-agent-text">{agent.name}</p>
+                        <p className="mt-0.5 text-sm text-slate-500" data-testid="business-protected-checkout-by-agent-author-text">by {agent.author}</p>
+                        <p className="mt-1 flex items-center gap-1 text-sm text-amber-500" data-testid="business-protected-checkout-agent-rating-agent-reviews-text">
                             <span>★★★★★</span>
-                            <span className="text-slate-500">
-                                <span className="font-semibold text-amber-600">{agent.rating}</span> ({agent.reviews} reviews)
+                            <span className="text-slate-500" data-testid="business-protected-checkout-agent-rating-text">
+                                <span className="font-semibold text-amber-600" data-testid="business-protected-checkout-agent-rating-text-2">{agent.rating}</span> ({agent.reviews} reviews)
                             </span>
                         </p>
                     </div>
                 </div>
 
                 <div className="border-b border-gray-50 px-6 py-5">
-                    <p className="mb-3 text-sm font-semibold text-slate-700">What&apos;s included</p>
+                    <p className="mb-3 text-sm font-semibold text-slate-700" data-testid="business-protected-checkout-what-apos-s-included-text">What&apos;s included</p>
 
                     <ul className="space-y-2.5">
                         {includedItems.map((item) => (
-                            <li key={item} className="flex items-start gap-2.5 text-sm text-slate-600">
-                                <span className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
+                            <li key={item} data-testid={`checkout-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-start gap-2.5 text-sm text-slate-600">
+                                <span data-testid={`checkout-included-check-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
                                     <CheckIcon className="h-3.5 w-3.5" />
                                 </span>
                                 {item}
@@ -1207,28 +1207,28 @@ function OrderSummary({
 
                     <div className="flex items-baseline justify-between">
                         <div>
-                            <span className="text-lg font-bold text-slate-900">Due today</span>
-                            <span className="block text-xs font-normal text-slate-400">Free for 7 days</span>
+                            <span className="text-lg font-bold text-slate-900" data-testid="business-protected-checkout-due-today-text-2">Due today</span>
+                            <span className="block text-xs font-normal text-slate-400" data-testid="business-protected-checkout-free-for-7-days-text">Free for 7 days</span>
                         </div>
 
-                        <span className="tnum text-lg font-bold text-slate-900">$0.00</span>
+                        <span className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text-2">$0.00</span>
                     </div>
 
                     <div className="mt-2 flex justify-between text-sm">
-                        <span className="text-slate-500">Due {trialDate}</span>
-                        <span className="tnum font-medium text-slate-500">${futureAmount}.00</span>
+                        <span className="text-slate-500" data-testid="business-protected-checkout-due-trial-date-text">Due {trialDate}</span>
+                        <span className="tnum font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-00-text">${futureAmount}.00</span>
                     </div>
                 </div>
 
                 <div className="mx-6 mb-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
-                    <p className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-amber-800" data-testid="business-protected-checkout-your-7-day-trial-includes-text">
                         ⏱ Your 7-day trial includes:
                     </p>
 
                     <ul className="mt-2 space-y-1 text-xs text-amber-700">
-                        <li>• Full agent functionality</li>
-                        <li>• Up to 50 free executions</li>
-                        <li>• Cancel anytime — no charge</li>
+                        <li data-testid="business-protected-checkout-full-agent-functionality-item">• Full agent functionality</li>
+                        <li data-testid="business-protected-checkout-up-to-50-free-executions-item">• Up to 50 free executions</li>
+                        <li data-testid="business-protected-checkout-cancel-anytime-no-charge-item">• Cancel anytime — no charge</li>
                     </ul>
                 </div>
 
@@ -1238,8 +1238,8 @@ function OrderSummary({
                     </span>
 
                     <div>
-                        <p className="text-sm font-semibold text-green-800">30-day money-back guarantee</p>
-                        <p className="mt-0.5 text-xs text-green-600">Not satisfied? Full refund, no questions.</p>
+                        <p className="text-sm font-semibold text-green-800" data-testid="business-protected-checkout-30-day-money-back-guarantee-text">30-day money-back guarantee</p>
+                        <p className="mt-0.5 text-xs text-green-600" data-testid="business-protected-checkout-not-satisfied-full-refund-no-questions-text">Not satisfied? Full refund, no questions.</p>
                     </div>
                 </div>
             </div>
@@ -1262,32 +1262,32 @@ function ConfirmationView({
                 <CheckIcon className="h-10 w-10 text-green-600" />
             </div>
 
-            <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-900">
+            <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-900" data-testid="business-protected-checkout-you-apos-re-all-set-heading">
                 You&apos;re all set! 🎉
             </h1>
 
-            <p className="mt-2 text-lg text-slate-600">{agent.name} is now active.</p>
+            <p className="mt-2 text-lg text-slate-600" data-testid="business-protected-checkout-agent-is-now-active-text">{agent.name} is now active.</p>
 
-            <p className="mt-4 text-sm text-slate-500">
+            <p className="mt-4 text-sm text-slate-500" data-testid="business-protected-checkout-your-7-day-free-trial-has-started-text">
                 Your 7-day free trial has started. We&apos;ll send setup instructions to{" "}
-                <span className="font-medium text-slate-600">{email}</span>.
+                <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
             </p>
 
             <div className="mt-8 rounded-2xl bg-gray-50 p-6 text-left sm:p-8">
-                <p className="mb-4 font-bold text-slate-900">Next steps</p>
+                <p className="mb-4 font-bold text-slate-900" data-testid="business-protected-checkout-next-steps-text">Next steps</p>
 
                 <ol className="space-y-3.5">
                     {nextSteps.map((step, index) => (
-                        <li key={step} className="flex items-center gap-3">
-                            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">
+                        <li key={step} className="flex items-center gap-3" data-testid="business-protected-checkout-1-step-item">
+                            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-100 text-sm font-bold text-amber-700" data-testid="business-protected-checkout-1-text">
                                 {index + 1}
                             </span>
-                            <span className="text-slate-700">{step}</span>
+                            <span className="text-slate-700" data-testid="business-protected-checkout-step-text">{step}</span>
                         </li>
                     ))}
                 </ol>
 
-                <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+                <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-400" data-testid="business-protected-checkout-takes-about-2-minutes-text">
                     ⏱ Takes about 2 minutes
                 </p>
             </div>
@@ -1330,8 +1330,9 @@ function PriceRow({
 }) {
     return (
         <div className="flex justify-between text-sm">
-            <span className={green ? "text-green-600" : "text-slate-600"}>{label}</span>
+            <span className={green ? "text-green-600" : "text-slate-600"} data-testid="business-protected-checkout-label-text">{label}</span>
             <span
+                data-testid={`checkout-summary-value-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 className={`tnum font-medium ${green ? "text-green-600" : muted ? "text-slate-400" : "text-slate-900"
                     }`}
             >
@@ -1343,16 +1344,16 @@ function PriceRow({
 
 function TrustInline({ text }: { text: string }) {
     return (
-        <span className="flex items-center gap-1.5 text-slate-400">
+        <span data-testid={`checkout-trust-inline-${text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-1.5 text-slate-400">
             <LockIcon className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">{text}</span>
+            <span data-testid={`checkout-trust-text-${text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="text-xs font-medium">{text}</span>
         </span>
     );
 }
 
 function VisaBrand({ active, hasBrand }: { active: boolean; hasBrand: boolean }) {
     return (
-        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`}>
+        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`} data-testid="business-protected-checkout-visa-text">
             <svg width="34" height="22" viewBox="0 0 34 22">
                 <rect width="34" height="22" rx="4" fill="#fff" stroke="#e5e7eb" />
                 <text
@@ -1387,7 +1388,7 @@ function MastercardBrand({ active, hasBrand }: { active: boolean; hasBrand: bool
 
 function AmexBrand({ active, hasBrand }: { active: boolean; hasBrand: boolean }) {
     return (
-        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`}>
+        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`} data-testid="business-protected-checkout-amex-text">
             <svg width="34" height="22" viewBox="0 0 34 22">
                 <rect width="34" height="22" rx="4" fill="#1f6fc4" />
                 <text
