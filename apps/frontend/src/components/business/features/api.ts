@@ -33,6 +33,8 @@ export type BusinessSetupInput = {
   vapiAssistantId?: string;
   vapiPhoneNumberId?: string;
   calendarId?: string;
+  listingId?: string;
+  workflowId?: string;
 };
 
 export type BusinessSetupData = {

@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { apiGet } from "@/lib/api";
 import { BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
+
+type DashboardOverview = {
+    installedAgent: { name: string; status: string } | null;
+    phoneNumber: { phoneNumber: string; forwardToPhone: string | null } | null;
+    subscription: { status: string; active: boolean };
+    counts: { leads: number; conversations: number; appointments: number };
+    recentMissedCalls: { id: string; phoneNumber: string; name: string | null; status: string }[];
+    calendarConnected: boolean;
+};
 
 type MetricCard = {
     label: string;
@@ -261,6 +271,8 @@ export default function BusinessDashboardPage() {
     const [chartMetric, setChartMetric] = useState<ChartMetric>("executions");
     const [currentUser, setCurrentUser] = useState<CoreAiUser | null>(null);
     const [fullDate, setFullDate] = useState("");
+    const [overview, setOverview] = useState<DashboardOverview | null>(null);
+    const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
 
     const currentData = chartData[chartMetric];
     const maxValue = Math.max(...currentData);
@@ -270,6 +282,24 @@ export default function BusinessDashboardPage() {
     useEffect(() => {
         setCurrentUser(readCoreAiUser());
         setFullDate(getFullDate());
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+        async function loadOverview() {
+            const result = await apiGet<DashboardOverview>("/business/dashboard");
+            if (!active) return;
+            if (result.success && result.data) {
+                setOverview(result.data);
+                setOverviewState("ready");
+            } else {
+                setOverviewState("error");
+            }
+        }
+        void loadOverview();
+        return () => {
+            active = false;
+        };
     }, []);
 
     const userFirstName = getFirstName(currentUser);
@@ -382,6 +412,51 @@ export default function BusinessDashboardPage() {
                     </button>
                 </div>
             </div>
+
+            <section data-testid="dashboard-overview" aria-label="Account overview" className="mb-8 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+                {overviewState === "loading" ? (
+                    <p data-testid="dashboard-overview-loading" className="text-sm font-medium text-slate-500">Loading your account…</p>
+                ) : overviewState === "error" ? (
+                    <p data-testid="dashboard-overview-error" className="text-sm font-medium text-red-600">Could not load your account data. Please refresh.</p>
+                ) : (
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
+                        <div data-testid="dashboard-overview-subscription">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Subscription</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">
+                                {overview?.subscription.active ? "Active" : (overview?.subscription.status ?? "inactive")}
+                            </p>
+                        </div>
+                        <div data-testid="dashboard-overview-agent">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Installed agent</p>
+                            <p className="mt-1 truncate text-sm font-bold text-slate-900">{overview?.installedAgent?.name ?? "Not installed"}</p>
+                        </div>
+                        <div data-testid="dashboard-overview-number">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">CoreAI number</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.phoneNumber?.phoneNumber ?? "Not assigned"}</p>
+                        </div>
+                        <div data-testid="dashboard-overview-leads">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Leads</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.counts.leads ?? 0}</p>
+                        </div>
+                        <div data-testid="dashboard-overview-conversations">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Conversations</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.counts.conversations ?? 0}</p>
+                        </div>
+                        <div data-testid="dashboard-overview-appointments">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Appointments</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.counts.appointments ?? 0}</p>
+                        </div>
+                        <div data-testid="dashboard-overview-calendar">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Calendar</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.calendarConnected ? "Connected" : "Not connected"}</p>
+                        </div>
+                        <div data-testid="dashboard-overview-missed">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Recent missed calls</p>
+                            <p className="mt-1 text-sm font-bold text-slate-900">{overview?.recentMissedCalls.length ?? 0}</p>
+                        </div>
+                    </div>
+                )}
+            </section>
 
             <section aria-label="Key metrics" className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
                 {metrics.map((metric) => (

@@ -19,7 +19,7 @@ export function successResponse<T>(
 export function errorResponse(
   c: Context,
   error: string,
-  status: 400 | 401 | 403 | 404 | 409 | 422 | 500 = 400,
+  status: 400 | 401 | 402 | 403 | 404 | 409 | 422 | 500 | 503 = 400,
   code = "REQUEST_ERROR"
 ) {
   return c.json(

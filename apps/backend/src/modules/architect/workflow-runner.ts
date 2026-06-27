@@ -60,6 +60,7 @@ export type WorkflowRunInput = {
   conversationId?: string;
   leadId?: string;
   installedAgentId?: string;
+  listingId?: string;
   latestMessage?: string;
 };
 
@@ -215,6 +216,7 @@ type RunnerContext = {
   conversationId?: string;
   leadId?: string;
   installedAgentId?: string;
+  listingId?: string;
   latestMessage?: string;
   leadSaved?: boolean;
   conversationSaved?: boolean;
@@ -386,6 +388,7 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   if (optionalString(input?.conversationId)) context.conversationId = optionalString(input?.conversationId);
   if (optionalString(input?.leadId)) context.leadId = optionalString(input?.leadId);
   if (optionalString(input?.installedAgentId)) context.installedAgentId = optionalString(input?.installedAgentId);
+  if (optionalString(input?.listingId)) context.listingId = optionalString(input?.listingId);
   if (optionalString(input?.latestMessage)) context.latestMessage = optionalString(input?.latestMessage);
 
   return context;
@@ -709,6 +712,10 @@ async function runVapiConnectorNode({
     metadata: {
       businessId: context.business?.id,
       businessOwnerId: context.business?.ownerId,
+      installedAgentId: context.installedAgentId,
+      listingId: context.listingId,
+      conversationId: context.conversationId,
+      leadId: context.leadId,
       workflowSource: "workflow_runner"
     }
   });

@@ -14,8 +14,21 @@ import {
   RECEPTIONIST_WORKFLOW_NAME,
   buildReceptionistWorkflowJson
 } from "./receptionist-template";
+import {
+  createCheckoutSession,
+  getBillingStatus,
+  handleStripeWebhook
+} from "./billing";
+import { ensureBusinessVapiAssistant } from "../architect/vapi-connector";
+import { isBillingEnabled } from "../../lib/stripe";
 
 export const businessRoutes = new Hono();
+
+/**
+ * Stripe billing webhook must stay PUBLIC and read the RAW body for signature
+ * verification, so it is registered BEFORE the auth guards below.
+ */
+businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
 /**
  * Every business route requires an authenticated BUSINESS user. The buyer is
@@ -23,6 +36,92 @@ export const businessRoutes = new Hono();
  */
 businessRoutes.use("*", requireAuth);
 businessRoutes.use("*", requireRole(["BUSINESS"]));
+
+businessRoutes.post("/billing/checkout", createCheckoutSession);
+businessRoutes.get("/billing/status", getBillingStatus);
+
+/**
+ * Aggregated data for the business dashboard: installed agent, assigned number,
+ * subscription status, counts, recent leads/appointments/missed calls, and the
+ * Google Calendar connection state. Read-only.
+ */
+businessRoutes.get("/dashboard", async (c) => {
+  const authUser = c.get("authUser");
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    include: {
+      installedAgents: { orderBy: { createdAt: "desc" }, take: 1 },
+      phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" }, take: 1 }
+    }
+  });
+
+  const calendar = await getGmailConnectionStatus(authUser.id);
+
+  if (!business) {
+    return successResponse(c, {
+      business: null,
+      installedAgent: null,
+      phoneNumber: null,
+      subscription: { status: "inactive", active: false },
+      counts: { leads: 0, conversations: 0, appointments: 0 },
+      recentLeads: [],
+      recentAppointments: [],
+      recentMissedCalls: [],
+      calendarConnected: calendar.connected
+    });
+  }
+
+  const [leadCount, conversationCount, appointmentCount, recentLeads, recentAppointments, recentMissedCalls] =
+    await Promise.all([
+      prisma.lead.count({ where: { businessId: business.id } }),
+      prisma.conversation.count({ where: { businessId: business.id } }),
+      prisma.appointment.count({ where: { businessId: business.id } }),
+      prisma.lead.findMany({
+        where: { businessId: business.id },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { id: true, phoneNumber: true, name: true, source: true, status: true, createdAt: true }
+      }),
+      prisma.appointment.findMany({
+        where: { businessId: business.id },
+        orderBy: { startAt: "desc" },
+        take: 5,
+        select: { id: true, customerName: true, startAt: true, status: true, createdAt: true }
+      }),
+      prisma.lead.findMany({
+        where: { businessId: business.id, source: { contains: "MISSED_CALL" } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { id: true, phoneNumber: true, name: true, status: true, createdAt: true }
+      })
+    ]);
+
+  const installedAgent = business.installedAgents[0] ?? null;
+  const phoneNumber = business.phoneNumbers[0] ?? null;
+  const subscriptionStatus = business.subscriptionStatus ?? "inactive";
+
+  return successResponse(c, {
+    business: { id: business.id, name: business.name, type: business.type },
+    installedAgent: installedAgent
+      ? { id: installedAgent.id, name: installedAgent.name, status: installedAgent.status }
+      : null,
+    phoneNumber: phoneNumber
+      ? { phoneNumber: phoneNumber.phoneNumber, forwardToPhone: phoneNumber.forwardToPhone }
+      : null,
+    subscription: {
+      status: subscriptionStatus,
+      active: subscriptionStatus === "active" || subscriptionStatus === "trialing",
+      currentPeriodEnd: business.currentPeriodEnd
+    },
+    counts: { leads: leadCount, conversations: conversationCount, appointments: appointmentCount },
+    recentLeads,
+    recentAppointments,
+    recentMissedCalls,
+    calendarConnected: calendar.connected
+  });
+});
 
 const BUSINESS_SETUP_REDIRECT_PATH = "/business/agents/setup";
 
@@ -218,6 +317,26 @@ businessRoutes.post("/setup", async (c) => {
     const authUser = c.get("authUser");
     const input = businessSetupSchema.parse(await c.req.json());
 
+    // Activation requires an active subscription — but only when real Stripe keys
+    // are configured, so local/dev with placeholder keys is not blocked.
+    if (isBillingEnabled()) {
+      const billed = await prisma.business.findFirst({
+        where: { ownerId: authUser.id },
+        orderBy: { createdAt: "desc" },
+        select: { subscriptionStatus: true }
+      });
+      const active =
+        billed?.subscriptionStatus === "active" || billed?.subscriptionStatus === "trialing";
+      if (!active) {
+        return errorResponse(
+          c,
+          "An active subscription is required before activating your AI Receptionist.",
+          402,
+          "SUBSCRIPTION_REQUIRED"
+        );
+      }
+    }
+
     const existing = await prisma.business.findFirst({
       where: { ownerId: authUser.id },
       orderBy: { createdAt: "desc" },
@@ -353,6 +472,13 @@ businessRoutes.post("/setup", async (c) => {
         where: { id: assigned.id },
         data: { status: "ASSIGNED", businessId: business.id, assignedAt: new Date() }
       });
+    }
+
+    // Resolve/store a per-business Vapi assistant id (non-fatal if Vapi is off).
+    try {
+      await ensureBusinessVapiAssistant(business.id);
+    } catch (error) {
+      console.error("ensureBusinessVapiAssistant failed (non-fatal)", error);
     }
 
     const [refreshed, calendar] = await Promise.all([

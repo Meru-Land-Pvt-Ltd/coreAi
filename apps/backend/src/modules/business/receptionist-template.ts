@@ -1,13 +1,5 @@
 import { CORE_CONNECTOR, CORE_CONNECTOR_ACTIONS } from "@coreai/shared";
 
-/**
- * Default AI Receptionist / Missed Call Text-Back workflow used as a fallback
- * when no published listing or template workflow exists yet. The shape matches
- * what workflow-runner.ts expects (nodeKind + connector/connectorAction), so a
- * freshly created business is immediately routable end-to-end and persists the
- * lead + conversation through the runner's launch-critical nodes.
- */
-
 export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist – Missed Call Text-Back";
 export const RECEPTIONIST_WORKFLOW_DESCRIPTION =
   "Detects missed calls, saves the lead, texts the caller back with per-business context, and stores the conversation.";

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { apiPost } from "@/lib/api";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
@@ -429,6 +430,8 @@ function isZipValid(country: string, value: string) {
 
 export default function BusinessCheckoutPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const listingId = searchParams.get("listingId") ?? "";
 
     const [authReady, setAuthReady] = useState(false);
     const [email, setEmail] = useState("");
@@ -455,6 +458,7 @@ export default function BusinessCheckoutPage() {
     const [promoApplied, setPromoApplied] = useState(false);
     const [promoError, setPromoError] = useState("");
     const [processing, setProcessing] = useState(false);
+    const [checkoutError, setCheckoutError] = useState("");
     const [confirmation, setConfirmation] = useState(false);
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
 
@@ -570,19 +574,39 @@ export default function BusinessCheckoutPage() {
         }, 4200);
     }
 
-    function handleStartTrial() {
+    async function handleStartTrial() {
         setAttemptedSubmit(true);
 
         if (!formReady || processing) return;
 
         setProcessing(true);
+        setCheckoutError("");
 
-        window.setTimeout(() => {
-            setProcessing(false);
-            setConfirmation(true);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            buildConfetti();
-        }, 1500);
+        // Real Stripe Checkout: redirect to the hosted session when billing is live.
+        const result = await apiPost<{ url?: string }>(
+            "/business/billing/checkout",
+            listingId ? { listingId } : {}
+        );
+
+        if (result.success && result.data?.url) {
+            window.location.href = result.data.url;
+            return;
+        }
+
+        // Billing not configured (placeholder keys) → keep the simulated confirmation
+        // so local/dev checkout still completes.
+        if (result.code === "BILLING_NOT_CONFIGURED") {
+            window.setTimeout(() => {
+                setProcessing(false);
+                setConfirmation(true);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                buildConfetti();
+            }, 1200);
+            return;
+        }
+
+        setProcessing(false);
+        setCheckoutError(result.error ?? "Could not start checkout. Please try again.");
     }
 
     if (!authReady) {
@@ -857,6 +881,14 @@ export default function BusinessCheckoutPage() {
                                 </section>
 
                                 <section>
+                                    {checkoutError ? (
+                                        <p
+                                            data-testid="checkout-error"
+                                            className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
+                                        >
+                                            {checkoutError}
+                                        </p>
+                                    ) : null}
                                     <button
                                         type="button"
                                         onClick={handleStartTrial}

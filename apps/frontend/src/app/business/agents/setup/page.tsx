@@ -2,7 +2,7 @@
 
 import type { Route } from "next";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/common/dashboard-shell";
 import {
   disconnectBusinessCalendar,
@@ -74,6 +74,8 @@ export default function BusinessAgentSetupPage() {
 
 function SetupWizard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const listingId = searchParams.get("listingId") ?? "";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -218,7 +220,8 @@ function SetupWizard() {
         .map((item) => ({ title: item.title.trim(), content: item.content.trim() })),
       vapiAssistantId: vapiAssistantId.trim(),
       vapiPhoneNumberId: vapiPhoneNumberId.trim(),
-      calendarId: calendarId.trim() || "primary"
+      calendarId: calendarId.trim() || "primary",
+      ...(listingId ? { listingId } : {})
     });
 
     setSaving(false);
