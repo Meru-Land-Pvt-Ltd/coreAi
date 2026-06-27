@@ -1,8 +1,9 @@
 "use client";
 
+import { CoreFooter } from "@/components/common/footer";
+import { CoreHeader } from "@/components/common/header";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -304,6 +305,7 @@ export default function AssignmentPage() {
   const [errName, setErrName] = useState(false);
   const [errEmail, setErrEmail] = useState(false);
   const [navScrolled, setNavScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const restored = useRef(false);
 
   /* navbar scroll state */
@@ -501,25 +503,13 @@ export default function AssignmentPage() {
       </div>
 
       {/* navbar */}
-      <header data-testid="app-assignment-page-header-1"
-        id="navbar"
-        className={`fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md transition ${navScrolled ? "border-gray-200 bg-white/90 shadow-[0_1px_3px_0_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.06)]" : "border-transparent"
-          }`}
-      >
-        <nav data-testid="app-assignment-page-nav-1" className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link data-testid="app-assignment-page-link-1" href="/" className="flex items-center gap-2.5" aria-label="CORE home">
-            <svg data-testid="app-assignment-page-svg-9" className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-              <circle data-testid="app-assignment-page-circle-3" cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-              <circle data-testid="app-assignment-page-circle-4" cx="14" cy="14" r="4" fill="#fbbf24" />
-            </svg>
-            <span data-testid="app-assignment-page-span-1" className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
-          </Link>
-          <Link data-testid="app-assignment-page-link-2" href="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-900">
-            <IconBack />
-            Back to Home
-          </Link>
-        </nav>
-      </header>
+      <CoreHeader
+        navTop={0}
+        navScrolled={navScrolled}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onCloseMenu={() => setMenuOpen(false)}
+      />
 
       <main data-testid="app-assignment-page-main-1" className="relative">
         {/* ============ SCREEN 1 — INTRO ============ */}
@@ -738,57 +728,7 @@ export default function AssignmentPage() {
       </main>
 
       {/* ============ FOOTER ============ */}
-      <footer data-testid="app-assignment-page-footer-1" className="border-t border-gray-200 bg-gray-50 px-6 py-16">
-        <div data-testid="app-assignment-page-div-31" className="mx-auto max-w-7xl">
-          <div data-testid="app-assignment-page-div-32" className="grid grid-cols-2 gap-10 md:grid-cols-5">
-            <div data-testid="app-assignment-page-div-33" className="col-span-2 md:col-span-1">
-              <Link data-testid="app-assignment-page-link-3" href="/" className="flex items-center gap-2.5" aria-label="CORE home">
-                <svg data-testid="app-assignment-page-svg-11" className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                  <circle data-testid="app-assignment-page-circle-7" cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-                  <circle data-testid="app-assignment-page-circle-8" cx="14" cy="14" r="4" fill="#fbbf24" />
-                </svg>
-                <span data-testid="app-assignment-page-span-16" className="text-xl font-extrabold tracking-tight text-amber-500">CORE</span>
-              </Link>
-              <p data-testid="app-assignment-page-p-13" className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500">The AI agent marketplace where businesses and architects build the future of work together.</p>
-            </div>
-            <div data-testid="app-assignment-page-div-34">
-              <h4 data-testid="app-assignment-page-h4-1" className="text-sm font-semibold text-slate-900">Product</h4>
-              <ul data-testid="app-assignment-page-ul-1" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-assignment-page-li-1"><Link data-testid="app-assignment-page-link-4" href="/#platform" className="text-slate-500 transition hover:text-amber-600">Platform</Link></li>
-                <li data-testid="app-assignment-page-li-2"><Link data-testid="app-assignment-page-link-5" href="/#assessment" className="text-slate-500 transition hover:text-amber-600">Pricing</Link></li>
-                <li data-testid="app-assignment-page-li-3"><a data-testid="app-assignment-page-a-2" href="#" className="text-slate-500 transition hover:text-amber-600">Docs</a></li>
-                <li data-testid="app-assignment-page-li-4"><a data-testid="app-assignment-page-a-3" href="#" className="text-slate-500 transition hover:text-amber-600">API</a></li>
-              </ul>
-            </div>
-            <div data-testid="app-assignment-page-div-35">
-              <h4 data-testid="app-assignment-page-h4-2" className="text-sm font-semibold text-slate-900">Company</h4>
-              <ul data-testid="app-assignment-page-ul-2" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-assignment-page-li-5"><a data-testid="app-assignment-page-a-4" href="#" className="text-slate-500 transition hover:text-amber-600">About</a></li>
-                <li data-testid="app-assignment-page-li-6"><a data-testid="app-assignment-page-a-5" href="#" className="text-slate-500 transition hover:text-amber-600">Blog</a></li>
-                <li data-testid="app-assignment-page-li-7"><a data-testid="app-assignment-page-a-6" href="#" className="text-slate-500 transition hover:text-amber-600">Careers</a></li>
-              </ul>
-            </div>
-            <div data-testid="app-assignment-page-div-36">
-              <h4 data-testid="app-assignment-page-h4-3" className="text-sm font-semibold text-slate-900">Legal</h4>
-              <ul data-testid="app-assignment-page-ul-3" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-assignment-page-li-8"><a data-testid="app-assignment-page-a-7" href="#" className="text-slate-500 transition hover:text-amber-600">Privacy</a></li>
-                <li data-testid="app-assignment-page-li-9"><a data-testid="app-assignment-page-a-8" href="#" className="text-slate-500 transition hover:text-amber-600">Terms</a></li>
-              </ul>
-            </div>
-            <div data-testid="app-assignment-page-div-37">
-              <h4 data-testid="app-assignment-page-h4-4" className="text-sm font-semibold text-slate-900">Connect</h4>
-              <ul data-testid="app-assignment-page-ul-4" className="mt-4 space-y-3 text-sm">
-                <li data-testid="app-assignment-page-li-10"><a data-testid="app-assignment-page-a-9" href="#" className="text-slate-500 transition hover:text-amber-600">Twitter</a></li>
-                <li data-testid="app-assignment-page-li-11"><a data-testid="app-assignment-page-a-10" href="#" className="text-slate-500 transition hover:text-amber-600">LinkedIn</a></li>
-                <li data-testid="app-assignment-page-li-12"><a data-testid="app-assignment-page-a-11" href="#" className="text-slate-500 transition hover:text-amber-600">Email</a></li>
-              </ul>
-            </div>
-          </div>
-          <div data-testid="app-assignment-page-div-38" className="mt-12 border-t border-gray-200 pt-8">
-            <p data-testid="app-assignment-page-p-14" className="text-sm text-slate-500">© 2026 CORE. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <CoreFooter />
     </div>
   );
 }

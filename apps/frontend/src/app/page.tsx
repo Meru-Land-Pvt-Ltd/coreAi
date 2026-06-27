@@ -487,7 +487,7 @@ export default function HomePage() {
         </section>
 
         <section data-testid="app-page-section-2" className="px-6">
-          <div data-testid="app-page-div-43" className="relative mx-auto mt-16 max-w-4xl animate-float rounded-2xl border border-gray-200 bg-white p-6 shadow-glow backdrop-blur-sm">
+          <div data-testid="app-page-div-43" className="relative isolate mx-auto mt-16 max-w-4xl animate-float overflow-visible rounded-2xl border border-gray-200 bg-white p-6 shadow-glow backdrop-blur-sm">
             <div data-testid="app-page-div-44" className="pointer-events-none absolute -inset-x-8 -inset-y-6 -z-10 rounded-[2rem] bg-[radial-gradient(50%_60%_at_50%_50%,rgba(245,158,11,0.06),transparent_70%)]" />
 
             <div data-testid="app-page-div-45" className="mb-6 flex items-center gap-2 border-b border-gray-200 pb-4">
@@ -518,6 +518,12 @@ export default function HomePage() {
                 <path data-testid="app-page-path-9" d="M200,170 C250,170 275,170 325,170" />
                 <path data-testid="app-page-path-10" d="M495,155 C560,155 565,95 620,95" />
                 <path data-testid="app-page-path-11" d="M495,185 C560,185 565,245 620,245" />
+              </g>
+
+              <g data-testid="app-page-g-1-animated" fill="none" stroke="#fbbf24" strokeWidth={2.5} strokeLinecap="round" strokeDasharray="8 12" strokeOpacity="0.75">
+                <path data-testid="app-page-path-9-animated" d="M200,170 C250,170 275,170 325,170">
+                  <animate attributeName="stroke-dashoffset" from="0" to="-40" dur="1.45s" repeatCount="indefinite" />
+                </path>
               </g>
 
               <g data-testid="app-page-g-2" transform="translate(30,130)">
@@ -556,8 +562,9 @@ export default function HomePage() {
                 <g data-testid="app-page-g-9" transform="translate(24,30) scale(0.8)" fill="none" stroke="#fbbf24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path data-testid="app-page-path-15" d="M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z" />
                 </g>
-                <text data-testid="app-page-text-7" x="64" y="40" fill="#0f172a" fontFamily="Inter, sans-serif" fontSize="15" fontWeight="600">Book Appointment</text>
-                <text data-testid="app-page-text-8" x="64" y="58" fill="#475569" fontFamily="Inter, sans-serif" fontSize="11">Google Calendar</text>
+                <text data-testid="app-page-text-7" x="64" y="35" fill="#0f172a" fontFamily="Inter, sans-serif" fontSize="15" fontWeight="600">Book</text>
+                <text data-testid="app-page-text-7-line-2" x="64" y="52" fill="#0f172a" fontFamily="Inter, sans-serif" fontSize="15" fontWeight="600">Appointment</text>
+                <text data-testid="app-page-text-8" x="64" y="70" fill="#475569" fontFamily="Inter, sans-serif" fontSize="11">Google Calendar</text>
               </g>
 
               <g data-testid="app-page-g-10" filter="url(#coreDotGlow)">
@@ -789,18 +796,61 @@ export default function HomePage() {
 
             <div data-testid="app-page-div-100" className="mt-14 grid gap-6 md:grid-cols-3">
               {[
-                { quote: "“I built a missed-call agent in 20 minutes. It's already earning me $400/month.”", initials: "AR", name: "Alex R.", role: "AI Architect" },
-                { quote: "“We were losing 30% of leads to missed calls. CORE's agent recovered $12,000 in the first month.”", initials: "SM", name: "Dr. Sarah M.", role: "Dentist" },
-                { quote: "“The simplest platform I've ever used. Drag, drop, publish. That's it.”", initials: "JK", name: "James K.", role: "Freelancer" }
+                {
+                  quote: "“I built a missed-call agent in 20 minutes. It's already earning me $400/month.”",
+                  image: "/image2.png",
+                  name: "Alex Rao",
+                  role: "AI Architect",
+                  alt: "Alex Rao testimonial photo"
+                },
+                {
+                  quote: "“We were losing 30% of leads to missed calls. CORE's agent recovered $12,000 in the first month.”",
+                  image: "/image1.png",
+                  name: "Dr. Sarah Mehta",
+                  role: "Dentist",
+                  alt: "Dr. Sarah Mehta testimonial photo"
+                },
+                {
+                  quote: "“The simplest platform I've ever used. Drag, drop, publish. That's it.”",
+                  image: "/image2.png",
+                  name: "James Kapoor",
+                  role: "Freelancer",
+                  alt: "James Kapoor testimonial photo"
+                }
               ].map((t) => (
-                <figure data-testid="app-page-figure-1" key={t.initials} className="flex flex-col rounded-xl border border-gray-200 bg-white p-8 shadow-sm backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:shadow-glow">
+                <figure
+                  data-testid={`landing-testimonial-card-${t.name.toLowerCase().replaceAll(" ", "-").replaceAll(".", "")}`}
+                  key={t.name}
+                  className="flex flex-col rounded-xl border border-gray-200 bg-white p-8 shadow-sm backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:shadow-glow"
+                >
                   <Stars />
-                  <blockquote data-testid="app-page-blockquote-1" className="flex-1 text-lg leading-relaxed text-slate-700">{t.quote}</blockquote>
-                  <figcaption data-testid="app-page-figcaption-1" className="mt-6 flex items-center gap-3 border-t border-gray-200 pt-6">
-                    <span data-testid="app-page-span-24" className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-600 ring-1 ring-amber-300">{t.initials}</span>
-                    <span data-testid="app-page-span-25">
-                      <span data-testid="app-page-span-26" className="block text-sm font-semibold text-slate-900">{t.name}</span>
-                      <span data-testid="app-page-span-27" className="block text-xs text-slate-500">{t.role}</span>
+
+                  <blockquote
+                    data-testid={`landing-testimonial-quote-${t.name.toLowerCase().replaceAll(" ", "-").replaceAll(".", "")}`}
+                    className="flex-1 text-lg leading-relaxed text-slate-700"
+                  >
+                    {t.quote}
+                  </blockquote>
+
+                  <figcaption
+                    data-testid={`landing-testimonial-author-${t.name.toLowerCase().replaceAll(" ", "-").replaceAll(".", "")}`}
+                    className="mt-6 flex items-center gap-3 border-t border-gray-200 pt-6"
+                  >
+                    <img
+                      data-testid={`landing-testimonial-image-${t.name.toLowerCase().replaceAll(" ", "-").replaceAll(".", "")}`}
+                      src={t.image}
+                      alt={t.alt}
+                      className="h-11 w-11 rounded-full object-cover ring-1 ring-amber-300"
+                      loading="lazy"
+                    />
+
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-900">
+                        {t.name}
+                      </span>
+                      <span className="block text-xs text-slate-500">
+                        {t.role}
+                      </span>
                     </span>
                   </figcaption>
                 </figure>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./global.css";
 
 export const metadata: Metadata = {
-  title: "CoreAI Agent Marketplace",
+  title: "Triven.Ai Agent Marketplace",
   description: "AI Agent Marketplace for Businesses and AI Architects"
 };
 

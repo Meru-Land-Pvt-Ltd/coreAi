@@ -1,12 +1,15 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BUSINESS_LOGIN_PATH, BUSINESS_MARKETPLACE_PATH } from "@/lib/routes";
 
+const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
+const USER_STORAGE_KEY = "coreai-user";
 
-type CoreAiUser = {
+type TrivenUser = {
     id?: string;
     fullName?: string | null;
     email?: string | null;
@@ -42,7 +45,7 @@ const businessNavItems = [
     },
     {
         label: "Billing & Usage",
-        href: "/business/dashboard#billing",
+        href: "/business/billingandusage",
         icon: "card" as IconName
     },
 ];
@@ -54,10 +57,10 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const router = useRouter();
     const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
-    const [currentUser, setCurrentUser] = useState<CoreAiUser | null>(null);
+    const [currentUser, setCurrentUser] = useState<TrivenUser | null>(null);
 
     useEffect(() => {
-        setCurrentUser(readCoreAiUser());
+        setCurrentUser(readTrivenUser());
     }, []);
 
     useEffect(() => {
@@ -87,7 +90,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
         router.replace(BUSINESS_LOGIN_PATH);
     }
 
-
     return (
         <div className="min-h-screen bg-gray-50 text-slate-900">
             {sidebarOpen ? (
@@ -106,13 +108,17 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 aria-label="Primary"
             >
                 <div className="flex items-center gap-3 p-6">
-                    <a href="/business/dashboard" className="flex items-center gap-2.5" aria-label="CORE home">
-                        <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                            <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-                            <circle cx="14" cy="14" r="4" fill="#fbbf24" />
-                        </svg>
+                    <a href="/business/dashboard" className="flex items-center gap-2.5" aria-label="Triven home">
+                        <Image
+                            src={TRIVEN_LOGO_SRC}
+                            alt="Triven"
+                            width={150}
+                            height={44}
+                            priority
+                            className="h-10 w-auto object-contain"
+                        />
                         <span className="text-xl font-extrabold tracking-tight text-amber-500">
-                            CORE
+                            Triven.ai
                         </span>
                     </a>
 
@@ -177,7 +183,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         <span>Marketplace</span>
                         <Icon name="external" className="ml-auto h-3.5 w-3.5 text-slate-400" />
                     </Link>
-
                 </div>
 
                 <div className="mt-auto border-t border-gray-100 p-4">
@@ -235,31 +240,23 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         <Icon name="menu" className="h-6 w-6" />
                     </button>
 
-                    <span className="text-sm font-bold tracking-tight text-slate-900">CORE</span>
+                    <Image
+                        src={TRIVEN_LOGO_SRC}
+                        alt="Triven"
+                        width={120}
+                        height={36}
+                        priority
+                        className="h-8 w-auto object-contain"
+                    />
 
-                    <span className="h-10 w-10" />
+                    <span className="text-xl font-extrabold tracking-tight text-amber-500">
+                        Triven.ai
+                    </span>
                 </div>
 
                 {children}
             </div>
         </div>
-    );
-}
-
-function LogoIcon() {
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            className="h-5 w-5 text-white"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <circle cx="12" cy="12" r="8.5" />
-            <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-        </svg>
     );
 }
 
@@ -373,7 +370,21 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
 }
 
 function isMarketplaceRoute(pathname: string) {
-    return pathname === BUSINESS_MARKETPLACE_PATH || pathname.startsWith(`${BUSINESS_MARKETPLACE_PATH}/`);
+    if (pathname === BUSINESS_MARKETPLACE_PATH || pathname.startsWith(`${BUSINESS_MARKETPLACE_PATH}/`)) {
+        return true;
+    }
+
+    const staticBusinessRoutes = new Set([
+        "/business/dashboard",
+        "/business/marketplace",
+        "/business/checkout",
+        "/business/billingandusage",
+        "/business/paymentsuccess",
+        "/business/paymentfailed",
+        "/business/agents/setup"
+    ]);
+
+    return pathname.startsWith("/business/") && !staticBusinessRoutes.has(pathname);
 }
 
 function isBusinessNavItemActive(
@@ -381,27 +392,30 @@ function isBusinessNavItemActive(
     pathname: string,
     hash: string
 ) {
+    if (item.label === "Billing & Usage") {
+        return pathname === "/business/billingandusage";
+    }
+
     if (pathname !== "/business/dashboard") return false;
 
     if (item.label === "Overview") return hash === "" || hash === "#";
     if (item.label === "My Agents") return hash === "#agents";
-    if (item.label === "Billing & Usage") return hash === "#billing";
 
     return false;
 }
 
-function readCoreAiUser(): CoreAiUser | null {
+function readTrivenUser(): TrivenUser | null {
     if (typeof window === "undefined") return null;
 
     try {
-        const raw = localStorage.getItem("coreai-user");
-        return raw ? (JSON.parse(raw) as CoreAiUser) : null;
+        const raw = localStorage.getItem(USER_STORAGE_KEY);
+        return raw ? (JSON.parse(raw) as TrivenUser) : null;
     } catch {
         return null;
     }
 }
 
-function getDisplayName(user: CoreAiUser | null) {
+function getDisplayName(user: TrivenUser | null) {
     const fullName = user?.fullName?.trim();
 
     if (fullName) return fullName;
@@ -416,7 +430,7 @@ function getDisplayName(user: CoreAiUser | null) {
     return "";
 }
 
-function getInitials(user: CoreAiUser | null) {
+function getInitials(user: TrivenUser | null) {
     const displayName = getDisplayName(user);
 
     const initials = displayName
@@ -430,7 +444,7 @@ function getInitials(user: CoreAiUser | null) {
     return initials || "U";
 }
 
-function getUserSubtitle(user: CoreAiUser | null) {
+function getUserSubtitle(user: TrivenUser | null) {
     if (user?.email?.trim()) return user.email.trim();
     if (user?.role?.trim()) return formatRole(user.role);
     return "";

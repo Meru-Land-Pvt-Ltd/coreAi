@@ -1,7 +1,9 @@
 "use client";
 
-import type { Route } from "next";
+import Image from "next/image";
 import Link from "next/link";
+
+const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
 type CoreHeaderProps = {
   navTop: number;
@@ -29,18 +31,22 @@ export function CoreHeader({
       }`}
     >
       <nav className="mx-auto flex w-full max-w-none items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-        <a href="/" className="flex items-center gap-2.5" aria-label="CORE home">
-          <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-            <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-            <circle cx="14" cy="14" r="4" fill="#fbbf24" />
-          </svg>
+        <a href="/" className="flex items-center gap-2.5" aria-label="Triven home">
+          <Image
+            src={TRIVEN_LOGO_SRC}
+            alt="Triven logo"
+            width={36}
+            height={36}
+            priority
+            className="h-9 w-9 object-contain"
+          />
+
           <span className="text-xl font-extrabold tracking-tight text-amber-500">
-            CORE
+            Triven.ai
           </span>
         </a>
 
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-4 md:flex lg:gap-7 xl:gap-8">
-          
           <Link href="/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Marketplace
           </Link>
@@ -52,6 +58,7 @@ export function CoreHeader({
           <Link href="/about" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             About
           </Link>
+
           <Link href="/contactus" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Contact US
           </Link>
@@ -120,7 +127,7 @@ export function CoreHeader({
             </Link>
 
             <a
-              href="#assessment"
+              href="/pricing"
               onClick={onCloseMenu}
               className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
             >
@@ -133,6 +140,14 @@ export function CoreHeader({
               className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
             >
               About
+            </Link>
+
+            <Link
+              href="/contactus"
+              onClick={onCloseMenu}
+              className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
+            >
+              Contact US
             </Link>
 
             <a

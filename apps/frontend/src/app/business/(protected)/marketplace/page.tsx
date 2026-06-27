@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
-    businessSetupPath
+    businessAgentPath
 } from "@/lib/routes";
 
 type Agent = {
@@ -99,19 +99,137 @@ const sortOptions = [
 ] as const;
 
 type SortValue = (typeof sortOptions)[number]["value"];
-type OpenFilter = "industry" | "sort" | null;
+type OpenFilter = "industry" | "price" | "rating" | "sort" | null;
 
-function filterDropdownOptionClass(active: boolean) {
-    return `flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${active
-        ? "bg-amber-50 font-medium text-amber-700"
-        : "text-slate-600 hover:bg-slate-50"
-        }`;
+const baseIndustries: Omit<Industry, "count">[] = [
+    { id: "all", label: "All industries", icon: "✨" },
+    { id: "dental", label: "Dental", icon: "🦷" },
+    { id: "hvac", label: "HVAC & Plumbing", icon: "🔧" },
+    { id: "realestate", label: "Real Estate", icon: "🏠" },
+    { id: "legal", label: "Legal", icon: "⚖️" },
+    { id: "medical", label: "Medical & Wellness", icon: "❤️" },
+    { id: "automotive", label: "Automotive", icon: "🚗" },
+    { id: "ecommerce", label: "E-commerce", icon: "🛍️" }
+];
+
+function filterPillClass(active: boolean) {
+    return [
+        "inline-flex shrink-0 items-center gap-1.5 rounded-xl border bg-white px-3.5 py-2 text-sm font-medium transition",
+        active
+            ? "border-amber-300 bg-amber-50 text-amber-700"
+            : "border-gray-200 text-slate-600 hover:border-amber-300 hover:text-slate-900"
+    ].join(" ");
 }
 
-function FilterChevronIcon() {
+function popoverOptionClass(active: boolean) {
+    return [
+        "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition",
+        active
+            ? "bg-amber-50 font-semibold text-amber-700"
+            : "text-slate-600 hover:bg-amber-50 hover:text-amber-700"
+    ].join(" ");
+}
+
+function viewButtonClass(active: boolean) {
+    return [
+        "grid h-8 w-8 place-items-center rounded-md transition",
+        active ? "bg-amber-50 text-amber-600" : "text-slate-400 hover:text-slate-700"
+    ].join(" ");
+}
+
+function ChevronIcon({ open = false }: { open?: boolean }) {
     return (
-        <svg className="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        <svg
+            className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="m6 9 6 6 6-6" />
+        </svg>
+    );
+}
+
+function StarIcon({ className = "h-4 w-4" }: { className?: string }) {
+    return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="m12 3.4 2.6 5.34 5.9.86-4.27 4.16 1 5.88L12 16.9l-5.27 2.77 1-5.88L3.46 9.6l5.9-.86L12 3.4Z" />
+        </svg>
+    );
+}
+
+function GridIcon() {
+    return (
+        <svg
+            className="h-[18px] w-[18px]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
+            <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
+            <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
+            <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
+        </svg>
+    );
+}
+
+function ListIcon() {
+    return (
+        <svg
+            className="h-[18px] w-[18px]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M8 6h12M8 12h12M8 18h12" />
+            <path d="M4 6h.01M4 12h.01M4 18h.01" />
+        </svg>
+    );
+}
+
+function CheckIcon() {
+    return (
+        <svg
+            className="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="m5 12.5 4.2 4.2L19 7" />
+        </svg>
+    );
+}
+
+function XIcon() {
+    return (
+        <svg
+            className="h-3 w-3"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M6 6 18 18M18 6 6 18" />
         </svg>
     );
 }
@@ -126,18 +244,16 @@ function formatLabel(value: string) {
         .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function getIndustryIcon(label: string) {
-    const cleanLabel = label.toLowerCase();
+function getIndustryAgentCount(industryId: string, agents: Agent[]) {
+    if (industryId === "all") return agents.length;
+    return agents.filter(
+        (agent) => agent.industry === industryId || agent.industry === "all"
+    ).length;
+}
 
-    if (cleanLabel.includes("dental")) return "🦷";
-    if (cleanLabel.includes("hvac") || cleanLabel.includes("plumbing")) return "🔧";
-    if (cleanLabel.includes("real")) return "🏠";
-    if (cleanLabel.includes("legal")) return "⚖️";
-    if (cleanLabel.includes("medical") || cleanLabel.includes("wellness")) return "❤️";
-    if (cleanLabel.includes("auto")) return "🚗";
-    if (cleanLabel.includes("commerce") || cleanLabel.includes("shop")) return "🛍️";
-
-    return "✨";
+function isIndustryAvailable(id: string, agents: Agent[]) {
+    if (id === "all") return true;
+    return getIndustryAgentCount(id, agents) > 0;
 }
 
 function getAgentIndustry(listing: ApiListing) {
@@ -225,42 +341,11 @@ function mapListingToAgent(listing: ApiListing): Agent {
     };
 }
 
-function buildIndustries(agents: Agent[]): Industry[] {
-    const industryMap = new Map<string, Industry>();
-
-    agents.forEach((agent) => {
-        const id = agent.industry || "all";
-        if (id === "all") return;
-
-        const existing = industryMap.get(id);
-
-        if (existing) {
-            industryMap.set(id, {
-                ...existing,
-                count: existing.count + 1
-            });
-            return;
-        }
-
-        const label = formatLabel(id);
-
-        industryMap.set(id, {
-            id,
-            label,
-            count: 1,
-            icon: getIndustryIcon(label)
-        });
-    });
-
-    return [
-        {
-            id: "all",
-            label: "All industries",
-            count: agents.length,
-            icon: "✨"
-        },
-        ...Array.from(industryMap.values()).sort((a, b) => a.label.localeCompare(b.label))
-    ];
+function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
+    return baseIndustries.map((item) => ({
+        ...item,
+        count: getIndustryAgentCount(item.id, agents)
+    }));
 }
 
 export default function MarketplacePage() {
@@ -277,7 +362,9 @@ export default function MarketplacePage() {
     const [freeTrialOnly, setFreeTrialOnly] = useState(false);
     const [newOnly, setNewOnly] = useState(false);
     const [openFilter, setOpenFilter] = useState<OpenFilter>(null);
-    const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+    const [priceMin, setPriceMin] = useState(0);
+    const [priceMax, setPriceMax] = useState(200);
+    const [minRating, setMinRating] = useState(0);
 
     useEffect(() => {
         const token =
@@ -377,32 +464,15 @@ export default function MarketplacePage() {
         };
     }, [openFilter]);
 
-    useEffect(() => {
-        if (!selectedAgent) return;
-
-        function handleKeyDown(event: KeyboardEvent) {
-            if (event.key === "Escape") setSelectedAgent(null);
-        }
-
-        document.addEventListener("keydown", handleKeyDown);
-        document.body.style.overflow = "hidden";
-
-        return () => {
-            document.removeEventListener("keydown", handleKeyDown);
-            document.body.style.overflow = "";
-        };
-    }, [selectedAgent]);
-
     function openAgentPage(agent: Agent) {
-        // Install / Start free trial → business setup wizard (not architect publish).
-        router.push(businessSetupPath(agent.id));
+        router.push(businessAgentPath(agent.id));
     }
 
     function openDetailsModal(agent: Agent) {
-        setSelectedAgent(agent);
+        router.push(businessAgentPath(agent.id));
     }
 
-    const industries = useMemo(() => buildIndustries(agents), [agents]);
+    const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
     const featuredAgent = agents[0] ?? null;
 
     const industryLabel =
@@ -410,6 +480,56 @@ export default function MarketplacePage() {
 
     const sortLabel =
         sortOptions.find((item) => item.value === sort)?.label ?? "Most popular";
+
+    const priceActive = priceMin !== 0 || priceMax !== 200;
+    const ratingActive = minRating > 0;
+
+    const activeFilters = [
+        query.trim()
+            ? { key: "query", label: `"${query.trim()}"` }
+            : null,
+        industry !== "all"
+            ? { key: "industry", label: industryLabel }
+            : null,
+        priceActive
+            ? {
+                key: "price",
+                label: priceMax >= 200 ? `$${priceMin}+` : `$${priceMin}–$${priceMax}`
+            }
+            : null,
+        ratingActive
+            ? { key: "rating", label: `${minRating}.0+ ★` }
+            : null,
+        freeTrialOnly
+            ? { key: "free", label: "Free trial" }
+            : null,
+        newOnly
+            ? { key: "new", label: "New this month" }
+            : null
+    ].filter(Boolean) as { key: string; label: string }[];
+
+    function clearFilter(key: string) {
+        if (key === "query") setQuery("");
+        if (key === "industry") setIndustry("all");
+        if (key === "price") {
+            setPriceMin(0);
+            setPriceMax(200);
+        }
+        if (key === "rating") setMinRating(0);
+        if (key === "free") setFreeTrialOnly(false);
+        if (key === "new") setNewOnly(false);
+    }
+
+    function clearAllFilters() {
+        setQuery("");
+        setIndustry("all");
+        setPriceMin(0);
+        setPriceMax(200);
+        setMinRating(0);
+        setFreeTrialOnly(false);
+        setNewOnly(false);
+        setOpenFilter(null);
+    }
 
     const filteredAgents = useMemo(() => {
         const cleanQuery = query.trim().toLowerCase();
@@ -426,10 +546,19 @@ export default function MarketplacePage() {
                 agent.industry === industry ||
                 agent.industry === "all";
 
+            const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
+            const matchesRating = agent.rating >= minRating;
             const matchesTrial = !freeTrialOnly || agent.freeTrial;
             const matchesNew = !newOnly || agent.isNew;
 
-            return matchesQuery && matchesIndustry && matchesTrial && matchesNew;
+            return (
+                matchesQuery &&
+                matchesIndustry &&
+                matchesPrice &&
+                matchesRating &&
+                matchesTrial &&
+                matchesNew
+            );
         });
 
         return filtered.sort((a, b) => {
@@ -445,7 +574,7 @@ export default function MarketplacePage() {
 
             return b.installs - a.installs;
         });
-    }, [agents, query, industry, sort, freeTrialOnly, newOnly]);
+    }, [agents, query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
 
     if (!authReady) {
         return <main className="min-h-screen bg-white" />;
@@ -469,6 +598,8 @@ export default function MarketplacePage() {
                     </div>
                 </div>
             </nav>
+
+
 
             <section className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-white to-orange-50">
                 <div className="pointer-events-none absolute -left-24 top-8 h-72 w-72 rounded-full bg-amber-200/30 blur-3xl" />
@@ -495,16 +626,68 @@ export default function MarketplacePage() {
                             <Metric
                                 label="Average rating"
                                 value={
-                                    agents.length
-                                        ? `${(
-                                            agents.reduce((total, agent) => total + agent.rating, 0) /
-                                            agents.length
-                                        ).toFixed(1)} ⭐`
-                                        : "0.0 ⭐"
+
+                                    "4.9 ⭐"
                                 }
                             />
                         </div>
                     </div>
+
+                    <section className="bg-white py-16">
+                        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+                            <div className="text-center">
+                                <h2 className="text-3xl font-bold text-slate-900">
+                                    Browse by industry
+                                </h2>
+                                <p className="mt-2 text-slate-600">
+                                    Find agents built specifically for your business type.
+                                </p>
+                            </div>
+
+                            <div className="mt-10 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
+                                {industries
+                                    .filter((item) => item.id !== "all")
+                                    .map((item) => {
+                                        const hasAgents = item.count > 0;
+
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                disabled={!hasAgents}
+                                                data-testid={`marketplace-industry-${item.id}`}
+                                                onClick={() => {
+                                                    if (!hasAgents) return;
+                                                    setIndustry(item.id);
+                                                }}
+                                                className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${hasAgents
+                                                    ? `hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
+                                                        ? "border-amber-300 ring-4 ring-amber-100"
+                                                        : "border-gray-100"
+                                                    }`
+                                                    : "cursor-not-allowed border-gray-100 opacity-70"
+                                                    }`}
+                                            >
+                                                <span
+                                                    className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl transition ${hasAgents
+                                                        ? "bg-amber-50 group-hover:scale-105 group-hover:bg-amber-500"
+                                                        : "bg-slate-100 grayscale"
+                                                        }`}
+                                                >
+                                                    {item.icon}
+                                                </span>
+                                                <p className="mt-3 font-semibold text-slate-900">
+                                                    {item.label}
+                                                </p>
+                                                <p className="text-sm text-slate-500">
+                                                    {hasAgents ? `${item.count} agents` : "Coming soon"}
+                                                </p>
+                                            </button>
+                                        );
+                                    })}
+                            </div>
+                        </div>
+                    </section>
 
                     {featuredAgent ? (
                         <div className="relative mx-auto mt-12 max-w-5xl">
@@ -535,10 +718,6 @@ export default function MarketplacePage() {
                                             ${featuredAgent.price}
                                         </span>
                                         <span className="text-sm text-slate-500">one-time</span>
-                                        <span className="h-4 w-px bg-gray-200" />
-                                        <span className="text-sm font-semibold text-amber-600">
-                                            ⭐ {featuredAgent.rating.toFixed(1)}
-                                        </span>
                                     </div>
 
                                     <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -609,163 +788,283 @@ export default function MarketplacePage() {
                 </div>
             </section>
 
-            {industries.length > 1 ? (
-                <section className="bg-white py-16">
-                    <div className="mx-auto max-w-6xl px-4 sm:px-6">
-                        <div className="text-center">
-                            <h2 className="text-3xl font-bold text-slate-900">
-                                Browse by industry
-                            </h2>
-                            <p className="mt-2 text-slate-600">
-                                Find agents built specifically for your business type.
-                            </p>
-                        </div>
 
-                        <div className="mt-10 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
-                            {industries
-                                .filter((item) => item.id !== "all")
-                                .map((item) => (
-                                    <button
-                                        key={item.id}
-                                        type="button"
-                                        data-testid={`marketplace-industry-${item.id}`}
-                                        onClick={() => setIndustry(item.id)}
-                                        className={`group rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
-                                            ? "border-amber-300 ring-4 ring-amber-100"
-                                            : "border-gray-100"
-                                            }`}
-                                    >
-                                        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-105 group-hover:bg-amber-500">
-                                            {item.icon}
-                                        </span>
-                                        <p className="mt-3 font-semibold text-slate-900">
-                                            {item.label}
-                                        </p>
-                                        <p className="text-sm text-slate-500">{item.count} agents</p>
-                                    </button>
-                                ))}
-                        </div>
-                    </div>
-                </section>
-            ) : null}
-
-            <section className="sticky top-[73px] z-40 border-y border-gray-100 bg-white/95 backdrop-blur">
+            <section className="sticky top-[73px] z-[70] overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6">
-                    <div className="flex items-center gap-3 overflow-x-auto py-3">
-                        <div className="relative shrink-0">
-                            <button
-                                type="button"
-                                onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
-                                data-testid="marketplace-filter-industry"
-                                data-filter-trigger="industry"
-                                className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-4 py-2 text-sm font-medium outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100 ${industry !== "all"
-                                    ? "border-amber-300 text-amber-700"
-                                    : "border-gray-200 text-slate-600"
-                                    }`}
-                                aria-haspopup="listbox"
-                                aria-expanded={openFilter === "industry"}
-                            >
-                                <span>{industryLabel}</span>
-                                <FilterChevronIcon />
-                            </button>
-
-                            {openFilter === "industry" ? (
-                                <div
-                                    data-filter-panel="industry"
-                                    className="absolute left-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                    <div className="relative flex flex-wrap items-center gap-3 overflow-visible py-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
+                                    data-testid="marketplace-filter-industry"
+                                    data-filter-trigger="industry"
+                                    className={filterPillClass(industry !== "all")}
+                                    aria-haspopup="true"
+                                    aria-expanded={openFilter === "industry"}
                                 >
-                                    {industries.map((item) => (
+                                    <span>{industryLabel}</span>
+                                    <ChevronIcon open={openFilter === "industry"} />
+                                </button>
+
+                                {openFilter === "industry" ? (
+                                    <div
+                                        data-filter-panel="industry"
+                                        className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                                    >
+                                        {industries.map((item) => {
+                                            const unlocked = isIndustryAvailable(item.id, agents);
+
+                                            return (
+                                                <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    disabled={!unlocked}
+                                                    data-testid={`marketplace-industry-option-${item.id}`}
+                                                    onClick={() => {
+                                                        if (!unlocked) return;
+                                                        setIndustry(item.id);
+                                                        setOpenFilter(null);
+                                                    }}
+                                                    className={
+                                                        unlocked
+                                                            ? popoverOptionClass(industry === item.id)
+                                                            : "flex w-full cursor-not-allowed items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-400 opacity-70"
+                                                    }
+                                                >
+                                                    <span>{item.label}</span>
+
+                                                    <span className="text-xs text-slate-400">
+                                                        {unlocked ? item.count : "Coming soon"}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenFilter(openFilter === "price" ? null : "price")}
+                                    data-testid="marketplace-filter-price"
+                                    data-filter-trigger="price"
+                                    className={filterPillClass(priceActive)}
+                                    aria-haspopup="true"
+                                    aria-expanded={openFilter === "price"}
+                                >
+                                    <span>
+                                        {priceActive
+                                            ? priceMax >= 200
+                                                ? `$${priceMin}+`
+                                                : `$${priceMin}–$${priceMax}`
+                                            : "Price range"}
+                                    </span>
+                                    <ChevronIcon open={openFilter === "price"} />
+                                </button>
+
+                                {openFilter === "price" ? (
+                                    <div
+                                        data-filter-panel="price"
+                                        className="absolute left-0 top-full z-50 mt-2 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                                    >
+                                        <div className="mb-2 flex items-center justify-between px-1">
+                                            <span className="text-sm font-semibold text-slate-700">Price range</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setPriceMin(0);
+                                                    setPriceMax(200);
+                                                }}
+                                                data-testid="marketplace-price-reset"
+                                                className="text-xs font-medium text-amber-600 transition hover:text-amber-700"
+                                            >
+                                                Reset
+                                            </button>
+                                        </div>
+
+                                        <div className="mb-2 flex items-center justify-between px-1 text-sm text-slate-600">
+                                            <span>${priceMin}</span>
+                                            <span>{priceMax >= 200 ? "Any" : `$${priceMax}`}</span>
+                                        </div>
+
+                                        <div className="relative h-9 px-1">
+                                            <div className="absolute left-1 right-1 top-4 h-1 rounded-full bg-slate-200" />
+                                            <div
+                                                className="absolute top-4 h-1 rounded-full bg-amber-500"
+                                                style={{
+                                                    left: `${(priceMin / 200) * 100}%`,
+                                                    width: `${((priceMax - priceMin) / 200) * 100}%`
+                                                }}
+                                            />
+
+                                            <input
+                                                type="range"
+                                                min={0}
+                                                max={200}
+                                                step={10}
+                                                value={priceMin}
+                                                onChange={(event) => {
+                                                    const value = Number(event.target.value);
+                                                    setPriceMin(Math.min(value, priceMax));
+                                                }}
+                                                className="pointer-events-none absolute left-0 top-2 h-5 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+                                                aria-label="Minimum price"
+                                            />
+
+                                            <input
+                                                type="range"
+                                                min={0}
+                                                max={200}
+                                                step={10}
+                                                value={priceMax}
+                                                onChange={(event) => {
+                                                    const value = Number(event.target.value);
+                                                    setPriceMax(Math.max(value, priceMin));
+                                                }}
+                                                className="pointer-events-none absolute left-0 top-2 h-5 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+                                                aria-label="Maximum price"
+                                            />
+                                        </div>
+
+                                        <div className="mt-2 grid grid-cols-3 gap-1.5">
+                                            {[
+                                                { label: "Under $80", min: 0, max: 80 },
+                                                { label: "$80–120", min: 80, max: 120 },
+                                                { label: "$120+", min: 120, max: 200 }
+                                            ].map((preset) => (
+                                                <button
+                                                    key={preset.label}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setPriceMin(preset.min);
+                                                        setPriceMax(preset.max);
+                                                    }}
+                                                    data-testid={`marketplace-price-preset-${preset.min}-${preset.max}`}
+                                                    className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+                                                >
+                                                    {preset.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenFilter(openFilter === "rating" ? null : "rating")}
+                                    data-testid="marketplace-filter-rating"
+                                    data-filter-trigger="rating"
+                                    className={filterPillClass(ratingActive)}
+                                    aria-haspopup="true"
+                                    aria-expanded={openFilter === "rating"}
+                                >
+                                    <span>{ratingActive ? `${minRating}.0+ ★` : "Rating"}</span>
+                                    <ChevronIcon open={openFilter === "rating"} />
+                                </button>
+
+                                {openFilter === "rating" ? (
+                                    <div
+                                        data-filter-panel="rating"
+                                        className="absolute left-0 top-full z-50 mt-2 w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                                    >
+                                        <p className="px-1 pb-2 text-sm font-semibold text-slate-700">
+                                            Minimum rating
+                                        </p>
+
+                                        <div className="flex items-center gap-1 px-1 py-1">
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                                <button
+                                                    key={star}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setMinRating(star);
+                                                        setOpenFilter(null);
+                                                    }}
+                                                    data-testid={`marketplace-rating-star-${star}`}
+                                                    className={star <= minRating ? "text-amber-400" : "text-gray-300"}
+                                                    aria-label={`${star} stars and up`}
+                                                >
+                                                    <StarIcon className="h-6 w-6" />
+                                                </button>
+                                            ))}
+                                        </div>
+
                                         <button
-                                            key={item.id}
                                             type="button"
-                                            data-testid={`marketplace-industry-option-${item.id}`}
                                             onClick={() => {
-                                                setIndustry(item.id);
+                                                setMinRating(0);
                                                 setOpenFilter(null);
                                             }}
-                                            className={filterDropdownOptionClass(industry === item.id)}
+                                            data-testid="marketplace-rating-any"
+                                            className={popoverOptionClass(minRating === 0)}
                                         >
-                                            <span>{item.label}</span>
-                                            <span className="text-xs text-slate-400">{item.count}</span>
+                                            Any rating
                                         </button>
-                                    ))}
-                                </div>
-                            ) : null}
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setFreeTrialOnly((current) => !current)}
+                                data-testid="marketplace-filter-free-trial"
+                                className={filterPillClass(freeTrialOnly)}
+                            >
+                                Free trial
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setNewOnly((current) => !current)}
+                                data-testid="marketplace-filter-new"
+                                className={filterPillClass(newOnly)}
+                            >
+                                New this month
+                            </button>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setOpenFilter(null);
-                                setFreeTrialOnly((current) => !current);
-                            }}
-                            data-testid="marketplace-filter-free-trial"
-                            className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${freeTrialOnly
-                                ? "border-amber-300 bg-amber-50 text-amber-700"
-                                : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
-                                }`}
-                        >
-                            Free trial
-                        </button>
+                        <div className="ml-auto flex shrink-0 items-center gap-3 pl-2">
+                            <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setView("grid")}
+                                    data-testid="marketplace-view-grid"
+                                    className={viewButtonClass(view === "grid")}
+                                    aria-label="Grid view"
+                                    aria-pressed={view === "grid"}
+                                >
+                                    <GridIcon />
+                                </button>
 
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setOpenFilter(null);
-                                setNewOnly((current) => !current);
-                            }}
-                            data-testid="marketplace-filter-new"
-                            className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${newOnly
-                                ? "border-amber-300 bg-amber-50 text-amber-700"
-                                : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
-                                }`}
-                        >
-                            New this month
-                        </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setView("list")}
+                                    data-testid="marketplace-view-list"
+                                    className={viewButtonClass(view === "list")}
+                                    aria-label="List view"
+                                    aria-pressed={view === "list"}
+                                >
+                                    <ListIcon />
+                                </button>
+                            </div>
 
-                        <div className="ml-auto flex shrink-0 items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setOpenFilter(null);
-                                    setView("grid");
-                                }}
-                                data-testid="marketplace-view-grid"
-                                className={`rounded-lg border px-3 py-2 text-sm ${view === "grid"
-                                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                                    : "border-gray-200 text-slate-500"
-                                    }`}
-                            >
-                                Grid
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setOpenFilter(null);
-                                    setView("list");
-                                }}
-                                data-testid="marketplace-view-list"
-                                className={`rounded-lg border px-3 py-2 text-sm ${view === "list"
-                                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                                    : "border-gray-200 text-slate-500"
-                                    }`}
-                            >
-                                List
-                            </button>
-
-                            <div className="relative shrink-0">
+                            <div className="relative">
                                 <button
                                     type="button"
                                     onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
                                     data-testid="marketplace-filter-sort"
                                     data-filter-trigger="sort"
-                                    className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 outline-none transition hover:border-amber-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-                                    aria-haspopup="listbox"
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900"
+                                    aria-haspopup="true"
                                     aria-expanded={openFilter === "sort"}
                                 >
-                                    <span>Sort: {sortLabel}</span>
-                                    <FilterChevronIcon />
+                                    Sort:
+                                    <span className="font-semibold text-slate-800">{sortLabel}</span>
+                                    <ChevronIcon open={openFilter === "sort"} />
                                 </button>
 
                                 {openFilter === "sort" ? (
@@ -777,14 +1076,15 @@ export default function MarketplacePage() {
                                             <button
                                                 key={item.value}
                                                 type="button"
-                                                data-testid={`marketplace-sort-option-${item.value}`}
                                                 onClick={() => {
                                                     setSort(item.value);
                                                     setOpenFilter(null);
                                                 }}
-                                                className={filterDropdownOptionClass(sort === item.value)}
+                                                data-testid={`marketplace-sort-option-${item.value}`}
+                                                className={popoverOptionClass(sort === item.value)}
                                             >
-                                                {item.label}
+                                                <span>{item.label}</span>
+                                                {sort === item.value ? <CheckIcon /> : null}
                                             </button>
                                         ))}
                                     </div>
@@ -792,6 +1092,34 @@ export default function MarketplacePage() {
                             </div>
                         </div>
                     </div>
+
+                    {activeFilters.length ? (
+                        <div className="flex flex-wrap items-center gap-2 pb-3">
+                            <span className="text-xs font-medium text-slate-400">Filters:</span>
+
+                            {activeFilters.map((filter) => (
+                                <button
+                                    key={filter.key}
+                                    type="button"
+                                    onClick={() => clearFilter(filter.key)}
+                                    data-testid={`marketplace-active-filter-${filter.key}`}
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+                                >
+                                    {filter.label}
+                                    <XIcon />
+                                </button>
+                            ))}
+
+                            <button
+                                type="button"
+                                onClick={clearAllFilters}
+                                data-testid="marketplace-clear-all-filters"
+                                className="text-xs font-semibold text-slate-500 underline-offset-2 transition hover:text-amber-600 hover:underline"
+                            >
+                                Clear all
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             </section>
 
@@ -911,13 +1239,6 @@ export default function MarketplacePage() {
                     </div>
                 </div>
             </section>
-            {selectedAgent ? (
-                <AgentDetailsModal
-                    agent={selectedAgent}
-                    onClose={() => setSelectedAgent(null)}
-                    onOpenAgent={() => openAgentPage(selectedAgent)}
-                />
-            ) : null}
         </main>
     );
 }
@@ -1010,10 +1331,7 @@ function AgentGridCard({
 
             <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
                 <span className="text-xs text-slate-500">{agent.installs} installs</span>
-                <span className="text-xs font-semibold text-amber-600">
-                    ⭐ {agent.rating.toFixed(1)}
-                </span>
-                <span className="truncate text-xs text-slate-500">By {agent.author}</span>
+                <span className="truncate text-xs text-slate-500">Triven Team</span>
             </div>
 
             <div className="px-6 pb-6 pt-4">
@@ -1081,10 +1399,7 @@ function AgentListCard({
 
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span>{agent.installs} installs</span>
-                    <span className="font-semibold text-amber-600">
-                        ⭐ {agent.rating.toFixed(1)}
-                    </span>
-                    <span>By {agent.author}</span>
+                    <span>Triven Team</span>
                 </div>
             </div>
 
@@ -1106,187 +1421,6 @@ function AgentListCard({
                 </button>
             </div>
         </article>
-    );
-}
-
-function AgentDetailsModal({
-    agent,
-    onClose,
-    onOpenAgent
-}: {
-    agent: Agent;
-    onClose: () => void;
-    onOpenAgent: () => void;
-}) {
-    const features = [
-        "Connects to your existing tools and workflow in minutes",
-        "Fully editable automation setup based on your business needs",
-        "Supports required connectors listed by the architect",
-        "Built by a verified Core AI architect"
-    ];
-
-    return (
-        <div
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 p-3 backdrop-blur-sm sm:p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${agent.name} details`}
-            onClick={onClose}
-        >
-            <div
-                className="relative flex max-h-[94vh] w-full max-w-[680px] flex-col overflow-hidden rounded-[1.6rem] bg-white shadow-2xl ring-1 ring-slate-200"
-                onClick={(event) => event.stopPropagation()}
-            >
-                <button
-                    type="button"
-                    onClick={onClose}
-                    data-testid="marketplace-modal-close"
-                    className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full text-2xl font-light text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                    aria-label="Close modal"
-                >
-                    ×
-                </button>
-
-                <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
-                    <div className="flex items-start gap-4 pr-10">
-                        <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-amber-500">
-                            <svg
-                                className="h-7 w-7"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.7"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                            >
-                                <path d="M7.5 18.5 4 20l1.2-3.4A8 8 0 1 1 12 20a8 8 0 0 1-4.5-1.5Z" />
-                                <path d="M8.5 12h.01M12 12h.01M15.5 12h.01" />
-                            </svg>
-                        </span>
-
-                        <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                                    {agent.category}
-                                </span>
-
-                                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-                                    {agent.industry === "all" ? "All industries" : formatLabel(agent.industry)}
-                                </span>
-                            </div>
-
-                            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-[26px]">
-                                {agent.name}
-                            </h2>
-
-                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                                <span className="font-semibold text-amber-500">
-                                    ★★★★★ {agent.rating.toFixed(1)}
-                                </span>
-
-                                <span className="text-slate-300">·</span>
-
-                                <span className="text-slate-500">{agent.installs} installs</span>
-
-                                <span className="text-slate-300">·</span>
-
-                                <span className="text-slate-500">By {agent.author}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="overflow-y-auto px-6 py-7 sm:px-7">
-                    <p className="text-[17px] leading-8 text-slate-600">
-                        {agent.description}
-                    </p>
-
-                    <div className="mt-7">
-                        <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
-                            What you get
-                        </h3>
-
-                        <div className="mt-4 space-y-3">
-                            {features.map((feature) => (
-                                <div key={feature} className="flex items-start gap-3">
-                                    <span className="mt-0.5 text-sm font-black text-amber-500">✓</span>
-                                    <p className="text-sm leading-6 text-slate-600">{feature}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {agent.requiredConnectors.length ? (
-                        <div className="mt-7">
-                            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
-                                Required connectors
-                            </h3>
-
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {agent.requiredConnectors.map((connector) => (
-                                    <span
-                                        key={connector}
-                                        className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"
-                                    >
-                                        {connector}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    ) : null}
-
-                    {agent.supportedLlms.length ? (
-                        <div className="mt-7">
-                            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
-                                Supported LLMs
-                            </h3>
-
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {agent.supportedLlms.map((llm) => (
-                                    <span
-                                        key={llm}
-                                        className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
-                                    >
-                                        {llm}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    ) : null}
-                </div>
-
-                <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                    <div className="flex items-end gap-2">
-                        <span className="text-3xl font-black tracking-tight text-slate-950">
-                            ${agent.price}
-                        </span>
-                        <span className="pb-1 text-sm font-medium text-slate-400">one-time</span>
-                    </div>
-
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                        <button
-                            type="button"
-                            onClick={onOpenAgent}
-                            data-testid="marketplace-modal-start-trial"
-                            className="inline-flex min-w-[150px] items-center justify-center rounded-xl border-2 border-amber-500 bg-white px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
-                        >
-                            Start free trial
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={onOpenAgent}
-                            data-testid="marketplace-modal-install"
-                            className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
-                        >
-                            <span className="text-base">⇩</span>
-                            Install agent
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
     );
 }
 

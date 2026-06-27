@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CoreHeader } from "@/components/common/header";
 import { CoreFooter } from "@/components/common/footer";
 
@@ -165,6 +165,16 @@ export default function PrivacyPage() {
 
 function LegalPageShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navScrolled, setNavScrolled] = useState(true);
+
+  useEffect(() => {
+    const onScroll = () => setNavScrolled(window.scrollY > 8);
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
@@ -176,10 +186,9 @@ function LegalPageShell({ children }: { children: React.ReactNode }) {
           `
         }}
       />
-
       <CoreHeader
         navTop={0}
-        navScrolled={true}
+        navScrolled={navScrolled}
         menuOpen={menuOpen}
         onToggleMenu={() => setMenuOpen((open) => !open)}
         onCloseMenu={() => setMenuOpen(false)}

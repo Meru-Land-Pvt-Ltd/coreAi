@@ -104,8 +104,49 @@ async function listCompletedListings(c: Context) {
   return successResponse(c, { listings });
 }
 
+async function getCompletedListingById(c: Context) {
+  const id = c.req.param("id");
+
+  if (!id) {
+    return errorResponse(c, "Listing id is required", 400);
+  }
+
+  const listing = await prisma.agentListing.findFirst({
+    where: {
+      id,
+      status: { in: ["APPROVED", "PENDING_REVIEW"] }
+    },
+    include: {
+      workflow: true,
+      architect: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          architectProfile: {
+            select: {
+              title: true,
+              bio: true,
+              rating: true,
+              completedJobs: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!listing) {
+    return errorResponse(c, "Listing not found", 404);
+  }
+
+  return successResponse(c, { listing });
+}
+
 architectRoutes.get("/listings/completed", requireAuth, listCompletedListings);
 architectRoutes.post("/listings/completed", requireAuth, listCompletedListings);
+architectRoutes.get("/listings/:id", requireAuth, getCompletedListingById);
+architectRoutes.post("/listings/:id", requireAuth, getCompletedListingById);
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));

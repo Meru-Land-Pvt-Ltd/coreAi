@@ -8,6 +8,10 @@ const verificationCodeExpirationMinutes = Number(
 );
 
 const appUrl = process.env.APP_URL ?? "https://usecore.ai";
+const brandName = "Triven.ai";
+const trivenLogoUrl = `${appUrl}/${encodeURIComponent("triven.ai word logo transparent bg.PNG")}`;
+const privacyLink = process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`;
+const termsLink = process.env.CORE_TERMS_URL ?? `${appUrl}/terms`;
 
 export const mailTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -35,15 +39,12 @@ export async function sendVerificationEmail({
   await mailTransporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to,
-    subject: `Your CORE verification code: ${code}`,
-    text: `Your CORE verification code is ${code}. Use this code to finish signing in as ${roleLabel}. This code expires in ${verificationCodeExpirationMinutes} minutes. CORE will never ask you for this code. Do not share it with anyone.`,
+    subject: `Your ${brandName} verification code: ${code}`,
+    text: `Your ${brandName} verification code is ${code}. Use this code to finish signing in as ${roleLabel}. This code expires in ${verificationCodeExpirationMinutes} minutes. ${brandName} will never ask you for this code. Do not share it with anyone.`,
     html: buildVerificationEmailHtml({
       code,
       roleLabel,
-      expirationMinutes: verificationCodeExpirationMinutes,
-      unsubscribeLink: process.env.CORE_UNSUBSCRIBE_URL ?? `${appUrl}/unsubscribe`,
-      privacyLink: process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`,
-      helpLink: process.env.CORE_HELP_URL ?? `${appUrl}/help`
+      expirationMinutes: verificationCodeExpirationMinutes
     })
   });
 }
@@ -51,24 +52,18 @@ export async function sendVerificationEmail({
 function buildVerificationEmailHtml({
   code,
   roleLabel,
-  expirationMinutes,
-  unsubscribeLink,
-  privacyLink,
-  helpLink
+  expirationMinutes
 }: {
   code: string;
   roleLabel: string;
   expirationMinutes: number;
-  unsubscribeLink: string;
-  privacyLink: string;
-  helpLink: string;
 }) {
   const safeCode = escapeHtml(code);
   const safeRoleLabel = escapeHtml(roleLabel);
   const safeExpirationMinutes = escapeHtml(String(expirationMinutes));
-  const safeUnsubscribeLink = escapeHtml(unsubscribeLink);
+  const safeLogoUrl = escapeHtml(trivenLogoUrl);
   const safePrivacyLink = escapeHtml(privacyLink);
-  const safeHelpLink = escapeHtml(helpLink);
+  const safeTermsLink = escapeHtml(termsLink);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -77,7 +72,7 @@ function buildVerificationEmailHtml({
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<title>Your CORE verification code: ${safeCode}</title>
+<title>Your ${brandName} verification code: ${safeCode}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -89,7 +84,8 @@ function buildVerificationEmailHtml({
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
 <tr>
 <td style="padding:28px 32px 0 32px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">
-<span style="color:#f59e0b;">&#9679;</span> CORE
+<img src="${safeLogoUrl}" alt="${brandName} logo" width="36" height="36" style="display:inline-block;vertical-align:middle;border:0;outline:none;text-decoration:none;" />
+<span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#f59e0b;">${brandName}</span>
 </td>
 </tr>
 
@@ -102,7 +98,7 @@ function buildVerificationEmailHtml({
 <tr>
 <td style="padding:24px 32px 6px 32px;">
 <p style="margin:0 0 16px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;color:#334155;">
-Use this code to finish signing in to CORE as <strong>${safeRoleLabel}</strong>.
+Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.
 </p>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
@@ -121,7 +117,7 @@ This code expires in ${safeExpirationMinutes} minutes.
 <tr>
 <td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
 <td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
-CORE will never ask you for this code. Don't share it with anyone.
+${brandName} will never ask you for this code. Don't share it with anyone.
 </td>
 </tr>
 </table>
@@ -131,14 +127,12 @@ CORE will never ask you for this code. Don't share it with anyone.
 <tr>
 <td style="padding:10px 32px 30px 32px;">
 <div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
-<div style="font-weight:600;color:#64748b;">CORE &mdash; AI Agent Platform</div>
+<div style="font-weight:600;color:#64748b;">${brandName} &mdash; AI Agent Platform</div>
 <div>San Francisco, CA</div>
 <div style="margin-top:8px;">
-<a href="${safeUnsubscribeLink}" target="_blank" style="color:#d97706;text-decoration:none;">Unsubscribe</a>
-&nbsp;&middot;&nbsp;
 <a href="${safePrivacyLink}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
 &nbsp;&middot;&nbsp;
-<a href="${safeHelpLink}" target="_blank" style="color:#d97706;text-decoration:none;">Help Center</a>
+<a href="${safeTermsLink}" target="_blank" style="color:#d97706;text-decoration:none;">Terms</a>
 </div>
 </div>
 </td>
@@ -176,36 +170,27 @@ export async function sendFreeAssignmentEmail({
   await mailTransporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to,
-    subject: "Your free CORE AI assessment link",
-    text: `Your free CORE AI assessment is ready. Open this link to continue: ${assignmentLink}`,
+    subject: `Your free ${brandName} AI assessment link`,
+    text: `Your free ${brandName} AI assessment is ready. Open this link to continue: ${assignmentLink}`,
     html: buildFreeAssignmentEmailHtml({
       name,
-      assignmentLink,
-      unsubscribeLink: process.env.CORE_UNSUBSCRIBE_URL ?? `${appUrl}/unsubscribe`,
-      privacyLink: process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`,
-      helpLink: process.env.CORE_HELP_URL ?? `${appUrl}/help`
+      assignmentLink
     })
   });
 }
 
 function buildFreeAssignmentEmailHtml({
   name,
-  assignmentLink,
-  unsubscribeLink,
-  privacyLink,
-  helpLink
+  assignmentLink
 }: {
   name?: string | null;
   assignmentLink: string;
-  unsubscribeLink: string;
-  privacyLink: string;
-  helpLink: string;
 }) {
   const safeName = escapeHtml(name?.trim() || "there");
   const safeAssignmentLink = escapeHtml(assignmentLink);
-  const safeUnsubscribeLink = escapeHtml(unsubscribeLink);
+  const safeLogoUrl = escapeHtml(trivenLogoUrl);
   const safePrivacyLink = escapeHtml(privacyLink);
-  const safeHelpLink = escapeHtml(helpLink);
+  const safeTermsLink = escapeHtml(termsLink);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -214,13 +199,13 @@ function buildFreeAssignmentEmailHtml({
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<title>Your free CORE AI assessment link</title>
+<title>Your free ${brandName} AI assessment link</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body style="margin:0;padding:0;background-color:#f1f5f9;">
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f1f5f9;">
-Your free CORE AI assessment link is ready.
+Your free ${brandName} AI assessment link is ready.
 </div>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;">
@@ -230,7 +215,8 @@ Your free CORE AI assessment link is ready.
 
 <tr>
 <td style="padding:28px 32px 0 32px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">
-<span style="color:#f59e0b;">&#9679;</span> CORE
+<img src="${safeLogoUrl}" alt="${brandName} logo" width="36" height="36" style="display:inline-block;vertical-align:middle;border:0;outline:none;text-decoration:none;" />
+<span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#f59e0b;">${brandName}</span>
 </td>
 </tr>
 
@@ -247,7 +233,7 @@ Hi ${safeName},
 </p>
 
 <p style="margin:0 0 16px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;color:#334155;">
-Your free CORE AI assessment link is ready. Use it to answer a few quick questions so we can recommend the right AI agent setup for your business.
+Your free ${brandName} AI assessment link is ready. Use it to answer a few quick questions so we can recommend the right AI agent setup for your business.
 </p>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 22px 0;">
@@ -272,7 +258,7 @@ If the button does not work, copy and paste this link into your browser:
 <tr>
 <td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
 <td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
-This assessment helps CORE understand your business needs before recommending an AI agent.
+This assessment helps ${brandName} understand your business needs before recommending an AI agent.
 </td>
 </tr>
 </table>
@@ -282,14 +268,12 @@ This assessment helps CORE understand your business needs before recommending an
 <tr>
 <td style="padding:10px 32px 30px 32px;">
 <div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
-<div style="font-weight:600;color:#64748b;">CORE &mdash; AI Agent Platform</div>
+<div style="font-weight:600;color:#64748b;">${brandName} &mdash; AI Agent Platform</div>
 <div>San Francisco, CA</div>
 <div style="margin-top:8px;">
-<a href="${safeUnsubscribeLink}" target="_blank" style="color:#d97706;text-decoration:none;">Unsubscribe</a>
-&nbsp;&middot;&nbsp;
 <a href="${safePrivacyLink}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
 &nbsp;&middot;&nbsp;
-<a href="${safeHelpLink}" target="_blank" style="color:#d97706;text-decoration:none;">Help Center</a>
+<a href="${safeTermsLink}" target="_blank" style="color:#d97706;text-decoration:none;">Terms</a>
 </div>
 </div>
 </td>

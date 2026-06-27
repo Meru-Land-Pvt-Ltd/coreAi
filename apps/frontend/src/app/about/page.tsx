@@ -10,7 +10,7 @@ const howItWorks = [
     step: "1",
     title: "AI Architects Build",
     description:
-      "Certified builders create specialized agents using our drag-and-drop workflow builder with 180+ connectors."
+      "AI Architects create specialized agents using our drag-and-drop workflow builder with 180+ connectors."
   },
   {
     step: "2",
@@ -22,7 +22,7 @@ const howItWorks = [
     step: "3",
     title: "Results Happen",
     description:
-      "Agents handle missed calls, follow-ups, scheduling, and lead capture 24/7 — automatically."
+      "Agents handle missed calls, follow-ups, scheduling, and lead capture 24/7 automatically."
   }
 ];
 
@@ -37,7 +37,7 @@ const serveCards = [
   {
     tag: "For Business Owners",
     description:
-      "Dentists, HVAC companies, real estate agents, med spas, law firms — if you're losing leads to missed calls and slow follow-ups, CORE fixes that."
+      "Dentists, HVAC companies, real estate agents, med spas, law firms. If you're losing leads to missed calls and slow follow-ups, CORE fixes that."
   },
   {
     tag: "For AI Architects",
@@ -88,14 +88,11 @@ export default function AboutPage() {
           `
         }}
       />
-
-      <CoreHeader
-        navTop={0}
-        navScrolled={true}
-        menuOpen={menuOpen}
-        onToggleMenu={() => setMenuOpen((open) => !open)}
-        onCloseMenu={() => setMenuOpen(false)}
-      />
+      <CoreHeader navTop={0} navScrolled={false} menuOpen={false} onToggleMenu={function (): void {
+        throw new Error("Function not implemented.");
+      }} onCloseMenu={function (): void {
+        throw new Error("Function not implemented.");
+      }} />
 
       <section className="pb-20 pt-32 md:pb-28 md:pt-40">
         <div className="mx-auto max-w-6xl px-6 text-center">
@@ -104,8 +101,8 @@ export default function AboutPage() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-600">
-            CORE is the marketplace where certified AI Architects build, test, and deploy
-            intelligent agents that handle your busywork — so you can focus on growth.
+            CORE is the marketplace where AI Architects build, test, and deploy intelligent agents 
+            that handle repetitive tasks, so you can focus on growth.
           </p>
         </div>
       </section>
@@ -115,9 +112,9 @@ export default function AboutPage() {
           <h2 className="text-3xl font-extrabold text-slate-900">Our Mission</h2>
 
           <p className="mt-5 text-lg leading-relaxed text-slate-600">
-            We believe every small business deserves enterprise-level AI — without the
-            enterprise-level complexity or cost. CORE connects businesses with pre-built,
-            plug-and-play AI agents that start working in minutes, not months.
+          We believe every small business deserves enterprise-level 
+          AI without the enterprise-level complexity or cost. CORE connects 
+          businesses with pre-built AI agents that start working in minutes, not months.
           </p>
         </div>
       </section>
@@ -193,7 +190,7 @@ export default function AboutPage() {
 
           <p className="mt-5 text-lg leading-relaxed text-slate-600">
             Our team combines deep AI expertise with real-world business operations
-            experience. We&apos;ve run the businesses we&apos;re building for — we know
+            experience. We&apos;ve run the businesses we&apos;re building for. We know
             what&apos;s broken and how to fix it.
           </p>
         </div>

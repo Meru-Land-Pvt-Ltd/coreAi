@@ -140,7 +140,6 @@ export function ConfigurePanel({
             </span>
           ) : null}
           <button
-            data-testid="components-architect-ui-workflow-builder-configure-panel-save"
             type="button"
             onClick={onSave}
             data-testid="configure-save"

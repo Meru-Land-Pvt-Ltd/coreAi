@@ -1,9 +1,11 @@
 "use client";
 
 import type { Route } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
+import { apiPost } from "@/lib/api";
 import { ASSIGNMENT_PATH } from "@/lib/routes";
 
 type Agent = {
@@ -18,6 +20,60 @@ type Agent = {
   author: string;
   isNew?: boolean;
   freeTrial?: boolean;
+  createdAt?: string;
+};
+
+type ApiArchitectProfile = {
+  title?: string | null;
+  bio?: string | null;
+  portfolioUrl?: string | null;
+  skills?: string[];
+  hourlyRateCents?: number | null;
+  rating?: number | null;
+  completedJobs?: number | null;
+};
+
+type ApiArchitect = {
+  id?: string;
+  fullName?: string | null;
+  email?: string | null;
+  architectProfile?: ApiArchitectProfile | null;
+};
+
+type ApiWorkflow = {
+  id?: string;
+  name?: string;
+  description?: string | null;
+  isTemplate?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type ApiListing = {
+  id: string;
+  architectUserId?: string;
+  workflowId?: string | null;
+  name: string;
+  shortDescription?: string;
+  description?: string | null;
+  priceCents?: number | null;
+  status?: string;
+  tags?: string[];
+  requiredConnectors?: string[];
+  supportedLlms?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  architect?: ApiArchitect | null;
+  workflow?: ApiWorkflow | null;
+};
+
+type ListingsApiResponse = {
+  success?: boolean;
+  message?: string;
+  data?: {
+    listings?: ApiListing[];
+  };
+  listings?: ApiListing[];
 };
 
 type Industry = {
@@ -27,140 +83,129 @@ type Industry = {
   icon: string;
 };
 
-const industries: Industry[] = [
-  { id: "all", label: "All industries", count: 54, icon: "✨" },
-  { id: "dental", label: "Dental", count: 12, icon: "🦷" },
-  { id: "hvac", label: "HVAC & Plumbing", count: 8, icon: "🔧" },
-  { id: "realestate", label: "Real Estate", count: 10, icon: "🏠" },
-  { id: "legal", label: "Legal", count: 6, icon: "⚖️" },
-  { id: "medical", label: "Medical & Wellness", count: 9, icon: "❤️" },
-  { id: "automotive", label: "Automotive", count: 5, icon: "🚗" },
-  { id: "ecommerce", label: "E-commerce", count: 11, icon: "🛍️" }
+const LISTINGS_API_PATH = "/architect/listings/completed";
+
+const baseIndustries: Omit<Industry, "count">[] = [
+  { id: "all", label: "All industries", icon: "✨" },
+  { id: "dental", label: "Dental", icon: "🦷" },
+  { id: "hvac", label: "HVAC & Plumbing", icon: "🔧" },
+  { id: "realestate", label: "Real Estate", icon: "🏠" },
+  { id: "legal", label: "Legal", icon: "⚖️" },
+  { id: "medical", label: "Medical & Wellness", icon: "❤️" },
+  { id: "automotive", label: "Automotive", icon: "🚗" },
+  { id: "ecommerce", label: "E-commerce", icon: "🛍️" }
 ];
 
-const unlockedIndustryIds = ["all", "dental"];
-
-function isIndustryUnlocked(id: string) {
-  return unlockedIndustryIds.includes(id);
+function normalizeFilterValue(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-const agents: Agent[] = [
-  {
-    id: "missed-call",
-    name: "Missed Call Text-Back",
-    category: "Communication",
-    industry: "dental",
-    description:
-      "Turns every missed call into a text conversation in seconds so a busy line never costs you another customer.",
-    price: 100,
-    installs: 180,
-    rating: 4.9,
-    author: "Marcus T.",
-    freeTrial: true
-  },
-  {
-    id: "lead-followup",
-    name: "Lead Follow-Up Sequence",
-    category: "Nurture",
-    industry: "all",
-    description:
-      "A multi-step text and email sequence that follows up with new leads until they book or opt out.",
-    price: 149,
-    installs: 134,
-    rating: 4.8,
-    author: "Priya N.",
-    freeTrial: true
-  },
-  {
-    id: "appointment-reminder",
-    name: "Appointment Reminder Pro",
-    category: "Scheduling",
-    industry: "medical",
-    description:
-      "Smart reminders that reduce no-shows with confirm, reschedule, and waitlist replies built in.",
-    price: 79,
-    installs: 98,
-    rating: 4.7,
-    author: "Dana K.",
-    freeTrial: true
-  },
-  {
-    id: "review-booster",
-    name: "Google Review Booster",
-    category: "Reputation",
-    industry: "all",
-    description:
-      "Asks happy customers for a review at the perfect moment and routes unhappy ones privately first.",
-    price: 89,
-    installs: 210,
-    rating: 4.9,
-    author: "Marcus T.",
-    freeTrial: true
-  },
-  {
-    id: "after-hours",
-    name: "After-Hours Receptionist",
-    category: "Communication",
-    industry: "legal",
-    description:
-      "Answers, qualifies, and books callers around the clock so nights and weekends stay covered.",
-    price: 129,
-    installs: 76,
-    rating: 4.6,
-    author: "Sofia R."
-  },
-  {
-    id: "estimate-followup",
-    name: "Estimate Follow-Up",
-    category: "Sales",
-    industry: "hvac",
-    description:
-      "Chases open estimates with timely check-ins so quotes become booked jobs instead of silence.",
-    price: 119,
-    installs: 62,
-    rating: 4.5,
-    author: "Leo M."
-  },
-  {
-    id: "open-house",
-    name: "Open House Lead Capture",
-    category: "Lead Gen",
-    industry: "realestate",
-    description:
-      "Captures every open-house visitor by text and follows up while the home is still fresh in mind.",
-    price: 99,
-    installs: 88,
-    rating: 4.7,
-    author: "Hana W.",
-    freeTrial: true
-  },
-  {
-    id: "abandoned-cart",
-    name: "Abandoned Cart Rescuer",
-    category: "E-commerce",
-    industry: "ecommerce",
-    description:
-      "Recovers stalled checkouts with perfectly timed reminders and gentle incentives to finish.",
-    price: 99,
-    installs: 156,
-    rating: 4.8,
-    author: "Priya N.",
-    freeTrial: true
-  },
-  {
-    id: "quote-to-cash",
-    name: "Quote-to-Cash Chaser",
-    category: "Sales",
-    industry: "hvac",
-    description:
-      "Follows every quote through to payment with reminders, payment links, and invoice nudges.",
-    price: 139,
-    installs: 41,
-    rating: 4.4,
-    author: "Leo M.",
-    isNew: true
+function formatLabel(value: string) {
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getAgentIndustry(listing: ApiListing) {
+  const tags = listing.tags ?? [];
+
+  const industryTag =
+    tags.find((tag) => tag.toLowerCase().startsWith("industry:")) ??
+    tags.find((tag) =>
+      [
+        "dental",
+        "hvac",
+        "plumbing",
+        "real estate",
+        "legal",
+        "medical",
+        "wellness",
+        "automotive",
+        "ecommerce",
+        "e-commerce"
+      ].includes(tag.toLowerCase())
+    );
+
+  if (!industryTag) return "all";
+
+  return normalizeFilterValue(industryTag.replace(/^industry:/i, ""));
+}
+
+function getAgentCategory(listing: ApiListing) {
+  const tags = listing.tags ?? [];
+
+  const categoryTag =
+    tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
+    tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
+
+  if (categoryTag) {
+    return formatLabel(categoryTag.replace(/^category:/i, ""));
   }
-];
+
+  if (listing.workflow?.name) {
+    return "Workflow";
+  }
+
+  return "AI Agent";
+}
+
+function isRecentlyCreated(createdAt?: string) {
+  if (!createdAt) return false;
+
+  const createdTime = new Date(createdAt).getTime();
+
+  if (Number.isNaN(createdTime)) return false;
+
+  const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+
+  return Date.now() - createdTime <= thirtyDays;
+}
+
+function mapListingToAgent(listing: ApiListing): Agent {
+  const profile = listing.architect?.architectProfile;
+
+  return {
+    id: listing.id,
+    name: listing.name,
+    category: getAgentCategory(listing),
+    industry: getAgentIndustry(listing),
+    description:
+      listing.shortDescription ||
+      listing.description ||
+      listing.workflow?.description ||
+      "This AI agent is ready to help automate business workflows.",
+    price: Math.round((listing.priceCents ?? 0) / 100),
+    installs: profile?.completedJobs ?? 0,
+    rating: profile?.rating ?? 0,
+    author:
+      listing.architect?.fullName ||
+      profile?.title ||
+      listing.architect?.email ||
+      "Core Architect",
+    isNew: isRecentlyCreated(listing.createdAt),
+    freeTrial: (listing.priceCents ?? 0) === 0,
+    createdAt: listing.createdAt
+  };
+}
+
+function getIndustryAgentCount(industryId: string, agents: Agent[]) {
+  if (industryId === "all") return agents.length;
+  return agents.filter(
+    (agent) => agent.industry === industryId || agent.industry === "all"
+  ).length;
+}
+
+function isIndustryAvailable(id: string, agents: Agent[]) {
+  if (id === "all") return true;
+  return getIndustryAgentCount(id, agents) > 0;
+}
+
+function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
+  return baseIndustries.map((item) => ({
+    ...item,
+    count: getIndustryAgentCount(item.id, agents)
+  }));
+}
 
 const sortOptions = [
   { value: "popular", label: "Most popular" },
@@ -170,6 +215,8 @@ const sortOptions = [
   { value: "newest", label: "Newest" }
 ] as const;
 
+const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
+
 const HOME_PATH = "/" as Route;
 const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;
@@ -178,6 +225,9 @@ const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 type SortValue = (typeof sortOptions)[number]["value"];
 
 export default function MarketplacePage() {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState("");
   const [query, setQuery] = useState("");
   const [industry, setIndustry] = useState("all");
   const [sort, setSort] = useState<SortValue>("popular");
@@ -189,6 +239,49 @@ export default function MarketplacePage() {
   const [priceMax, setPriceMax] = useState(200);
   const [minRating, setMinRating] = useState(0);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadListings() {
+      try {
+        setIsLoading(true);
+        setApiError("");
+
+        const response = (await apiPost(LISTINGS_API_PATH, {})) as ListingsApiResponse;
+
+        const listings = response?.data?.listings ?? response?.listings ?? [];
+
+        if (!mounted) return;
+
+        setAgents(listings.map(mapListingToAgent));
+      } catch (error) {
+        console.error(error);
+
+        if (!mounted) return;
+
+        setApiError(
+          error instanceof Error
+            ? error.message
+            : "Could not load marketplace agents"
+        );
+        setAgents([]);
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadListings();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
+  const featuredAgent = agents[0] ?? null;
 
   const filteredAgents = useMemo(() => {
     const cleanQuery = query.trim().toLowerCase();
@@ -224,10 +317,15 @@ export default function MarketplacePage() {
       if (sort === "rating") return b.rating - a.rating;
       if (sort === "priceLow") return a.price - b.price;
       if (sort === "priceHigh") return b.price - a.price;
-      if (sort === "newest") return Number(b.isNew) - Number(a.isNew);
+      if (sort === "newest") {
+        return (
+          new Date(b.createdAt ?? 0).getTime() -
+          new Date(a.createdAt ?? 0).getTime()
+        );
+      }
       return b.installs - a.installs;
     });
-  }, [query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+  }, [agents, query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
 
 
   const industryLabel =
@@ -350,20 +448,24 @@ export default function MarketplacePage() {
   return (
     <main data-testid="app-marketplace-page-main-1" className="min-h-screen bg-white text-slate-900">
       <nav data-testid="app-marketplace-page-nav-1" className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 shadow-sm backdrop-blur">
-        <div data-testid="app-marketplace-page-div-1" className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div data-testid="app-marketplace-page-div-2" className="flex flex-wrap items-center gap-3 py-3">
-            <a href="/" className="flex items-center gap-2.5" aria-label="CORE home">
-              <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-                <circle cx="14" cy="14" r="4" fill="#fbbf24" />
-              </svg>
+        <div data-testid="app-marketplace-page-div-1" className="w-full max-w-none px-4 sm:px-6 lg:px-8">
+          <div data-testid="app-marketplace-page-div-2" className="flex items-center gap-3 py-3">
+            <a href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Triven home">
+              <Image
+                src={TRIVEN_LOGO_SRC}
+                alt="Triven logo"
+                width={36}
+                height={36}
+                priority
+                className="h-9 w-9 object-contain"
+              />
               <span className="text-xl font-extrabold tracking-tight text-amber-500">
-                CORE
+                Triven.ai
               </span>
             </a>
 
-            <div data-testid="app-marketplace-page-div-3" className="order-3 w-full md:order-2 md:flex-1 md:px-4">
-              <div data-testid="app-marketplace-page-div-4" className="relative mx-auto max-w-2xl">
+            <div data-testid="app-marketplace-page-div-3" className="hidden min-w-0 flex-1 justify-center px-4 md:flex lg:px-8">
+              <div data-testid="app-marketplace-page-div-4" className="relative w-full max-w-2xl">
                 <span data-testid="app-marketplace-page-span-3" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                   🔍
                 </span>
@@ -376,7 +478,7 @@ export default function MarketplacePage() {
               </div>
             </div>
 
-            <div data-testid="app-marketplace-page-div-5" className="order-2 ml-auto flex items-center gap-2 md:order-3">
+            <div data-testid="app-marketplace-page-div-5" className="ml-auto flex shrink-0 items-center gap-2">
               <Link data-testid="app-marketplace-page-link-2"
                 href={ARCHITECT_LOGIN_PATH}
                 className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 sm:block"
@@ -395,6 +497,20 @@ export default function MarketplacePage() {
               >
                 Get started
               </Link>
+            </div>
+          </div>
+
+          <div data-testid="app-marketplace-page-div-3-mobile" className="pb-3 md:hidden">
+            <div data-testid="app-marketplace-page-div-4-mobile" className="relative w-full">
+              <span data-testid="app-marketplace-page-span-3-mobile" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                🔍
+              </span>
+              <input data-testid="app-marketplace-page-input-1-mobile"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search agents by name, industry, or problem..."
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-11 pr-4 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-100"
+              />
             </div>
           </div>
         </div>
@@ -443,19 +559,19 @@ export default function MarketplacePage() {
             {industries
               .filter((item) => item.id !== "all")
               .map((item) => {
-                const isDental = item.id === "dental";
+                const hasAgents = item.count > 0;
 
                 return (
                   <button
                     data-testid="app-marketplace-page-button-2"
                     key={item.id}
                     type="button"
-                    disabled={!isDental}
+                    disabled={!hasAgents}
                     onClick={() => {
-                      if (!isDental) return;
+                      if (!hasAgents) return;
                       setIndustry(item.id);
                     }}
-                    className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${isDental
+                    className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${hasAgents
                       ? `hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
                         ? "border-amber-300 ring-4 ring-amber-100"
                         : "border-gray-100"
@@ -465,7 +581,7 @@ export default function MarketplacePage() {
                   >
                     <span
                       data-testid="app-marketplace-page-span-14"
-                      className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl transition ${isDental
+                      className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl transition ${hasAgents
                         ? "bg-amber-50 group-hover:scale-105 group-hover:bg-amber-500"
                         : "bg-slate-100 grayscale"
                         }`}
@@ -478,7 +594,7 @@ export default function MarketplacePage() {
                     </p>
 
                     <p data-testid="app-marketplace-page-p-7" className="text-sm text-slate-500">
-                      {isDental ? `${item.count} agents` : "Coming soon"}
+                      {hasAgents ? `${item.count} agents` : "Coming soon"}
                     </p>
                   </button>
                 );
@@ -486,6 +602,7 @@ export default function MarketplacePage() {
           </div>
         </div>
 
+        {featuredAgent ? (
         <div data-testid="app-marketplace-page-div-11" className="relative mx-auto mt-12 max-w-5xl">
           <div data-testid="app-marketplace-page-div-12" className="absolute inset-x-8 bottom-2 h-24 rounded-full bg-amber-400/30 blur-2xl" />
 
@@ -496,31 +613,23 @@ export default function MarketplacePage() {
                   ⭐ Featured
                 </span>
                 <span data-testid="app-marketplace-page-span-6" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                  Communication
+                  {featuredAgent.category}
                 </span>
               </div>
 
               <h2 data-testid="app-marketplace-page-h2-1" className="mt-4 text-3xl font-extrabold text-slate-900">
-                Missed Call Text-Back
+                {featuredAgent.name}
               </h2>
 
               <p data-testid="app-marketplace-page-p-2" className="mt-3 text-slate-600">
-                Turn every missed call into a text conversation in seconds —
-                so a busy line never costs you another customer.
+                {featuredAgent.description}
               </p>
 
               <div data-testid="app-marketplace-page-div-16" className="mt-5 flex flex-wrap items-center gap-3">
                 <span data-testid="app-marketplace-page-span-7" className="text-2xl font-black text-slate-900">
-                  $100
+                  ${featuredAgent.price}
                 </span>
                 <span data-testid="app-marketplace-page-span-8" className="text-sm text-slate-500">one-time</span>
-                <span data-testid="app-marketplace-page-span-9" className="h-4 w-px bg-gray-200" />
-                <span data-testid="app-marketplace-page-span-10" className="text-sm font-semibold text-amber-600">
-                  ⭐ 4.9{" "}
-                  <span data-testid="app-marketplace-page-span-11" className="font-normal text-slate-400">
-                    (47 reviews)
-                  </span>
-                </span>
               </div>
 
               <div data-testid="app-marketplace-page-div-17" className="mt-6 flex flex-wrap items-center gap-3">
@@ -530,9 +639,6 @@ export default function MarketplacePage() {
                 >
                   Start free trial
                 </Link>
-                <button data-testid="app-marketplace-page-button-1" className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600">
-                  View details
-                </button>
               </div>
             </div>
 
@@ -581,10 +687,11 @@ export default function MarketplacePage() {
             </div>
           </div>
         </div>
+        ) : null}
       </section>
 
       <section className="sticky top-[73px] z-[70] overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <div className="w-full max-w-none px-4 sm:px-6 lg:px-8">
           <div className="relative flex flex-wrap items-center gap-3 overflow-visible py-3">
             <div className="flex items-center gap-2.5">
               <div className="relative">
@@ -607,7 +714,7 @@ export default function MarketplacePage() {
                     className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
                   >
                     {industries.map((item) => {
-                      const unlocked = isIndustryUnlocked(item.id);
+                      const unlocked = isIndustryAvailable(item.id, agents);
 
                       return (
                         <button
@@ -918,8 +1025,29 @@ export default function MarketplacePage() {
       </section>
 
       <section data-testid="app-marketplace-page-section-4" className="bg-gray-50 py-12">
-        <div data-testid="app-marketplace-page-div-33" className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          {filteredAgents.length ? (
+        <div data-testid="app-marketplace-page-div-33" className="w-full max-w-none px-4 sm:px-6 lg:px-8">
+          {isLoading ? (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-72 animate-pulse rounded-2xl border border-gray-100 bg-white shadow-sm"
+                />
+              ))}
+            </div>
+          ) : apiError ? (
+            <div data-testid="app-marketplace-page-div-35" className="rounded-2xl border border-red-100 bg-white py-16 text-center">
+              <div data-testid="app-marketplace-page-div-36" className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-red-50 text-2xl">
+                ⚠️
+              </div>
+              <h3 data-testid="app-marketplace-page-h3-1" className="mt-4 text-lg font-semibold text-slate-900">
+                Could not load marketplace agents
+              </h3>
+              <p data-testid="app-marketplace-page-p-8" className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+                {apiError}
+              </p>
+            </div>
+          ) : filteredAgents.length ? (
             <div data-testid="app-marketplace-page-div-34"
               className={
                 view === "grid"
@@ -968,9 +1096,11 @@ export default function MarketplacePage() {
             </div>
           )}
 
-          <p data-testid="app-marketplace-page-p-9" className="mt-8 text-center text-sm text-slate-400">
-            Showing {filteredAgents.length} of {agents.length} agents
-          </p>
+          {!isLoading && !apiError ? (
+            <p data-testid="app-marketplace-page-p-9" className="mt-8 text-center text-sm text-slate-400">
+              Showing {filteredAgents.length} of {agents.length} agents
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -996,7 +1126,7 @@ export default function MarketplacePage() {
       </section>
 
       <section data-testid="app-marketplace-page-section-6" className="bg-slate-900 py-8">
-        <div data-testid="app-marketplace-page-div-39" className="mx-auto max-w-7xl px-4 sm:px-6">
+        <div data-testid="app-marketplace-page-div-39" className="w-full max-w-none px-4 sm:px-6 lg:px-8">
           <div data-testid="app-marketplace-page-div-40" className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-sm text-white/80">
             <TrustItem text="256-bit encryption" />
             <TrustItem text="99.9% uptime" />
@@ -1097,11 +1227,8 @@ function AgentGridCard({
         <span data-testid="app-marketplace-page-span-27" className="text-xs text-slate-500">
           {agent.installs} installs
         </span>
-        <span data-testid="app-marketplace-page-span-28" className="text-xs font-semibold text-amber-600">
-          ⭐ {agent.rating.toFixed(1)}
-        </span>
         <span data-testid="app-marketplace-page-span-29" className="truncate text-xs text-slate-500">
-          By {agent.author}
+          Triven Team
         </span>
       </div>
 
@@ -1151,10 +1278,7 @@ function AgentListCard({
 
         <div data-testid="app-marketplace-page-div-56" className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
           <span data-testid="app-marketplace-page-span-33">{agent.installs} installs</span>
-          <span data-testid="app-marketplace-page-span-34" className="font-semibold text-amber-600">
-            ⭐ {agent.rating.toFixed(1)}
-          </span>
-          <span data-testid="app-marketplace-page-span-35">By {agent.author}</span>
+          <span data-testid="app-marketplace-page-span-35">Triven Team</span>
         </div>
       </div>
 
@@ -1240,17 +1364,11 @@ function AgentDetailsModal({
               </h2>
 
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <span className="font-semibold text-amber-500">
-                  ★★★★★ {agent.rating.toFixed(1)}
-                </span>
-
-                <span className="text-slate-300">·</span>
-
                 <span className="text-slate-500">{agent.installs} installs</span>
 
                 <span className="text-slate-300">·</span>
 
-                <span className="text-slate-500">By {agent.author}</span>
+                <span className="text-slate-500">Triven Team</span>
               </div>
             </div>
           </div>
@@ -1291,14 +1409,6 @@ function AgentDetailsModal({
               className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
             >
               Start free trial
-            </Link>
-
-            <Link
-              href={BUSINESS_SETUP_PATH}
-
-              className="inline-flex min-w-[150px] items-center justify-center rounded-xl border-2 border-amber-500 bg-white px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
-            >
-              View Details
             </Link>
           </div>
         </div>

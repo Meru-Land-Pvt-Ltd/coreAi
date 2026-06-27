@@ -1,4 +1,7 @@
+import Image from "next/image";
 import Link from "next/link";
+
+const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
 export function CoreFooter() {
     return (
@@ -6,14 +9,18 @@ export function CoreFooter() {
             <div className="mx-auto max-w-7xl">
                 <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
                     <div className="col-span-2 md:col-span-1">
-                        <Link href="/#top" className="flex items-center gap-2.5" aria-label="CORE home">
-                            <svg className="h-7 w-7" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-                                <circle cx="14" cy="14" r="11" stroke="#f59e0b" strokeWidth={2} />
-                                <circle cx="14" cy="14" r="4" fill="#fbbf24" />
-                            </svg>
+                        <Link href="/#top" className="flex items-center gap-2.5" aria-label="Triven home">
+                            <Image
+                                src={TRIVEN_LOGO_SRC}
+                                alt="Triven logo"
+                                width={36}
+                                height={36}
+                                priority
+                                className="h-9 w-9 object-contain"
+                            />
 
                             <span className="text-xl font-extrabold tracking-tight text-amber-500">
-                                CORE
+                                Triven.ai
                             </span>
                         </Link>
 
@@ -50,14 +57,14 @@ export function CoreFooter() {
                     <FooterColumn
                         title="Connect"
                         links={[
-                            { label: "Email", href: "mailto:hello@usecore.ai" }
+                            { label: "Email", href: "info@triven.ai" }
                         ]}
                     />
                 </div>
 
                 <div className="mt-12 border-t border-gray-200 pt-8">
                     <p className="text-sm text-slate-500">
-                        © 2026 CORE. All rights reserved.
+                        © 2026 Triven. All rights reserved.
                     </p>
                 </div>
             </div>

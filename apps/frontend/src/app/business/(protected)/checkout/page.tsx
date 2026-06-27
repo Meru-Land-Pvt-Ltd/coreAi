@@ -1,13 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { apiGet, apiPost } from "@/lib/api";
+import { getAuthToken, getAuthUser } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
-    MISSED_CALL_SETUP_PATH
+    businessPaymentFailedPath,
+    businessPaymentSuccessPath,
+    businessSetupPath
 } from "@/lib/routes";
+
+type CheckoutListing = {
+    id: string;
+    name: string;
+    priceCents?: number | null;
+    architect?: {
+        fullName?: string | null;
+        email?: string | null;
+        architectProfile?: {
+            title?: string | null;
+            rating?: number | null;
+            completedJobs?: number | null;
+        } | null;
+    } | null;
+};
+
+type CheckoutListingResponse = {
+    listing?: CheckoutListing;
+};
+
+type StartTrialResponse = {
+    payment?: { id: string; status: string };
+    alreadyActive?: boolean;
+};
+
+function testPaymentMethodForBrand(brand: CardBrand) {
+    if (brand === "mastercard") return "pm_card_mastercard";
+    if (brand === "amex") return "pm_card_amex";
+    return "pm_card_visa";
+}
 
 type PaymentTab = "credit" | "google" | "apple";
 type CardBrand = "visa" | "mastercard" | "amex" | null;
@@ -429,9 +463,15 @@ function isZipValid(country: string, value: string) {
 
 export default function BusinessCheckoutPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const listingId = searchParams.get("listingId");
 
     const [authReady, setAuthReady] = useState(false);
     const [email, setEmail] = useState("");
+    const [listingName, setListingName] = useState(agent.name);
+    const [listingAuthor, setListingAuthor] = useState(agent.author);
+    const [basePrice, setBasePrice] = useState(agent.price);
+    const [trialError, setTrialError] = useState("");
     const [paymentTab, setPaymentTab] = useState<PaymentTab>("credit");
 
     const [cardNumber, setCardNumber] = useState("");
@@ -472,7 +512,7 @@ export default function BusinessCheckoutPage() {
         zip: isZipValid(country, zip)
     };
 
-    const futureAmount = promoApplied ? 90 : 100;
+    const futureAmount = promoApplied ? Math.round(basePrice * 0.9 * 100) / 100 : basePrice;
 
     const formReady =
         authReady &&
@@ -484,29 +524,50 @@ export default function BusinessCheckoutPage() {
                 validations.zip));
 
     useEffect(() => {
-        const token = localStorage.getItem("coreai_token");
-        const userRaw = localStorage.getItem("coreai_user");
+        const token = getAuthToken();
+        const user = getAuthUser();
 
-        let role = "";
-        let userEmail = "";
-
-        try {
-            const user = userRaw ? JSON.parse(userRaw) : null;
-            role = user?.role ?? "";
-            userEmail = user?.email ?? "";
-        } catch {
-            role = "";
-            userEmail = "";
-        }
-
-        if (!token || role !== "BUSINESS") {
+        if (!token || user?.role !== "BUSINESS") {
             router.replace(BUSINESS_LOGIN_PATH);
             return;
         }
 
-        setEmail(userEmail || "business@company.com");
+        setEmail(user.email || "business@company.com");
         setAuthReady(true);
     }, [router]);
+
+    useEffect(() => {
+        if (!authReady || !listingId) return;
+
+        let mounted = true;
+
+        async function loadListing() {
+            const response = await apiGet<CheckoutListingResponse>(
+                `/architect/listings/${listingId}`
+            );
+
+            if (!mounted) return;
+
+            const listing = response.data?.listing;
+
+            if (response.success && listing) {
+                setListingName(listing.name);
+                setListingAuthor(
+                    listing.architect?.fullName ||
+                    listing.architect?.architectProfile?.title ||
+                    listing.architect?.email ||
+                    agent.author
+                );
+                setBasePrice(Math.round((listing.priceCents ?? 0) / 100) || agent.price);
+            }
+        }
+
+        loadListing();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady, listingId]);
 
     function fieldState(isValid: boolean, shouldShowError: boolean) {
         if (isValid) return "is-valid";
@@ -570,19 +631,74 @@ export default function BusinessCheckoutPage() {
         }, 4200);
     }
 
-    function handleStartTrial() {
+    function openResultTab(tab: Window | null, url: string) {
+        if (tab) {
+            tab.location.href = url;
+        } else {
+            window.open(url, "_blank", "noopener,noreferrer");
+        }
+    }
+
+    function goToSuccess(tab: Window | null) {
+        openResultTab(
+            tab,
+            businessPaymentSuccessPath({
+                listingId: listingId ?? undefined,
+                agent: listingName,
+                amount: basePrice,
+                email
+            })
+        );
+    }
+
+    function goToFailure(tab: Window | null, message?: string) {
+        if (message) setTrialError(message);
+        openResultTab(
+            tab,
+            businessPaymentFailedPath({
+                listingId: listingId ?? undefined,
+                agent: listingName,
+                amount: basePrice
+            })
+        );
+    }
+
+    async function handleStartTrial() {
         setAttemptedSubmit(true);
+        setTrialError("");
 
         if (!formReady || processing) return;
 
         setProcessing(true);
 
-        window.setTimeout(() => {
-            setProcessing(false);
-            setConfirmation(true);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            buildConfetti();
-        }, 1500);
+        // Open the result tab synchronously inside the click handler so the
+        // browser doesn't block it as a popup; we set its URL once we know
+        // the payment outcome.
+        const resultTab = window.open("about:blank", "_blank");
+
+        // Without a listing id there is nothing to charge against, so treat it
+        // as a successful trial start for the demo flow.
+        if (!listingId) {
+            window.setTimeout(() => {
+                setProcessing(false);
+                goToSuccess(resultTab);
+            }, 1200);
+            return;
+        }
+
+        const response = await apiPost<StartTrialResponse>("/payments/start-trial", {
+            listingId,
+            paymentMethodId: testPaymentMethodForBrand(brand)
+        });
+
+        setProcessing(false);
+
+        if (!response.success) {
+            goToFailure(resultTab, response.error ?? "We couldn't start your trial. Please try again.");
+            return;
+        }
+
+        goToSuccess(resultTab);
     }
 
     if (!authReady) {
@@ -878,6 +994,12 @@ export default function BusinessCheckoutPage() {
                                         )}
                                     </button>
 
+                                    {trialError ? (
+                                        <p className="mt-3 text-center text-sm font-medium text-red-500">
+                                            {trialError}
+                                        </p>
+                                    ) : null}
+
                                     <p className="mt-3 text-center text-xs text-slate-400">
                                         You&apos;ll be charged{" "}
                                         <span className="font-medium text-slate-500">${futureAmount}</span> on{" "}
@@ -903,6 +1025,9 @@ export default function BusinessCheckoutPage() {
                                     trialDate={trialDate}
                                     promoApplied={promoApplied}
                                     futureAmount={futureAmount}
+                                    agentName={listingName}
+                                    agentAuthor={listingAuthor}
+                                    price={basePrice}
                                 />
                             </aside>
                         </div>
@@ -943,7 +1068,8 @@ export default function BusinessCheckoutPage() {
             ) : (
                 <ConfirmationView
                     email={email}
-                    onSetup={() => router.push(MISSED_CALL_SETUP_PATH)}
+                    agentName={listingName}
+                    onSetup={() => router.push(businessSetupPath(listingId ?? undefined))}
                     onDashboard={() => router.push(BUSINESS_MARKETPLACE_PATH)}
                 />
             )}
@@ -971,24 +1097,7 @@ export default function BusinessCheckoutPage() {
 function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
     return (
         <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-5 py-4 sm:px-8">
-            <div className="mx-auto grid max-w-6xl grid-cols-3 items-center gap-2">
-                <Link href={BUSINESS_MARKETPLACE_PATH} className="group flex w-fit items-center gap-2.5">
-                    <span
-                        className="relative inline-grid h-9 w-9 place-items-center rounded-full"
-                        style={{
-                            background:
-                                "radial-gradient(circle at 30% 25%, #fbbf24, #f59e0b 55%, #d97706)"
-                        }}
-                    >
-                        <span className="absolute h-3.5 w-3.5 rounded-full border-2 border-white/90" />
-                        <span className="absolute h-1 w-1 rounded-full bg-white" />
-                    </span>
-
-                    <span className="text-[1.35rem] font-extrabold tracking-tight text-slate-900 transition-colors group-hover:text-amber-600">
-                        CORE
-                    </span>
-                </Link>
-
+            <div className="mx-auto flex max-w-6xl items-center justify-center gap-2">
                 <div className="flex flex-col items-center">
                     <nav className="flex items-center justify-center" aria-label="Checkout progress">
                         <StepCircle status="done">
@@ -1028,15 +1137,6 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                         <LockIcon className="h-3 w-3" />
                         <span className="text-[0.7rem] font-medium">Secure Checkout</span>
                     </div>
-                </div>
-
-                <div className="text-right">
-                    <Link
-                        href={BUSINESS_MARKETPLACE_PATH}
-                        className="hidden items-center gap-1 text-sm font-medium text-slate-500 transition-colors hover:text-amber-600 sm:inline-flex"
-                    >
-                        ← Back to Marketplace
-                    </Link>
                 </div>
             </div>
         </header>
@@ -1115,12 +1215,20 @@ function WalletPanel({ tab }: { tab: Exclude<PaymentTab, "credit"> }) {
 function OrderSummary({
     trialDate,
     promoApplied,
-    futureAmount
+    futureAmount,
+    agentName,
+    agentAuthor,
+    price
 }: {
     trialDate: string;
     promoApplied: boolean;
     futureAmount: number;
+    agentName: string;
+    agentAuthor: string;
+    price: number;
 }) {
+    const priceLabel = price.toFixed(2);
+
     return (
         <div className="lg:sticky lg:top-28">
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -1134,8 +1242,8 @@ function OrderSummary({
                     </span>
 
                     <div className="min-w-0">
-                        <p className="font-bold leading-tight text-slate-900">{agent.name}</p>
-                        <p className="mt-0.5 text-sm text-slate-500">by {agent.author}</p>
+                        <p className="font-bold leading-tight text-slate-900">{agentName}</p>
+                        <p className="mt-0.5 text-sm text-slate-500">by {agentAuthor}</p>
                         <p className="mt-1 flex items-center gap-1 text-sm text-amber-500">
                             <span>★★★★★</span>
                             <span className="text-slate-500">
@@ -1162,12 +1270,16 @@ function OrderSummary({
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">
-                        <PriceRow label="Agent price" value="$100.00" />
-                        <PriceRow label="7-day free trial" value="−$100.00" green />
+                        <PriceRow label="Agent price" value={`$${priceLabel}`} />
+                        <PriceRow label="7-day free trial" value={`−$${priceLabel}`} green />
                         <PriceRow label="Execution fees" value="Pay as you go" muted />
 
                         {promoApplied ? (
-                            <PriceRow label="Promo (CORE10)" value="−$10.00" green />
+                            <PriceRow
+                                label="Promo (CORE10)"
+                                value={`−$${(price * 0.1).toFixed(2)}`}
+                                green
+                            />
                         ) : null}
                     </div>
 
@@ -1184,7 +1296,7 @@ function OrderSummary({
 
                     <div className="mt-2 flex justify-between text-sm">
                         <span className="text-slate-500">Due {trialDate}</span>
-                        <span className="tnum font-medium text-slate-500">${futureAmount}.00</span>
+                        <span className="tnum font-medium text-slate-500">${futureAmount.toFixed(2)}</span>
                     </div>
                 </div>
 
@@ -1217,10 +1329,12 @@ function OrderSummary({
 
 function ConfirmationView({
     email,
+    agentName,
     onSetup,
     onDashboard
 }: {
     email: string;
+    agentName: string;
     onSetup: () => void;
     onDashboard: () => void;
 }) {
@@ -1234,7 +1348,7 @@ function ConfirmationView({
                 You&apos;re all set! 🎉
             </h1>
 
-            <p className="mt-2 text-lg text-slate-600">{agent.name} is now active.</p>
+            <p className="mt-2 text-lg text-slate-600">{agentName} is now active.</p>
 
             <p className="mt-4 text-sm text-slate-500">
                 Your 7-day free trial has started. We&apos;ll send setup instructions to{" "}

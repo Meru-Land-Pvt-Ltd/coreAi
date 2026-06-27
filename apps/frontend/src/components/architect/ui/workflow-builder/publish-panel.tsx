@@ -96,7 +96,6 @@ export function PublishPanel({
               </div>
             ) : null}
             <button
-              data-testid="components-architect-ui-workflow-builder-publish-panel-submit"
               type="button"
               onClick={onSave}
               disabled={saving}

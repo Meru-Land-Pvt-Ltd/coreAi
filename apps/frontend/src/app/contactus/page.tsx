@@ -271,7 +271,7 @@ export default function ContactPage() {
         <section className="py-16">
           <div className="mx-auto max-w-4xl px-6">
             <div className="grid grid-cols-1 gap-8 text-center sm:grid-cols-3">
-              <ContactInfo label="Email" value="hello@trycore.ai" />
+              <ContactInfo label="Email" value="info@triven.ai" />
               <ContactInfo label="Response Time" value="Within 2 hours" />
               <ContactInfo label="Office Hours" value="Mon–Fri, 9AM–6PM EST" />
             </div>
@@ -286,13 +286,13 @@ export default function ContactPage() {
 
             <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
               {quickLinks.map((link) => (
-                <Link
+                <div
                   key={link.label}
-                  href={link.href as any}
-                  className="block rounded-xl border border-gray-100 px-5 py-4 text-slate-700 transition-colors duration-200 hover:border-amber-200 hover:text-amber-600"
+                  aria-disabled="true"
+                  className="block rounded-xl border border-gray-100 px-5 py-4 text-slate-700"
                 >
                   {link.label}
-                </Link>
+                </div>
               ))}
             </div>
           </div>

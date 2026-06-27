@@ -7,7 +7,7 @@ import { CoreFooter } from "@/components/common/footer";
 import {
   ASSIGNMENT_PATH,
   BUSINESS_LOGIN_PATH,
-  BUSINESS_MARKETPLACE_PATH
+  BUSINESS_MARKETPLACE_PUBLIC_PATH
 } from "@/lib/routes";
 
 const pricingSteps = [
@@ -620,7 +620,7 @@ export default function PricingPage() {
 
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
-                href={BUSINESS_MARKETPLACE_PATH}
+                href={BUSINESS_MARKETPLACE_PUBLIC_PATH}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-8 py-4 text-base font-semibold text-slate-950 shadow-[0_0_90px_-10px_rgba(245,158,11,0.3)] transition duration-200 hover:scale-[1.03] hover:bg-amber-400 sm:w-auto"
               >
                 Explore Marketplace

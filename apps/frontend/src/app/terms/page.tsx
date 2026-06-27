@@ -163,13 +163,11 @@ function LegalPageShell({ children }: { children: React.ReactNode }) {
         }}
       />
 
-      <CoreHeader
-        navTop={0}
-        navScrolled={true}
-        menuOpen={menuOpen}
-        onToggleMenu={() => setMenuOpen((open) => !open)}
-        onCloseMenu={() => setMenuOpen(false)}
-      />
+      <CoreHeader navTop={0} navScrolled={false} menuOpen={false} onToggleMenu={function (): void {
+        throw new Error("Function not implemented.");
+      }} onCloseMenu={function (): void {
+        throw new Error("Function not implemented.");
+      }} />
 
       {children}
 
