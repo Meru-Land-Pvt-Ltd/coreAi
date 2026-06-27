@@ -162,29 +162,29 @@ model EmailVerificationCode {
 }
 
 model Business {
-  id                   String                  @id @default(cuid())
-  ownerId              String
-  name                 String
-  type                 String
-  createdAt            DateTime                @default(now())
-  updatedAt            DateTime                @updatedAt
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  type      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Stripe billing (AI Receptionist subscription).
   stripeCustomerId     String?
   stripeSubscriptionId String?
-  subscriptionStatus   String?                 @default("inactive")
+  subscriptionStatus   String?   @default("inactive")
   subscriptionPriceId  String?
   currentPeriodEnd     DateTime?
 
-  appointments         Appointment[]
-  owner                User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  knowledgeBases       BusinessKnowledgeBase[]
-  phoneNumbers         BusinessPhoneNumber[]
-  profile              BusinessProfile?
-  conversations        Conversation[]
-  installedAgents      InstalledAgent[]
-  leads                Lead[]
-  vapiCalls            VapiCall[]
+  appointments    Appointment[]
+  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  knowledgeBases  BusinessKnowledgeBase[]
+  phoneNumbers    BusinessPhoneNumber[]
+  profile         BusinessProfile?
+  conversations   Conversation[]
+  installedAgents InstalledAgent[]
+  leads           Lead[]
+  vapiCalls       VapiCall[]
 
   @@index([ownerId])
   @@index([type])
@@ -371,24 +371,24 @@ model PlatformPhoneNumber {
 }
 
 model Payment {
-  id                   String        @id @default(cuid())
-  userId               String
-  listingId            String?
-  amountCents          Int           @default(0)
-  currency             String        @default("usd")
-  status               PaymentStatus @default(PENDING)
+  id          String        @id @default(cuid())
+  userId      String
+  listingId   String?
+  amountCents Int           @default(0)
+  currency    String        @default("usd")
+  status      PaymentStatus @default(PENDING)
 
   stripeCustomerId     String?
   stripeSessionId      String?
   stripeSubscriptionId String?
   stripePaymentId      String?
 
-  description          String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listing              AgentListing? @relation(fields: [listingId], references: [id])
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing AgentListing? @relation(fields: [listingId], references: [id])
 
   @@index([userId])
   @@index([listingId])
