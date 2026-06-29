@@ -733,7 +733,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <PreviewModal
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
-        businessName={businessName.trim() || "Mitchell Dental"}
+        businessName={businessName.trim() || "Your business"}
       />
 
       <TemplatePreviewModal slug={previewSlug} onClose={() => setPreviewSlug(null)} onUse={importTemplate} />

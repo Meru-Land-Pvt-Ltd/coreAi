@@ -1191,6 +1191,378 @@ function calendarStatusFromError(error: unknown): string {
   return "error";
 }
 
+const INVALID_DATE_RESULT = {
+  success: false,
+  calendar_status: "invalid_date",
+  message: "Requested date is in the past. Please confirm the correct appointment date."
+} as const;
+
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** Today's date (YYYY-MM-DD) in the given timezone. */
+function todayInZone(timeZone: string): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone });
+}
+
+/** Today's weekday index (0=Sun) in the given timezone. */
+function weekdayIndexInZone(timeZone: string): number {
+  const name = new Date().toLocaleDateString("en-US", { timeZone, weekday: "long" }).toLowerCase();
+  const idx = WEEKDAY_NAMES.indexOf(name);
+  return idx < 0 ? 0 : idx;
+}
+
+/** Add `days` calendar days to a YYYY-MM-DD string (DST-safe via noon-UTC anchor). */
+function addDaysToDateStr(dateStr: string, days: number): string {
+  const base = new Date(`${dateStr}T12:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function nextWeekdayDateStr(text: string, today: string, timeZone: string): string | undefined {
+  for (let i = 0; i < WEEKDAY_NAMES.length; i++) {
+    if (new RegExp(`\\b${WEEKDAY_NAMES[i]}\\b`).test(text)) {
+      const todayIdx = weekdayIndexInZone(timeZone);
+      let delta = (i - todayIdx + 7) % 7;
+      if (delta === 0) delta = 7; // "monday" said on a Monday means next Monday
+      return addDaysToDateStr(today, delta);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the appointment date. Relative phrases (today/tomorrow/next Monday) found
+ * in the args or transcript are computed from the real "now" in the business
+ * timezone and OVERRIDE any literal date the model guessed (e.g. a 2023 date).
+ * Returns `isPast` when there's no relative phrase and the literal date is before today.
+ */
+function resolveRequestedDate(opts: { rawDate?: string; relativeText: string; timeZone: string }): {
+  date: string;
+  isPast: boolean;
+  normalized?: string;
+  today: string;
+} {
+  const today = todayInZone(opts.timeZone);
+  const text = (opts.relativeText || "").toLowerCase();
+
+  let normalized: string | undefined;
+  if (/\bday after tomorrow\b/.test(text)) normalized = addDaysToDateStr(today, 2);
+  else if (/\btomorrow\b/.test(text)) normalized = addDaysToDateStr(today, 1);
+  else if (/\b(today|tonight|this afternoon|this evening|this morning)\b/.test(text)) normalized = today;
+  else normalized = nextWeekdayDateStr(text, today, opts.timeZone);
+
+  const rawDate =
+    typeof opts.rawDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(opts.rawDate)
+      ? opts.rawDate.slice(0, 10)
+      : undefined;
+  const date = normalized ?? rawDate ?? today;
+  return { date, isPast: date < today, normalized, today };
+}
+
+/** Parse "16:30" / "4:30 PM" / "4 pm" / "16:30:00" into 24h hour/minute. */
+function parseClockTime(raw?: string): { hour: number; minute: number } | undefined {
+  if (!raw) return undefined;
+  const match = raw.trim().toLowerCase().match(/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/);
+  if (!match) return undefined;
+  let hour = Number(match[1]);
+  const minute = match[2] ? Number(match[2]) : 0;
+  const meridiem = match[3]?.replace(/\./g, "");
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return undefined;
+  return { hour, minute };
+}
+
+function argStr(args: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+/** Collect ALL tool calls in a Vapi webhook (one webhook can carry several). */
+function getAllToolCalls(body: Record<string, unknown>): Array<{ id: string; name: string; parameters: Record<string, unknown> }> {
+  const out: Array<{ id: string; name: string; parameters: Record<string, unknown> }> = [];
+  const parseArgs = (raw: unknown): Record<string, unknown> => {
+    if (typeof raw === "string") {
+      try {
+        return JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    }
+    if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
+    return {};
+  };
+
+  // OpenAI-style: message.toolCalls[] = { id, function: { name, arguments } }
+  for (const path of [["message", "toolCalls"], ["toolCalls"]]) {
+    const arr = getNestedRecord(body, path);
+    if (Array.isArray(arr)) {
+      for (const item of arr) {
+        if (typeof item !== "object" || item === null) continue;
+        const rec = item as Record<string, unknown>;
+        const fn = typeof rec.function === "object" && rec.function !== null ? (rec.function as Record<string, unknown>) : {};
+        const name = typeof fn.name === "string" ? fn.name : typeof rec.name === "string" ? rec.name : "";
+        if (!name) continue;
+        out.push({ id: typeof rec.id === "string" ? rec.id : "", name, parameters: parseArgs(fn.arguments ?? rec.arguments ?? rec.parameters) });
+      }
+    }
+    if (out.length) return out;
+  }
+
+  // Vapi native: message.toolCallList[] = { id, name, arguments|parameters }
+  const list = getNestedRecord(body, ["message", "toolCallList"]);
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      if (typeof item !== "object" || item === null) continue;
+      const rec = item as Record<string, unknown>;
+      const name = typeof rec.name === "string" ? rec.name : "";
+      if (!name) continue;
+      out.push({ id: typeof rec.id === "string" ? rec.id : "", name, parameters: parseArgs(rec.arguments ?? rec.parameters) });
+    }
+    if (out.length) return out;
+  }
+
+  // message.toolWithToolCallList[]
+  const tw = getNestedRecord(body, ["message", "toolWithToolCallList"]);
+  if (Array.isArray(tw)) {
+    for (const item of tw) {
+      if (typeof item !== "object" || item === null) continue;
+      const rec = item as Record<string, unknown>;
+      const tc = typeof rec.toolCall === "object" && rec.toolCall !== null ? (rec.toolCall as Record<string, unknown>) : {};
+      const name = typeof rec.name === "string" ? rec.name : typeof tc.name === "string" ? tc.name : "";
+      if (!name) continue;
+      out.push({ id: typeof tc.id === "string" ? tc.id : "", name, parameters: parseArgs(tc.arguments ?? tc.parameters) });
+    }
+    if (out.length) return out;
+  }
+
+  // Legacy single-tool shapes.
+  const single = getFirstToolCall(body);
+  if (single.name) out.push(single);
+  return out;
+}
+
+type VapiToolContext = {
+  business: BusinessRuntimeContext | null;
+  dental: DentalToolConfig | null;
+  timeZone: string;
+  customerPhone: string;
+  patientPhone: string;
+  conversationId?: string;
+  summary: string;
+  transcript: string;
+};
+
+/** check_availability: validate date, then real Google Calendar slots or demo slots. */
+async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
+    .filter(Boolean)
+    .join(" ");
+  const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
+  if (isPast) return INVALID_DATE_RESULT;
+
+  const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
+  const service = argStr(args, ["service_type", "service"]) || "appointment";
+  const ownerId = ctx.business?.ownerId;
+
+  if (!ownerId) {
+    return { available_slots: DEMO_AVAILABILITY_SLOTS, date, service, duration: `${duration} minutes`, source: "demo", calendar_status: "not_connected" };
+  }
+
+  try {
+    const availability = await listAvailableSlots({
+      userId: ownerId,
+      calendarId: ctx.business?.calendarId,
+      timeZone: ctx.timeZone,
+      date,
+      openHour: ctx.dental?.openHour ?? 9,
+      closeHour: ctx.dental?.closeHour ?? 17,
+      durationMinutes: duration,
+      bufferMinutes: ctx.dental?.bufferMinutes ?? 10,
+      maxSlots: ctx.dental?.slotsToOffer ?? 3
+    });
+    return {
+      available_slots: availability.slots,
+      date,
+      service,
+      duration: `${duration} minutes`,
+      source: "google_calendar",
+      calendar_status: "connected"
+    };
+  } catch (error) {
+    const status = calendarStatusFromError(error);
+    console.error(`[vapi-webhook] check_availability failed (${status}); using demo slots`, error);
+    return {
+      available_slots: DEMO_AVAILABILITY_SLOTS,
+      date,
+      service,
+      duration: `${duration} minutes`,
+      source: "demo",
+      calendar_status: status === "error" ? "needs_reconnect" : status
+    };
+  }
+}
+
+/** book_appointment: validate date/time, then create a real Google Calendar event or a local record. */
+async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
+    .filter(Boolean)
+    .join(" ");
+  const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
+  if (isPast) return INVALID_DATE_RESULT;
+
+  const service = argStr(args, ["service_type", "service"]) || "Consultation";
+  const customerName = argStr(args, ["patient_name", "customerName", "name"]);
+  const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
+  const time =
+    parseClockTime(argStr(args, ["time", "appointment_time"])) ?? parseClockTime(ctx.transcript) ?? { hour: 9, minute: 0 };
+
+  const startAt = zonedWallClockToUtc(date, time.hour, time.minute, ctx.timeZone);
+  const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
+
+  // Never book in the past (e.g. today + an earlier time). 60s grace for clock skew.
+  if (startAt.getTime() < Date.now() - 60_000) return INVALID_DATE_RESULT;
+
+  const doctorName = ctx.dental?.doctorName || ctx.business?.businessName || "the doctor";
+  const whenLabel = formatAppointmentTime(startAt.toISOString(), ctx.timeZone);
+  const confirmation = ctx.dental?.confirmationMessage
+    ? applyBracketTemplate(ctx.dental.confirmationMessage, {
+        service,
+        "patient name": customerName ?? "",
+        "doctor name": doctorName,
+        date: whenLabel,
+        time: whenLabel
+      })
+    : `Perfect, you're booked for ${service} on ${whenLabel}.`;
+
+  const localFallback = async (calendarStatus: string) => {
+    if (ctx.business?.businessId) {
+      try {
+        await prisma.appointment.create({
+          data: {
+            businessId: ctx.business.businessId,
+            customerPhone: ctx.patientPhone || ctx.customerPhone || "unknown",
+            customerName: customerName ?? undefined,
+            service,
+            startAt,
+            endAt,
+            timeZone: ctx.timeZone,
+            notes: "Booked by Triven AI (calendar not connected — local record)."
+          }
+        });
+      } catch (error) {
+        console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
+      }
+    }
+    return {
+      success: true,
+      event_id: null,
+      event_link: null,
+      calendar_id: ctx.business?.calendarId ?? "primary",
+      calendar_status: calendarStatus,
+      source: "local",
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      confirmation
+    };
+  };
+
+  if (ctx.business?.businessId && ctx.business.ownerId && ctx.patientPhone) {
+    try {
+      const { calendarEvent } = await createBusinessAppointment({
+        business: ctx.business,
+        customerPhone: ctx.patientPhone,
+        customerName,
+        service,
+        startAt,
+        endAt,
+        conversationId: ctx.conversationId,
+        description: `Booked by Triven AI voice receptionist. Phone: ${ctx.patientPhone}`,
+        notes: ctx.summary || ctx.transcript || null
+      });
+      await upsertConversation({
+        businessId: ctx.business.businessId,
+        customerPhone: ctx.patientPhone,
+        direction: "SYSTEM",
+        body: `Voice booking: ${service} on ${formatAppointmentTime(calendarEvent.startAt, ctx.timeZone)}.`,
+        providerId: calendarEvent.id
+      }).catch(() => null);
+      return {
+        success: true,
+        event_id: calendarEvent.id,
+        event_link: calendarEvent.htmlLink ?? null,
+        calendar_id: calendarEvent.calendarId,
+        calendar_status: "connected",
+        source: "google_calendar",
+        startAt: calendarEvent.startAt,
+        endAt: calendarEvent.endAt,
+        confirmation
+      };
+    } catch (error) {
+      const status = calendarStatusFromError(error);
+      console.error("[vapi-webhook] book_appointment calendar booking failed; using local fallback", error);
+      return localFallback(status === "error" ? "needs_reconnect" : status);
+    }
+  }
+
+  return localFallback("not_connected");
+}
+
+/** send_notification: SMS the patient and/or dentist. */
+async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  let patientSmsSent = false;
+  let dentistSmsSent = false;
+
+  if (ctx.business?.businessId) {
+    const values: Record<string, string> = {
+      service: argStr(args, ["service", "service_type"]) || "appointment",
+      "patient name": argStr(args, ["patient_name", "name"]) || "",
+      "patient phone": ctx.patientPhone || "",
+      "doctor name": argStr(args, ["doctor_name"]) || ctx.dental?.doctorName || ctx.business.businessName,
+      date: argStr(args, ["appointment_date", "date"]) || "",
+      time: argStr(args, ["appointment_time", "time"]) || ""
+    };
+
+    if ((ctx.dental?.sendToPatient ?? true) && ctx.patientPhone) {
+      try {
+        const sms = applyBracketTemplate(
+          ctx.dental?.patientTemplate ?? "Confirmed: [Service] with [Doctor Name], [Date] at [Time].",
+          values
+        );
+        await sendTwilioSms({ to: ctx.patientPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
+        await upsertConversation({
+          businessId: ctx.business.businessId,
+          customerPhone: ctx.patientPhone,
+          direction: "OUTBOUND",
+          body: sms
+        }).catch(() => null);
+        patientSmsSent = true;
+      } catch (error) {
+        console.error("[vapi-webhook] patient SMS failed (non-fatal)", error);
+      }
+    }
+
+    const dentistPhone = ctx.dental?.dentistPhone;
+    if ((ctx.dental?.sendToDentist ?? true) && dentistPhone) {
+      try {
+        const sms = applyBracketTemplate(
+          ctx.dental?.dentistTemplate ?? "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]",
+          values
+        );
+        await sendTwilioSms({ to: dentistPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
+        dentistSmsSent = true;
+      } catch (error) {
+        console.error("[vapi-webhook] dentist SMS failed (non-fatal)", error);
+      }
+    }
+  }
+
+  return { success: patientSmsSent || dentistSmsSent, patient_sms_sent: patientSmsSent, dentist_sms_sent: dentistSmsSent };
+}
+
 /**
  * Vapi tool-call + status webhook. Bulletproof by design: it NEVER responds 5xx
  * for a tool call. Any failure (calendar not connected, Twilio off, DB hiccup)
@@ -1200,27 +1572,15 @@ function calendarStatusFromError(error: unknown): string {
  */
 export async function handleVapiWebhook(c: Context) {
   const body = ((await parseBody(c).catch(() => ({}))) as Record<string, unknown>) ?? {};
-  const toolCall = getFirstToolCall(body);
+  const toolCalls = getAllToolCalls(body);
 
   if (!isProduction) {
     try {
       console.log("[vapi-webhook] request", JSON.stringify(body));
     } catch {
-      console.log("[vapi-webhook] request <unserializable body>", { tool: toolCall.name });
+      console.log("[vapi-webhook] request <unserializable body>", { tools: toolCalls.map((t) => t.name) });
     }
   }
-
-  // Always reply with a valid Vapi tool-result envelope (or { ok: true } for non-tool events).
-  const reply = (payload: unknown) => {
-    const response = toolCall.id || toolCall.name ? vapiToolResult(toolCall, payload) : { ok: true };
-    if (!isProduction) console.log("[vapi-webhook] response", JSON.stringify(response));
-    return c.json(response);
-  };
-
-  const fnName = (toolCall.name || "").toLowerCase().replace(/[^a-z]/g, "");
-  const isCheck = fnName.startsWith("check") || fnName.includes("availab");
-  const isBook = fnName.startsWith("book");
-  const isNotify = fnName.startsWith("send") || fnName.includes("notif");
 
   try {
     const metadata = getVapiMetadata(body);
@@ -1263,234 +1623,70 @@ export async function handleVapiWebhook(c: Context) {
       }
     }
 
-    const args = toolCall.parameters;
-    const argString = (keys: string[]): string | undefined => {
-      for (const key of keys) {
-        const value = args[key];
-        if (typeof value === "string" && value.trim()) return value.trim();
-      }
-      return undefined;
-    };
-    const timeZone = businessContext?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
-    const patientPhone = argString(["patient_phone", "customerPhone", "phone"]) || customerPhone;
-    const dental = businessContext?.businessId ? await loadDentalToolConfig(businessContext.businessId) : null;
-
-    // ---- check_availability / checkAvailability / check_calendar ----
-    if (isCheck) {
-      const date = argString(["date"]) || new Date().toISOString().slice(0, 10);
-      const duration = Number(args.duration_minutes) || dental?.defaultDurationMinutes || 30;
-      const service = argString(["service_type", "service"]) || "appointment";
-
-      let slots = DEMO_AVAILABILITY_SLOTS;
-      let source = "demo";
-      let calendarStatus: string | undefined = businessContext?.ownerId ? undefined : "not_connected";
-
-      if (businessContext?.ownerId) {
-        try {
-          const availability = await listAvailableSlots({
-            userId: businessContext.ownerId,
-            calendarId: businessContext.calendarId,
-            timeZone,
-            date,
-            openHour: dental?.openHour ?? 9,
-            closeHour: dental?.closeHour ?? 17,
-            durationMinutes: duration,
-            bufferMinutes: dental?.bufferMinutes ?? 10,
-            maxSlots: dental?.slotsToOffer ?? 3
-          });
-          if (availability.slots.length > 0) {
-            slots = availability.slots;
-            source = "calendar";
-          }
-        } catch (error) {
-          calendarStatus = calendarStatusFromError(error);
-          console.error(
-            `[vapi-webhook] check_availability calendar read failed (${calendarStatus}); using demo slots`,
-            error
-          );
-        }
-      }
-
-      return reply({
-        available_slots: slots,
-        date,
-        service,
-        duration: `${duration} minutes`,
-        source,
-        ...(calendarStatus ? { calendar_status: calendarStatus } : {})
-      });
-    }
-
-    // ---- book_appointment / bookAppointment ----
-    if (isBook) {
-      const service = argString(["service_type", "service"]) || "Consultation";
-      const customerName = argString(["patient_name", "customerName", "name"]);
-      const duration = Number(args.duration_minutes) || dental?.defaultDurationMinutes || 30;
-      const dateStr = argString(["date"]);
-      const timeStr = argString(["time"]);
-      const startArg = argString(["startAt"]);
-      const endArg = argString(["endAt"]);
-      const defaultWindow = getDefaultAppointmentWindow(timeZone);
-
-      let startAt: Date = defaultWindow.startAt;
-      let endAt: Date = defaultWindow.endAt;
-      if (dateStr && timeStr) {
-        const [hour, minute] = timeStr.split(":");
-        startAt = zonedWallClockToUtc(dateStr, Number(hour) || 9, Number(minute) || 0, timeZone);
-        endAt = new Date(startAt.getTime() + duration * 60 * 1000);
-      } else if (startArg) {
-        startAt = new Date(startArg);
-        endAt = endArg ? new Date(endArg) : new Date(startAt.getTime() + duration * 60 * 1000);
-      }
-
-      const doctorName = dental?.doctorName || businessContext?.businessName || "the doctor";
-      const confirmationFor = (whenLabel: string) =>
-        dental?.confirmationMessage
-          ? applyBracketTemplate(dental.confirmationMessage, {
-              service,
-              "patient name": customerName ?? "",
-              "doctor name": doctorName,
-              date: whenLabel,
-              time: whenLabel
-            })
-          : `Perfect, you're booked for ${service} on ${whenLabel}.`;
-
-      // Try the real Google Calendar booking; fall back to a local record on any failure.
-      if (businessContext?.businessId && businessContext.ownerId && patientPhone) {
-        try {
-          const { calendarEvent } = await createBusinessAppointment({
-            business: businessContext,
-            customerPhone: patientPhone,
-            customerName,
-            service,
-            startAt,
-            endAt,
-            conversationId,
-            description: `Booked by Triven AI voice receptionist. Phone: ${patientPhone}`,
-            notes: summary || transcript || null
-          });
-          const whenLabel = formatAppointmentTime(calendarEvent.startAt, timeZone);
-          await upsertConversation({
-            businessId: businessContext.businessId,
-            customerPhone: patientPhone,
-            direction: "SYSTEM",
-            body: `Voice booking: ${service} on ${whenLabel}.`,
-            providerId: calendarEvent.id
-          }).catch(() => null);
-          return reply({
-            success: true,
-            event_id: calendarEvent.id,
-            confirmation: confirmationFor(whenLabel),
-            startAt: calendarEvent.startAt,
-            endAt: calendarEvent.endAt
-          });
-        } catch (error) {
-          console.error("[vapi-webhook] book_appointment calendar booking failed; using fallback", error);
-        }
-      }
-
-      // Fallback: persist a local appointment (best-effort) and confirm anyway.
-      const whenLabel = formatAppointmentTime(startAt.toISOString(), timeZone);
-      if (businessContext?.businessId) {
-        try {
-          await prisma.appointment.create({
-            data: {
-              businessId: businessContext.businessId,
-              customerPhone: patientPhone || customerPhone || "unknown",
-              customerName: customerName ?? undefined,
-              service,
-              startAt,
-              endAt,
-              timeZone,
-              notes: "Booked by Triven AI (calendar not connected — local record)."
-            }
-          });
-        } catch (error) {
-          console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
-        }
-      }
-      return reply({
-        success: true,
-        event_id: null,
-        confirmation: confirmationFor(whenLabel),
-        startAt: startAt.toISOString(),
-        endAt: endAt.toISOString(),
-        note: "Saved locally; Google Calendar not connected."
-      });
-    }
-
-    // ---- send_notification / send_sms_notification ----
-    if (isNotify) {
-      let patientSmsSent = false;
-      let dentistSmsSent = false;
-
-      if (businessContext?.businessId) {
-        const values: Record<string, string> = {
-          service: argString(["service", "service_type"]) || "appointment",
-          "patient name": argString(["patient_name", "name"]) || "",
-          "patient phone": patientPhone || "",
-          "doctor name": argString(["doctor_name"]) || dental?.doctorName || businessContext.businessName,
-          date: argString(["appointment_date", "date"]) || "",
-          time: argString(["appointment_time", "time"]) || ""
-        };
-
-        if ((dental?.sendToPatient ?? true) && patientPhone) {
-          try {
-            const sms = applyBracketTemplate(
-              dental?.patientTemplate ?? "Confirmed: [Service] with [Doctor Name], [Date] at [Time].",
-              values
-            );
-            await sendTwilioSms({ to: patientPhone, body: sms, fromPhoneNumber: businessContext.businessPhoneNumber });
-            await upsertConversation({
-              businessId: businessContext.businessId,
-              customerPhone: patientPhone,
-              direction: "OUTBOUND",
-              body: sms
-            }).catch(() => null);
-            patientSmsSent = true;
-          } catch (error) {
-            console.error("[vapi-webhook] patient SMS failed (non-fatal)", error);
-          }
-        }
-
-        const dentistPhone = dental?.dentistPhone;
-        if ((dental?.sendToDentist ?? true) && dentistPhone) {
-          try {
-            const sms = applyBracketTemplate(
-              dental?.dentistTemplate ?? "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]",
-              values
-            );
-            await sendTwilioSms({ to: dentistPhone, body: sms, fromPhoneNumber: businessContext.businessPhoneNumber });
-            dentistSmsSent = true;
-          } catch (error) {
-            console.error("[vapi-webhook] dentist SMS failed (non-fatal)", error);
-          }
-        }
-      }
-
-      return reply({
-        success: patientSmsSent || dentistSmsSent,
-        patient_sms_sent: patientSmsSent,
-        dentist_sms_sent: dentistSmsSent
-      });
-    }
-
     // Non-tool event (status update / end-of-call report).
-    if (!isProduction) console.log("[vapi-webhook] response", JSON.stringify({ ok: true }));
-    return c.json({ ok: true });
+    if (toolCalls.length === 0) {
+      if (!isProduction) console.log("[vapi-webhook] response", JSON.stringify({ ok: true }));
+      return c.json({ ok: true });
+    }
+
+    const dental = businessContext?.businessId ? await loadDentalToolConfig(businessContext.businessId) : null;
+    const baseCtx: VapiToolContext = {
+      business: businessContext,
+      dental,
+      timeZone: businessContext?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+      customerPhone,
+      patientPhone: customerPhone,
+      conversationId,
+      summary,
+      transcript
+    };
+
+    // Run every tool call in the request; return one result per toolCallId.
+    const results: Array<{ name: string; toolCallId: string; result: string }> = [];
+    for (const toolCall of toolCalls) {
+      const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
+      const isCheck = fnName.startsWith("check") || fnName.includes("availab");
+      const isBook = fnName.startsWith("book");
+      const isNotify = fnName.startsWith("send") || fnName.includes("notif");
+      const ctx: VapiToolContext = {
+        ...baseCtx,
+        patientPhone: argStr(toolCall.parameters, ["patient_phone", "customerPhone", "phone"]) || customerPhone
+      };
+
+      let payload: unknown;
+      try {
+        if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
+        else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
+        else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
+        else payload = { ok: true };
+      } catch (error) {
+        console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
+        payload = isCheck
+          ? { available_slots: DEMO_AVAILABILITY_SLOTS, date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
+          : isBook
+            ? { success: false, message: "Could not complete the booking right now. Please try again." }
+            : { success: false };
+      }
+
+      results.push({
+        name: toolCall.name,
+        toolCallId: toolCall.id,
+        result: typeof payload === "string" ? payload : JSON.stringify(payload)
+      });
+    }
+
+    if (!isProduction) console.log("[vapi-webhook] response", JSON.stringify({ results }));
+    return c.json({ results });
   } catch (error) {
     // Last-resort guard: never reject a tool call with a 5xx/AggregateError.
-    console.error("[vapi-webhook] handler error (returning safe result)", error);
-    if (isCheck) {
-      return reply({
-        available_slots: DEMO_AVAILABILITY_SLOTS,
-        date: new Date().toISOString().slice(0, 10),
-        source: "demo"
-      });
-    }
-    if (isBook) {
-      return reply({ success: true, event_id: null, confirmation: "You're all set — we'll confirm the details by text." });
-    }
-    return reply({ success: false, message: "Temporary issue handling the request." });
+    console.error("[vapi-webhook] handler error (returning safe results)", error);
+    if (toolCalls.length === 0) return c.json({ ok: true });
+    return c.json({
+      results: toolCalls.map((toolCall) => ({
+        name: toolCall.name,
+        toolCallId: toolCall.id,
+        result: JSON.stringify({ success: false, message: "Temporary issue handling the request." })
+      }))
+    });
   }
 }

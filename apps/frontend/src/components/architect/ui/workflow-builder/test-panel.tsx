@@ -122,7 +122,7 @@ export function TestPanel({
                 type="text"
                 value={callerNumber}
                 onChange={(event) => onCallerNumberChange(event.target.value)}
-                placeholder="+1 (415) 555-0132"
+                placeholder="+1 (555) 000-0000"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
@@ -151,7 +151,7 @@ export function TestPanel({
                 type="text"
                 value={businessName}
                 onChange={(event) => onBusinessNameChange(event.target.value)}
-                placeholder="Mitchell Dental"
+                placeholder="Your business name"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
@@ -182,7 +182,7 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-6">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {isVoiceWorkflow ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message the patient receives"}
+              {isVoiceWorkflow ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
             </h3>
             <div className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-600">
@@ -224,7 +224,7 @@ export function TestPanel({
                 ) : (
                   <>
                     <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-                      {sentSms?.body ?? "Hi! We noticed we missed your call at Mitchell Dental. Sorry about that! Would you like to schedule an appointment? Reply YES and we will get you booked."}
+                      {sentSms?.body ?? "Run a test to preview the outgoing message."}
                     </div>
                     <p className="mt-2 font-mono text-xs text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-sent-sms-provider-called-sent-sms-twilio-text">
                       {sentSms?.providerCalled ? (sentSms.twilioTestMode ? "Twilio test accepted" : "Delivered") : "Dry run"} - {sentSms?.body?.length ?? 142} characters - est. cost $0.15

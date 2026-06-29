@@ -121,7 +121,21 @@ export function buildVapiVariableValues({
   business: VapiBusinessContext;
   reason: string;
 }) {
+  const timeZone = business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  // Real "now" in the business timezone so the assistant resolves relative dates
+  // (today/tomorrow/next Monday) correctly instead of guessing from training data.
+  const currentDateTime = new Date().toLocaleString("en-US", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+
   return {
+    currentDateTime,
     customerPhone,
     customerName: customerName || "the caller",
     businessId: business.businessId || "",
@@ -135,7 +149,7 @@ export function buildVapiVariableValues({
     tone: business.tone || "friendly",
     escalationRules: business.escalationRules || "",
     calendarId: business.calendarId || "primary",
-    timeZone: business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+    timeZone,
     missedCallReason: reason
   };
 }
