@@ -46,7 +46,6 @@ import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal"
 import { TestPanel } from "./workflow-builder/test-panel";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
-import { agentTemplates } from "./workflow-builder/library";
 
 const REVIEW_LOCK_MESSAGE = "Agent is under review";
 

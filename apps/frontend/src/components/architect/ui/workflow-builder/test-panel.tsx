@@ -45,7 +45,22 @@ export function TestPanel({
   const gmailRead = getGmailRead(runContext);
   const vapiCall = getVapiCall(runContext);
   const calendarAppointment = getCalendarAppointment(runContext);
-  const hasResult = Boolean(sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || runLogs.length > 0);
+
+  // Voice booking workflow results (set by the runner from node capabilities).
+  const voiceConversation = runContext.voiceConversation as
+    | { firstMessage?: string; practiceName?: string; doctorName?: string; voice?: string; model?: string }
+    | undefined;
+  const calendarAvailability = runContext.calendarAvailability as
+    | { slots?: string[]; source?: string; calendar_status?: string; date?: string }
+    | undefined;
+  const smsNotification = runContext.smsNotification as
+    | { sendToPatient?: boolean; sendToDentist?: boolean }
+    | undefined;
+  const isVoiceWorkflow = Boolean(voiceConversation || calendarAvailability || smsNotification);
+
+  const hasResult = Boolean(
+    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || isVoiceWorkflow || runLogs.length > 0
+  );
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -167,14 +182,44 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-6">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasGmailFlow ? "Email result" : "Message the patient receives"}
+              {isVoiceWorkflow ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message the patient receives"}
             </h3>
             <div className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-600">
-                <BuilderIcon name={hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
+                <BuilderIcon name={isVoiceWorkflow ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                {hasGmailFlow ? (
+                {isVoiceWorkflow ? (
+                  <div className="space-y-2" data-testid="test-panel-voice-result">
+                    {voiceConversation ? (
+                      <div data-testid="test-panel-voice-conversation-preview">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Voice conversation preview</p>
+                        <p className="mt-0.5 text-sm leading-relaxed text-slate-700">&ldquo;{voiceConversation.firstMessage}&rdquo;</p>
+                        <p className="mt-1 font-mono text-[11px] text-slate-400">
+                          {[voiceConversation.practiceName, voiceConversation.doctorName].filter(Boolean).join(" · ")}
+                          {voiceConversation.voice ? ` · ${voiceConversation.voice}/${voiceConversation.model}` : ""}
+                        </p>
+                      </div>
+                    ) : null}
+                    {calendarAvailability ? (
+                      <p className="font-mono text-xs text-blue-500" data-testid="test-panel-calendar-result">
+                        Calendar result: {calendarAvailability.source === "calendar" ? "checked Google Calendar" : "demo slots"}
+                        {calendarAvailability.slots?.length ? ` — ${calendarAvailability.slots.join(", ")}` : ""}
+                        {calendarAvailability.calendar_status ? ` (${calendarAvailability.calendar_status})` : ""}
+                      </p>
+                    ) : null}
+                    {calendarAppointment ? (
+                      <p className="font-mono text-xs text-blue-500" data-testid="test-panel-appointment-result">
+                        Appointment result: {calendarAppointment.id ? "booked" : "would be created (dry run)"} — {calendarAppointment.summary}
+                      </p>
+                    ) : null}
+                    {smsNotification ? (
+                      <p className="font-mono text-xs text-green-500" data-testid="test-panel-sms-notification-result">
+                        SMS notification result: dry run — {[smsNotification.sendToPatient ? "patient" : null, smsNotification.sendToDentist ? "dentist" : null].filter(Boolean).join(" + ") || "no recipients"}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : hasGmailFlow ? (
                   <EmailResult draftEmail={draftEmail} sentEmail={sentEmail} gmailRead={gmailRead} />
                 ) : (
                   <>
