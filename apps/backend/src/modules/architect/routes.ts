@@ -17,14 +17,12 @@ import {
   handleTwilioVoiceAction,
   handleVapiWebhook
 } from "./twilio-business-routing";
+import { deployDentalWorkflow } from "./dental-deploy";
+import { getVoiceAnswerStatus } from "./vapi-connector";
 import { runWorkflowTest } from "./workflow-runner";
 
 export const architectRoutes = new Hono();
 
-/**
- * Gmail OAuth callback must stay PUBLIC.
- * Do not place it after requireAuth, because Google redirects here without your app JWT.
- */
 architectRoutes.get("/connectors/gmail/callback", async (c) => {
   try {
     const code = c.req.query("code");
@@ -49,12 +47,6 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
   }
 });
 
-/**
- * Public Twilio webhooks.
- * Production path should resolve the business by Twilio "To" number, so one shared
- * number is not used for every customer. The :workflowId variants remain useful for
- * local testing before a business phone-number mapping exists.
- */
 architectRoutes.post("/connectors/twilio/voice", handleTwilioVoice);
 architectRoutes.post("/connectors/twilio/voice/:workflowId", handleTwilioVoice);
 architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction);
@@ -63,6 +55,8 @@ architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
+
+architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
 async function listCompletedListings(c: Context) {
   const allListings = await prisma.agentListing.findMany({
@@ -91,8 +85,6 @@ async function listCompletedListings(c: Context) {
     }
   });
 
-  // Buyers should see one card per workflow — keep the latest buyer-visible
-  // listing per workflow; standalone (no-workflow) listings are always kept.
   const seenWorkflowIds = new Set<string>();
   const listings = allListings.filter((listing) => {
     if (!listing.workflowId) return true;
@@ -713,6 +705,32 @@ architectRoutes.delete("/workflows/:workflowId", async (c) => {
   });
 
   return successResponse(c, { workflowId }, "Agent deleted");
+});
+
+/**
+ * Deploy the builder's 6-node Dental AI Receptionist as a live voice agent.
+ * Full provision: builds the Vapi assistant from the AI Conversation node,
+ * provisions Business + InstalledAgent + BusinessProfile, assigns a Twilio
+ * number, and binds it so inbound calls are answered by the deployed assistant.
+ */
+architectRoutes.post("/workflows/:workflowId/deploy", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  if (!workflowId) {
+    return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
+  try {
+    const deployment = await deployDentalWorkflow({
+      architectUserId: authUser.id,
+      workflowId
+    });
+    return successResponse(c, { deployment }, "Agent deployed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Deployment failed";
+    return errorResponse(c, message, 503, "DEPLOY_FAILED");
+  }
 });
 
 async function runOwnedWorkflow({

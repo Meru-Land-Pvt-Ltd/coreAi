@@ -12,7 +12,7 @@ export function ComponentLibrary({
 }: {
   searchTerm: string;
   onSearchChange: (value: string) => void;
-  onLoadTemplate: (templateId: "missed-call" | "gmail-reply") => void;
+  onLoadTemplate: (templateId: "missed-call" | "gmail-reply" | "ai-receptionist") => void;
   onAddNode: (nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) => void;
 }) {
   const query = searchTerm.trim().toLowerCase();
@@ -47,6 +47,15 @@ export function ComponentLibrary({
       </div>
 
       <div className="scroll-thin flex-1 overflow-y-auto px-4 pt-4">
+        <button
+          type="button"
+          onClick={() => onLoadTemplate("ai-receptionist")}
+          data-testid="library-template-ai-receptionist"
+          className="mb-3 w-full rounded-xl border-2 border-violet-300 bg-violet-50 px-3 py-2 text-left transition hover:border-violet-400"
+        >
+          <span className="block text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-dental-text">Dental AI Receptionist</span>
+          <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-dental-helper-text">Load the 6 voice nodes</span>
+        </button>
         <div className="mb-3 grid grid-cols-2 gap-2">
           <button
             type="button"

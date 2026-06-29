@@ -42,6 +42,13 @@ const envSchema = z.object({
   VAPI_BASE_URL: z.string().url().default("https://api.vapi.ai"),
   VAPI_DEFAULT_ASSISTANT_ID: z.string().optional(),
   VAPI_DEFAULT_PHONE_NUMBER_ID: z.string().optional(),
+  // ElevenLabs (via Vapi) voice used by deployed dental assistants when the
+  // builder's voice selection doesn't resolve to a known voice id. Omit to let
+  // Vapi use its account-default voice (deploy + calls still work).
+  VAPI_DEFAULT_VOICE_ID: z.string().optional(),
+  VAPI_ANSWER_INBOUND: z
+    .preprocess((value) => value === true || value === "true" || value === "1", z.boolean())
+    .default(false),
 
   GOOGLE_CALENDAR_ID: z.string().optional(),
   GOOGLE_CALENDAR_DEFAULT_TIMEZONE: z.string().default("America/New_York"),

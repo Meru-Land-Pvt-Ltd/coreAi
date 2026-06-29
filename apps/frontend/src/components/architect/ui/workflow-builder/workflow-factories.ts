@@ -1,6 +1,88 @@
-import type { BuilderFlow, BuilderNode } from "./types";
+import { DENTAL_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
+import type { BuilderFlow, BuilderNode, NodeKind } from "./types";
 import { createFlowEdge } from "./edge-utils";
 import { defaultNodeData } from "./node-defaults";
+
+/** Build a dental builder node, seeding its data from the shared registry defaults. */
+function dentalNode(
+  id: string,
+  type: string,
+  nodeKind: NodeKind,
+  position: { x: number; y: number },
+  overrides: Partial<BuilderNode["data"]>
+): BuilderNode {
+  const def = getNodeDefinition(type);
+  return {
+    id,
+    type: "coreNode",
+    position,
+    data: defaultNodeData(nodeKind, {
+      type,
+      label: def?.label ?? id,
+      title: def?.label ?? id,
+      subtitle: def?.description ?? "",
+      ...(def?.defaultConfig ?? {}),
+      ...overrides
+    })
+  };
+}
+
+/**
+ * The 6-node Dental AI Receptionist (Triven). Drag/connect these in the builder,
+ * configure the AI Conversation node, then Deploy. The Deploy endpoint reads each
+ * node by `data.type` (the registry slug) to build the live Vapi assistant.
+ */
+export function createDentalReceptionistFlow(): BuilderFlow {
+  const nodes: BuilderNode[] = [
+    dentalNode("incoming_phone_call", DENTAL_NODE_TYPES.incomingPhoneCall, "trigger", { x: 80, y: 300 }, {
+      kind: "TWILIO",
+      icon: "phone",
+      accent: "amber"
+    }),
+    dentalNode("ai_conversation", DENTAL_NODE_TYPES.aiConversation, "ai", { x: 360, y: 300 }, {
+      kind: "VAPI · GPT-4o",
+      icon: "sparkles",
+      accent: "violet"
+    }),
+    dentalNode("check_calendar", DENTAL_NODE_TYPES.checkCalendar, "connector", { x: 640, y: 300 }, {
+      kind: "CALENDAR",
+      icon: "calendar",
+      accent: "blue",
+      connector: "Google Calendar",
+      connectorAction: "check_availability"
+    }),
+    dentalNode("book_appointment", DENTAL_NODE_TYPES.bookAppointment, "connector", { x: 920, y: 300 }, {
+      kind: "CALENDAR",
+      icon: "calendar",
+      accent: "blue",
+      connector: "Google Calendar",
+      connectorAction: "book_appointment"
+    }),
+    dentalNode("send_sms_notification", DENTAL_NODE_TYPES.sendSmsNotification, "connector", { x: 1200, y: 300 }, {
+      kind: "TWILIO SMS",
+      icon: "message",
+      accent: "green",
+      connector: "SMS",
+      connectorAction: "send_notification"
+    }),
+    dentalNode("end_call", DENTAL_NODE_TYPES.endCall, "output", { x: 1480, y: 300 }, {
+      kind: "END CALL",
+      icon: "capture",
+      accent: "slate"
+    })
+  ];
+
+  return {
+    nodes,
+    edges: [
+      createFlowEdge({ id: "d1", source: "incoming_phone_call", target: "ai_conversation", accent: "amber" }),
+      createFlowEdge({ id: "d2", source: "ai_conversation", target: "check_calendar", accent: "violet" }),
+      createFlowEdge({ id: "d3", source: "check_calendar", target: "book_appointment", accent: "blue", label: "Slots" }),
+      createFlowEdge({ id: "d4", source: "book_appointment", target: "send_sms_notification", accent: "blue", label: "Booked" }),
+      createFlowEdge({ id: "d5", source: "send_sms_notification", target: "end_call", accent: "green" })
+    ]
+  };
+}
 
 export function createMissedCallTextBackFlow(): BuilderFlow {
   const nodes: BuilderNode[] = [
