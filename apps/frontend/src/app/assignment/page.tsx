@@ -438,7 +438,7 @@ export default function AssignmentPage() {
     let cta: [string, string];
     if (a.q14 === "C" || a.q14 === "D") cta = ["Book a 1-on-1 Strategy Call", "Our team will build a custom AI agent for your exact needs. 15-minute call. No obligation."];
     else if (a.q14 === "B") cta = ["Join Our Next Live Demo", "See CORE in action with other business owners. Free. 30 minutes."];
-    else cta = ["Watch the Free Training", "Browse AI agents built for your business"];
+    else cta = ["Browse AI Agents", "Browse AI agents built for your business"];
 
     return { score, tier, insights, rec, cta };
   };

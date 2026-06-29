@@ -334,7 +334,7 @@ export default function HomePage() {
                 <rect x="11.5" y="11" width="3" height="7" rx="1" fill="currentColor" />
                 <rect x="16.5" y="8" width="3" height="10" rx="1" fill="currentColor" />
               </svg>
-              Businesses using CORE recover an average of $4,200/month in lost revenue.
+              Businesses using Triven recover an average of $4,200/month in lost revenue.
             </div>
 
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -515,16 +515,10 @@ export default function HomePage() {
                 </filter>
               </defs>
 
-              <g fill="none" stroke="url(#coreLineGrad)" strokeWidth={2.5} strokeLinecap="round">
+              <g fill="none" stroke="#f59e0b" strokeWidth={2.5} strokeLinecap="round" strokeOpacity="0.85">
                 <path d="M200,170 C250,170 275,170 325,170" />
                 <path d="M495,155 C560,155 565,95 620,95" />
                 <path d="M495,185 C560,185 565,245 620,245" />
-              </g>
-
-              <g data-testid="app-page-g-1-animated" fill="none" stroke="#fbbf24" strokeWidth={2.5} strokeLinecap="round" strokeDasharray="8 12" strokeOpacity="0.75">
-                <path data-testid="app-page-path-9-animated" d="M200,170 C250,170 275,170 325,170">
-                  <animate attributeName="stroke-dashoffset" from="0" to="-40" dur="1.45s" repeatCount="indefinite" />
-                </path>
               </g>
 
               <g transform="translate(30,130)">
@@ -563,8 +557,11 @@ export default function HomePage() {
                 <g transform="translate(24,30) scale(0.8)" fill="none" stroke="#fbbf24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z" />
                 </g>
-                <text data-testid="app-page-text-7" x="64" y="40" fill="#0f172a" fontFamily="Inter, sans-serif" fontSize="15" fontWeight="600">Book Appointment</text>
-                <text data-testid="app-page-text-8" x="64" y="58" fill="#475569" fontFamily="Inter, sans-serif" fontSize="11">Google Calendar</text>
+                <text data-testid="app-page-text-7" x="64" y="34" fill="#0f172a" fontFamily="Inter, sans-serif" fontSize="15" fontWeight="600">
+                  <tspan x="64" dy="0">Book</tspan>
+                  <tspan x="64" dy="17">Appointment</tspan>
+                </text>
+                <text data-testid="app-page-text-8" x="64" y="66" fill="#475569" fontFamily="Inter, sans-serif" fontSize="11">Google Calendar</text>
               </g>
 
               <g filter="url(#coreDotGlow)">
@@ -591,7 +588,7 @@ export default function HomePage() {
             <div className="mx-auto max-w-2xl text-center">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-amber-600" data-testid="home-one-platform-text">One platform</p>
               <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-5xl" data-testid="home-one-platform-two-superpowers-heading">One Platform. Two Superpowers.</h2>
-              <p className="mt-4 text-lg text-slate-500" data-testid="home-whether-you-run-a-business-or-build-text">Whether you run a business or build the agents that power it, CORE meets you where you are.</p>
+              <p className="mt-4 text-lg text-slate-500" data-testid="home-whether-you-run-a-business-or-build-text">Whether you run a business or build the agents that power it, Triven meets you where you are.</p>
             </div>
 
             <div className="mt-14 grid gap-6 lg:grid-cols-2">
@@ -663,7 +660,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-7xl">
             <div className="mx-auto max-w-2xl text-center">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-amber-600" data-testid="home-the-flow-text">The flow</p>
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-5xl" data-testid="home-how-core-works-heading">How CORE Works</h2>
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-5xl" data-testid="home-how-core-works-heading">How Triven Works</h2>
             </div>
 
             <div className="mt-16">
@@ -754,7 +751,7 @@ export default function HomePage() {
             </div>
 
             <p className="mx-auto mt-12 max-w-3xl text-pretty text-center text-lg leading-relaxed text-slate-600" data-testid="home-core-was-built-by-a-team-obsessed-text">
-              CORE was built by a team obsessed with one question: What if every business could have an AI employee that never sleeps, never forgets to follow up, and costs less than $5 a day? We made it happen.
+              Triven was built by a team obsessed with one question: What if every business could have an AI employee that never sleeps, never forgets to follow up, and costs less than $5 a day? We made it happen.
             </p>
 
             <div className="mt-14">
@@ -804,7 +801,7 @@ export default function HomePage() {
                   alt: "Alex Rao testimonial photo"
                 },
                 {
-                  quote: "“We were losing 30% of leads to missed calls. CORE's agent recovered $12,000 in the first month.”",
+                  quote: "“We were losing 30% of leads to missed calls. Triven's agent recovered $12,000 in the first month.”",
                   image: "/image1.png",
                   name: "Dr. Sarah Mehta",
                   role: "Dentist",
@@ -1042,8 +1039,8 @@ export default function HomePage() {
               Hi! Need help finding the right AI agent?
             </p>
 
-            <a data-testid="landing-info-meruland-com-link" href={"mailto:info@meruland.com" as Route} className="mt-2 inline-block text-sm font-semibold text-amber-600 transition hover:text-amber-600">
-              info@meruland.com
+            <a data-testid="landing-info-meruland-com-link" href={"mailto:info@triven.ai" as Route} className="mt-2 inline-block text-sm font-semibold text-amber-600 transition hover:text-amber-600">
+            info@triven.ai
             </a>
           </div>
         ) : null}

@@ -10,6 +10,7 @@ import {
 } from "@/components/architect/ui/architect-ui";
 import { getArchitectListings } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
+import { getAuthUser } from "@/lib/auth";
 
 function AgentGlyph() {
   return (
@@ -71,104 +72,86 @@ function EmptyAgentsState() {
   );
 }
 
-function AgentRow({ agent }: { agent: ArchitectListing }) {
+function AgentCard({ agent, architectName }: { agent: ArchitectListing; architectName: string }) {
+  const editHref = (agent.workflowId
+    ? `/architect/workflows/${agent.workflowId}/builder`
+    : "/architect/agents/publish") as Route;
+
   return (
-    <div className="grid gap-4 border-b border-amber-100/80 px-5 py-5 transition hover:bg-white/70 lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.55fr_0.45fr] lg:items-center">
-      <div className="flex min-w-0 items-start gap-4">
-        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-700 ring-1 ring-amber-200">
-          <AgentGlyph />
-        </span>
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+      <div className="flex-1 p-6">
+        <div className="flex items-start justify-between gap-3">
+          <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+            <AgentGlyph />
+          </span>
 
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-base font-black text-slate-950" data-testid="architect-ui-my-agents-view-agent-heading">
-              {agent.name}
-            </h2>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <ArchitectStatusPill status={agent.status} />
-          </div>
-
-          <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-6 text-slate-600" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
-            {agent.shortDescription || "No description added yet."}
-          </p>
-
-          <div className="mt-3 flex flex-wrap gap-2 lg:hidden">
-            {agent.tags.length ? (
-              agent.tags.map((tag) => (
-                <span
-                  key={`${agent.id}-${tag}`}
-                  className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-amber-100"
-                 data-testid="architect-ui-my-agents-view-tag-text">
-                  {tag}
-                </span>
-              ))
-            ) : (
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-amber-100" data-testid="architect-ui-my-agents-view-no-tags-text">
-                No tags
-              </span>
-            )}
+            <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="architect-ui-my-agents-view-format-money-agent-price-cents-text">
+              {formatMoney(agent.priceCents)}
+            </span>
           </div>
         </div>
-      </div>
 
-      <div className="hidden flex-wrap gap-2 lg:flex">
-        {agent.tags.length ? (
-          agent.tags.slice(0, 3).map((tag) => (
-            <span
-              key={`${agent.id}-${tag}`}
-              className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-amber-100"
-             data-testid="architect-ui-my-agents-view-tag-text-2">
-              {tag}
+        <h2 className="mt-4 flex flex-wrap items-center gap-2 text-lg font-bold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
+          {agent.name}
+        </h2>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {agent.tags.length ? (
+            agent.tags.slice(0, 3).map((tag) => (
+              <span
+                key={`${agent.id}-${tag}`}
+                className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
+                data-testid="architect-ui-my-agents-view-tag-text"
+              >
+                {tag}
+              </span>
+            ))
+          ) : (
+            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-500" data-testid="architect-ui-my-agents-view-no-tags-text">
+              No tags
             </span>
-          ))
-        ) : (
-          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 ring-1 ring-amber-100" data-testid="architect-ui-my-agents-view-no-tags-text-2">
-            No tags
-          </span>
-        )}
-      </div>
+          )}
+        </div>
 
-      <div>
-        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:hidden" data-testid="architect-ui-my-agents-view-price-text">
-          Price
-        </p>
-        <p className="text-sm font-black text-slate-950" data-testid="architect-ui-my-agents-view-format-money-agent-price-cents-text">
-          {formatMoney(agent.priceCents)}
+        <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
+          {agent.shortDescription || "No description added yet."}
         </p>
       </div>
 
-      <div>
-        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:hidden" data-testid="architect-ui-my-agents-view-created-text">
-          Created
-        </p>
-        <p className="text-sm font-bold text-slate-600" data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text">
-          {formatDate(agent.createdAt)}
-        </p>
+      <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
+        <span className="truncate text-xs text-slate-500" data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text">
+          Created {formatDate(agent.createdAt)}
+        </span>
+        <span className="truncate text-xs text-slate-500" data-testid="architect-ui-my-agents-view-agent-workflow-from-agent-workflow-marketplace-package-text">
+          {architectName}
+        </span>
       </div>
 
-      <div className="flex items-center justify-between gap-3 lg:justify-end">
-        <p className="max-w-[12rem] truncate text-xs font-semibold text-slate-500 lg:hidden" data-testid="architect-ui-my-agents-view-agent-workflow-from-agent-workflow-marketplace-package-text">
-          {agent.workflow?.name ? `From ${agent.workflow.name}` : "Marketplace package"}
-        </p>
-
+      <div className="px-6 pb-6 pt-4">
         <Link
           data-testid={`my-agents-update-${agent.id}-link`}
-          href={
-            (agent.workflowId
-              ? `/architect/workflows/${agent.workflowId}/builder`
-              : "/architect/agents/publish") as Route
-          }
-          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white transition hover:bg-slate-800"
+          href={editHref}
+          className="block w-full rounded-xl border-2 border-amber-500 py-2.5 text-center font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
         >
           Update
         </Link>
       </div>
-    </div>
+    </article>
   );
 }
 
 export function MyAgentsView() {
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [architectName, setArchitectName] = useState("Architect");
+
+  useEffect(() => {
+    const user = getAuthUser();
+    const name = user?.fullName?.trim() || user?.email?.trim() || "Architect";
+    setArchitectName(name);
+  }, []);
 
   async function loadAgents() {
     const result = await getArchitectListings();
@@ -195,7 +178,7 @@ export function MyAgentsView() {
   );
 
   return (
-    <div className="-m-4 min-h-screen bg-[#fffaf3] p-4 sm:-m-6 sm:p-6 lg:-m-8 lg:p-8">
+    <div className="min-h-screen bg-[#fffaf3] p-4 sm:p-6 lg:p-8">
       <section className="px-1 py-2 sm:px-2">
         <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
           <div>
@@ -272,33 +255,19 @@ export function MyAgentsView() {
           </div>
         </div>
 
-        {agents.length ? (
-          <div className="hidden border-b border-amber-100 pb-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 lg:grid lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.55fr_0.45fr]">
-            <span data-testid="architect-ui-my-agents-view-agent-text">Agent</span>
-            <span data-testid="architect-ui-my-agents-view-tags-text">Tags</span>
-            <span data-testid="architect-ui-my-agents-view-price-text-2">Price</span>
-            <span data-testid="architect-ui-my-agents-view-created-text-2">Created</span>
-            <span className="text-right" data-testid="architect-ui-my-agents-view-action-text">Action</span>
-          </div>
-        ) : null}
-
         {loading ? (
-          <div className="py-10">
-            <div className="h-3 w-48 animate-pulse rounded-full bg-amber-200" />
-
-            <div className="mt-6 space-y-4">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-20 animate-pulse rounded-2xl bg-white/70 ring-1 ring-amber-100"
-                />
-              ))}
-            </div>
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="h-80 animate-pulse rounded-2xl bg-white/70 ring-1 ring-amber-100"
+              />
+            ))}
           </div>
         ) : agents.length ? (
-          <div className="divide-y divide-amber-100/80">
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {agents.map((agent) => (
-              <AgentRow key={agent.id} agent={agent} />
+              <AgentCard key={agent.id} agent={agent} architectName={architectName} />
             ))}
           </div>
         ) : (

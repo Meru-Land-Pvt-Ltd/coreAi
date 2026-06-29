@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { ArchitectShell } from "@/components/architect/ui/architect-shell";
+import { ArchitectSidebarShell } from "@/components/architect/ui/Sidebar";
 
 export default function ArchitectProtectedLayout({
   children
 }: {
   children: ReactNode;
 }) {
-  return <ArchitectShell>{children}</ArchitectShell>;
+  return <ArchitectSidebarShell>{children}</ArchitectSidebarShell>;
 }

@@ -579,12 +579,12 @@ export default function MarketplacePage() {
                       }`}
                   >
                     <span
-                      data-testid="app-marketplace-page-span-14"
+                      data-testid="marketplace-icon-text"
                       className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl transition ${hasAgents
                         ? "bg-amber-50 group-hover:scale-105 group-hover:bg-amber-500"
                         : "bg-slate-100 grayscale"
                         }`}
-                     data-testid="marketplace-icon-text">
+                    >
                       {item.icon}
                     </span>
 
@@ -1116,7 +1116,7 @@ export default function MarketplacePage() {
             recommendation built around your business.
           </p>
           <Link data-testid="marketplace-get-your-free-ai-score-link"
-            href={BUSINESS_LOGIN_PATH}
+            href={ASSIGNMENT_PATH}
             className="mx-auto mt-7 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
           >
             Get your free AI score →

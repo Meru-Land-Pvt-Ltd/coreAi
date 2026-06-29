@@ -9,7 +9,7 @@ const privacySections = [
     id: "introduction",
     title: "1. Introduction",
     body: [
-      `CORE AI Agent Platform ("CORE," "we," "us," or "our") operates a marketplace that connects businesses with AI agents built by independent AI Architects. This Privacy Policy explains how we collect, use, share, and protect information when you visit our website, create an account, install or build an agent, or otherwise use our services (collectively, the "Platform"). It applies to Business Owners, AI Architects, and visitors to the Platform. By using CORE, you agree to the practices described in this policy.`
+      `Triven AI Agent Platform ("Triven," "we," "us," or "our") operates a marketplace that connects businesses with AI agents built by independent AI Architects. This Privacy Policy explains how we collect, use, share, and protect information when you visit our website, create an account, install or build an agent, or otherwise use our services (collectively, the "Platform"). It applies to Business Owners, AI Architects, and visitors to the Platform. By using Triven, you agree to the practices described in this policy.`
     ]
   },
   {
@@ -27,7 +27,7 @@ const privacySections = [
       },
       {
         label: "Payment information:",
-        text: "processed by our third-party payment processors. CORE does not store your full card numbers."
+        text: "processed by our third-party payment processors. Triven does not store your full card numbers."
       },
       {
         label: "Agent interaction data:",
@@ -73,7 +73,7 @@ const privacySections = [
     id: "data-security",
     title: "6. Data Security",
     body: [
-      "We use 256-bit encryption to protect data both in transit and at rest. CORE maintains SOC 2 compliance and undergoes regular independent security audits to identify and address potential vulnerabilities. While no system can be guaranteed to be 100% secure, we are committed to protecting the information you entrust to us."
+      "We use 256-bit encryption to protect data both in transit and at rest. Triven maintains SOC 2 compliance and undergoes regular independent security audits to identify and address potential vulnerabilities. While no system can be guaranteed to be 100% secure, we are committed to protecting the information you entrust to us."
     ]
   },
   {
@@ -88,8 +88,8 @@ const privacySections = [
     afterNode: (
       <>
         To exercise any of these rights, contact us at{" "}
-        <a data-testid="privacy-privacy-trycore-ai-link" href="mailto:privacy@trycore.ai" className="font-medium text-amber-600 hover:text-amber-700">
-          privacy@trycore.ai
+        <a data-testid="privacy-privacy-trycore-ai-link" href="mailto:info@triven.ai" className="font-medium text-amber-600 hover:text-amber-700">
+          info@triven.ai
         </a>
         .
       </>
@@ -115,7 +115,7 @@ const privacySections = [
     id: "childrens-privacy",
     title: "9. Children's Privacy",
     body: [
-      "CORE is not intended for, and should not be used by, individuals under the age of 18. We do not knowingly collect personal data from anyone under 18. If you believe a minor has provided us with personal data, please contact us so we can take appropriate action."
+      "Triven is not intended for, and should not be used by, individuals under the age of 18. We do not knowingly collect personal data from anyone under 18. If you believe a minor has provided us with personal data, please contact us so we can take appropriate action."
     ]
   },
   {
@@ -132,11 +132,11 @@ const privacySections = [
     afterNode: (
       <>
         Email:{" "}
-        <a data-testid="privacy-privacy-trycore-ai-link-2" href="mailto:privacy@trycore.ai" className="font-medium text-amber-600 hover:text-amber-700">
-          privacy@trycore.ai
+        <a data-testid="privacy-privacy-trycore-ai-link-2" href="mailto:info@triven.ai" className="font-medium text-amber-600 hover:text-amber-700">
+          info@triven.ai
         </a>
         <br />
-        Mail: CORE AI Agent Platform, 123 Market Street, Suite 400, San Francisco, CA 94103
+        Mail: Triven AI Agent Platform, 123 Market Street, Suite 400, San Francisco, CA 94103
       </>
     )
   }

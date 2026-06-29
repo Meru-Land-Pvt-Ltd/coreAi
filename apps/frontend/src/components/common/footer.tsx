@@ -57,7 +57,7 @@ export function CoreFooter() {
                     <FooterColumn
                         title="Connect"
                         links={[
-                            { label: "Email", href: "info@triven.ai" }
+                            { label: "Email", href: "mailto:info@triven.ai" }
                         ]}
                     />
                 </div>

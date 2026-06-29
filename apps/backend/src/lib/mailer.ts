@@ -128,7 +128,7 @@ ${brandName} will never ask you for this code. Don't share it with anyone.
 <td style="padding:10px 32px 30px 32px;">
 <div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
 <div style="font-weight:600;color:#64748b;">${brandName} &mdash; AI Agent Platform</div>
-<div>San Francisco, CA</div>
+<div>Your AI Workforce</div>
 <div style="margin-top:8px;">
 <a href="${safePrivacyLink}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
 &nbsp;&middot;&nbsp;
@@ -269,7 +269,7 @@ This assessment helps ${brandName} understand your business needs before recomme
 <td style="padding:10px 32px 30px 32px;">
 <div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
 <div style="font-weight:600;color:#64748b;">${brandName} &mdash; AI Agent Platform</div>
-<div>San Francisco, CA</div>
+<div>Your AI Workforce</div>
 <div style="margin-top:8px;">
 <a href="${safePrivacyLink}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
 &nbsp;&middot;&nbsp;

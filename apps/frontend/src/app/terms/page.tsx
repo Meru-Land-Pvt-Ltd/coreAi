@@ -8,14 +8,14 @@ const termsSections = [
     id: "acceptance",
     title: "1. Acceptance of Terms",
     body: [
-      `By accessing or using the CORE AI Agent Platform ("CORE," "we," "us," or "our"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Platform. You must be at least 18 years old to create an account or use CORE in any capacity.`
+      `By accessing or using the Triven AI Agent Platform ("Triven," "we," "us," or "our"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Platform. You must be at least 18 years old to create an account or use Triven in any capacity.`
     ]
   },
   {
     id: "description",
     title: "2. Description of Service",
     body: [
-      "CORE is a marketplace that connects Business Owners with AI agents built by independent AI Architects. Business Owners can browse, install, and use AI agents to automate tasks such as lead capture and follow-up. AI Architects can build, publish, and sell AI agents to businesses through the marketplace. CORE provides the underlying infrastructure, connectors, and marketplace through which these agents are built, distributed, and run."
+      "Triven is a marketplace that connects Business Owners with AI agents built by independent AI Architects. Business Owners can browse, install, and use AI agents to automate tasks such as lead capture and follow-up. AI Architects can build, publish, and sell AI agents to businesses through the marketplace. Triven provides the underlying infrastructure, connectors, and marketplace through which these agents are built, distributed, and run."
     ]
   },
   {
@@ -43,11 +43,11 @@ const termsSections = [
     id: "architect-terms",
     title: "5. AI Architect Terms",
     list: [
-      { text: "Revenue is shared 70% to the Architect and 30% to CORE on each subscription sale." },
+      { text: "Revenue is shared 70% to the Architect and 30% to Triven on each subscription sale." },
       { text: "Agents must pass our quality review process before being listed on the marketplace." },
       { text: "Agents may not be malicious, deceptive, or otherwise designed to cause harm." },
       { text: "Architects retain intellectual property ownership of their original agent logic and configurations." },
-      { text: "CORE reserves the right to remove any agent that violates these Terms or our marketplace guidelines." },
+      { text: "Triven reserves the right to remove any agent that violates these Terms or our marketplace guidelines." },
       { text: "Payouts are issued monthly, subject to a minimum balance of $50; balances below this threshold roll over to the following month." }
     ]
   },
@@ -65,7 +65,7 @@ const termsSections = [
     id: "intellectual-property",
     title: "7. Intellectual Property",
     list: [
-      { text: "CORE owns the Platform, the CORE brand, and all underlying infrastructure." },
+      { text: "Triven owns the Platform, the Triven brand, and all underlying infrastructure." },
       { text: "AI Architects own their original agent configurations and logic." },
       { text: "Business Owners own the customer data generated through their installed agents." },
       { text: "Any content you submit to the Platform remains your property." }
@@ -85,7 +85,7 @@ const termsSections = [
     id: "liability",
     title: "9. Limitation of Liability",
     body: [
-      `The Platform is provided "as is" without warranties of any kind. CORE is not liable for agent errors, missed messages, or lost revenue resulting from the use of agents on the Platform. Our maximum aggregate liability to you for any claim arising out of these Terms is limited to the fees you paid to CORE in the 12 months preceding the claim. We are not responsible for outages or failures of third-party connectors integrated into the Platform.`
+      `The Platform is provided "as is" without warranties of any kind. Triven is not liable for agent errors, missed messages, or lost revenue resulting from the use of agents on the Platform. Our maximum aggregate liability to you for any claim arising out of these Terms is limited to the fees you paid to Triven in the 12 months preceding the claim. We are not responsible for outages or failures of third-party connectors integrated into the Platform.`
     ]
   },
   {
@@ -93,7 +93,7 @@ const termsSections = [
     title: "10. Termination",
     list: [
       { text: "Either party may terminate this agreement with 30 days' written notice." },
-      { text: "CORE may terminate your account immediately in the event of a violation of these Terms." },
+      { text: "Triven may terminate your account immediately in the event of a violation of these Terms." },
       { text: "Following termination, you will have 30 days to export your data before it is permanently deleted." }
     ]
   },
@@ -118,11 +118,11 @@ const termsSections = [
     afterNode: (
       <>
         Email:{" "}
-        <a data-testid="terms-legal-trycore-ai-link" href="mailto:legal@trycore.ai" className="font-medium text-amber-600 hover:text-amber-700">
-          legal@trycore.ai
+        <a data-testid="terms-legal-trycore-ai-link" href="mailto:info@triven.ai" className="font-medium text-amber-600 hover:text-amber-700">
+          info@triven.ai
         </a>
         <br />
-        Mail: CORE AI Agent Platform, 123 Market Street, Suite 400, San Francisco, CA 94103
+        Mail: Triven AI Agent Platform, 123 Market Street, Suite 400, San Francisco, CA 94103
       </>
     )
   }

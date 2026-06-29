@@ -326,7 +326,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
             />
 
             <span data-testid="components-auth-auth-card-span-3" className="text-xl font-extrabold tracking-tight text-amber-500">
-              Triven
+              Triven.ai
             </span>
           </Link>
 
