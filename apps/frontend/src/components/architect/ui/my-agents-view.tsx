@@ -77,6 +77,12 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
     ? `/architect/workflows/${agent.workflowId}/builder`
     : "/architect/agents/publish") as Route;
 
+  const isUnderReview = agent.status === "PENDING_REVIEW";
+  // Draft / rejected / suspended agents are editable ("Update").
+  // Approved (live) and pending-review agents are read-only here ("View").
+  const isEditable = agent.status === "DRAFT" || agent.status === "REJECTED" || agent.status === "SUSPENDED";
+  const actionLabel = isEditable ? "Update" : "View";
+
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div className="flex-1 p-6">
@@ -118,6 +124,21 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
         <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
           {agent.shortDescription || "No description added yet."}
         </p>
+
+        {isUnderReview ? (
+          <div
+            className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+            data-testid={`my-agents-review-notice-${agent.id}`}
+          >
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            <p className="text-xs font-semibold leading-5 text-amber-700">
+              Will be live in 24–48 hrs after review
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
@@ -135,7 +156,7 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
           href={editHref}
           className="block w-full rounded-xl border-2 border-amber-500 py-2.5 text-center font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
         >
-          Update
+          {actionLabel}
         </Link>
       </div>
     </article>
@@ -178,34 +199,26 @@ export function MyAgentsView() {
   );
 
   return (
-    <div className="min-h-screen bg-[#fffaf3] p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen bg-greay p-4 sm:p-6 lg:p-8">
       <section className="px-1 py-2 sm:px-2">
         <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
           <div>
             <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl" data-testid="architect-ui-my-agents-view-agents-heading">
               My Agents
             </h1>
-
-            <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-600 sm:text-base" data-testid="architect-ui-my-agents-view-manage-marketplace-agents-from-one-clean-workspace-text">
-              Manage marketplace agents from one clean workspace. Track drafts, reviews,
-              approvals, pricing, and published packages without heavy card layouts.
-            </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              data-testid="my-agents-build-workflow-link"
-              href={"/architect/workflows" as Route}
-              className="inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-amber-400 hover:text-amber-700"
-            >
-              Build Workflow
-            </Link>
-
+      
             <Link
               data-testid="my-agents-publish-agent-link"
               href={"/architect/agents/publish" as Route}
-              className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400"
+              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 hover:shadow-md sm:px-5"
             >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
               Publish Agent
             </Link>
           </div>
@@ -239,18 +252,6 @@ export function MyAgentsView() {
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.24em] text-amber-600" data-testid="architect-ui-my-agents-view-inventory-text">
               Inventory
-            </p>
-
-            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950" data-testid="architect-ui-my-agents-view-marketplace-inventory-heading">
-              Marketplace inventory
-            </h2>
-
-            <p className="mt-2 text-sm leading-6 text-slate-600" data-testid="architect-ui-my-agents-view-loading-your-agents-marketplace-package-agents-1-text">
-              {loading
-                ? "Loading your agents..."
-                : agents.length
-                  ? `${agents.length} marketplace package${agents.length === 1 ? "" : "s"} found`
-                  : "No marketplace packages found"}
             </p>
           </div>
         </div>

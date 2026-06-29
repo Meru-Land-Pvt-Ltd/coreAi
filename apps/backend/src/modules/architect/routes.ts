@@ -628,6 +628,20 @@ architectRoutes.get("/workflows/:workflowId", async (c) => {
     where: {
       id: workflowId,
       architectUserId: authUser.id
+    },
+    include: {
+      listings: {
+        orderBy: {
+          createdAt: "desc"
+        },
+        take: 1,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          createdAt: true
+        }
+      }
     }
   });
 

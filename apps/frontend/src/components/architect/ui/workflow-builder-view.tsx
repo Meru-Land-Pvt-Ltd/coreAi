@@ -46,6 +46,9 @@ import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal"
 import { TestPanel } from "./workflow-builder/test-panel";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
+import { agentTemplates } from "./workflow-builder/library";
+
+const REVIEW_LOCK_MESSAGE = "Agent is under review";
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
   const router = useRouter();
@@ -88,6 +91,22 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes, selectedNodeId]
   );
 
+  // An agent submitted for review is locked: the architect can look but not edit
+  // until an admin approves/rejects it.
+  const isUnderReview = useMemo(
+    () => workflow?.listings?.[0]?.status === "PENDING_REVIEW",
+    [workflow]
+  );
+
+  // Returns true and surfaces a notice when editing is blocked by review lock.
+  const blockIfUnderReview = useCallback(() => {
+    if (isUnderReview) {
+      setMessage(REVIEW_LOCK_MESSAGE);
+      return true;
+    }
+    return false;
+  }, [isUnderReview]);
+
   const hasGmailFlow = useMemo(
     () => nodes.some((node) => String(node.data.connector ?? "").toLowerCase() === "gmail"),
     [nodes]
@@ -103,6 +122,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (blockIfUnderReview()) return;
       if (!connection.source || !connection.target) return;
 
       setEdges((currentEdges) =>
@@ -118,7 +138,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         )
       );
     },
-    [setEdges]
+    [setEdges, blockIfUnderReview]
   );
 
   async function loadWorkflow() {
@@ -172,6 +192,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }, [workflowId]);
 
   function addNodeFromLibrary(nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) {
+    if (blockIfUnderReview()) return;
     const id = `${nodeKind}-${Date.now()}`;
     const newNode: BuilderNode = {
       id,
@@ -236,6 +257,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     field: keyof BuilderNodeData,
     value: BuilderNodeData[keyof BuilderNodeData]
   ) {
+    if (blockIfUnderReview()) return;
     if (!selectedNodeId) return;
 
     setNodes((currentNodes) =>
@@ -255,6 +277,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }
 
   function deleteSelectedNode() {
+    if (blockIfUnderReview()) return;
     if (!selectedNodeId) return;
     setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNodeId));
     setEdges((currentEdges) =>
@@ -266,6 +289,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }
 
   async function saveAgent(showMessage = true) {
+    if (blockIfUnderReview()) return false;
     setSaving(true);
     const result = await updateArchitectWorkflow(workflowId, {
       name: agentName,
@@ -288,6 +312,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // server-side) and routes to My Agents. Surfaces validation/API errors instead
   // of failing silently.
   async function publishAgent() {
+    if (blockIfUnderReview()) return;
     const name = agentName.trim();
     const shortDescription = tagline.trim();
 
@@ -341,6 +366,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // backend builds the assistant from the AI Conversation node, provisions the
   // business + Twilio number, and binds it so inbound calls hit this assistant.
   async function deployAgent() {
+    if (blockIfUnderReview()) return;
     if (!workflowId) return;
     setDeploying(true);
     setDeployment(null);
@@ -369,6 +395,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }
 
   async function runAgent(mode: "test" | "live") {
+    if (blockIfUnderReview()) return;
     const normalizedCallerNumber = callerNumber.trim();
     const normalizedBusinessName = businessName.trim();
 
@@ -525,6 +552,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         saving={saving}
         deploying={deploying}
         hasGmailFlow={hasGmailFlow}
+        locked={isUnderReview}
         onAgentNameChange={setAgentName}
         onMobileLibrary={() => setMobilePanel("library")}
         onTabChange={setActiveTab}
@@ -534,10 +562,32 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onPreview={() => setPreviewOpen(true)}
       />
 
+      {isUnderReview ? (
+        <div
+          data-testid="builder-review-lock-banner"
+          className="fixed left-1/2 top-20 z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg"
+        >
+          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-black text-amber-800" data-testid="builder-review-lock-title">
+              Agent is under review
+            </p>
+            <p className="mt-1 text-sm leading-6 text-amber-700" data-testid="builder-review-lock-text">
+              Editing is locked while this agent is in review. It will be live in 24–48 hrs after review.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {deployment ? (
         <div
           data-testid="builder-deploy-banner"
-          className="fixed left-1/2 top-16 z-50 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-violet-200 bg-white p-4 shadow-lg"
+          className="fixed left-1/2 top-20 z-50 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-violet-200 bg-white p-4 shadow-lg"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -569,7 +619,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      <main className="fixed bottom-10 left-0 right-0 top-14 overflow-hidden">
+      <main className="fixed bottom-10 left-0 right-0 top-[72px] overflow-hidden">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex">
             <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin">
@@ -593,6 +643,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                   if (window.innerWidth < 1536) setMobilePanel("settings");
                 }}
                 onPaneClick={() => setSelectedNodeId(null)}
+                nodesDraggable={!isUnderReview}
+                nodesConnectable={!isUnderReview}
+                deleteKeyCode={isUnderReview ? null : undefined}
                 fitView
                 fitViewOptions={{ padding: 0.2 }}
                 minZoom={0.25}
