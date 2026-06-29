@@ -110,6 +110,41 @@ function workflowFromJson(json: { nodes?: unknown[]; edges?: unknown[] } | null 
 const esc = (s: string) =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// SVG <text> does not wrap, so split a node label into at most `maxLines` lines
+// that each fit within `maxChars`, ellipsizing anything that overflows.
+function wrapLabel(text: string, maxChars: number, maxLines = 2): string[] {
+  const words = String(text).trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+
+  const lines: string[] = [];
+  let current = "";
+  let consumed = 0;
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxChars || !current) {
+      current = candidate;
+      consumed = i + 1;
+    } else {
+      lines.push(current);
+      current = "";
+      if (lines.length === maxLines) break;
+      current = word;
+      consumed = i + 1;
+    }
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+
+  // If not every word fit, mark the last visible line as truncated.
+  if (consumed < words.length && lines.length) {
+    const last = lines[lines.length - 1];
+    const trimmed = last.length > maxChars - 1 ? last.slice(0, maxChars - 1) : last;
+    lines[lines.length - 1] = `${trimmed.replace(/\s+$/, "")}…`;
+  }
+
+  return lines.map((line) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line));
+}
+
 function compactWorkflowSVG(wf: Workflow) {
   if (!wf.nodes.length) return "";
   const cellW = 54;
@@ -175,17 +210,27 @@ function fullWorkflowSVG(wf: Workflow, fit: boolean) {
     const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
     edges += `<path d="${d}" fill="none" stroke="#cbd5e1" stroke-width="2" marker-end="url(#wf-arrow)"/><path d="${d}" fill="none" stroke="#f59e0b" stroke-width="2" class="wf-flow"/>`;
   });
+  const textX = 34;
+  const maxLabelChars = Math.max(6, Math.floor((cw - textX - 8) / 7));
   let chips = "";
   wf.nodes.forEach((n) => {
     const x = NX(n);
     const y = NY(n);
+    const typeText = (n.type || "").trim();
+    const labelLines = wrapLabel(n.label, maxLabelChars, 2);
+    const twoLines = labelLines.length > 1;
+    const typeY = twoLines ? y + 15 : y + 20;
+    const labelStartY = twoLines ? y + 28 : y + 34;
+    const labelTspans = labelLines
+      .map((line, index) => `<tspan x="${x + textX}" ${index === 0 ? `y="${labelStartY}"` : `dy="13"`}>${esc(line)}</tspan>`)
+      .join("");
     chips +=
       `<g>` +
       `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#wf-shadow)"/>` +
       `<circle cx="${x + 18}" cy="${y + ch / 2}" r="9" fill="${n.color}" opacity="0.14"/>` +
       `<circle cx="${x + 18}" cy="${y + ch / 2}" r="5" fill="${n.color}"/>` +
-      `<text x="${x + 34}" y="${y + 20}" font-family="ui-monospace, monospace" font-size="8" letter-spacing="1.2" fill="#94a3b8" font-weight="600">${esc((n.type || "").toUpperCase())}</text>` +
-      `<text x="${x + 34}" y="${y + 34}" font-family="Inter, sans-serif" font-size="12.5" fill="#1e293b" font-weight="600">${esc(n.label)}</text>` +
+      (typeText ? `<text x="${x + textX}" y="${typeY}" font-family="ui-monospace, monospace" font-size="8" letter-spacing="1.2" fill="#94a3b8" font-weight="600">${esc(typeText.toUpperCase())}</text>` : "") +
+      `<text font-family="Inter, sans-serif" font-size="12.5" fill="#1e293b" font-weight="600">${labelTspans}</text>` +
       `</g>`;
   });
   const sizing = fit
