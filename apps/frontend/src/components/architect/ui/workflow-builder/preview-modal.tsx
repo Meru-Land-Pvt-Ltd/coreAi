@@ -3,7 +3,7 @@ import { BuilderIcon } from "./icons";
 export function PreviewModal({
   open,
   onClose,
-  businessName = "Mitchell Dental"
+  businessName = "Your business"
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,7 +50,7 @@ export function PreviewModal({
               <p className="text-center text-[10px] uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-preview-modal-today-2-14-pm-text">Today 2:14 PM</p>
               <div className="flex">
                 <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm">
-                  Hi! We noticed we missed your call at {businessName}. Sorry about that! Would you like to schedule an appointment? Reply YES and we&apos;ll get you booked. {"\u{1F60A}"}
+                  Thanks for reaching out to {businessName}! How can we help you today? {"\u{1F60A}"}
                 </div>
               </div>
               <div className="flex justify-end">

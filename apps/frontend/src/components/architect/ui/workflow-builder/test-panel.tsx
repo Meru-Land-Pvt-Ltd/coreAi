@@ -45,7 +45,22 @@ export function TestPanel({
   const gmailRead = getGmailRead(runContext);
   const vapiCall = getVapiCall(runContext);
   const calendarAppointment = getCalendarAppointment(runContext);
-  const hasResult = Boolean(sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || runLogs.length > 0);
+
+  // Voice booking workflow results (set by the runner from node capabilities).
+  const voiceConversation = runContext.voiceConversation as
+    | { firstMessage?: string; practiceName?: string; doctorName?: string; voice?: string; model?: string }
+    | undefined;
+  const calendarAvailability = runContext.calendarAvailability as
+    | { slots?: string[]; source?: string; calendar_status?: string; date?: string }
+    | undefined;
+  const smsNotification = runContext.smsNotification as
+    | { sendToPatient?: boolean; sendToDentist?: boolean }
+    | undefined;
+  const isVoiceWorkflow = Boolean(voiceConversation || calendarAvailability || smsNotification);
+
+  const hasResult = Boolean(
+    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || isVoiceWorkflow || runLogs.length > 0
+  );
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -107,7 +122,7 @@ export function TestPanel({
                 type="text"
                 value={callerNumber}
                 onChange={(event) => onCallerNumberChange(event.target.value)}
-                placeholder="+1 (415) 555-0132"
+                placeholder="+1 (555) 000-0000"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
@@ -136,7 +151,7 @@ export function TestPanel({
                 type="text"
                 value={businessName}
                 onChange={(event) => onBusinessNameChange(event.target.value)}
-                placeholder="Mitchell Dental"
+                placeholder="Your business name"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
@@ -167,19 +182,49 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-6">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasGmailFlow ? "Email result" : "Message the patient receives"}
+              {isVoiceWorkflow ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
             </h3>
             <div className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-600">
-                <BuilderIcon name={hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
+                <BuilderIcon name={isVoiceWorkflow ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                {hasGmailFlow ? (
+                {isVoiceWorkflow ? (
+                  <div className="space-y-2" data-testid="test-panel-voice-result">
+                    {voiceConversation ? (
+                      <div data-testid="test-panel-voice-conversation-preview">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Voice conversation preview</p>
+                        <p className="mt-0.5 text-sm leading-relaxed text-slate-700">&ldquo;{voiceConversation.firstMessage}&rdquo;</p>
+                        <p className="mt-1 font-mono text-[11px] text-slate-400">
+                          {[voiceConversation.practiceName, voiceConversation.doctorName].filter(Boolean).join(" · ")}
+                          {voiceConversation.voice ? ` · ${voiceConversation.voice}/${voiceConversation.model}` : ""}
+                        </p>
+                      </div>
+                    ) : null}
+                    {calendarAvailability ? (
+                      <p className="font-mono text-xs text-blue-500" data-testid="test-panel-calendar-result">
+                        Calendar result: {calendarAvailability.source === "calendar" ? "checked Google Calendar" : "demo slots"}
+                        {calendarAvailability.slots?.length ? ` — ${calendarAvailability.slots.join(", ")}` : ""}
+                        {calendarAvailability.calendar_status ? ` (${calendarAvailability.calendar_status})` : ""}
+                      </p>
+                    ) : null}
+                    {calendarAppointment ? (
+                      <p className="font-mono text-xs text-blue-500" data-testid="test-panel-appointment-result">
+                        Appointment result: {calendarAppointment.id ? "booked" : "would be created (dry run)"} — {calendarAppointment.summary}
+                      </p>
+                    ) : null}
+                    {smsNotification ? (
+                      <p className="font-mono text-xs text-green-500" data-testid="test-panel-sms-notification-result">
+                        SMS notification result: dry run — {[smsNotification.sendToPatient ? "patient" : null, smsNotification.sendToDentist ? "dentist" : null].filter(Boolean).join(" + ") || "no recipients"}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : hasGmailFlow ? (
                   <EmailResult draftEmail={draftEmail} sentEmail={sentEmail} gmailRead={gmailRead} />
                 ) : (
                   <>
                     <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-                      {sentSms?.body ?? "Hi! We noticed we missed your call at Mitchell Dental. Sorry about that! Would you like to schedule an appointment? Reply YES and we will get you booked."}
+                      {sentSms?.body ?? "Run a test to preview the outgoing message."}
                     </div>
                     <p className="mt-2 font-mono text-xs text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-sent-sms-provider-called-sent-sms-twilio-text">
                       {sentSms?.providerCalled ? (sentSms.twilioTestMode ? "Twilio test accepted" : "Delivered") : "Dry run"} - {sentSms?.body?.length ?? 142} characters - est. cost $0.15

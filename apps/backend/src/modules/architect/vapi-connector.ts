@@ -121,7 +121,21 @@ export function buildVapiVariableValues({
   business: VapiBusinessContext;
   reason: string;
 }) {
+  const timeZone = business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  // Real "now" in the business timezone so the assistant resolves relative dates
+  // (today/tomorrow/next Monday) correctly instead of guessing from training data.
+  const currentDateTime = new Date().toLocaleString("en-US", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+
   return {
+    currentDateTime,
     customerPhone,
     customerName: customerName || "the caller",
     businessId: business.businessId || "",
@@ -135,7 +149,7 @@ export function buildVapiVariableValues({
     tone: business.tone || "friendly",
     escalationRules: business.escalationRules || "",
     calendarId: business.calendarId || "primary",
-    timeZone: business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+    timeZone,
     missedCallReason: reason
   };
 }
@@ -336,13 +350,16 @@ function dentalAssistantTools() {
       type: "function",
       function: {
         name: VOICE_TOOL_NAMES.bookAppointment,
-        description: "Book the appointment in Google Calendar after the patient confirms a slot.",
+        description: "Book the appointment in Google Calendar after the patient confirms a slot. Only call this once you have the patient's real full name.",
         parameters: {
           type: "object",
           properties: {
-            patient_name: { type: "string" },
-            patient_phone: { type: "string" },
-            date: { type: "string", description: "ISO YYYY-MM-DD." },
+            patient_name: {
+              type: "string",
+              description: "Patient's real full name. Do not use placeholders like John Doe, Patient Name, Full Name, or the caller. Ask the caller if not known."
+            },
+            patient_phone: { type: "string", description: "Patient's callback number in E.164 (e.g. +9198XXXXXXXX). If unknown, leave blank and the caller's number is used." },
+            date: { type: "string", description: "ISO YYYY-MM-DD, computed from the current date." },
             time: { type: "string", description: "24h HH:mm." },
             service_type: { type: "string" },
             duration_minutes: { type: "number" }

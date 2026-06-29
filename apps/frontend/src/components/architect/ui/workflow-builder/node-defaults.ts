@@ -114,8 +114,8 @@ export function defaultNodeData(
         connectorAction: "book_appointment",
         calendarId: "{{business.calendarId}}",
         appointmentService: "Consultation",
-        calendarSummary: "{{appointmentService}} - {{caller_number}}",
-        calendarDescription: "Booked by CORE AI Receptionist after missed-call follow-up.",
+        calendarSummary: "{{appointmentService}} - {{customer.phone}}",
+        calendarDescription: "Booked by the AI assistant.",
         ...overrides
       };
     }
