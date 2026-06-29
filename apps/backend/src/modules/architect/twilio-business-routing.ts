@@ -4,10 +4,12 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { escapeXml, sendTwilioSms } from "./twilio-connector";
-import { startVapiOutboundCall } from "./vapi-connector";
+import { createVapiInboundTwiml, startVapiOutboundCall } from "./vapi-connector";
 import {
   createGoogleCalendarAppointment,
-  getDefaultAppointmentWindow
+  getDefaultAppointmentWindow,
+  listAvailableSlots,
+  zonedWallClockToUtc
 } from "./google-calendar-connector";
 import { parseRequestedAppointment } from "./appointment-parser";
 
@@ -728,6 +730,49 @@ async function runMissedCallAgent({
   return run;
 }
 
+async function buildVapiAnswerTwiml({
+  agent,
+  callerNumber,
+  callerName,
+  reason
+}: {
+  agent: ResolvedAgent;
+  callerNumber: string;
+  callerName?: string;
+  reason: string;
+}): Promise<string | null> {
+  const business = agent.business;
+  if (!business || !callerNumber) return null;
+
+  return createVapiInboundTwiml({
+    callerNumber,
+    callerName,
+    reason,
+    business: {
+      businessId: business.businessId,
+      businessName: business.businessName,
+      businessType: business.businessType,
+      bookingUrl: business.bookingUrl,
+      teamPhone: business.teamPhone,
+      services: business.services,
+      faqs: business.faqs,
+      knowledge: business.knowledge,
+      tone: business.tone,
+      escalationRules: business.escalationRules,
+      calendarId: business.calendarId,
+      timeZone: business.timeZone
+    },
+    assistantId: business.vapiAssistantId,
+    phoneNumberId: business.vapiPhoneNumberId,
+    metadata: {
+      businessId: business.businessId,
+      businessOwnerId: business.ownerId,
+      installedAgentId: business.installedAgentId,
+      workflowId: agent.workflowId
+    }
+  });
+}
+
 export async function handleTwilioVoice(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
@@ -739,6 +784,8 @@ export async function handleTwilioVoice(c: Context) {
   }
 
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
+  const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
+  const callerName = readBodyString(body, ["CallerName", "callerName"]) || undefined;
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   if (!agent) {
@@ -748,6 +795,23 @@ export async function handleTwilioVoice(c: Context) {
   }
 
   const forwardToPhone = agent.forwardToPhone ?? env.TWILIO_FORWARD_TO_PHONE;
+
+  // Live AI answer: when AI-first answering is enabled, or when there is no human
+  // number to forward to, connect the caller straight to the Vapi AI receptionist.
+  // If Vapi can't take the call we fall through to forwarding / the existing
+  // message, so the missed-call text-back path is never broken.
+  if (env.VAPI_ANSWER_INBOUND || !forwardToPhone) {
+    const aiTwiml = await buildVapiAnswerTwiml({
+      agent,
+      callerNumber,
+      callerName,
+      reason: "Inbound call answered live by the AI receptionist."
+    });
+
+    if (aiTwiml) {
+      return c.text(aiTwiml, 200, { "Content-Type": "text/xml" });
+    }
+  }
 
   if (!forwardToPhone) {
     return c.text("<Response><Say>Sorry, this business is not available right now.</Say></Response>", 200, {
@@ -1004,6 +1068,77 @@ async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
   });
 }
 
+type DentalToolConfig = {
+  bufferMinutes: number;
+  slotsToOffer: number;
+  openHour: number;
+  closeHour: number;
+  defaultDurationMinutes: number;
+  doctorName: string;
+  sendToPatient: boolean;
+  sendToDentist: boolean;
+  dentistPhone: string;
+  patientTemplate: string;
+  dentistTemplate: string;
+  confirmationMessage: string;
+};
+
+/** Read the dental tool params persisted on the InstalledAgent at Deploy time. */
+async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
+  const agent = await prisma.installedAgent.findFirst({
+    where: { businessId, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    select: { configJson: true }
+  });
+  const cfg = ((agent?.configJson as Record<string, unknown> | null)?.dentalConfig ?? {}) as Record<string, unknown>;
+  const num = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  };
+  const str = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
+  return {
+    bufferMinutes: num(cfg.bufferMinutes, 10),
+    slotsToOffer: num(cfg.slotsToOffer, 3),
+    openHour: num(cfg.openHour, 9),
+    closeHour: num(cfg.closeHour, 17),
+    defaultDurationMinutes: num(cfg.defaultDurationMinutes, 30),
+    doctorName: str(cfg.doctorName),
+    sendToPatient: cfg.sendToPatient !== false,
+    sendToDentist: cfg.sendToDentist !== false,
+    dentistPhone: normalizePhoneNumber(str(cfg.dentistPhone)),
+    patientTemplate: str(
+      cfg.patientTemplate,
+      "Confirmed: [Service] with [Doctor Name], [Date] at [Time]. Reply C to cancel."
+    ),
+    dentistTemplate: str(
+      cfg.dentistTemplate,
+      "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]"
+    ),
+    confirmationMessage: str(cfg.confirmationMessage)
+  };
+}
+
+/** Fill [Bracketed] tokens in a dental SMS/confirmation template. */
+function applyBracketTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\[([^\]]+)\]/g, (match, key: string) => {
+    const normalized = key.trim().toLowerCase();
+    return values[normalized] ?? match;
+  });
+}
+
+/** Shape a Vapi tool result envelope. */
+function vapiToolResult(toolCall: { id: string; name: string }, result: unknown) {
+  return {
+    results: [
+      {
+        name: toolCall.name,
+        toolCallId: toolCall.id,
+        result: typeof result === "string" ? result : JSON.stringify(result)
+      }
+    ]
+  };
+}
+
 export async function handleVapiWebhook(c: Context) {
   const body = await parseBody(c);
   const metadata = getVapiMetadata(body);
@@ -1049,58 +1184,157 @@ export async function handleVapiWebhook(c: Context) {
   const toolName = toolCall.name;
   const args = toolCall.parameters;
 
-  if (toolName === "book_appointment" && businessContext?.businessId && businessContext.ownerId && customerPhone) {
-    const requestedStart = typeof args.startAt === "string" ? args.startAt : undefined;
-    const requestedEnd = typeof args.endAt === "string" ? args.endAt : undefined;
-    const defaultWindow = getDefaultAppointmentWindow(businessContext.timeZone);
-    const service = typeof args.service === "string" ? args.service : "Consultation";
-    const customerName = typeof args.customerName === "string" ? args.customerName : undefined;
+  const argString = (keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const value = args[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return undefined;
+  };
+  const timeZone = businessContext?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const patientPhone =
+    argString(["patient_phone", "customerPhone", "phone"]) || customerPhone;
+
+  // Tool: check_availability → return open Google Calendar slots.
+  if (toolName === "check_availability" && businessContext?.businessId && businessContext.ownerId) {
+    const dental = await loadDentalToolConfig(businessContext.businessId);
+    const date = argString(["date"]) || new Date().toISOString().slice(0, 10);
+    const duration = Number(args.duration_minutes) || dental.defaultDurationMinutes;
+    try {
+      const availability = await listAvailableSlots({
+        userId: businessContext.ownerId,
+        calendarId: businessContext.calendarId,
+        timeZone,
+        date,
+        openHour: dental.openHour,
+        closeHour: dental.closeHour,
+        durationMinutes: duration,
+        bufferMinutes: dental.bufferMinutes,
+        maxSlots: dental.slotsToOffer
+      });
+      return c.json(
+        vapiToolResult(toolCall, {
+          available_slots: availability.slots,
+          date: availability.date,
+          service: argString(["service_type", "service"]) || "appointment",
+          duration: `${duration} minutes`
+        })
+      );
+    } catch (error) {
+      console.error("check_availability failed", error);
+      return c.json(
+        vapiToolResult(toolCall, {
+          available_slots: [],
+          date,
+          error: "Could not read the calendar right now."
+        })
+      );
+    }
+  }
+
+  // Tool: book_appointment → create the Google Calendar event (+ confirm by SMS).
+  if (toolName === "book_appointment" && businessContext?.businessId && businessContext.ownerId && patientPhone) {
+    const dental = await loadDentalToolConfig(businessContext.businessId);
+    const service = argString(["service_type", "service"]) || "Consultation";
+    const customerName = argString(["patient_name", "customerName", "name"]);
+    const duration = Number(args.duration_minutes) || dental.defaultDurationMinutes;
+    const dateStr = argString(["date"]);
+    const timeStr = argString(["time"]);
+    const defaultWindow = getDefaultAppointmentWindow(timeZone);
+
+    let startAt: Date | string = argString(["startAt"]) ?? defaultWindow.startAt;
+    let endAt: Date | string = argString(["endAt"]) ?? defaultWindow.endAt;
+    if (dateStr && timeStr) {
+      const [hour, minute] = timeStr.split(":");
+      const start = zonedWallClockToUtc(dateStr, Number(hour) || 9, Number(minute) || 0, timeZone);
+      startAt = start;
+      endAt = new Date(start.getTime() + duration * 60 * 1000);
+    }
 
     const { calendarEvent } = await createBusinessAppointment({
       business: businessContext,
-      customerPhone,
+      customerPhone: patientPhone,
       customerName,
       service,
-      startAt: requestedStart ?? defaultWindow.startAt,
-      endAt: requestedEnd ?? defaultWindow.endAt,
+      startAt,
+      endAt,
       conversationId,
-      description: `Booked by Vapi AI Receptionist after missed-call follow-up. Phone: ${customerPhone}`,
+      description: `Booked by Triven AI voice receptionist. Phone: ${patientPhone}`,
       notes: summary || transcript || null
     });
 
-    const smsBody = `Booked with ${businessContext.businessName}: ${service} on ${formatAppointmentTime(
-      calendarEvent.startAt,
-      businessContext.timeZone
-    )}. Reply if you need to change it.`;
-    await sendTwilioSms({
-      to: customerPhone,
-      body: smsBody,
-      fromPhoneNumber: businessContext.businessPhoneNumber
-    });
+    const confirmation = dental.confirmationMessage
+      ? applyBracketTemplate(dental.confirmationMessage, {
+          service,
+          "patient name": customerName ?? "",
+          "doctor name": dental.doctorName || businessContext.businessName,
+          date: formatAppointmentTime(calendarEvent.startAt, timeZone),
+          time: formatAppointmentTime(calendarEvent.startAt, timeZone)
+        })
+      : `Booked with ${businessContext.businessName}: ${service} on ${formatAppointmentTime(
+          calendarEvent.startAt,
+          timeZone
+        )}.`;
 
     await upsertConversation({
       businessId: businessContext.businessId,
-      customerPhone,
-      direction: "OUTBOUND",
-      body: smsBody,
+      customerPhone: patientPhone,
+      direction: "SYSTEM",
+      body: `Voice booking: ${service} on ${formatAppointmentTime(calendarEvent.startAt, timeZone)}.`,
       providerId: calendarEvent.id
     });
 
-    return c.json({
-      results: [
-        {
-          name: toolName,
-          toolCallId: toolCall.id,
-          result: JSON.stringify({
-            status: "booked",
-            calendarEventId: calendarEvent.id,
-            startAt: calendarEvent.startAt,
-            endAt: calendarEvent.endAt,
-            message: `Appointment booked with ${businessContext.businessName}.`
-          })
-        }
-      ]
-    });
+    return c.json(
+      vapiToolResult(toolCall, {
+        success: true,
+        event_id: calendarEvent.id,
+        confirmation,
+        startAt: calendarEvent.startAt,
+        endAt: calendarEvent.endAt
+      })
+    );
+  }
+
+  // Tool: send_notification → SMS to patient and dentist after booking.
+  if (toolName === "send_notification" && businessContext?.businessId) {
+    const dental = await loadDentalToolConfig(businessContext.businessId);
+    const values: Record<string, string> = {
+      service: argString(["service", "service_type"]) || "appointment",
+      "patient name": argString(["patient_name", "name"]) || "",
+      "patient phone": patientPhone || "",
+      "doctor name": argString(["doctor_name"]) || dental.doctorName || businessContext.businessName,
+      date: argString(["appointment_date", "date"]) || "",
+      time: argString(["appointment_time", "time"]) || ""
+    };
+
+    let patientSmsSent = false;
+    let dentistSmsSent = false;
+
+    if (dental.sendToPatient && patientPhone) {
+      const body = applyBracketTemplate(dental.patientTemplate, values);
+      await sendTwilioSms({ to: patientPhone, body, fromPhoneNumber: businessContext.businessPhoneNumber });
+      await upsertConversation({
+        businessId: businessContext.businessId,
+        customerPhone: patientPhone,
+        direction: "OUTBOUND",
+        body
+      });
+      patientSmsSent = true;
+    }
+
+    if (dental.sendToDentist && dental.dentistPhone) {
+      const body = applyBracketTemplate(dental.dentistTemplate, values);
+      await sendTwilioSms({ to: dental.dentistPhone, body, fromPhoneNumber: businessContext.businessPhoneNumber });
+      dentistSmsSent = true;
+    }
+
+    return c.json(
+      vapiToolResult(toolCall, {
+        success: patientSmsSent || dentistSmsSent,
+        patient_sms_sent: patientSmsSent,
+        dentist_sms_sent: dentistSmsSent
+      })
+    );
   }
 
   return c.json({ ok: true });

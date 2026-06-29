@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { businessCheckoutPath } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -39,10 +39,25 @@ const REASONS = [
 function formatClock(totalSeconds: number) {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
+
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-export default function BusinessPaymentFailedPage() {
+function PaymentFailedFallback() {
+    return (
+        <div className="pfailed-root min-h-screen bg-white text-slate-900">
+            <style dangerouslySetInnerHTML={{ __html: FAILED_STYLES }} />
+            <div className="mx-auto flex min-h-screen max-w-[560px] items-center justify-center px-5">
+                <div className="w-full rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+                    <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-amber-100" />
+                    <p className="text-sm font-semibold text-slate-700">Loading payment status...</p>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function BusinessPaymentFailedContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -78,7 +93,9 @@ export default function BusinessPaymentFailedPage() {
                             priority
                             className="h-8 w-8 object-contain"
                         />
-                        <span className="text-lg font-extrabold tracking-tight text-amber-500">Triven</span>
+                        <span className="text-lg font-extrabold tracking-tight text-amber-500">
+                            Triven
+                        </span>
                     </span>
                 </div>
             </nav>
@@ -87,21 +104,43 @@ export default function BusinessPaymentFailedPage() {
                 <div className="pf-fade-up mb-6 flex justify-center">
                     <span className="pf-pulse-ring text-amber-400">
                         <span className="grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">
-                            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>
+                            <svg
+                                className="h-8 w-8"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                            >
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 8v4" />
+                                <path d="M12 16h.01" />
+                            </svg>
                         </span>
                     </span>
                 </div>
 
                 <header className="pf-fade-up text-center" style={{ animationDelay: ".05s" }}>
-                    <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Payment couldn&apos;t be processed</h1>
-                    <p className="mt-2 text-slate-600">Your payment was declined. This is usually a quick fix.</p>
+                    <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                        Payment couldn&apos;t be processed
+                    </h1>
+                    <p className="mt-2 text-slate-600">
+                        Your payment was declined. This is usually a quick fix.
+                    </p>
                 </header>
 
-                <section className="pf-fade-up mt-8 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white p-5 shadow-md" style={{ animationDelay: ".1s" }}>
+                <section
+                    className="pf-fade-up mt-8 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white p-5 shadow-md"
+                    style={{ animationDelay: ".1s" }}
+                >
                     <h2 className="text-sm font-semibold">Possible reasons</h2>
                     <ul className="mt-3 space-y-2.5 text-sm text-slate-600">
                         {REASONS.map((reason) => (
-                            <li key={reason} className="pf-reason">{reason}</li>
+                            <li key={reason} className="pf-reason">
+                                {reason}
+                            </li>
                         ))}
                     </ul>
                 </section>
@@ -115,6 +154,7 @@ export default function BusinessPaymentFailedPage() {
                     >
                         Try again
                     </button>
+
                     <button
                         type="button"
                         onClick={backToCheckout}
@@ -127,21 +167,59 @@ export default function BusinessPaymentFailedPage() {
 
                 <footer className="pf-fade-up mt-8 space-y-4" style={{ animationDelay: ".2s" }}>
                     <p className="flex items-center justify-center gap-2 text-sm text-slate-600">
-                        <svg className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                        <svg
+                            className="h-4 w-4 text-emerald-600"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                        >
+                            <rect x="3" y="11" width="18" height="11" rx="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
                         Your cart is saved. Nothing has been lost.
                     </p>
+
                     <p className="mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
-                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                        {agentName} is reserved · <span className="tnum">{formatClock(reserveSeconds)}</span>
+                        <svg
+                            className="h-3.5 w-3.5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                        >
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 7v5l3 2" />
+                        </svg>
+                        {agentName} is reserved ·{" "}
+                        <span className="tnum">{formatClock(reserveSeconds)}</span>
                     </p>
+
                     <p className="text-center text-xs leading-relaxed text-slate-500">
                         Need help? Email{" "}
-                        <a href="mailto:support@triven.ai" className="font-medium text-slate-700 underline underline-offset-4 hover:text-slate-900">
+                        <a
+                            href="mailto:support@triven.ai"
+                            className="font-medium text-slate-700 underline underline-offset-4 hover:text-slate-900"
+                        >
                             support@triven.ai
                         </a>
                     </p>
                 </footer>
             </div>
         </div>
+    );
+}
+
+export default function BusinessPaymentFailedPage() {
+    return (
+        <Suspense fallback={<PaymentFailedFallback />}>
+            <BusinessPaymentFailedContent />
+        </Suspense>
     );
 }

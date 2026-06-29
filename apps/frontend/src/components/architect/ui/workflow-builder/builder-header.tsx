@@ -39,12 +39,14 @@ export function BuilderHeader({
   activeTab,
   running,
   saving,
+  deploying,
   hasGmailFlow,
   onAgentNameChange,
   onMobileLibrary,
   onTabChange,
   onRunTest,
   onSave,
+  onDeploy,
   onPreview
 }: {
   agentName: string;
@@ -52,12 +54,14 @@ export function BuilderHeader({
   activeTab: BuilderTab;
   running: boolean;
   saving: boolean;
+  deploying: boolean;
   hasGmailFlow: boolean;
   onAgentNameChange: (value: string) => void;
   onMobileLibrary: () => void;
   onTabChange: (tab: BuilderTab) => void;
   onRunTest: () => void;
   onSave: () => void;
+  onDeploy: () => void;
   onPreview?: () => void;
 }) {
   return (
@@ -136,6 +140,16 @@ export function BuilderHeader({
         >
           <BuilderIcon name="play" className="h-3.5 w-3.5" />
           {running ? "Running..." : hasGmailFlow ? "Gmail Test" : "Test Run"}
+        </button>
+        <button
+          type="button"
+          onClick={onDeploy}
+          disabled={deploying || saving}
+          data-testid="builder-deploy"
+          className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+        >
+          <BuilderIcon name="phone-call" className="h-3.5 w-3.5" />
+          {deploying ? "Deploying..." : "Deploy Live Agent"}
         </button>
         <button
           type="button"

@@ -1,3 +1,4 @@
+import { DENTAL_NODE_TYPES, isDentalNodeType } from "@coreai/shared";
 import type { CSSProperties, ReactNode } from "react";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData } from "./types";
@@ -33,7 +34,9 @@ export function NodeInspector({
         </button>
       </div>
 
-      {selectedNode.data.nodeKind === "trigger" ? (
+      {isDentalNodeType(String(selectedNode.data.type ?? "")) ? (
+        <DentalProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />
+      ) : selectedNode.data.nodeKind === "trigger" ? (
         <TriggerProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />
       ) : selectedNode.data.nodeKind === "ai" ? (
         <AiProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />
@@ -389,6 +392,224 @@ function GenericProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       </Section>
       <Section title="Settings" last>
         <p className="text-sm leading-relaxed text-slate-500" data-testid="architect-ui-workflow-builder-node-inspector-configure-how-this-selected-node-kind-to-text">Configure how this {selectedNode.data.kind.toLowerCase()} step behaves. Drag from its ports to connect it to the rest of your workflow.</p>
+      </Section>
+    </>
+  );
+}
+
+function BoolField({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <SelectBox value={value ? "On" : "Off"} onChange={(v) => onChange(v === "On" ? "true" : "false")} options={["On", "Off"]} />
+    </div>
+  );
+}
+
+/**
+ * Config panels for the 6 Dental AI Receptionist nodes. Field values are written
+ * back to node.data by their registry keys; the Deploy endpoint reads the same
+ * keys to build the Vapi assistant + tools.
+ */
+function DentalProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const type = String(selectedNode.data.type ?? "");
+  const str = (key: string, fallback = ""): string =>
+    typeof selectedNode.data[key] === "string" ? (selectedNode.data[key] as string) : fallback;
+  const flag = (key: string, fallback: boolean): boolean => {
+    const value = selectedNode.data[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") return value === "true";
+    return fallback;
+  };
+  const set = (key: string) => (value: string) => onUpdateNodeData(key as keyof BuilderNodeData, value);
+
+  if (type === DENTAL_NODE_TYPES.incomingPhoneCall) {
+    return (
+      <>
+        <Section title="Trigger">
+          <Label>Node name</Label>
+          <TextInput value={selectedNode.data.title} onChange={set("title")} />
+          <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700" data-testid="architect-ui-workflow-builder-node-inspector-dental-phone-note">
+            The Twilio number is assigned automatically on Deploy.
+          </p>
+        </Section>
+        <Section title="Answering" last>
+          <Label>Answer after</Label>
+          <SelectBox value={str("answerAfterRings", "1")} onChange={set("answerAfterRings")} options={["1", "2", "3"]} />
+          <div className="mt-4">
+            <Label>Forwarding schedule</Label>
+            <SelectBox value={str("forwardingSchedule", "always")} onChange={set("forwardingSchedule")} options={["always", "after-hours"]} />
+          </div>
+        </Section>
+      </>
+    );
+  }
+
+  if (type === DENTAL_NODE_TYPES.aiConversation) {
+    return (
+      <>
+        <Section title="Voice">
+          <Label>Voice</Label>
+          <SelectBox value={str("voice", "sarah")} onChange={set("voice")} options={["sarah", "james", "priya"]} />
+          <div className="mt-4">
+            <Label>Language</Label>
+            <SelectBox value={str("language", "en-US")} onChange={set("language")} options={["en-US", "en-GB", "es", "hi"]} />
+          </div>
+          <div className="mt-4">
+            <Label>Speaking speed</Label>
+            <SelectBox value={str("speakingSpeed", "1.0")} onChange={set("speakingSpeed")} options={["0.8", "0.9", "1.0", "1.1", "1.2"]} />
+          </div>
+        </Section>
+        <Section title="Intelligence">
+          <Label>AI model</Label>
+          <SelectBox value={str("model", "gpt-4o")} onChange={set("model")} options={["gpt-4o", "gpt-4o-mini", "claude-sonnet"]} />
+          <div className="mt-4">
+            <Label>First message</Label>
+            <TextInput value={str("firstMessage")} onChange={set("firstMessage")} />
+          </div>
+          <div className="mt-4">
+            <Label>System prompt</Label>
+            <TextArea value={str("systemPrompt")} onChange={set("systemPrompt")} height="h-44" mono />
+          </div>
+        </Section>
+        <Section title="Practice details">
+          <Label>Practice name</Label>
+          <TextInput value={str("practiceName")} onChange={set("practiceName")} />
+          <div className="mt-4">
+            <Label>Doctor name</Label>
+            <TextInput value={str("doctorName")} onChange={set("doctorName")} />
+          </div>
+          <div className="mt-4">
+            <Label>Practice hours</Label>
+            <TextInput value={str("practiceHours")} onChange={set("practiceHours")} />
+          </div>
+          <div className="mt-4">
+            <Label>Services offered</Label>
+            <TextArea value={str("services")} onChange={set("services")} height="h-20" />
+          </div>
+          <div className="mt-4">
+            <Label>Fallback response</Label>
+            <TextInput value={str("fallbackResponse")} onChange={set("fallbackResponse")} />
+          </div>
+        </Section>
+        <Section title="Custom instructions" last>
+          <Label>Injected into the AI system prompt</Label>
+          <textarea
+            data-testid="node-inspector-custom-instructions-textarea"
+            value={str("customInstructions")}
+            onChange={(event) => onUpdateNodeData("customInstructions", event.target.value)}
+            placeholder="Enter custom rules… e.g. 'New patients get a 60-minute first visit. Always mention free parking behind the building.'"
+            className="h-48 w-full resize-y overflow-y-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/50"
+          />
+          <p className="mt-2 text-[11px] text-slate-400" data-testid="architect-ui-workflow-builder-node-inspector-dental-custom-note">
+            This is spliced into the Vapi system prompt at Deploy.
+          </p>
+        </Section>
+      </>
+    );
+  }
+
+  if (type === DENTAL_NODE_TYPES.checkCalendar) {
+    return (
+      <>
+        <Section title="Check calendar">
+          <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700" data-testid="architect-ui-workflow-builder-node-inspector-dental-calendar-note">
+            Connect Google Calendar from the Test tab. The agent reads open slots before offering times.
+          </p>
+        </Section>
+        <Section title="Availability rules" last>
+          <Label>Buffer between appointments (min)</Label>
+          <SelectBox value={str("bufferMinutes", "10")} onChange={set("bufferMinutes")} options={["0", "5", "10", "15", "30"]} />
+          <div className="mt-4">
+            <Label>Maximum advance booking (days)</Label>
+            <SelectBox value={str("maxAdvanceDays", "30")} onChange={set("maxAdvanceDays")} options={["7", "14", "30", "90"]} />
+          </div>
+          <div className="mt-4">
+            <Label>Slots to offer</Label>
+            <SelectBox value={str("slotsToOffer", "3")} onChange={set("slotsToOffer")} options={["2", "3", "4"]} />
+          </div>
+        </Section>
+      </>
+    );
+  }
+
+  if (type === DENTAL_NODE_TYPES.bookAppointment) {
+    return (
+      <>
+        <Section title="Book appointment">
+          <Label>Event title format</Label>
+          <TextInput mono value={str("eventTitleFormat", "[Service] - [Patient Name]")} onChange={set("eventTitleFormat")} />
+          <div className="mt-4">
+            <Label>Event description</Label>
+            <TextArea mono height="h-20" value={str("eventDescription")} onChange={set("eventDescription")} />
+          </div>
+        </Section>
+        <Section title="Confirmation" last>
+          <BoolField label="Send calendar reminder" value={flag("reminderEnabled", true)} onChange={set("reminderEnabled")} />
+          <div className="mt-4">
+            <Label>Reminder timing (minutes before)</Label>
+            <SelectBox value={str("reminderTiming", "120")} onChange={set("reminderTiming")} options={["60", "120", "1440"]} />
+          </div>
+          <div className="mt-4">
+            <Label>Confirmation message</Label>
+            <TextArea height="h-16" value={str("confirmationMessage")} onChange={set("confirmationMessage")} />
+          </div>
+        </Section>
+      </>
+    );
+  }
+
+  if (type === DENTAL_NODE_TYPES.sendSmsNotification) {
+    return (
+      <>
+        <Section title="Send SMS notification">
+          <p className="rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs leading-5 text-green-700" data-testid="architect-ui-workflow-builder-node-inspector-dental-sms-note">
+            Connected via the Triven Twilio pool.
+          </p>
+        </Section>
+        <Section title="Patient">
+          <BoolField label="Send to patient" value={flag("sendToPatient", true)} onChange={set("sendToPatient")} />
+          <div className="mt-4">
+            <Label>Patient message template</Label>
+            <TextArea height="h-20" value={str("patientTemplate")} onChange={set("patientTemplate")} />
+          </div>
+        </Section>
+        <Section title="Dentist" last>
+          <BoolField label="Send to dentist" value={flag("sendToDentist", true)} onChange={set("sendToDentist")} />
+          <div className="mt-4">
+            <Label>Dentist phone number</Label>
+            <TextInput mono value={str("dentistPhone")} onChange={set("dentistPhone")} placeholder="+1 (512) 555-0000" />
+          </div>
+          <div className="mt-4">
+            <Label>Dentist message template</Label>
+            <TextArea height="h-20" value={str("dentistTemplate")} onChange={set("dentistTemplate")} />
+          </div>
+        </Section>
+      </>
+    );
+  }
+
+  // End Call
+  return (
+    <>
+      <Section title="End call">
+        <Label>Closing message</Label>
+        <TextInput value={str("closingMessage", "You're all set! Have a wonderful day.")} onChange={set("closingMessage")} />
+      </Section>
+      <Section title="After call" last>
+        <Label>After-call action</Label>
+        <SelectBox value={str("afterCallAction", "hangup")} onChange={set("afterCallAction")} options={["hangup", "voicemail", "transfer"]} />
+        <div className="mt-4">
+          <BoolField label="Call recording" value={flag("callRecording", true)} onChange={set("callRecording")} />
+        </div>
       </Section>
     </>
   );

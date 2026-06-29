@@ -18,12 +18,14 @@ import type { Route } from "next";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectListing,
+  deployArchitectWorkflow,
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
   runArchitectWorkflowLive,
   runArchitectWorkflowTest,
-  updateArchitectWorkflow
+  updateArchitectWorkflow,
+  type DentalDeployment
 } from "@/components/architect/features/api";
 import type { ArchitectWorkflow, WorkflowRunLog } from "@/components/architect/features/types";
 import { BuilderHeader } from "./workflow-builder/builder-header";
@@ -69,6 +71,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("Unsaved changes");
   const [publishError, setPublishError] = useState("");
+  const [deploying, setDeploying] = useState(false);
+  const [deployment, setDeployment] = useState<DentalDeployment | null>(null);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -181,7 +185,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setMessage("Unsaved changes");
   }
 
-  function loadTemplate(templateId: "missed-call" | "gmail-reply") {
+  function loadTemplate(templateId: "missed-call" | "gmail-reply" | "ai-receptionist") {
     const template = agentTemplates.find((item: (typeof agentTemplates)[number]) => item.id === templateId);
     if (!template) return;
 
@@ -304,6 +308,37 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     setMessage("Submitted for review");
     router.push("/architect/agents" as Route);
+  }
+
+  // Deploy the builder workflow as a live Vapi voice agent: saves first, then the
+  // backend builds the assistant from the AI Conversation node, provisions the
+  // business + Twilio number, and binds it so inbound calls hit this assistant.
+  async function deployAgent() {
+    if (!workflowId) return;
+    setDeploying(true);
+    setDeployment(null);
+    setMessage("Deploying live voice agent...");
+
+    const saved = await saveAgent(false);
+    if (!saved) {
+      setDeploying(false);
+      return;
+    }
+
+    const result = await deployArchitectWorkflow(workflowId);
+    setDeploying(false);
+
+    if (!result.success || !result.data) {
+      setMessage(result.error ?? "Could not deploy agent");
+      return;
+    }
+
+    setDeployment(result.data.deployment);
+    setMessage(
+      result.data.deployment.assignedNumber
+        ? `Deployed · live on ${result.data.deployment.assignedNumber}`
+        : "Deployed"
+    );
   }
 
   async function runAgent(mode: "test" | "live") {
@@ -457,14 +492,51 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         activeTab={activeTab}
         running={running}
         saving={saving}
+        deploying={deploying}
         hasGmailFlow={hasGmailFlow}
         onAgentNameChange={setAgentName}
         onMobileLibrary={() => setMobilePanel("library")}
         onTabChange={setActiveTab}
         onRunTest={() => void runAgent("test")}
         onSave={() => void saveAgent()}
+        onDeploy={() => void deployAgent()}
         onPreview={() => setPreviewOpen(true)}
       />
+
+      {deployment ? (
+        <div
+          data-testid="builder-deploy-banner"
+          className="fixed left-1/2 top-16 z-50 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-violet-200 bg-white p-4 shadow-lg"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-violet-700" data-testid="builder-deploy-banner-title">
+                AI receptionist is live
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Call{" "}
+                <span className="font-bold text-slate-900" data-testid="builder-deploy-banner-number">
+                  {deployment.assignedNumber ?? "your assigned number"}
+                </span>{" "}
+                to talk to the deployed assistant.
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400" data-testid="builder-deploy-banner-assistant">
+                Vapi assistant {deployment.assistantId} · {deployment.nodesDeployed.length}/6 nodes
+                {deployment.missingNodes.length ? ` · missing: ${deployment.missingNodes.length}` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeployment(null)}
+              data-testid="builder-deploy-banner-close"
+              className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <main className="fixed bottom-10 left-0 right-0 top-14 overflow-hidden">
         {activeTab === "build" ? (
@@ -481,6 +553,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                     Use the component library or load the first CORE agent: Missed Call Text-Back.
                   </p>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => loadTemplate("ai-receptionist")}
+                      data-testid="builder-load-template-ai-receptionist"
+                      className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-violet-700"
+                    >
+                      Build Dental AI Receptionist
+                    </button>
                     <button
                       type="button"
                       onClick={() => loadTemplate("missed-call")}

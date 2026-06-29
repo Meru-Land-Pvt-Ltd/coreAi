@@ -59,6 +59,64 @@ export type CoreConnectorAction =
 /** Hard cap on workflow-to-workflow chaining depth to prevent infinite loops. */
 export const MAX_WORKFLOW_CHAIN_DEPTH = 3;
 
+/**
+ * The 6 fixed nodes of the Dental AI Receptionist, built in the drag-and-drop
+ * builder and deployed as a live Vapi voice agent. Unlike the SMS launch-critical
+ * nodes, these are NOT executed by the workflow-runner — they configure a Vapi
+ * assistant (Node 2) plus its function tools (Nodes 3-5), consumed at Deploy time
+ * and at call time by the Vapi webhook.
+ */
+export const DENTAL_NODE_TYPES = {
+  incomingPhoneCall: "trigger.incoming_phone_call",
+  aiConversation: "ai.ai_conversation",
+  checkCalendar: "action.check_calendar",
+  bookAppointment: "action.book_appointment",
+  sendSmsNotification: "action.send_sms_notification",
+  endCall: "action.end_call"
+} as const;
+
+/** Vapi function-tool names the deployed assistant calls back into our webhook. */
+export const DENTAL_TOOL_NAMES = {
+  checkAvailability: "check_availability",
+  bookAppointment: "book_appointment",
+  sendNotification: "send_notification"
+} as const;
+
+/**
+ * Pre-filled Vapi system prompt for Node 2 (AI Conversation). `{{custom...}}`
+ * style tokens are Vapi variableValues injected per business at call time; the
+ * Custom Instructions field is spliced in at {{special_instructions}}.
+ */
+export const DENTAL_SYSTEM_PROMPT_TEMPLATE = `You are {{assistantName}}, the AI receptionist for {{practice_name}}. You work for {{doctor_name}}.
+
+Your job: Answer patient calls, help them book appointments, and provide basic practice info.
+
+PRACTICE DETAILS:
+- Name: {{practice_name}}
+- Doctor: {{doctor_name}}
+- Hours: {{practice_hours}}
+- Services: {{services_list}}
+
+RULES:
+1. Always be warm, friendly, and professional.
+2. When a patient wants to book, call the check_availability function first.
+3. Offer the available slots and let the patient choose.
+4. After they choose, call book_appointment to confirm.
+5. After booking, call send_notification to send SMS confirmations.
+6. If you cannot help with something, say: "{{fallback_response}}"
+7. Never make up availability. Always check the calendar.
+8. Never provide medical advice.
+9. If it's an emergency, advise them to call 911 or go to the nearest ER.
+
+CUSTOM INSTRUCTIONS:
+{{special_instructions}}
+
+CONVERSATION STYLE:
+- Keep responses short (1-2 sentences max)
+- Sound natural, not robotic
+- Use the patient's name after they give it
+- Confirm details by repeating them back`;
+
 function slug(type: string) {
   return `node-${type.replace(/[._]/g, "-")}`;
 }
@@ -268,6 +326,126 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "connector", connector: "Gmail", connectorAction: "draft_reply" }
   }),
 
+  // ---- D. Dental AI Receptionist (built in the builder, deployed as a live Vapi voice agent) ----
+  // These 6 nodes are NOT run by the workflow-runner. The Deploy endpoint reads
+  // their config to build a Vapi assistant + function tools; the Vapi webhook
+  // executes the tools at call time. backendExecutable=false reflects that the
+  // SMS runner does not execute them.
+  def({
+    type: DENTAL_NODE_TYPES.incomingPhoneCall,
+    label: "Incoming Phone Call",
+    category: "trigger",
+    description: "Patient calls the assigned Twilio number; the call is answered live by the AI.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger", connector: "Twilio" },
+    defaultConfig: { answerAfterRings: "1", forwardingSchedule: "always" }
+  }),
+  def({
+    type: DENTAL_NODE_TYPES.aiConversation,
+    label: "AI Conversation",
+    category: "ai",
+    description: "Vapi + ElevenLabs + GPT-4o voice conversation driven by your custom instructions.",
+    requiredConfig: ["systemPrompt"],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "ai", connector: "Vapi" },
+    defaultConfig: {
+      voice: "sarah",
+      assistantName: "Sarah",
+      language: "en-US",
+      speakingSpeed: "1.0",
+      model: "gpt-4o",
+      firstMessage: "Good day, thanks for calling {{practice_name}}. This is Sarah, how can I help you?",
+      practiceName: "",
+      doctorName: "",
+      practiceHours: "",
+      services: "Cleaning (45m), Filling (30m), Crown (60m), Emergency (30m)",
+      fallbackResponse: "Let me have the doctor's team call you back within 30 minutes.",
+      systemPrompt: DENTAL_SYSTEM_PROMPT_TEMPLATE,
+      customInstructions: ""
+    }
+  }),
+  def({
+    type: DENTAL_NODE_TYPES.checkCalendar,
+    label: "Check Calendar",
+    category: "action",
+    description: "Vapi tool check_availability: returns open Google Calendar slots.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: {
+      nodeKind: "connector",
+      connector: "Google Calendar",
+      connectorAction: DENTAL_TOOL_NAMES.checkAvailability
+    },
+    defaultConfig: { bufferMinutes: "10", maxAdvanceDays: "30", slotsToOffer: "3" }
+  }),
+  def({
+    type: DENTAL_NODE_TYPES.bookAppointment,
+    label: "Book Appointment",
+    category: "action",
+    description: "Vapi tool book_appointment: creates the Google Calendar event.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: {
+      nodeKind: "connector",
+      connector: "Google Calendar",
+      connectorAction: DENTAL_TOOL_NAMES.bookAppointment
+    },
+    defaultConfig: {
+      eventTitleFormat: "[Service] - [Patient Name]",
+      eventDescription: "Phone: [Patient Phone]\nBooked by: Triven AI\nService: [Service]",
+      reminderEnabled: "true",
+      reminderTiming: "120",
+      confirmationMessage: "Perfect, you're all set for [Service] on [Date] at [Time] with [Doctor Name]."
+    }
+  }),
+  def({
+    type: DENTAL_NODE_TYPES.sendSmsNotification,
+    label: "Send SMS Notification",
+    category: "action",
+    description: "Vapi tool send_notification: texts the patient and the dentist after booking.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: {
+      nodeKind: "connector",
+      connector: "SMS",
+      connectorAction: DENTAL_TOOL_NAMES.sendNotification
+    },
+    defaultConfig: {
+      sendToPatient: "true",
+      patientTemplate: "Confirmed: [Service] with [Doctor Name], [Date] at [Time]. Reply C to cancel.",
+      sendToDentist: "true",
+      dentistPhone: "",
+      dentistTemplate: "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]"
+    }
+  }),
+  def({
+    type: DENTAL_NODE_TYPES.endCall,
+    label: "End Call",
+    category: "action",
+    description: "Closes the conversation with a goodbye message and after-call action.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "output" },
+    defaultConfig: {
+      closingMessage: "You're all set! Have a wonderful day.",
+      afterCallAction: "hangup",
+      callRecording: "true"
+    }
+  }),
+
   // ---- B. Near-term marketplace nodes (coming soon) ----
   def({ type: "trigger.manual", label: "Manual Trigger", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.webhook", label: "Webhook Trigger", category: "trigger", description: "Start from an inbound webhook.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
@@ -309,4 +487,53 @@ export function comingSoonNodes(): NodeDefinition[] {
 /** True when (connector, connectorAction) is a CoreAI platform action. */
 export function isCoreConnectorAction(value: string): value is CoreConnectorAction {
   return (Object.values(CORE_CONNECTOR_ACTIONS) as string[]).includes(value);
+}
+
+/** The 6 Dental AI Receptionist node definitions, in canvas order. */
+export function dentalNodes(): NodeDefinition[] {
+  const order = Object.values(DENTAL_NODE_TYPES) as string[];
+  return order
+    .map((type) => getNodeDefinition(type))
+    .filter((node): node is NodeDefinition => Boolean(node));
+}
+
+/** True when a workflow type slug is one of the 6 dental nodes. */
+export function isDentalNodeType(type: string): boolean {
+  return (Object.values(DENTAL_NODE_TYPES) as string[]).includes(type);
+}
+
+/**
+ * Build the 6-node Dental AI Receptionist workflow JSON (nodes + edges) used by
+ * the builder's "Dental AI Receptionist" template and as the deploy default.
+ * Each node's `data` is seeded from its registry defaultConfig so the config
+ * panels and the Deploy endpoint read the same fields.
+ */
+export function buildDentalReceptionistWorkflow(): {
+  nodes: Array<{ id: string; type: "coreNode"; position: { x: number; y: number }; data: Record<string, unknown> }>;
+  edges: Array<{ id: string; source: string; target: string }>;
+} {
+  const defs = dentalNodes();
+  const nodes = defs.map((def, index) => ({
+    id: def.type,
+    type: "coreNode" as const,
+    position: { x: 120 + index * 260, y: 160 },
+    data: {
+      type: def.type,
+      nodeKind: def.runtime.nodeKind,
+      connector: def.runtime.connector,
+      connectorAction: def.runtime.connectorAction,
+      label: def.label,
+      title: def.label,
+      description: def.description,
+      ...(def.defaultConfig ?? {})
+    }
+  }));
+
+  const edges = defs.slice(1).map((def, index) => ({
+    id: `dental-e${index + 1}`,
+    source: defs[index].type,
+    target: def.type
+  }));
+
+  return { nodes, edges };
 }

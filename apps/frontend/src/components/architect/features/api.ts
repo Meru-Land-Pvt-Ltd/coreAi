@@ -63,6 +63,25 @@ export function updateArchitectWorkflow(
   return apiPut<{ workflow: ArchitectWorkflow }>(`/architect/workflows/${workflowId}`, body);
 }
 
+export type DentalDeployment = {
+  businessId: string;
+  workflowId: string;
+  assignedNumber: string | null;
+  assistantId: string;
+  assistantCreated: boolean;
+  webhookUrl: string;
+  nodesDeployed: string[];
+  missingNodes: string[];
+};
+
+/** Deploy the builder workflow as a live Vapi voice agent (creates the assistant + binds the number). */
+export function deployArchitectWorkflow(workflowId: string) {
+  return apiPost<{ deployment: DentalDeployment }>(
+    `/architect/workflows/${workflowId}/deploy`,
+    {}
+  );
+}
+
 export function getArchitectListings() {
   return apiGet<{ listings: ArchitectListing[] }>("/architect/listings");
 }

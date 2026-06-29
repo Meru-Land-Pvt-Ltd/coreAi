@@ -1,6 +1,10 @@
 import { CORE_CONNECTOR, CORE_CONNECTOR_ACTIONS, comingSoonNodes } from "@coreai/shared";
 import type { AgentTemplate, ComingSoonItem, LibraryGroup } from "./types";
-import { createGmailReplyFlow, createMissedCallTextBackFlow } from "./workflow-factories";
+import {
+  createDentalReceptionistFlow,
+  createGmailReplyFlow,
+  createMissedCallTextBackFlow
+} from "./workflow-factories";
 
 export const libraryGroups: LibraryGroup[] = [
   {
@@ -283,6 +287,14 @@ export const libraryGroups: LibraryGroup[] = [
 ];
 
 export const agentTemplates: AgentTemplate[] = [
+  {
+    id: "ai-receptionist",
+    title: "Build Dental AI Receptionist",
+    description: "Incoming call → AI conversation → check calendar → book → SMS → end call",
+    accent: "violet",
+    icon: "phone-call",
+    flow: createDentalReceptionistFlow
+  },
   {
     id: "missed-call",
     title: "Build Missed Call Text-Back",

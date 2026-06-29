@@ -34,8 +34,6 @@ export function getAuthUser(): AuthUser | null {
   }
 }
 
-// Clear the stored session without navigating. Use when the caller wants to
-// control the post-clear redirect (e.g. send a wrong-role user to a specific login).
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
 
