@@ -25,6 +25,7 @@ import {
   runArchitectWorkflowLive,
   runArchitectWorkflowTest,
   updateArchitectWorkflow,
+  useArchitectTemplate,
   type DentalDeployment
 } from "@/components/architect/features/api";
 import type { ArchitectWorkflow, WorkflowRunLog } from "@/components/architect/features/types";
@@ -40,6 +41,8 @@ import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./wo
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import { PreviewModal } from "./workflow-builder/preview-modal";
 import { PublishPanel } from "./workflow-builder/publish-panel";
+import { TemplateGallery } from "./workflow-builder/template-gallery";
+import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal";
 import { TestPanel } from "./workflow-builder/test-panel";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
@@ -75,6 +78,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [publishError, setPublishError] = useState("");
   const [deploying, setDeploying] = useState(false);
   const [deployment, setDeployment] = useState<DentalDeployment | null>(null);
+  const [previewSlug, setPreviewSlug] = useState<string | null>(null);
+  const [importingSlug, setImportingSlug] = useState<string | null>(null);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -205,25 +210,47 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setMessage("Unsaved changes");
   }
 
-  function loadTemplate(templateId: "missed-call" | "gmail-reply" | "ai-receptionist") {
-    if (blockIfUnderReview()) return;
-    const template = agentTemplates.find((item: (typeof agentTemplates)[number]) => item.id === templateId);
-    if (!template) return;
+  // Import a template by slug: the backend clones its workflowJson into this
+  // workflow and returns it; we parse it exactly like a loaded/saved workflow so
+  // every node behaves like a manually dragged node (no template-only state).
+  async function importTemplate(slug: string) {
+    if (nodes.length > 0 && !window.confirm("Replace the current canvas with this template?")) return;
 
-    const confirmed =
-      nodes.length === 0 ||
-      window.confirm(`Replace the current canvas with ${template.title.replace("Build ", "the ")}?`);
-    if (!confirmed) return;
+    setImportingSlug(slug);
+    setPreviewSlug(null);
+    setMessage("Importing template...");
 
-    const flow = template.flow();
-    setNodes(flow.nodes);
-    setEdges(flow.edges);
-    setSelectedNodeId(flow.nodes[0]?.id ?? null);
+    const result = await useArchitectTemplate(slug, { workflowId });
+    setImportingSlug(null);
+
+    if (!result.success || !result.data) {
+      setMessage(result.error ?? "Could not import template");
+      return;
+    }
+
+    const imported = result.data;
+    const importedWorkflow: ArchitectWorkflow = {
+      id: imported.workflowId,
+      name: imported.name,
+      description: imported.description,
+      workflowJson: imported.workflowJson,
+      isTemplate: false,
+      createdAt: workflow?.createdAt ?? ""
+    };
+    const parsedNodes = parseNodes(importedWorkflow);
+    const parsedEdges = parseEdges(importedWorkflow);
+
+    setWorkflow(importedWorkflow);
+    setAgentName(imported.name || defaultAgentName);
+    setTagline(imported.description || defaultAgentDescription);
+    setNodes(parsedNodes);
+    setEdges(parsedEdges);
+    setSelectedNodeId(parsedNodes[0]?.id ?? null);
     setActiveTab("build");
     setRunLogs([]);
     setRunContext({});
     setMobilePanel(null);
-    setMessage(`${template.title.replace("Build ", "")} loaded`);
+    setMessage("Template imported");
   }
 
   function updateSelectedNodeData(
@@ -495,7 +522,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     <ComponentLibrary
       searchTerm={searchTerm}
       onSearchChange={setSearchTerm}
-      onLoadTemplate={loadTemplate}
+      onUseTemplate={importTemplate}
       onAddNode={addNodeFromLibrary}
     />
   );
@@ -506,6 +533,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onClearSelection={() => setSelectedNodeId(null)}
       onUpdateNodeData={updateSelectedNodeData}
       onDeleteNode={deleteSelectedNode}
+      calendarConnected={gmailConnected}
+      calendarEmail={gmailEmail}
+      connectingCalendar={connectingGmail}
+      onConnectCalendar={connectGmail}
     />
   );
 
@@ -597,38 +628,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
             <div className="canvas-grid relative flex-1 overflow-hidden">
               {nodes.length === 0 ? (
-                <div className="absolute inset-x-4 top-4 z-10 rounded-2xl border border-dashed border-amber-200 bg-white/90 p-4 shadow-sm backdrop-blur sm:left-6 sm:right-auto sm:max-w-md">
-                  <p className="text-sm font-black text-slate-900" data-testid="architect-ui-workflow-builder-view-new-agent-canvas-is-empty-text">New agent canvas is empty</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-500" data-testid="architect-ui-workflow-builder-view-use-the-component-library-or-load-the-text">
-                    Use the component library or load the first CORE agent: Missed Call Text-Back.
-                  </p>
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                    <button
-                      type="button"
-                      onClick={() => loadTemplate("ai-receptionist")}
-                      data-testid="builder-load-template-ai-receptionist"
-                      className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-violet-700"
-                    >
-                      Build Dental AI Receptionist
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => loadTemplate("missed-call")}
-                      data-testid="builder-load-template-missed-call"
-                      className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-amber-600"
-                    >
-                      Build Missed Call Text-Back
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => loadTemplate("gmail-reply")}
-                      data-testid="builder-load-template-gmail-reply"
-                      className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50"
-                    >
-                      Build Gmail Reply Flow
-                    </button>
-                  </div>
-                </div>
+                <TemplateGallery busySlug={importingSlug} onUse={importTemplate} onPreview={setPreviewSlug} />
               ) : null}
 
               <ReactFlow<BuilderNode, Edge>
@@ -736,6 +736,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onClose={() => setPreviewOpen(false)}
         businessName={businessName.trim() || "Mitchell Dental"}
       />
+
+      <TemplatePreviewModal slug={previewSlug} onClose={() => setPreviewSlug(null)} onUse={importTemplate} />
+
 
       <MobileSheet panel={mobilePanel} onClose={() => setMobilePanel(null)}>
         {mobilePanel === "library" ? library : inspector}

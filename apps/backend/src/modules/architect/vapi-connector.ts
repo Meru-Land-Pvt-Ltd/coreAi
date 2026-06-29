@@ -1,4 +1,4 @@
-import { DENTAL_TOOL_NAMES } from "@coreai/shared";
+import { VOICE_TOOL_NAMES } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 
@@ -319,7 +319,7 @@ function dentalAssistantTools() {
     {
       type: "function",
       function: {
-        name: DENTAL_TOOL_NAMES.checkAvailability,
+        name: VOICE_TOOL_NAMES.checkAvailability,
         description: "Check the dentist's Google Calendar for open appointment slots on a given date. Always call this before offering times.",
         parameters: {
           type: "object",
@@ -335,7 +335,7 @@ function dentalAssistantTools() {
     {
       type: "function",
       function: {
-        name: DENTAL_TOOL_NAMES.bookAppointment,
+        name: VOICE_TOOL_NAMES.bookAppointment,
         description: "Book the appointment in Google Calendar after the patient confirms a slot.",
         parameters: {
           type: "object",
@@ -354,7 +354,7 @@ function dentalAssistantTools() {
     {
       type: "function",
       function: {
-        name: DENTAL_TOOL_NAMES.sendNotification,
+        name: VOICE_TOOL_NAMES.sendNotification,
         description: "Send SMS confirmations to the patient and the dentist after the booking is created.",
         parameters: {
           type: "object",

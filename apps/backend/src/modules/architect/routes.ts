@@ -18,6 +18,11 @@ import {
   handleVapiWebhook
 } from "./twilio-business-routing";
 import { deployDentalWorkflow } from "./dental-deploy";
+import {
+  cloneTemplateWorkflow,
+  getTemplateBySlug,
+  listTemplateCards
+} from "./templates";
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { runWorkflowTest } from "./workflow-runner";
 
@@ -745,6 +750,76 @@ architectRoutes.post("/workflows/:workflowId/deploy", async (c) => {
     const message = error instanceof Error ? error.message : "Deployment failed";
     return errorResponse(c, message, 503, "DEPLOY_FAILED");
   }
+});
+
+/* ---- Template gallery (static seed, served by API; frontend never hardcodes) ---- */
+
+architectRoutes.get("/templates", (c) => {
+  return successResponse(c, { templates: listTemplateCards() });
+});
+
+architectRoutes.get("/templates/:slug", (c) => {
+  const template = getTemplateBySlug(c.req.param("slug"));
+  if (!template) {
+    return errorResponse(c, "Template not found", 404, "TEMPLATE_NOT_FOUND");
+  }
+  return successResponse(c, { template });
+});
+
+/**
+ * Import a template: clone its workflowJson into a workflow for this architect —
+ * the existing one when `workflowId` is supplied, otherwise a new one. Returns the
+ * workflowId + workflowJson. Pure data import: no template flags are persisted.
+ */
+architectRoutes.post("/templates/:slug/use", async (c) => {
+  const authUser = c.get("authUser");
+  const template = getTemplateBySlug(c.req.param("slug"));
+  if (!template) {
+    return errorResponse(c, "Template not found", 404, "TEMPLATE_NOT_FOUND");
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { workflowId?: unknown };
+  const targetWorkflowId = typeof body.workflowId === "string" ? body.workflowId : undefined;
+  const workflowJson = cloneTemplateWorkflow(template);
+
+  let workflow = null;
+  if (targetWorkflowId) {
+    const existing = await prisma.workflowDefinition.findFirst({
+      where: { id: targetWorkflowId, architectUserId: authUser.id }
+    });
+    if (existing) {
+      workflow = await prisma.workflowDefinition.update({
+        where: { id: existing.id },
+        data: {
+          name: template.title,
+          description: template.description,
+          workflowJson: workflowJson as never
+        }
+      });
+    }
+  }
+
+  if (!workflow) {
+    workflow = await prisma.workflowDefinition.create({
+      data: {
+        architectUserId: authUser.id,
+        name: template.title,
+        description: template.description,
+        workflowJson: workflowJson as never
+      }
+    });
+  }
+
+  return successResponse(
+    c,
+    {
+      workflowId: workflow.id,
+      name: workflow.name,
+      description: workflow.description,
+      workflowJson
+    },
+    "Template imported"
+  );
 });
 
 async function runOwnedWorkflow({
