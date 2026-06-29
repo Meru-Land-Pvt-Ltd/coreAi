@@ -123,9 +123,6 @@ function SidebarContent({
         <span className="text-lg font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-brand-text">
           Triven.ai
         </span>
-        <span className="ml-auto rounded-md border border-amber-100 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600" data-testid="architect-sidebar-architect-badge">
-          Architect
-        </span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">

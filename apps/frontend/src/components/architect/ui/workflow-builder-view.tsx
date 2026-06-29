@@ -506,7 +506,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       {deployment ? (
         <div
           data-testid="builder-deploy-banner"
-          className="fixed left-1/2 top-16 z-50 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-violet-200 bg-white p-4 shadow-lg"
+          className="fixed left-1/2 top-20 z-50 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-violet-200 bg-white p-4 shadow-lg"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -538,7 +538,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      <main className="fixed bottom-10 left-0 right-0 top-14 overflow-hidden">
+      <main className="fixed bottom-10 left-0 right-0 top-[72px] overflow-hidden">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex">
             <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin">

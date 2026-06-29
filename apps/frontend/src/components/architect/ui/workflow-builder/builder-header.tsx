@@ -65,12 +65,12 @@ export function BuilderHeader({
   onPreview?: () => void;
 }) {
   return (
-    <header className="fixed left-0 top-0 z-50 flex h-14 w-full items-stretch border-b border-gray-200 bg-white px-3">
+    <header className="fixed left-0 top-4 z-50 flex h-14 w-full items-stretch border-b border-gray-200 bg-white px-3">
       <div className="flex min-w-0 items-center gap-2.5 pr-1">
         <Link data-testid="builder-header-back-to-workflows"
-          href={"/architect/workflows" as Route}
+          href={"/architect/agents" as Route}
           className="rounded-lg p-2 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-          aria-label="Back to dashboard"
+          aria-label="Back to My Agents"
         >
           <BuilderIcon name="arrow" className="h-[18px] w-[18px]" />
         </Link>
