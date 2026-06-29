@@ -1,4 +1,4 @@
-import { DENTAL_NODE_TYPES, isDentalNodeType } from "@coreai/shared";
+import { isVoiceNodeType, VOICE_NODE_TYPES } from "@coreai/shared";
 import type { CSSProperties, ReactNode } from "react";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData } from "./types";
@@ -44,8 +44,8 @@ export function NodeInspector({
         </button>
       </div>
 
-      {isDentalNodeType(String(selectedNode.data.type ?? "")) ? (
-        <DentalProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} calendar={calendar} />
+      {isVoiceNodeType(String(selectedNode.data.type ?? "")) ? (
+        <VoiceNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} calendar={calendar} />
       ) : selectedNode.data.nodeKind === "trigger" ? (
         <TriggerProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />
       ) : selectedNode.data.nodeKind === "ai" ? (
@@ -425,7 +425,7 @@ function BoolField({
 }
 
 /**
- * Config panels for the 6 Dental AI Receptionist nodes. Field values are written
+ * Config panels for the generic voice-booking nodes. Field values are written
  * back to node.data by their registry keys; the Deploy endpoint reads the same
  * keys to build the Vapi assistant + tools.
  */
@@ -436,7 +436,7 @@ type CalendarConnection = {
   onConnect?: () => void;
 };
 
-function DentalProps({
+function VoiceNodeProps({
   selectedNode,
   onUpdateNodeData,
   calendar
@@ -452,7 +452,7 @@ function DentalProps({
   };
   const set = (key: string) => (value: string) => onUpdateNodeData(key as keyof BuilderNodeData, value);
 
-  if (type === DENTAL_NODE_TYPES.incomingPhoneCall) {
+  if (type === VOICE_NODE_TYPES.phoneCallTrigger) {
     return (
       <>
         <Section title="Trigger">
@@ -474,7 +474,7 @@ function DentalProps({
     );
   }
 
-  if (type === DENTAL_NODE_TYPES.aiConversation) {
+  if (type === VOICE_NODE_TYPES.voiceConversation) {
     return (
       <>
         <Section title="Voice">
@@ -538,7 +538,7 @@ function DentalProps({
     );
   }
 
-  if (type === DENTAL_NODE_TYPES.checkCalendar) {
+  if (type === VOICE_NODE_TYPES.calendarAvailability) {
     return (
       <>
         <Section title="Google Calendar">
@@ -586,7 +586,7 @@ function DentalProps({
     );
   }
 
-  if (type === DENTAL_NODE_TYPES.bookAppointment) {
+  if (type === VOICE_NODE_TYPES.bookAppointment) {
     return (
       <>
         <Section title="Book appointment">
@@ -612,7 +612,7 @@ function DentalProps({
     );
   }
 
-  if (type === DENTAL_NODE_TYPES.sendSmsNotification) {
+  if (type === VOICE_NODE_TYPES.sendSms) {
     return (
       <>
         <Section title="Send SMS notification">
