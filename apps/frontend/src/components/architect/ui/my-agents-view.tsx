@@ -77,6 +77,12 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
     ? `/architect/workflows/${agent.workflowId}/builder`
     : "/architect/agents/publish") as Route;
 
+  const isUnderReview = agent.status === "PENDING_REVIEW";
+  // Draft / rejected / suspended agents are editable ("Update").
+  // Approved (live) and pending-review agents are read-only here ("View").
+  const isEditable = agent.status === "DRAFT" || agent.status === "REJECTED" || agent.status === "SUSPENDED";
+  const actionLabel = isEditable ? "Update" : "View";
+
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div className="flex-1 p-6">
@@ -118,6 +124,21 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
         <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
           {agent.shortDescription || "No description added yet."}
         </p>
+
+        {isUnderReview ? (
+          <div
+            className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+            data-testid={`my-agents-review-notice-${agent.id}`}
+          >
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            <p className="text-xs font-semibold leading-5 text-amber-700">
+              Will be live in 24–48 hrs after review
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
@@ -135,7 +156,7 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
           href={editHref}
           className="block w-full rounded-xl border-2 border-amber-500 py-2.5 text-center font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
         >
-          Update
+          {actionLabel}
         </Link>
       </div>
     </article>
@@ -185,22 +206,10 @@ export function MyAgentsView() {
             <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl" data-testid="architect-ui-my-agents-view-agents-heading">
               My Agents
             </h1>
-
-            <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-600 sm:text-base" data-testid="architect-ui-my-agents-view-manage-marketplace-agents-from-one-clean-workspace-text">
-              Manage marketplace agents from one clean workspace. Track drafts, reviews,
-              approvals, pricing, and published packages without heavy card layouts.
-            </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              data-testid="my-agents-build-workflow-link"
-              href={"/architect/workflows" as Route}
-              className="inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-amber-400 hover:text-amber-700"
-            >
-              Build Workflow
-            </Link>
-
+      
             <Link
               data-testid="my-agents-publish-agent-link"
               href={"/architect/agents/publish" as Route}

@@ -41,6 +41,7 @@ export function BuilderHeader({
   saving,
   deploying,
   hasGmailFlow,
+  locked = false,
   onAgentNameChange,
   onMobileLibrary,
   onTabChange,
@@ -56,6 +57,7 @@ export function BuilderHeader({
   saving: boolean;
   deploying: boolean;
   hasGmailFlow: boolean;
+  locked?: boolean;
   onAgentNameChange: (value: string) => void;
   onMobileLibrary: () => void;
   onTabChange: (tab: BuilderTab) => void;
@@ -81,11 +83,18 @@ export function BuilderHeader({
         <input data-testid="builder-agent-name-input"
           value={agentName}
           onChange={(event) => onAgentNameChange(event.target.value)}
-          className="min-w-0 max-w-[210px] cursor-text rounded-sm border-b border-transparent bg-transparent px-0.5 text-[15px] font-semibold text-slate-900 outline-none transition hover:border-amber-300 focus:border-amber-400 md:max-w-[280px]"
+          disabled={locked}
+          className="min-w-0 max-w-[210px] cursor-text rounded-sm border-b border-transparent bg-transparent px-0.5 text-[15px] font-semibold text-slate-900 outline-none transition hover:border-amber-300 focus:border-amber-400 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:border-transparent md:max-w-[280px]"
           aria-label="Agent name"
         />
-        <span className="hidden rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 sm:inline-flex" data-testid="architect-ui-workflow-builder-builder-header-draft-text">
-          Draft
+        <span
+          className={cn(
+            "hidden rounded-full border px-2.5 py-0.5 text-[11px] font-medium sm:inline-flex",
+            locked ? "border-orange-100 bg-orange-50 text-orange-700" : "border-amber-100 bg-amber-50 text-amber-700"
+          )}
+          data-testid="architect-ui-workflow-builder-builder-header-draft-text"
+        >
+          {locked ? "In Review" : "Draft"}
         </span>
         <span className="ml-1 hidden items-center gap-1.5 text-xs text-slate-400 lg:flex" data-testid="architect-ui-workflow-builder-builder-header-saving-message-text">
           <span className={cn("h-1.5 w-1.5 rounded-full bg-green-500", saving && "save-pop")} />
@@ -134,9 +143,9 @@ export function BuilderHeader({
         <button
           type="button"
           onClick={onRunTest}
-          disabled={running}
+          disabled={running || locked}
           data-testid="builder-run-test"
-          className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <BuilderIcon name="play" className="h-3.5 w-3.5" />
           {running ? "Running..." : hasGmailFlow ? "Gmail Test" : "Test Run"}
@@ -144,9 +153,9 @@ export function BuilderHeader({
         <button
           type="button"
           onClick={onDeploy}
-          disabled={deploying || saving}
+          disabled={deploying || saving || locked}
           data-testid="builder-deploy"
-          className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <BuilderIcon name="phone-call" className="h-3.5 w-3.5" />
           {deploying ? "Deploying..." : "Deploy Live Agent"}
@@ -157,9 +166,9 @@ export function BuilderHeader({
             onSave();
             onTabChange("publish");
           }}
-          disabled={saving}
+          disabled={saving || locked}
           data-testid="builder-publish-marketplace"
-          className="hidden rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60 md:inline-flex"
+          className="hidden rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
         >
           Publish to Marketplace
         </button>
