@@ -36,7 +36,7 @@ function EmptyAgentsState() {
     <div className="pt-2">
       <Link
         data-testid="my-agents-empty-publish-agent-link"
-        href={"/architect/agents/publish" as Route}
+        href={"/architect/workflows" as Route}
         className="group relative flex min-h-[360px] w-full max-w-[448px] flex-col overflow-hidden rounded-[1.8rem] border border-dashed border-amber-300 bg-[#fffdf6] p-8 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:bg-white hover:shadow-xl hover:shadow-amber-500/10"
       >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.10),transparent_38%)] opacity-80" />
@@ -235,7 +235,7 @@ export function MyAgentsView() {
       
             <Link
               data-testid="my-agents-publish-agent-link"
-              href={"/architect/agents/publish" as Route}
+              href={"/architect/workflows" as Route}
               className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 hover:shadow-md sm:px-5"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
