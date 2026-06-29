@@ -1,315 +1,90 @@
-import { CORE_CONNECTOR, CORE_CONNECTOR_ACTIONS, comingSoonNodes } from "@coreai/shared";
-import type { AgentTemplate, ComingSoonItem, LibraryGroup } from "./types";
 import {
-  createDentalReceptionistFlow,
-  createGmailReplyFlow,
-  createMissedCallTextBackFlow
-} from "./workflow-factories";
+  comingSoonNodes,
+  getNodeDefinition,
+  VOICE_NODE_PRESENTATION,
+  VOICE_NODE_TYPES
+} from "@coreai/shared";
+import type { BuilderNodeData, ComingSoonItem, LibraryGroup, LibraryItem, NodeAccent, NodeKind } from "./types";
 
+/**
+ * Build a draggable palette item from a registry node definition. The dragged
+ * node carries the same node.data (type + defaultConfig) as a template node, so
+ * manual building and template import are identical and open the same inspector.
+ */
+function paletteItem(
+  type: string,
+  presentation: { icon: string; accent: NodeAccent; kind?: string }
+): LibraryItem {
+  const def = getNodeDefinition(type);
+  const pres = VOICE_NODE_PRESENTATION[type];
+  const overrides: Partial<BuilderNodeData> = {
+    type,
+    nodeKind: (def?.runtime.nodeKind ?? "connector") as NodeKind,
+    connector: def?.runtime.connector,
+    connectorAction: def?.runtime.connectorAction,
+    kind: presentation.kind ?? pres?.kind ?? (def?.label ?? type).toUpperCase(),
+    title: def?.label,
+    subtitle: def?.description,
+    ...(def?.defaultConfig ?? {})
+  };
+  return {
+    nodeKind: (def?.runtime.nodeKind ?? "connector") as NodeKind,
+    label: def?.label ?? type,
+    helper: def?.description ?? "",
+    icon: presentation.icon,
+    accent: presentation.accent,
+    testId: def?.testId,
+    overrides
+  };
+}
+
+// Generic, reusable platform nodes organized by use-case category. The Dental AI
+// Receptionist is just a template that imports these with values in node.data.
 export const libraryGroups: LibraryGroup[] = [
   {
     title: "Triggers",
     items: [
-      {
-        nodeKind: "trigger",
-        label: "Customer Calls",
-        helper: "Twilio missed-call webhook",
-        icon: "phone",
-        accent: "amber",
-        overrides: {
-          title: "Customer Calls",
-          subtitle: "When someone calls and no one picks up",
-          footer: "Twilio detects the missed call instantly"
-        }
-      },
-      {
-        nodeKind: "trigger",
-        label: "Inbound SMS",
-        helper: "Twilio inbound text",
-        icon: "message",
-        accent: "amber",
-        testId: "node-trigger-twilio-inbound-sms",
-        overrides: {
-          title: "Inbound SMS",
-          subtitle: "When a customer replies by text",
-          footer: "Handled by the Twilio SMS webhook"
-        }
-      },
-      {
-        nodeKind: "trigger",
-        label: "Vapi Tool Call",
-        helper: "Voice booking webhook",
-        icon: "phone-call",
-        accent: "violet",
-        testId: "node-trigger-vapi-tool-call",
-        overrides: {
-          title: "Vapi Tool Call",
-          subtitle: "When Vapi calls a tool (e.g. book_appointment)",
-          footer: "Handled by the Vapi webhook"
-        }
-      }
+      paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
+      paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
+      paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" })
     ]
   },
   {
     title: "AI",
     items: [
-      {
-        nodeKind: "ai",
-        label: "Personalize Text",
-        helper: "Generate human reply",
-        icon: "sparkles",
-        accent: "violet",
-        overrides: {
-          title: "Personalize Text",
-          subtitle: "Friendly message based on business and caller context"
-        }
-      }
+      paletteItem(VOICE_NODE_TYPES.voiceConversation, { icon: "sparkles", accent: "violet" }),
+      paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" })
     ]
   },
   {
-    title: "Logic",
+    title: "Calendar",
     items: [
-      {
-        nodeKind: "condition",
-        label: "Business Hours",
-        helper: "Send now or queue",
-        icon: "diamond",
-        accent: "orange",
-        overrides: {
-          title: "Business Hours?",
-          subtitle: "If open: text now · If closed: queue morning",
-          condition: "8AM–6PM, Monday–Friday"
-        }
-      }
+      paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),
+      paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" })
     ]
   },
   {
-    title: "Actions",
+    title: "Communication",
     items: [
-      {
-        nodeKind: "connector",
-        label: "Auto Text in 5 Seconds",
-        helper: "Send SMS immediately",
-        icon: "message",
-        accent: "green",
-        overrides: {
-          title: "Auto Text in 5 Seconds",
-          subtitle: "Customer knows they were not ignored",
-          connector: "SMS",
-          connectorAction: "send_sms",
-          smsTo: "{{caller_number}}",
-          smsBody:
-            "Hi {{caller_name}}, this is {{business.name}}. Sorry we missed your call. We can help by text right now. Would you like to book an appointment or ask a quick question?"
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Lead Captured",
-        helper: "Continue conversation",
-        icon: "capture",
-        accent: "blue",
-        overrides: {
-          title: "Lead Captured",
-          subtitle: "Book appointments, answer FAQs, or route to team",
-          connector: "SMS",
-          connectorAction: "capture_lead"
-        }
-      }
+      paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
+      paletteItem("integration.gmail_send_email", { icon: "mail", accent: "green" }),
+      paletteItem("integration.gmail_create_draft", { icon: "mail", accent: "blue" })
     ]
   },
   {
-    title: "Save & Route",
+    title: "CRM / Data",
     items: [
-      {
-        nodeKind: "connector",
-        label: "Save Lead",
-        helper: "Persist the caller as a lead",
-        icon: "capture",
-        accent: "blue",
-        testId: "node-action-save-lead",
-        overrides: {
-          title: "Save Lead",
-          subtitle: "Store or update the caller as a lead for this business",
-          connector: CORE_CONNECTOR,
-          connectorAction: CORE_CONNECTOR_ACTIONS.saveLead,
-          leadSource: "WORKFLOW",
-          leadStatus: "CAPTURED"
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Save Conversation",
-        helper: "Store a conversation message",
-        icon: "message",
-        accent: "green",
-        testId: "node-action-save-conversation-message",
-        overrides: {
-          title: "Save Conversation",
-          subtitle: "Record an inbound, outbound, or system message",
-          connector: CORE_CONNECTOR,
-          connectorAction: CORE_CONNECTOR_ACTIONS.saveConversationMessage,
-          conversationDirection: "OUTBOUND",
-          conversationBody: "{{sentSms.body}}"
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Human Handoff",
-        helper: "Escalate to a team member",
-        icon: "phone-call",
-        accent: "red",
-        testId: "node-action-human-handoff",
-        overrides: {
-          title: "Human Handoff",
-          subtitle: "Escalate the lead and notify the team",
-          connector: CORE_CONNECTOR,
-          connectorAction: CORE_CONNECTOR_ACTIONS.humanHandoff,
-          handoffReason: "{{business.escalationRules}}"
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Next Workflow",
-        helper: "Trigger another workflow",
-        icon: "diamond",
-        accent: "orange",
-        testId: "node-action-trigger-next-workflow",
-        overrides: {
-          title: "Next Workflow",
-          subtitle: "Run a follow-up workflow with the same context",
-          connector: CORE_CONNECTOR,
-          connectorAction: CORE_CONNECTOR_ACTIONS.triggerNextWorkflow,
-          nextWorkflowId: ""
-        }
-      }
+      paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
+      paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
     ]
   },
-
   {
-    title: "Voice + Calendar",
+    title: "Routing / Logic",
     items: [
-      {
-        nodeKind: "connector",
-        label: "AI Voice Callback",
-        helper: "Vapi talks to the patient",
-        icon: "phone-call",
-        accent: "violet",
-        overrides: {
-          title: "AI Voice Callback",
-          subtitle: "Vapi calls the patient and answers questions using business context",
-          connector: "Vapi",
-          connectorAction: "start_voice_call",
-          vapiAssistantId: "{{business.vapiAssistantId}}",
-          vapiPhoneNumberId: "{{business.vapiPhoneNumberId}}"
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Book Appointment",
-        helper: "Create Google Calendar event",
-        icon: "calendar",
-        accent: "blue",
-        overrides: {
-          title: "Book Appointment",
-          subtitle: "Google Calendar creates the booked appointment",
-          connector: "Google Calendar",
-          connectorAction: "book_appointment",
-          calendarId: "{{business.calendarId}}",
-          appointmentService: "Consultation"
-        }
-      }
+      paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
+      paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
+      paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
-  },
-  {
-    title: "Gmail",
-    items: [
-      {
-        nodeKind: "connector",
-        label: "Read Gmail Emails",
-        helper: "Search inbox with query",
-        icon: "mail",
-        accent: "blue",
-        overrides: {
-          title: "Read Gmail Emails",
-          subtitle: "Find the latest email matching a Gmail query",
-          connector: "Gmail",
-          connectorAction: "read_emails",
-          gmailQuery: "newer_than:7d"
-        }
-      },
-      {
-        nodeKind: "ai",
-        label: "Draft Email Reply",
-        helper: "Generate response from email",
-        icon: "sparkles",
-        accent: "violet",
-        overrides: {
-          title: "Draft Email Reply",
-          subtitle: "Create a helpful reply from the email context",
-          prompt:
-            "Read the Gmail email and write a concise, professional reply that answers the customer clearly."
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Create Gmail Draft",
-        helper: "Safe reply draft",
-        icon: "mail",
-        accent: "blue",
-        overrides: {
-          title: "Create Gmail Draft",
-          subtitle: "Creates a draft instead of sending immediately",
-          connector: "Gmail",
-          connectorAction: "draft_reply",
-          gmailTo: "{{gmail.senderEmail}}",
-          gmailSubject: "Re: {{gmail.subject}}",
-          gmailBody: "{{ai.output}}"
-        }
-      },
-      {
-        nodeKind: "connector",
-        label: "Send Gmail Email",
-        helper: "Send real email",
-        icon: "mail",
-        accent: "green",
-        overrides: {
-          title: "Send Gmail Email",
-          subtitle: "Sends email from the connected Gmail account",
-          connector: "Gmail",
-          connectorAction: "send_email",
-          gmailTo: "{{gmail.senderEmail}}",
-          gmailSubject: "Re: {{gmail.subject}}",
-          gmailBody: "{{ai.output}}"
-        }
-      }
-    ]
-  }
-];
-
-export const agentTemplates: AgentTemplate[] = [
-  {
-    id: "ai-receptionist",
-    title: "Build Dental AI Receptionist",
-    description: "Incoming call → AI conversation → check calendar → book → SMS → end call",
-    accent: "violet",
-    icon: "phone-call",
-    flow: createDentalReceptionistFlow
-  },
-  {
-    id: "missed-call",
-    title: "Build Missed Call Text-Back",
-    description: "Twilio missed call → Vapi voice → Calendar booking → SMS follow-up",
-    accent: "amber",
-    icon: "phone",
-    flow: createMissedCallTextBackFlow
-  },
-  {
-    id: "gmail-reply",
-    title: "Build Gmail Reply Flow",
-    description: "Read email → AI reply → Create draft",
-    accent: "blue",
-    icon: "mail",
-    flow: createGmailReplyFlow
   }
 ];
 

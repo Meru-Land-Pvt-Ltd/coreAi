@@ -1,4 +1,4 @@
-import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH } from "@coreai/shared";
+import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { sendTwilioSms } from "./twilio-connector";
@@ -9,7 +9,8 @@ import {
 } from "./gmail-connector";
 import {
   createGoogleCalendarAppointment,
-  getDefaultAppointmentWindow
+  getDefaultAppointmentWindow,
+  listAvailableSlots
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
 
@@ -96,6 +97,23 @@ type RunnerNodeData = {
   conversationBody?: unknown;
   handoffReason?: unknown;
   nextWorkflowId?: unknown;
+  // Generic node capability + voice-booking node fields (read in Test/Dry Run).
+  type?: unknown;
+  callHandlingMode?: unknown;
+  firstMessage?: unknown;
+  practiceName?: unknown;
+  doctorName?: unknown;
+  voice?: unknown;
+  model?: unknown;
+  language?: unknown;
+  date?: unknown;
+  slotsToOffer?: unknown;
+  bufferMinutes?: unknown;
+  sendToPatient?: unknown;
+  sendToDentist?: unknown;
+  dentistPhone?: unknown;
+  patientTemplate?: unknown;
+  dentistTemplate?: unknown;
 };
 
 type RunnerNode = {
@@ -395,6 +413,18 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 }
 
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  // Voice booking: Phone Call Trigger simulates an inbound call (no missed-call wording).
+  if (asString(node.data?.type) === VOICE_NODE_TYPES.phoneCallTrigger) {
+    logs.push(
+      createLog(node, "success", "Customer call simulated for the assigned Twilio number.", {
+        businessName: context.business?.name,
+        callerNumber: context.caller_number || context.missedCall?.callerNumber,
+        callHandlingMode: asString(node.data?.callHandlingMode, "AI_ANSWERS")
+      })
+    );
+    return;
+  }
+
   const callerNumber = context.missedCall?.callerNumber;
 
   if (!callerNumber) {
@@ -415,6 +445,28 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
 }
 
 function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  // Voice booking: AI Voice Conversation previews the assistant config (not an SMS reply).
+  if (asString(node.data?.type) === VOICE_NODE_TYPES.voiceConversation) {
+    const voicePreview = {
+      firstMessage: asString(node.data?.firstMessage, "Thanks for calling. How can I help you today?"),
+      practiceName: asString(node.data?.practiceName),
+      doctorName: asString(node.data?.doctorName),
+      voice: asString(node.data?.voice, "sarah"),
+      model: asString(node.data?.model, "gpt-4o"),
+      language: asString(node.data?.language, "en-US")
+    };
+    context.voiceConversation = voicePreview;
+    logs.push(
+      createLog(
+        node,
+        "success",
+        "Voice assistant prompt generated from AI Voice Conversation node config.",
+        voicePreview
+      )
+    );
+    return;
+  }
+
   const prompt = asString(
     node.data?.prompt,
     "Write a friendly missed-call text-back message."
@@ -557,6 +609,36 @@ async function runSmsConnectorNode({
   mode: WorkflowRunMode;
 }) {
   const action = asString(node.data?.connectorAction, "send_sms");
+
+  // Voice booking: Send SMS notifies patient + dentist after booking.
+  if (action === "send_notification") {
+    const sendToPatient = asString(node.data?.sendToPatient, "true") !== "false";
+    const sendToDentist = asString(node.data?.sendToDentist, "false") === "true";
+    const dentistPhone = asString(node.data?.dentistPhone);
+    const targets = [sendToPatient ? "patient" : null, sendToDentist && dentistPhone ? "dentist" : null].filter(Boolean);
+    context.smsNotification = {
+      sendToPatient,
+      sendToDentist: sendToDentist && Boolean(dentistPhone),
+      patientTemplate: asString(node.data?.patientTemplate),
+      dentistTemplate: asString(node.data?.dentistTemplate),
+      mode
+    };
+    if (mode === "live") {
+      logs.push(
+        createLog(node, "success", `SMS notification will be sent live to ${targets.join(" and ") || "no one"}.`, context.smsNotification)
+      );
+    } else {
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `Dry run passed. SMS would be sent to ${targets.join(" and ") || "no recipients"}.`,
+          context.smsNotification
+        )
+      );
+    }
+    return;
+  }
 
   if (action === "capture_lead") {
     if (!context.missedCall?.callerNumber) {
@@ -744,6 +826,66 @@ async function runGoogleCalendarConnectorNode({
   mode: WorkflowRunMode;
 }) {
   const action = asString(node.data?.connectorAction, "book_appointment");
+  const normalizedAction = action.toLowerCase().replace(/[^a-z]/g, "");
+
+  // Calendar Availability — supports check_availability / checkAvailability /
+  // check_calendar / calendar.availability. Demo slots when not connected.
+  if (normalizedAction.startsWith("check") || normalizedAction.includes("availab")) {
+    const timeZoneAvail = context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+    const date = asString(node.data?.date) || new Date().toISOString().slice(0, 10);
+    const slotsToOffer = Number(node.data?.slotsToOffer) || 3;
+    const demoSlots = ["10:00 AM", "2:00 PM", "4:30 PM"].slice(0, slotsToOffer);
+
+    const ownerId = context.business?.ownerId;
+    if (mode !== "live" || !ownerId) {
+      context.calendarAvailability = {
+        date,
+        slots: demoSlots,
+        source: "demo",
+        calendar_status: ownerId ? undefined : "not_connected"
+      };
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `Calendar not connected. Demo slots returned: ${demoSlots.join(", ")}.`,
+          context.calendarAvailability
+        )
+      );
+      return;
+    }
+
+    try {
+      const availability = await listAvailableSlots({
+        userId: ownerId,
+        calendarId: renderTemplate(node.data?.calendarId, context) || context.business?.calendarId,
+        timeZone: timeZoneAvail,
+        date,
+        bufferMinutes: Number(node.data?.bufferMinutes) || 10,
+        maxSlots: slotsToOffer
+      });
+      const slots = availability.slots.length ? availability.slots : demoSlots;
+      context.calendarAvailability = {
+        date,
+        slots,
+        source: availability.slots.length ? "calendar" : "demo"
+      };
+      logs.push(
+        createLog(node, "success", `Calendar checked. Available slots: ${slots.join(", ")}.`, context.calendarAvailability)
+      );
+    } catch (error) {
+      context.calendarAvailability = { date, slots: demoSlots, source: "demo", calendar_status: "needs_reconnect" };
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `Calendar not connected. Demo slots returned: ${demoSlots.join(", ")}.`,
+          { date, slots: demoSlots, source: "demo", calendar_status: "needs_reconnect", error: error instanceof Error ? error.message : String(error) }
+        )
+      );
+    }
+    return;
+  }
 
   if (action !== "book_appointment") {
     logs.push(createLog(node, "error", `Unsupported Google Calendar action: ${action}`));
@@ -762,7 +904,7 @@ async function runGoogleCalendarConnectorNode({
   const summary = renderTemplate(node.data?.calendarSummary, context) || `${service} - ${context.caller_name || customerPhone}`;
   const description = renderTemplate(node.data?.calendarDescription, context) || `Booked by CORE AI Receptionist for ${businessName}.`;
 
-  if (!customerPhone) {
+  if (!customerPhone && mode === "live") {
     logs.push(createLog(node, "error", "Calendar booking failed because caller phone number is missing."));
     return;
   }
@@ -776,7 +918,7 @@ async function runGoogleCalendarConnectorNode({
       endAt: new Date(endAtRaw).toISOString(),
       timeZone
     };
-    logs.push(createLog(node, "success", "Dry run passed. No Google Calendar event was created.", context.calendarAppointment));
+    logs.push(createLog(node, "success", "Dry run passed. Calendar event would be created.", context.calendarAppointment));
     return;
   }
 
@@ -1279,13 +1421,20 @@ async function runConnectorNode({
 }
 
 function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
-  const outputKey = asString(node.data?.outputKey, "missedCallTextBackResult");
+  // Voice booking: End Flow closes a voice workflow (no missed-call output key/wording).
+  const isEndFlow = asString(node.data?.type) === VOICE_NODE_TYPES.endFlow;
+  const isVoiceWorkflow = isEndFlow || Boolean(context.voiceConversation || context.calendarAvailability);
+
+  const outputKey = asString(node.data?.outputKey, isVoiceWorkflow ? "voiceBookingResult" : "missedCallTextBackResult");
 
   context.output = {
     key: outputKey,
     value:
-      context.capturedLead ??
       context.calendarAppointment ??
+      context.calendarAvailability ??
+      context.smsNotification ??
+      context.voiceConversation ??
+      context.capturedLead ??
       context.vapiCall ??
       context.sentSms ??
       context.queuedSms ??
@@ -1296,6 +1445,13 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
       context.missedCall ??
       null
   };
+
+  if (isVoiceWorkflow) {
+    logs.push(
+      createLog(node, "success", "Voice booking workflow dry run completed.", context.output)
+    );
+    return;
+  }
 
   logs.push(createLog(node, "success", `Output saved as ${outputKey}.`, context.output));
 }

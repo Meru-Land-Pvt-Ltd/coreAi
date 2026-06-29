@@ -1,4 +1,4 @@
-import { DENTAL_NODE_TYPES, DENTAL_SYSTEM_PROMPT_TEMPLATE } from "@coreai/shared";
+import { RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE, VOICE_NODE_TYPES } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { deployVapiAssistant } from "./vapi-connector";
@@ -80,18 +80,24 @@ export async function deployDentalWorkflow({
   const presentTypes = new Set(
     nodes.map((n) => (n.data?.type as string) ?? n.id ?? "").filter(Boolean)
   );
-  const allTypes = Object.values(DENTAL_NODE_TYPES) as string[];
+  const allTypes = Object.values(VOICE_NODE_TYPES) as string[];
   const missingNodes = allTypes.filter((type) => !presentTypes.has(type));
 
-  const ai = nodeData(nodes, DENTAL_NODE_TYPES.aiConversation);
+  const ai = nodeData(nodes, VOICE_NODE_TYPES.voiceConversation);
   if (Object.keys(ai).length === 0) {
     throw new Error("Add and configure the AI Conversation node before deploying.");
   }
 
-  const check = nodeData(nodes, DENTAL_NODE_TYPES.checkCalendar);
-  const book = nodeData(nodes, DENTAL_NODE_TYPES.bookAppointment);
-  const sms = nodeData(nodes, DENTAL_NODE_TYPES.sendSmsNotification);
-  const end = nodeData(nodes, DENTAL_NODE_TYPES.endCall);
+  const incoming = nodeData(nodes, VOICE_NODE_TYPES.phoneCallTrigger);
+  const check = nodeData(nodes, VOICE_NODE_TYPES.calendarAvailability);
+  const book = nodeData(nodes, VOICE_NODE_TYPES.bookAppointment);
+  const sms = nodeData(nodes, VOICE_NODE_TYPES.sendSms);
+  const end = nodeData(nodes, VOICE_NODE_TYPES.endFlow);
+
+  // AI_ANSWERS = the AI picks up directly (no human forward); the dentist phone is
+  // still used for booking SMS via dentalConfig, just not for call forwarding.
+  const callHandlingMode = str(incoming, "callHandlingMode", "AI_ANSWERS");
+  const aiAnswers = callHandlingMode.toUpperCase() === "AI_ANSWERS";
 
   // ---- Compose the assistant from the AI Conversation node ----
   const practiceName = str(ai, "practiceName", workflow.name || "the practice");
@@ -108,7 +114,7 @@ export async function deployDentalWorkflow({
   const model = str(ai, "model", "gpt-4o");
   const voice = str(ai, "voice", "sarah");
 
-  const promptTemplate = str(ai, "systemPrompt", DENTAL_SYSTEM_PROMPT_TEMPLATE);
+  const promptTemplate = str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE);
   const tokens: Record<string, string> = {
     assistantName,
     practice_name: practiceName,
@@ -253,39 +259,66 @@ export async function deployDentalWorkflow({
       });
 
   // ---- Assign / bind a Twilio number ----
+  // AI_ANSWERS → no human forward (the AI picks up). Otherwise forward to the dentist.
+  const forwardToPhone = aiAnswers ? null : dentistPhone || null;
+  const preferredNumber = normalizePhone(env.TWILIO_PHONE_NUMBER);
   const existingPhone = business.phoneNumbers[0] ?? null;
   let assignedNumber: string | null = existingPhone?.phoneNumber ?? null;
 
   if (existingPhone) {
     await prisma.businessPhoneNumber.update({
       where: { id: existingPhone.id },
-      data: { installedAgentId: installedAgent.id, isActive: true, forwardToPhone: dentistPhone || existingPhone.forwardToPhone }
+      data: { installedAgentId: installedAgent.id, isActive: true, forwardToPhone }
     });
   } else {
-    const claimed = await prisma.platformPhoneNumber.findFirst({
-      where: { status: "AVAILABLE", provider: "TWILIO" },
-      orderBy: { createdAt: "asc" }
-    });
+    // Prefer the configured Twilio number; otherwise any available pool number.
+    let claimed = preferredNumber
+      ? await prisma.platformPhoneNumber.findFirst({
+          where: { phoneNumber: preferredNumber, status: "AVAILABLE", provider: "TWILIO" }
+        })
+      : null;
     if (!claimed) {
+      claimed = await prisma.platformPhoneNumber.findFirst({
+        where: { status: "AVAILABLE", provider: "TWILIO" },
+        orderBy: { createdAt: "asc" }
+      });
+    }
+
+    if (claimed) {
+      const phone = await prisma.businessPhoneNumber.create({
+        data: {
+          businessId: business.id,
+          installedAgentId: installedAgent.id,
+          phoneNumber: normalizePhone(claimed.phoneNumber),
+          twilioPhoneNumberSid: claimed.twilioSid ?? null,
+          forwardToPhone,
+          isActive: true
+        }
+      });
+      await prisma.platformPhoneNumber.update({
+        where: { id: claimed.id },
+        data: { status: "ASSIGNED", businessId: business.id, assignedAt: new Date() }
+      });
+      assignedNumber = phone.phoneNumber;
+    } else if (preferredNumber) {
+      // No pool seeded — bind the configured Twilio number directly so the demo works.
+      const phone = await prisma.businessPhoneNumber.upsert({
+        where: { phoneNumber: preferredNumber },
+        update: { businessId: business.id, installedAgentId: installedAgent.id, isActive: true, forwardToPhone },
+        create: {
+          businessId: business.id,
+          installedAgentId: installedAgent.id,
+          phoneNumber: preferredNumber,
+          forwardToPhone,
+          isActive: true
+        }
+      });
+      assignedNumber = phone.phoneNumber;
+    } else {
       throw new Error(
-        "No CoreAI phone numbers are available to assign. Seed PlatformPhoneNumber rows (npm run seed:numbers) and re-deploy."
+        "No phone number available. Set TWILIO_PHONE_NUMBER or seed PlatformPhoneNumber rows (npm run seed:numbers) and re-deploy."
       );
     }
-    const phone = await prisma.businessPhoneNumber.create({
-      data: {
-        businessId: business.id,
-        installedAgentId: installedAgent.id,
-        phoneNumber: normalizePhone(claimed.phoneNumber),
-        twilioPhoneNumberSid: claimed.twilioSid ?? null,
-        forwardToPhone: dentistPhone || null,
-        isActive: true
-      }
-    });
-    await prisma.platformPhoneNumber.update({
-      where: { id: claimed.id },
-      data: { status: "ASSIGNED", businessId: business.id, assignedAt: new Date() }
-    });
-    assignedNumber = phone.phoneNumber;
   }
 
   return {

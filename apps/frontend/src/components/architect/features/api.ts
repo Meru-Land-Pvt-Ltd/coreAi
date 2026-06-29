@@ -82,6 +82,48 @@ export function deployArchitectWorkflow(workflowId: string) {
   );
 }
 
+export type TemplateCard = {
+  id: string;
+  slug: string;
+  title: string;
+  category: string;
+  difficulty: string;
+  nodeCount: number;
+  description: string;
+  forks: number;
+  rating: number;
+  reviewCount: number;
+  tags: string[];
+  recommended?: boolean;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TemplateDetail = TemplateCard & {
+  workflowJson: { nodes: unknown[]; edges: unknown[] };
+};
+
+export type TemplateImport = {
+  workflowId: string;
+  name: string;
+  description: string | null;
+  workflowJson: { nodes: unknown[]; edges: unknown[] };
+};
+
+export function getArchitectTemplates() {
+  return apiGet<{ templates: TemplateCard[] }>("/architect/templates");
+}
+
+export function getArchitectTemplate(slug: string) {
+  return apiGet<{ template: TemplateDetail }>(`/architect/templates/${slug}`);
+}
+
+/** Import a template's workflowJson into the current (or a new) workflow. */
+export function useArchitectTemplate(slug: string, body: { workflowId?: string } = {}) {
+  return apiPost<TemplateImport>(`/architect/templates/${slug}/use`, body);
+}
+
 export function getArchitectListings() {
   return apiGet<{ listings: ArchitectListing[] }>("/architect/listings");
 }

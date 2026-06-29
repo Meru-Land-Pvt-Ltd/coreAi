@@ -7,14 +7,24 @@ export function NodeInspector({
   selectedNode,
   onClearSelection,
   onUpdateNodeData,
-  onDeleteNode
+  onDeleteNode,
+  calendarConnected = false,
+  calendarEmail = null,
+  connectingCalendar = false,
+  onConnectCalendar
 }: {
   selectedNode: BuilderNode | null;
   onClearSelection: () => void;
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
   onDeleteNode: () => void;
+  calendarConnected?: boolean;
+  calendarEmail?: string | null;
+  connectingCalendar?: boolean;
+  onConnectCalendar?: () => void;
 }) {
   if (!selectedNode) return <EmptyProperties />;
+
+  const calendar = { connected: calendarConnected, email: calendarEmail, connecting: connectingCalendar, onConnect: onConnectCalendar };
 
   return (
     <div className="h-full overflow-y-auto bg-white scroll-thin">
@@ -35,7 +45,7 @@ export function NodeInspector({
       </div>
 
       {isDentalNodeType(String(selectedNode.data.type ?? "")) ? (
-        <DentalProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />
+        <DentalProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} calendar={calendar} />
       ) : selectedNode.data.nodeKind === "trigger" ? (
         <TriggerProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />
       ) : selectedNode.data.nodeKind === "ai" ? (
@@ -419,7 +429,18 @@ function BoolField({
  * back to node.data by their registry keys; the Deploy endpoint reads the same
  * keys to build the Vapi assistant + tools.
  */
-function DentalProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+type CalendarConnection = {
+  connected: boolean;
+  email: string | null;
+  connecting: boolean;
+  onConnect?: () => void;
+};
+
+function DentalProps({
+  selectedNode,
+  onUpdateNodeData,
+  calendar
+}: NodePropsPanel & { calendar: CalendarConnection }) {
   const type = String(selectedNode.data.type ?? "");
   const str = (key: string, fallback = ""): string =>
     typeof selectedNode.data[key] === "string" ? (selectedNode.data[key] as string) : fallback;
@@ -520,10 +541,34 @@ function DentalProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   if (type === DENTAL_NODE_TYPES.checkCalendar) {
     return (
       <>
-        <Section title="Check calendar">
-          <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700" data-testid="architect-ui-workflow-builder-node-inspector-dental-calendar-note">
-            Connect Google Calendar from the Test tab. The agent reads open slots before offering times.
-          </p>
+        <Section title="Google Calendar">
+          {calendar.connected ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2.5" data-testid="dental-calendar-connected">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-green-700">
+                <span className="h-2 w-2 rounded-full bg-green-500" /> Google Calendar connected
+              </p>
+              {calendar.email ? <p className="mt-1 text-[11px] text-green-700/80">{calendar.email}</p> : null}
+              <p className="mt-1 text-[11px] text-slate-500">check_availability and book_appointment will use this calendar.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5" data-testid="dental-calendar-disconnected">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                <span className="h-2 w-2 rounded-full bg-amber-500" /> Calendar not connected
+              </p>
+              <p className="mt-1 text-[11px] text-amber-700/90">
+                The agent will offer safe demo slots (10:00 AM, 2:00 PM, 4:30 PM) until you connect.
+              </p>
+              <button
+                type="button"
+                onClick={calendar.onConnect}
+                disabled={calendar.connecting || !calendar.onConnect}
+                data-testid="dental-connect-calendar"
+                className="mt-2 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+              >
+                {calendar.connecting ? "Connecting…" : "Connect Google Calendar"}
+              </button>
+            </div>
+          )}
         </Section>
         <Section title="Availability rules" last>
           <Label>Buffer between appointments (min)</Label>
