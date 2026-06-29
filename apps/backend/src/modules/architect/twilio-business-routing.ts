@@ -211,14 +211,24 @@ function buildBusinessContext(
 
 async function resolveAgent({
   calledNumber,
+  calledNumbers,
   workflowId
 }: {
   calledNumber?: string;
+  calledNumbers?: string[];
   workflowId?: string;
 }): Promise<ResolvedAgent | null> {
-  const normalizedCalledNumber = calledNumber ? normalizePhoneNumber(calledNumber) : "";
+  // Route by the assigned CoreAI/Twilio number (To/Called), with ForwardedFrom /
+  // OriginalCalled as secondary candidates. NEVER by the caller's (From) number.
+  const candidates = Array.from(
+    new Set(
+      [calledNumber, ...(calledNumbers ?? [])]
+        .map((value) => (value ? normalizePhoneNumber(value) : ""))
+        .filter(Boolean)
+    )
+  );
 
-  if (normalizedCalledNumber) {
+  for (const normalizedCalledNumber of candidates) {
     const phoneNumber = await prisma.businessPhoneNumber.findUnique({
       where: { phoneNumber: normalizedCalledNumber },
       include: {
@@ -251,6 +261,7 @@ async function resolveAgent({
     }
   }
 
+  const normalizedCalledNumber = candidates[0] ?? "";
   if (workflowId) {
     const workflow = await prisma.workflowDefinition.findUnique({
       where: { id: workflowId },
@@ -786,7 +797,15 @@ export async function handleTwilioVoice(c: Context) {
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]) || undefined;
-  const agent = await resolveAgent({ calledNumber, workflowId });
+  // Forwarded calls carry the assigned CoreAI number in To/Called and the original
+  // business number in ForwardedFrom/OriginalCalled — try all, resolve by the
+  // assigned number first.
+  const forwardedFrom = readBodyString(body, ["ForwardedFrom", "OriginalCalled", "forwardedFrom"]);
+  const agent = await resolveAgent({
+    calledNumber,
+    calledNumbers: forwardedFrom ? [forwardedFrom] : [],
+    workflowId
+  });
 
   if (!agent) {
     return c.text("<Response><Reject /></Response>", 404, {
@@ -795,12 +814,16 @@ export async function handleTwilioVoice(c: Context) {
   }
 
   const forwardToPhone = agent.forwardToPhone ?? env.TWILIO_FORWARD_TO_PHONE;
+  // A deployed per-business Vapi assistant means this business is set up for AI
+  // answering — answer with AI regardless of the global flag or forward number.
+  const deployedAssistant = agent.business?.vapiAssistantId;
+  const hasDeployedAssistant = Boolean(deployedAssistant && deployedAssistant !== env.VAPI_DEFAULT_ASSISTANT_ID);
 
-  // Live AI answer: when AI-first answering is enabled, or when there is no human
-  // number to forward to, connect the caller straight to the Vapi AI receptionist.
-  // If Vapi can't take the call we fall through to forwarding / the existing
-  // message, so the missed-call text-back path is never broken.
-  if (env.VAPI_ANSWER_INBOUND || !forwardToPhone) {
+  // Live AI answer: when AI-first answering is enabled, the business has a deployed
+  // assistant, or there's no human number to forward to, connect the caller straight
+  // to the Vapi AI receptionist. If Vapi can't take the call we fall through to
+  // forwarding / the existing message, so the missed-call text-back path is never broken.
+  if (env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone) {
     const aiTwiml = await buildVapiAnswerTwiml({
       agent,
       callerNumber,

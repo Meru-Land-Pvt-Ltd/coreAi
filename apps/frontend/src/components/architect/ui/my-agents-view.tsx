@@ -59,11 +59,11 @@ function EmptyAgentsState() {
 
         <div className="relative mt-auto">
           <h3 className="text-2xl font-black tracking-tight text-slate-950" data-testid="architect-ui-my-agents-view-publish-new-agent-heading">
-            Publish New Agent
+            Create your first agent
           </h3>
 
           <p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-slate-500" data-testid="architect-ui-my-agents-view-start-with-an-empty-canvas-then-load-text">
-            Start with an empty canvas. Then load Missed Call Text-Back or build
+            Start with an empty canvas, pick a template from the gallery, or build
             your own flow.
           </p>
         </div>
@@ -78,10 +78,17 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
     : "/architect/agents/publish") as Route;
 
   const isUnderReview = agent.status === "PENDING_REVIEW";
-  // Draft / rejected / suspended agents are editable ("Update").
-  // Approved (live) and pending-review agents are read-only here ("View").
-  const isEditable = agent.status === "DRAFT" || agent.status === "REJECTED" || agent.status === "SUSPENDED";
-  const actionLabel = isEditable ? "Update" : "View";
+  // Status-specific call to action.
+  const actionLabel =
+    agent.status === "DRAFT"
+      ? "Continue editing"
+      : agent.status === "PENDING_REVIEW"
+        ? "View submission"
+        : agent.status === "APPROVED"
+          ? "View live"
+          : agent.status === "REJECTED"
+            ? "Edit & resubmit"
+            : "Manage";
 
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
@@ -163,10 +170,21 @@ function AgentCard({ agent, architectName }: { agent: ArchitectListing; architec
   );
 }
 
+type AgentFilter = "ALL" | "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+
+const FILTER_TABS: { value: AgentFilter; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "DRAFT", label: "Drafts" },
+  { value: "PENDING_REVIEW", label: "Pending Review" },
+  { value: "APPROVED", label: "Approved" },
+  { value: "REJECTED", label: "Rejected" }
+];
+
 export function MyAgentsView() {
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [architectName, setArchitectName] = useState("Architect");
+  const [filter, setFilter] = useState<AgentFilter>("ALL");
 
   useEffect(() => {
     const user = getAuthUser();
@@ -196,6 +214,11 @@ export function MyAgentsView() {
       draft: agents.filter((agent) => agent.status === "DRAFT").length
     }),
     [agents]
+  );
+
+  const visibleAgents = useMemo(
+    () => (filter === "ALL" ? agents : agents.filter((agent) => agent.status === filter)),
+    [agents, filter]
   );
 
   return (
@@ -254,6 +277,30 @@ export function MyAgentsView() {
               Inventory
             </p>
           </div>
+
+          <div className="flex flex-wrap gap-1.5" role="tablist" data-testid="my-agents-filter-tabs">
+            {FILTER_TABS.map((tab) => {
+              const count = tab.value === "ALL" ? agents.length : agents.filter((agent) => agent.status === tab.value).length;
+              const active = filter === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setFilter(tab.value)}
+                  data-testid={`my-agents-filter-${tab.value.toLowerCase()}`}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? "border-amber-500 bg-amber-500 text-white"
+                      : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
+                  }`}
+                >
+                  {tab.label} <span className={active ? "text-white/80" : "text-slate-400"}>({count})</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {loading ? (
@@ -265,16 +312,20 @@ export function MyAgentsView() {
               />
             ))}
           </div>
-        ) : agents.length ? (
+        ) : agents.length === 0 ? (
+          <div className="pt-4">
+            <EmptyAgentsState />
+          </div>
+        ) : visibleAgents.length ? (
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {agents.map((agent) => (
+            {visibleAgents.map((agent) => (
               <AgentCard key={agent.id} agent={agent} architectName={architectName} />
             ))}
           </div>
         ) : (
-          <div className="pt-4">
-            <EmptyAgentsState />
-          </div>
+          <p className="pt-4 text-sm text-slate-500" data-testid="my-agents-filter-empty">
+            No agents in this view. Switch to “All” to see your other agents.
+          </p>
         )}
       </section>
     </div>

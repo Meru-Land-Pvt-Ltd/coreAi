@@ -19,6 +19,12 @@ import {
 } from "./twilio-business-routing";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
+  getPhoneRoutingStatus,
+  setPhoneRoutingMode,
+  setupPhoneRouting,
+  testPhoneRouting
+} from "./phone-routing";
+import {
   cloneTemplateWorkflow,
   getTemplateBySlug,
   listTemplateCards
@@ -752,6 +758,40 @@ architectRoutes.post("/workflows/:workflowId/deploy", async (c) => {
   }
 });
 
+/* ---- Phone routing (generic per-business forwarding setup) ---- */
+
+architectRoutes.get("/phone-routing/status", async (c) => {
+  const authUser = c.get("authUser");
+  return successResponse(c, await getPhoneRoutingStatus(authUser.id));
+});
+
+architectRoutes.post("/phone-routing/setup", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const result = await setupPhoneRouting(authUser.id, body);
+    return successResponse(c, result, "Phone routing saved");
+  } catch (error) {
+    return errorResponse(c, error instanceof Error ? error.message : "Setup failed", 400, "PHONE_ROUTING_SETUP_FAILED");
+  }
+});
+
+architectRoutes.patch("/phone-routing/mode", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { mode?: unknown };
+    const result = await setPhoneRoutingMode(authUser.id, body.mode);
+    return successResponse(c, result, "Routing mode updated");
+  } catch (error) {
+    return errorResponse(c, error instanceof Error ? error.message : "Update failed", 400, "PHONE_ROUTING_MODE_FAILED");
+  }
+});
+
+architectRoutes.post("/phone-routing/test", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { called?: unknown; from?: unknown };
+  return successResponse(c, await testPhoneRouting(body));
+});
+
 /* ---- Template gallery (static seed, served by API; frontend never hardcodes) ---- */
 
 architectRoutes.get("/templates", (c) => {
@@ -913,8 +953,14 @@ architectRoutes.post("/workflows/:workflowId/run-live", async (c) => {
   }
 });
 
+// The architect's OWN agent dashboard (My Agents) — not the public marketplace
+// and not the admin review queue. Returns ALL owned agents across every status:
+// published listings (DRAFT/PENDING_REVIEW/APPROVED/REJECTED/SUSPENDED) PLUS
+// saved/imported workflows that have no listing yet, surfaced as DRAFT agents.
+// Pass ?status=DRAFT|PENDING_REVIEW|... to filter; omit it to return everything owned.
 architectRoutes.get("/listings", async (c) => {
   const authUser = c.get("authUser");
+  const statusFilter = c.req.query("status");
 
   const allListings = await prisma.agentListing.findMany({
     where: {
@@ -935,8 +981,37 @@ architectRoutes.get("/listings", async (c) => {
     return true;
   });
 
+  // Workflows the architect saved or imported (builder/template) but hasn't
+  // published yet → their DRAFT agents. Never hidden.
+  const workflows = await prisma.workflowDefinition.findMany({
+    where: { architectUserId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true, description: true, createdAt: true }
+  });
+  const drafts = workflows
+    .filter((workflow) => !seenWorkflowIds.has(workflow.id))
+    .map((workflow) => ({
+      id: `draft-${workflow.id}`,
+      workflowId: workflow.id,
+      name: workflow.name,
+      shortDescription: workflow.description ?? "",
+      description: workflow.description ?? null,
+      priceCents: 0,
+      status: "DRAFT" as const,
+      tags: [] as string[],
+      requiredConnectors: [] as string[],
+      supportedLlms: [] as string[],
+      createdAt: workflow.createdAt,
+      workflow: null
+    }));
+
+  const combined = [...listings, ...drafts].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  const result = statusFilter ? combined.filter((agent) => agent.status === statusFilter) : combined;
+
   return successResponse(c, {
-    listings
+    listings: result
   });
 });
 

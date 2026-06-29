@@ -41,6 +41,7 @@ import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./wo
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import { PreviewModal } from "./workflow-builder/preview-modal";
 import { PublishPanel } from "./workflow-builder/publish-panel";
+import { PhoneRoutingModal } from "./workflow-builder/phone-routing-modal";
 import { TemplateGallery } from "./workflow-builder/template-gallery";
 import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal";
 import { TestPanel } from "./workflow-builder/test-panel";
@@ -79,6 +80,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [deployment, setDeployment] = useState<DentalDeployment | null>(null);
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [importingSlug, setImportingSlug] = useState<string | null>(null);
+  const [phoneSetupOpen, setPhoneSetupOpen] = useState(false);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -604,6 +606,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 Vapi assistant {deployment.assistantId} · {deployment.nodesDeployed.length}/6 nodes
                 {deployment.missingNodes.length ? ` · missing: ${deployment.missingNodes.length}` : ""}
               </p>
+              <button
+                type="button"
+                onClick={() => setPhoneSetupOpen(true)}
+                data-testid="builder-deploy-banner-phone-setup"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+              >
+                Set up call forwarding
+              </button>
             </div>
             <button
               type="button"
@@ -737,6 +747,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       />
 
       <TemplatePreviewModal slug={previewSlug} onClose={() => setPreviewSlug(null)} onUse={importTemplate} />
+
+      <PhoneRoutingModal open={phoneSetupOpen} onClose={() => setPhoneSetupOpen(false)} workflowId={workflowId} />
 
 
       <MobileSheet panel={mobilePanel} onClose={() => setMobilePanel(null)}>

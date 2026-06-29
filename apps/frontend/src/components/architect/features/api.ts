@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
 import type {
   ArchitectListing,
   ArchitectProfile,
@@ -122,6 +122,75 @@ export function getArchitectTemplate(slug: string) {
 /** Import a template's workflowJson into the current (or a new) workflow. */
 export function useArchitectTemplate(slug: string, body: { workflowId?: string } = {}) {
   return apiPost<TemplateImport>(`/architect/templates/${slug}/use`, body);
+}
+
+export type ForwardingInstructions = { headline: string; steps: string[]; note: string };
+
+export type PhoneRoutingStatus = {
+  configured: boolean;
+  businessId: string | null;
+  businessName?: string;
+  businessType?: string;
+  publicBusinessNumber: string | null;
+  assignedCoreAiNumber: string | null;
+  mode: string;
+  isActive: boolean;
+  setupStatus: string;
+  forwardingInstructions: ForwardingInstructions;
+  vapiAssistantId: string | null;
+  vapiPhoneNumberId?: string | null;
+  workflowId: string | null;
+  installedAgentId: string | null;
+};
+
+export type PhoneRoutingSetupResult = {
+  businessId: string;
+  installedAgentId: string;
+  workflowId: string | null;
+  publicBusinessNumber: string;
+  assignedCoreAiNumber: string;
+  mode: string;
+  isActive: boolean;
+  setupStatus: string;
+  forwardingInstructions: ForwardingInstructions;
+  vapiAssistantId: string | null;
+};
+
+export type PhoneRoutingTestResult = {
+  resolved: boolean;
+  matchedNumber: string | null;
+  callerNumber: string;
+  businessName?: string;
+  businessType?: string;
+  workflowId?: string;
+  installedAgentId?: string;
+  vapiAssistantId?: string | null;
+  mode?: string;
+  message?: string;
+};
+
+export function getPhoneRoutingStatus() {
+  return apiGet<PhoneRoutingStatus>("/architect/phone-routing/status");
+}
+
+export function setupPhoneRouting(body: {
+  publicBusinessNumber: string;
+  mode: string;
+  workflowId?: string;
+  installedAgentId?: string;
+}) {
+  return apiPost<PhoneRoutingSetupResult>("/architect/phone-routing/setup", body);
+}
+
+export function updatePhoneRoutingMode(mode: string) {
+  return apiPatch<{ mode: string; assignedCoreAiNumber: string; forwardingInstructions: ForwardingInstructions }>(
+    "/architect/phone-routing/mode",
+    { mode }
+  );
+}
+
+export function testPhoneRouting(body: { called: string; from: string }) {
+  return apiPost<PhoneRoutingTestResult>("/architect/phone-routing/test", body);
 }
 
 export function getArchitectListings() {
