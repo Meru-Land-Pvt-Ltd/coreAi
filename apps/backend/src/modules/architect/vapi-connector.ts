@@ -350,13 +350,16 @@ function dentalAssistantTools() {
       type: "function",
       function: {
         name: VOICE_TOOL_NAMES.bookAppointment,
-        description: "Book the appointment in Google Calendar after the patient confirms a slot.",
+        description: "Book the appointment in Google Calendar after the patient confirms a slot. Only call this once you have the patient's real full name.",
         parameters: {
           type: "object",
           properties: {
-            patient_name: { type: "string" },
-            patient_phone: { type: "string" },
-            date: { type: "string", description: "ISO YYYY-MM-DD." },
+            patient_name: {
+              type: "string",
+              description: "Patient's real full name. Do not use placeholders like John Doe, Patient Name, Full Name, or the caller. Ask the caller if not known."
+            },
+            patient_phone: { type: "string", description: "Patient's callback number in E.164 (e.g. +9198XXXXXXXX). If unknown, leave blank and the caller's number is used." },
+            date: { type: "string", description: "ISO YYYY-MM-DD, computed from the current date." },
             time: { type: "string", description: "24h HH:mm." },
             service_type: { type: "string" },
             duration_minutes: { type: "number" }

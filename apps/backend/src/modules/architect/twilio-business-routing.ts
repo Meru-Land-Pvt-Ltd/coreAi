@@ -1352,9 +1352,114 @@ type VapiToolContext = {
   customerPhone: string;
   patientPhone: string;
   conversationId?: string;
+  callId?: string;
   summary: string;
   transcript: string;
 };
+
+const NEEDS_PATIENT_NAME_RESULT = {
+  success: false,
+  needs_clarification: true,
+  missing_field: "patient_name",
+  message: "Please ask the caller for their full name before booking."
+} as const;
+
+const INVALID_PATIENT_NAMES = new Set([
+  "john doe", "jane doe", "full name", "patient name", "patient full name", "test user",
+  "unknown", "the caller", "caller", "customer", "patient", "client", "n/a", "na", "name",
+  "first name", "last name", "first last", "your name", "no name", "none", "na na"
+]);
+
+const GENERIC_NAME_WORDS = new Set([
+  "name", "caller", "customer", "patient", "client", "unknown", "test", "user", "full", "first", "last", "none", "na"
+]);
+
+/** True only for a plausibly-real human name (not a placeholder/blocklisted value). */
+function isValidPatientName(name: unknown): boolean {
+  if (typeof name !== "string") return false;
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  if (trimmed.length < 3) return false;
+  if (INVALID_PATIENT_NAMES.has(trimmed.toLowerCase())) return false;
+  // Must contain at least 2 alphabetic characters.
+  if ((trimmed.match(/[A-Za-zÀ-ɏ]/g) || []).length < 2) return false;
+  const words = trimmed.split(" ").filter(Boolean);
+  if (words.every((word) => GENERIC_NAME_WORDS.has(word.toLowerCase()))) return false;
+  // One-word names are allowed only when not a generic word.
+  if (words.length === 1 && GENERIC_NAME_WORDS.has(words[0].toLowerCase())) return false;
+  return true;
+}
+
+/** Title-case and trim a spoken name candidate to its first 1-3 name words. */
+function cleanNameCandidate(raw: string): string {
+  const stop = new Set([
+    "and", "calling", "here", "speaking", "please", "thanks", "thank", "you", "to", "for",
+    "the", "a", "an", "my", "i", "im", "is", "was", "like", "want", "wanted", "need", "would",
+    "book", "booking", "appointment", "cleaning", "calling"
+  ]);
+  const words: string[] = [];
+  for (const token of raw.split(/\s+/)) {
+    const word = token.replace(/[^A-Za-z'’.-]/g, "");
+    if (!word) break;
+    if (stop.has(word.toLowerCase())) break;
+    words.push(word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+    if (words.length >= 3) break;
+  }
+  return words.join(" ").trim();
+}
+
+/** Pull a real full name out of the caller transcript using common phrasings. */
+function extractPatientNameFromTranscript(transcript: string): string | null {
+  if (typeof transcript !== "string" || !transcript.trim()) return null;
+  const patterns = [
+    /\bmy full name is\s+([A-Za-z][A-Za-z .'’-]{2,})/i,
+    /\bfull name is\s+([A-Za-z][A-Za-z .'’-]{2,})/i,
+    /\bmy name is\s+([A-Za-z][A-Za-z .'’-]{2,})/i,
+    /\bname'?s\s+([A-Za-z][A-Za-z .'’-]{2,})/i,
+    /\bthis is\s+([A-Za-z][A-Za-z .'’-]{2,})/i,
+    /\bi am\s+([A-Za-z][A-Za-z .'’-]{2,})/i,
+    /\bi'?m\s+([A-Za-z][A-Za-z .'’-]{2,})/i
+  ];
+  for (const pattern of patterns) {
+    const match = transcript.match(pattern);
+    if (match?.[1]) {
+      const candidate = cleanNameCandidate(match[1]);
+      if (isValidPatientName(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+/** Resolve the patient's real full name: validated arg → transcript → null (ask). */
+function resolvePatientName(args: Record<string, unknown>, transcript: string, summary: string): string | null {
+  const argName = argStr(args, ["patient_name", "patient_full_name", "customerName", "name"]);
+  if (isValidPatientName(argName)) return (argName as string).trim().replace(/\s+/g, " ");
+  return extractPatientNameFromTranscript(`${transcript}\n${summary}`);
+}
+
+/** Normalize a phone number to E.164, biased to India (Asia/Kolkata default) then US. */
+function normalizePhoneE164(raw?: string | null): string {
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("+")) {
+    const digits = trimmed.slice(1).replace(/\D/g, "");
+    return digits.length >= 10 ? `+${digits}` : "";
+  }
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 10) return "";
+  if (digits.length === 10) return /^[6-9]/.test(digits) ? `+91${digits}` : `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) {
+    const national = digits.slice(1);
+    return national.length === 10 ? (/^[6-9]/.test(national) ? `+91${national}` : `+1${national}`) : "";
+  }
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  return `+${digits}`;
+}
+
+/** Prefer a clean caller-provided number; otherwise the Vapi call's customer number. */
+function resolvePatientPhone(argPhone: string | undefined, callerPhone: string): string {
+  return normalizePhoneE164(argPhone) || normalizePhoneE164(callerPhone) || callerPhone || "";
+}
 
 /** check_availability: validate date, then real Google Calendar slots or demo slots. */
 async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
@@ -1414,8 +1519,17 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
+  // Require a real patient full name — never book with a placeholder.
+  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary);
+  if (!patientName) {
+    console.warn("[vapi-webhook] book_appointment rejected: no valid patient name", {
+      provided: argStr(args, ["patient_name", "name"])
+    });
+    return NEEDS_PATIENT_NAME_RESULT;
+  }
+
+  const patientPhone = resolvePatientPhone(argStr(args, ["patient_phone", "customerPhone", "phone"]), ctx.customerPhone);
   const service = argStr(args, ["service_type", "service"]) || "Consultation";
-  const customerName = argStr(args, ["patient_name", "customerName", "name"]);
   const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
   const time =
     parseClockTime(argStr(args, ["time", "appointment_time"])) ?? parseClockTime(ctx.transcript) ?? { hour: 9, minute: 0 };
@@ -1431,12 +1545,23 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const confirmation = ctx.dental?.confirmationMessage
     ? applyBracketTemplate(ctx.dental.confirmationMessage, {
         service,
-        "patient name": customerName ?? "",
+        "patient name": patientName,
         "doctor name": doctorName,
         date: whenLabel,
         time: whenLabel
       })
-    : `Perfect, you're booked for ${service} on ${whenLabel}.`;
+    : `Perfect, ${patientName} — you're booked for ${service} on ${whenLabel}.`;
+
+  // Rich, validated calendar description.
+  const eventDescription = [
+    `Patient: ${patientName}`,
+    `Phone: ${patientPhone || "not provided"}`,
+    `Service: ${service}`,
+    "Source: Triven AI voice receptionist",
+    ctx.callId ? `Call ID: ${ctx.callId}` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const localFallback = async (calendarStatus: string) => {
     if (ctx.business?.businessId) {
@@ -1444,13 +1569,13 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         await prisma.appointment.create({
           data: {
             businessId: ctx.business.businessId,
-            customerPhone: ctx.patientPhone || ctx.customerPhone || "unknown",
-            customerName: customerName ?? undefined,
+            customerPhone: patientPhone || "unknown",
+            customerName: patientName,
             service,
             startAt,
             endAt,
             timeZone: ctx.timeZone,
-            notes: "Booked by Triven AI (calendar not connected — local record)."
+            notes: `Booked by Triven AI (calendar not connected — local record).\n${eventDescription}`
           }
         });
       } catch (error) {
@@ -1464,30 +1589,32 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       calendar_id: ctx.business?.calendarId ?? "primary",
       calendar_status: calendarStatus,
       source: "local",
+      patient_name: patientName,
+      patient_phone: patientPhone,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
       confirmation
     };
   };
 
-  if (ctx.business?.businessId && ctx.business.ownerId && ctx.patientPhone) {
+  if (ctx.business?.businessId && ctx.business.ownerId && patientPhone) {
     try {
       const { calendarEvent } = await createBusinessAppointment({
         business: ctx.business,
-        customerPhone: ctx.patientPhone,
-        customerName,
+        customerPhone: patientPhone,
+        customerName: patientName,
         service,
         startAt,
         endAt,
         conversationId: ctx.conversationId,
-        description: `Booked by Triven AI voice receptionist. Phone: ${ctx.patientPhone}`,
+        description: eventDescription,
         notes: ctx.summary || ctx.transcript || null
       });
       await upsertConversation({
         businessId: ctx.business.businessId,
-        customerPhone: ctx.patientPhone,
+        customerPhone: patientPhone,
         direction: "SYSTEM",
-        body: `Voice booking: ${service} on ${formatAppointmentTime(calendarEvent.startAt, ctx.timeZone)}.`,
+        body: `Voice booking: ${service} for ${patientName} on ${formatAppointmentTime(calendarEvent.startAt, ctx.timeZone)}.`,
         providerId: calendarEvent.id
       }).catch(() => null);
       return {
@@ -1497,6 +1624,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         calendar_id: calendarEvent.calendarId,
         calendar_status: "connected",
         source: "google_calendar",
+        patient_name: patientName,
+        patient_phone: patientPhone,
         startAt: calendarEvent.startAt,
         endAt: calendarEvent.endAt,
         confirmation
@@ -1517,25 +1646,28 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   let dentistSmsSent = false;
 
   if (ctx.business?.businessId) {
+    // Only ever use a validated real name in SMS — never a placeholder.
+    const patientName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
+    const patientPhone = resolvePatientPhone(argStr(args, ["patient_phone", "phone"]), ctx.customerPhone);
     const values: Record<string, string> = {
       service: argStr(args, ["service", "service_type"]) || "appointment",
-      "patient name": argStr(args, ["patient_name", "name"]) || "",
-      "patient phone": ctx.patientPhone || "",
+      "patient name": patientName,
+      "patient phone": patientPhone || "",
       "doctor name": argStr(args, ["doctor_name"]) || ctx.dental?.doctorName || ctx.business.businessName,
       date: argStr(args, ["appointment_date", "date"]) || "",
       time: argStr(args, ["appointment_time", "time"]) || ""
     };
 
-    if ((ctx.dental?.sendToPatient ?? true) && ctx.patientPhone) {
+    if ((ctx.dental?.sendToPatient ?? true) && patientPhone) {
       try {
         const sms = applyBracketTemplate(
           ctx.dental?.patientTemplate ?? "Confirmed: [Service] with [Doctor Name], [Date] at [Time].",
           values
         );
-        await sendTwilioSms({ to: ctx.patientPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
+        await sendTwilioSms({ to: patientPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
         await upsertConversation({
           businessId: ctx.business.businessId,
-          customerPhone: ctx.patientPhone,
+          customerPhone: patientPhone,
           direction: "OUTBOUND",
           body: sms
         }).catch(() => null);
@@ -1637,6 +1769,7 @@ export async function handleVapiWebhook(c: Context) {
       customerPhone,
       patientPhone: customerPhone,
       conversationId,
+      callId: callId || undefined,
       summary,
       transcript
     };
