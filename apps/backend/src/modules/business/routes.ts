@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { requiredConnectorsForWorkflow, type ConnectorRequirement } from "@coreai/shared";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -20,6 +21,7 @@ import {
   handleStripeWebhook
 } from "./billing";
 import { ensureBusinessVapiAssistant } from "../architect/vapi-connector";
+import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import { isBillingEnabled } from "../../lib/stripe";
 
 export const businessRoutes = new Hono();
@@ -157,6 +159,12 @@ const businessSetupSchema = z.object({
   knowledge: z.array(knowledgeItemSchema).default([]),
   vapiAssistantId: z.string().trim().optional().or(z.literal("")),
   vapiPhoneNumberId: z.string().trim().optional().or(z.literal("")),
+  // Buyer voice selection: accept the agent default or override it at install.
+  voice: z.string().trim().optional().or(z.literal("")),
+  voiceId: z.string().trim().optional().or(z.literal("")),
+  voiceProvider: z.string().trim().optional().or(z.literal("")),
+  // Buyer-chosen answering mode (AI_FIRST | NO_ANSWER | BUSY | AFTER_HOURS | UNREACHABLE).
+  answeringMode: z.string().trim().optional().or(z.literal("")),
   calendarId: z.string().trim().optional().or(z.literal("")),
   workflowId: z.string().trim().optional().or(z.literal("")),
   listingId: z.string().trim().optional().or(z.literal(""))
@@ -251,17 +259,114 @@ async function loadBusinessForOwner(ownerId: string) {
       profile: true,
       knowledgeBases: { orderBy: { createdAt: "asc" } },
       phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
-      installedAgents: { orderBy: { createdAt: "desc" } }
+      installedAgents: { orderBy: { createdAt: "desc" }, include: { workflow: true } }
     }
   });
 }
 
 type LoadedBusiness = NonNullable<Awaited<ReturnType<typeof loadBusinessForOwner>>>;
 
+type SetupChecklistItem = {
+  key: string;
+  label: string;
+  required: boolean;
+  complete: boolean;
+  blocker?: string;
+};
+
+/**
+ * Buyer install readiness: derives the connectors the installed workflow needs,
+ * checks each against the business's connection/setup state, and gates live
+ * deployment. Live deploy is enabled only when every REQUIRED item is complete.
+ */
+function buildSetupReadiness(business: LoadedBusiness | null, calendarConnected: boolean) {
+  const profile = business?.profile ?? null;
+  const phone = business?.phoneNumbers?.[0] ?? null;
+  const installedAgent = business?.installedAgents?.[0] ?? null;
+  const workflowJson = installedAgent?.workflow?.workflowJson ?? null;
+
+  const requiredConnectors: ConnectorRequirement[] = workflowJson
+    ? requiredConnectorsForWorkflow(workflowJson)
+    : [];
+  const needs = new Set(requiredConnectors.filter((req) => !req.optional).map((req) => req.connector));
+
+  const profileComplete = Boolean(business && profile && business.name && business.type);
+  const calendarComplete = calendarConnected;
+  const phoneComplete = Boolean(phone && phone.forwardToPhone);
+  const smsComplete = Boolean(phone);
+  const voiceComplete = Boolean(profile?.vapiAssistantId);
+
+  const checklist: SetupChecklistItem[] = [
+    {
+      key: "business_profile",
+      label: "Business profile",
+      required: true,
+      complete: profileComplete,
+      blocker: profileComplete ? undefined : "Add your business name, type and services."
+    },
+    {
+      key: "google_calendar",
+      label: "Google Calendar",
+      required: needs.has("google_calendar"),
+      complete: calendarComplete,
+      blocker:
+        needs.has("google_calendar") && !calendarComplete
+          ? "Google Calendar is required before live booking."
+          : undefined
+    },
+    {
+      key: "phone_routing",
+      label: "Phone routing / number",
+      required: needs.has("phone_provider") || needs.has("twilio"),
+      complete: phoneComplete,
+      blocker:
+        (needs.has("phone_provider") || needs.has("twilio")) && !phoneComplete
+          ? "Phone routing is required before live calls."
+          : undefined
+    },
+    {
+      key: "sms_sender",
+      label: "SMS sender",
+      required: needs.has("twilio"),
+      complete: smsComplete,
+      blocker:
+        needs.has("twilio") && !smsComplete
+          ? "An SMS sender (assigned number) is required before notifications."
+          : undefined
+    },
+    {
+      key: "voice",
+      label: "Voice setup",
+      required: needs.has("vapi"),
+      complete: voiceComplete,
+      blocker: needs.has("vapi") && !voiceComplete ? "A voice must be set up before live calls." : undefined
+    }
+  ];
+
+  const blockers = checklist
+    .filter((item) => item.required && !item.complete && item.blocker)
+    .map((item) => item.blocker as string);
+  const readyToDeploy = checklist.every((item) => !item.required || item.complete);
+
+  return { requiredConnectors, checklist, readyToDeploy, blockers };
+}
+
 function serializeSetup(business: LoadedBusiness | null, calendar: { connected: boolean; email: string | null }) {
   const profile = business?.profile ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
   const installedAgent = business?.installedAgents?.[0] ?? null;
+  const readiness = buildSetupReadiness(business, calendar.connected);
+
+  // Buyer's persisted voice + answering-mode choices live on InstalledAgent.configJson.
+  const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
+  const voiceConfig =
+    config && typeof config.voice === "object" && config.voice !== null
+      ? (config.voice as Record<string, unknown>)
+      : null;
+  const phoneRoutingConfig =
+    config && typeof config.phoneRouting === "object" && config.phoneRouting !== null
+      ? (config.phoneRouting as Record<string, unknown>)
+      : null;
 
   return {
     business: business
@@ -298,7 +403,25 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
         content: item.content
       })) ?? [],
     calendar: { connected: calendar.connected, email: calendar.email },
-    webhooks: phone ? buildWebhookUrls() : null
+    webhooks: phone ? buildWebhookUrls() : null,
+    // Buyer install checklist: required connectors, per-item status, blockers,
+    // and the live-deploy gate.
+    requiredConnectors: readiness.requiredConnectors,
+    checklist: readiness.checklist,
+    readyToDeploy: readiness.readyToDeploy,
+    blockers: readiness.blockers,
+    // Buyer's persisted voice + answering-mode choices (prefill the setup UI).
+    voiceSelection: voiceConfig
+      ? {
+          name: typeof voiceConfig.name === "string" ? voiceConfig.name : null,
+          voiceId: typeof voiceConfig.voiceId === "string" ? voiceConfig.voiceId : null,
+          provider: typeof voiceConfig.provider === "string" ? voiceConfig.provider : null
+        }
+      : null,
+    answeringMode:
+      phoneRoutingConfig && typeof phoneRoutingConfig.mode === "string"
+        ? phoneRoutingConfig.mode
+        : null
   };
 }
 
@@ -419,7 +542,17 @@ businessRoutes.post("/setup", async (c) => {
       connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],
       vapiAssistantId: input.vapiAssistantId || null,
       vapiPhoneNumberId: input.vapiPhoneNumberId || null,
-      calendarId: input.calendarId || "primary"
+      calendarId: input.calendarId || "primary",
+      // Buyer's voice selection (overrides the agent default at deploy).
+      voice: {
+        name: input.voice || null,
+        voiceId: input.voiceId || null,
+        provider: input.voiceProvider || null
+      },
+      // Buyer's phone answering mode (routing). Stored for the live voice path.
+      phoneRouting: {
+        mode: input.answeringMode || "NO_ANSWER"
+      }
     };
 
     const existingAgent = existing?.installedAgents?.[0] ?? null;
@@ -474,11 +607,22 @@ businessRoutes.post("/setup", async (c) => {
       });
     }
 
-    // Resolve/store a per-business Vapi assistant id (non-fatal if Vapi is off).
+    // Build/refresh the per-business Vapi assistant from the installed workflow's
+    // voice node (honoring the buyer's voice selection). Falls back to assigning
+    // the shared default assistant for SMS-only agents or if the build fails.
+    // Non-fatal — setup still succeeds so the buyer can retry/connect later.
     try {
-      await ensureBusinessVapiAssistant(business.id);
+      const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
+      if (!voiceDeploy) {
+        await ensureBusinessVapiAssistant(business.id);
+      }
     } catch (error) {
-      console.error("ensureBusinessVapiAssistant failed (non-fatal)", error);
+      console.error("voice assistant deploy failed (non-fatal); falling back", error);
+      try {
+        await ensureBusinessVapiAssistant(business.id);
+      } catch (fallbackError) {
+        console.error("ensureBusinessVapiAssistant fallback failed (non-fatal)", fallbackError);
+      }
     }
 
     const [refreshed, calendar] = await Promise.all([

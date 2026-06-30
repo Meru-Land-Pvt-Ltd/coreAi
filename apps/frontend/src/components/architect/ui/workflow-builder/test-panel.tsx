@@ -16,7 +16,6 @@ export function TestPanel({
   runContext,
   onConnectGmail,
   onRunTest,
-  onRunLive,
   onCallerNumberChange,
   onCallerNameChange,
   onBusinessNameChange
@@ -33,7 +32,6 @@ export function TestPanel({
   runContext: Record<string, unknown>;
   onConnectGmail: () => void;
   onRunTest: () => void;
-  onRunLive: () => void;
   onCallerNumberChange: (value: string) => void;
   onCallerNameChange: (value: string) => void;
   onBusinessNameChange: (value: string) => void;
@@ -99,17 +97,6 @@ export function TestPanel({
               <BuilderIcon name="play" className="h-4 w-4" />
               {running ? "Running..." : "Run test"}
             </button>
-            {!hasGmailFlow ? (
-              <button
-                type="button"
-                onClick={onRunLive}
-                disabled={running}
-                data-testid="test-send-live"
-                className="hidden rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:opacity-60 sm:block"
-              >
-                Send live
-              </button>
-            ) : null}
           </div>
         </div>
 

@@ -32,9 +32,31 @@ export type BusinessSetupInput = {
   knowledge: BusinessKnowledgeItem[];
   vapiAssistantId?: string;
   vapiPhoneNumberId?: string;
+  voice?: string;
+  voiceId?: string;
+  voiceProvider?: string;
+  answeringMode?: string;
   calendarId?: string;
   listingId?: string;
   workflowId?: string;
+};
+
+export type ConnectorRequirement = {
+  connector: string;
+  label: string;
+  ownedBy: "buyer" | "platform";
+  scopes?: string[];
+  config?: string[];
+  optional?: boolean;
+  note: string;
+};
+
+export type SetupChecklistItem = {
+  key: string;
+  label: string;
+  required: boolean;
+  complete: boolean;
+  blocker?: string;
 };
 
 export type BusinessSetupData = {
@@ -67,6 +89,25 @@ export type BusinessSetupData = {
     vapi: string;
   } | null;
   assignedPhoneNumber?: string;
+  /** Connectors the buyer must set up to run this agent live (from the workflow). */
+  requiredConnectors?: ConnectorRequirement[];
+  /** Per-item install readiness; drives the buyer checklist + live-deploy gate. */
+  checklist?: SetupChecklistItem[];
+  readyToDeploy?: boolean;
+  blockers?: string[];
+  /** Buyer's persisted voice choice (prefills the voice picker). */
+  voiceSelection?: { name: string | null; voiceId: string | null; provider: string | null } | null;
+  /** Buyer's persisted answering mode (prefills the routing selector). */
+  answeringMode?: string | null;
+};
+
+/** A marketplace listing as the buyer sees it (used to read requiredConnectors pre-install). */
+export type MarketplaceListing = {
+  id: string;
+  name: string;
+  shortDescription: string;
+  requiredConnectors: string[];
+  workflowId: string | null;
 };
 
 export type BusinessCalendarStatus = {
@@ -86,6 +127,15 @@ export function saveBusinessSetup(body: BusinessSetupInput) {
     "/business/setup",
     body as unknown as Record<string, unknown>
   );
+}
+
+/**
+ * Read a marketplace listing (buyer-accessible). Used so the setup checklist can
+ * show the agent's required connectors immediately after install, before the
+ * first save resolves the workflow server-side.
+ */
+export function getMarketplaceListing(listingId: string) {
+  return apiGet<{ listing: MarketplaceListing }>(`/architect/listings/${listingId}`);
 }
 
 export function getBusinessCalendarStatus() {

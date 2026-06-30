@@ -7,6 +7,8 @@ export type ApiResponse<T> = {
   message?: string;
   error?: string;
   code?: string;
+  /** HTTP status of a failed response (when available) — useful for diagnostics. */
+  status?: number;
   data?: T;
 };
 
@@ -40,7 +42,8 @@ function normalizeAxiosError<T>(error: unknown): ApiResponse<T> {
         responseData?.error ??
         error.message ??
         "Something went wrong while connecting to server",
-      code: responseData?.code ?? "API_ERROR"
+      code: responseData?.code ?? "API_ERROR",
+      status: error.response?.status
     };
   }
 

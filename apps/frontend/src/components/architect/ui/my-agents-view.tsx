@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { formatDate, formatMoney } from "@/components/architect/ui/architect-ui";
-import { deleteArchitectWorkflow, getArchitectListings } from "@/components/architect/features/api";
+import { deleteArchitectWorkflow,
+  cleanupDraftWorkflows,
+  getArchitectListings
+} from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { getAuthUser } from "@/lib/auth";
 import { architectPublishingStatusPath } from "@/lib/routes";
@@ -469,6 +472,9 @@ export function MyAgentsView() {
   const [loading, setLoading] = useState(true);
   const [architectName, setArchitectName] = useState("Architect");
   const [filter, setFilter] = useState<AgentFilter>("ALL");
+  const [confirm, setConfirm] = useState<{ message: string; confirmLabel: string; run: () => Promise<void> } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const user = getAuthUser();
@@ -496,6 +502,47 @@ export function MyAgentsView() {
     }
 
     setLoading(false);
+  }
+
+  function requestDeleteDraft(agent: ArchitectListing) {
+    if (!agent.workflowId) return;
+    setConfirm({
+      message: "Delete this draft? This cannot be undone.",
+      confirmLabel: "Delete draft",
+      run: async () => {
+        const result = await deleteArchitectWorkflow(agent.workflowId as string);
+        if (!result.success) {
+          setActionMessage(result.error ?? "Could not delete this draft.");
+          return;
+        }
+        setActionMessage(null);
+        await loadAgents();
+      }
+    });
+  }
+
+  function requestClearClutter() {
+    setConfirm({
+      message: "Clear draft clutter? This deletes untitled and duplicate drafts that aren't submitted or deployed. This cannot be undone.",
+      confirmLabel: "Clear drafts",
+      run: async () => {
+        const result = await cleanupDraftWorkflows({ deleteUntitled: true, deleteDuplicateTemplates: true });
+        if (!result.success || !result.data) {
+          setActionMessage(result.error ?? "Could not clear drafts.");
+          return;
+        }
+        setActionMessage(`Removed ${result.data.deletedCount} draft${result.data.deletedCount === 1 ? "" : "s"}.`);
+        await loadAgents();
+      }
+    });
+  }
+
+  async function runConfirm() {
+    if (!confirm) return;
+    setBusy(true);
+    await confirm.run();
+    setBusy(false);
+    setConfirm(null);
   }
 
   useEffect(() => {
@@ -656,6 +703,38 @@ export function MyAgentsView() {
           </p>
         )}
       </section>
+
+      {confirm ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4"
+          data-testid="my-agents-confirm-modal"
+          onClick={() => !busy && setConfirm(null)}
+        >
+          <div className="w-[min(92vw,420px)] rounded-2xl border border-gray-200 bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-base font-black text-slate-900">Please confirm</h3>
+            <p className="mt-2 text-sm text-slate-600">{confirm.message}</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                disabled={busy}
+                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void runConfirm()}
+                disabled={busy}
+                data-testid="my-agents-confirm-delete"
+                className="rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-60"
+              >
+                {busy ? "Working…" : confirm.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
