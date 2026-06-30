@@ -74,7 +74,10 @@ export type DentalDeployment = {
   missingNodes: string[];
 };
 
-/** Deploy the builder workflow as a live Vapi voice agent (creates the assistant + binds the number). */
+/**
+ * DEV/DEMO-ONLY — not used by the architect UI (architects design + publish only).
+ * Buyer/business deployment runs through /business/setup. Kept for local demo/self-test.
+ */
 export function deployArchitectWorkflow(workflowId: string) {
   return apiPost<{ deployment: DentalDeployment }>(
     `/architect/workflows/${workflowId}/deploy`,
@@ -234,6 +237,16 @@ export function getArchitectProposals() {
 
 export function deleteArchitectWorkflow(workflowId: string) {
   return apiDelete<{ workflowId: string }>(`/architect/workflows/${workflowId}`);
+}
+
+/** Bulk-delete the architect's draft workflows that have no listing and aren't deployed. */
+export function cleanupDraftWorkflows(
+  body: { deleteUntitled?: boolean; deleteDuplicateTemplates?: boolean } = {}
+) {
+  return apiPost<{ deletedCount: number; deletedNames: string[] }>(
+    "/architect/workflows/cleanup-drafts",
+    body
+  );
 }
 
 export function runArchitectWorkflowTest(

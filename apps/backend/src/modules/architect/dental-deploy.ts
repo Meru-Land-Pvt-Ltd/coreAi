@@ -113,6 +113,8 @@ export async function deployDentalWorkflow({
   const assistantName = str(ai, "assistantName", "Sarah");
   const model = str(ai, "model", "gpt-4o");
   const voice = str(ai, "voice", "sarah");
+  const voiceProvider = str(ai, "voiceProvider", "");
+  const voiceId = str(ai, "voiceId", "");
 
   const promptTemplate = str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE);
   const tokens: Record<string, string> = {
@@ -221,6 +223,8 @@ export async function deployDentalWorkflow({
     systemPrompt,
     model,
     voice,
+    voiceProvider,
+    voiceId,
     serverUrl: webhookUrl,
     existingAssistantId
   });

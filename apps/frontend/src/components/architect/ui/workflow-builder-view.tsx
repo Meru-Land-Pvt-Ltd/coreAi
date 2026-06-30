@@ -18,15 +18,12 @@ import type { Route } from "next";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectListing,
-  deployArchitectWorkflow,
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
-  runArchitectWorkflowLive,
   runArchitectWorkflowTest,
   updateArchitectWorkflow,
-  useArchitectTemplate,
-  type DentalDeployment
+  useArchitectTemplate
 } from "@/components/architect/features/api";
 import type { ArchitectWorkflow, WorkflowRunLog } from "@/components/architect/features/types";
 import { BuilderHeader } from "./workflow-builder/builder-header";
@@ -41,7 +38,6 @@ import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./wo
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import { PreviewModal } from "./workflow-builder/preview-modal";
 import { PublishPanel } from "./workflow-builder/publish-panel";
-import { PhoneRoutingModal } from "./workflow-builder/phone-routing-modal";
 import { TemplateGallery } from "./workflow-builder/template-gallery";
 import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal";
 import { TestPanel } from "./workflow-builder/test-panel";
@@ -76,11 +72,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("Unsaved changes");
   const [publishError, setPublishError] = useState("");
-  const [deploying, setDeploying] = useState(false);
-  const [deployment, setDeployment] = useState<DentalDeployment | null>(null);
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [importingSlug, setImportingSlug] = useState<string | null>(null);
-  const [phoneSetupOpen, setPhoneSetupOpen] = useState(false);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -363,39 +356,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     router.push("/architect/agents" as Route);
   }
 
-  // Deploy the builder workflow as a live Vapi voice agent: saves first, then the
-  // backend builds the assistant from the AI Conversation node, provisions the
-  // business + Twilio number, and binds it so inbound calls hit this assistant.
-  async function deployAgent() {
-    if (blockIfUnderReview()) return;
-    if (!workflowId) return;
-    setDeploying(true);
-    setDeployment(null);
-    setMessage("Deploying live voice agent...");
-
-    const saved = await saveAgent(false);
-    if (!saved) {
-      setDeploying(false);
-      return;
-    }
-
-    const result = await deployArchitectWorkflow(workflowId);
-    setDeploying(false);
-
-    if (!result.success || !result.data) {
-      setMessage(result.error ?? "Could not deploy agent");
-      return;
-    }
-
-    setDeployment(result.data.deployment);
-    setMessage(
-      result.data.deployment.assignedNumber
-        ? `Deployed · live on ${result.data.deployment.assignedNumber}`
-        : "Deployed"
-    );
-  }
-
-  async function runAgent(mode: "test" | "live") {
+  // Architect test is ALWAYS a dry-run/mock — no live Twilio/Vapi/Calendar calls.
+  // Going live is the buyer's job during install.
+  async function runAgent() {
     if (blockIfUnderReview()) return;
     const normalizedCallerNumber = callerNumber.trim();
     const normalizedBusinessName = businessName.trim();
@@ -421,13 +384,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
 
     setRunning(true);
-    setMessage(
-      hasGmailFlow
-        ? "Running Gmail workflow..."
-        : mode === "live"
-          ? "Sending through Twilio..."
-          : "Running dry test..."
-    );
+    setMessage(hasGmailFlow ? "Running Gmail workflow..." : "Running dry test...");
     setRunLogs([]);
     setRunContext({});
 
@@ -465,33 +422,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         }
       : {};
 
-    const result =
-      mode === "live" && hasSmsFlow
-        ? await runArchitectWorkflowLive(workflowId, payload)
-        : await runArchitectWorkflowTest(workflowId, payload);
+    const result = await runArchitectWorkflowTest(workflowId, payload);
 
     if (!result.success || !result.data) {
-      setMessage(
-        result.error ??
-          (hasGmailFlow
-            ? "Could not run Gmail workflow"
-            : mode === "live"
-              ? "Could not send Twilio SMS"
-              : "Could not run test")
-      );
+      setMessage(result.error ?? (hasGmailFlow ? "Could not run Gmail workflow" : "Could not run test"));
       setRunning(false);
       return;
     }
 
     setRunLogs(result.data.run.logs);
     setRunContext(result.data.run.context);
-    setMessage(
-      hasGmailFlow
-        ? "Gmail run complete"
-        : mode === "live"
-          ? "Twilio run complete"
-          : "Dry run complete"
-    );
+    setMessage(hasGmailFlow ? "Gmail run complete" : "Dry run complete");
     setActiveTab("test");
     setRunning(false);
   }
@@ -534,10 +475,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onClearSelection={() => setSelectedNodeId(null)}
       onUpdateNodeData={updateSelectedNodeData}
       onDeleteNode={deleteSelectedNode}
-      calendarConnected={gmailConnected}
-      calendarEmail={gmailEmail}
-      connectingCalendar={connectingGmail}
-      onConnectCalendar={connectGmail}
+      connectorOwnership="architect"
     />
   );
 
@@ -551,15 +489,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         activeTab={activeTab}
         running={running}
         saving={saving}
-        deploying={deploying}
         hasGmailFlow={hasGmailFlow}
         locked={isUnderReview}
         onAgentNameChange={setAgentName}
         onMobileLibrary={() => setMobilePanel("library")}
         onTabChange={setActiveTab}
-        onRunTest={() => void runAgent("test")}
+        onRunTest={() => void runAgent()}
         onSave={() => void saveAgent()}
-        onDeploy={() => void deployAgent()}
         onPreview={() => setPreviewOpen(true)}
       />
 
@@ -585,49 +521,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      {deployment ? (
-        <div
-          data-testid="builder-deploy-banner"
-          className="fixed left-1/2 top-20 z-50 w-[min(92vw,560px)] -translate-x-1/2 rounded-2xl border border-violet-200 bg-white p-4 shadow-lg"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-black text-violet-700" data-testid="builder-deploy-banner-title">
-                AI receptionist is live
-              </p>
-              <p className="mt-1 text-sm text-slate-600">
-                Call{" "}
-                <span className="font-bold text-slate-900" data-testid="builder-deploy-banner-number">
-                  {deployment.assignedNumber ?? "your assigned number"}
-                </span>{" "}
-                to talk to the deployed assistant.
-              </p>
-              <p className="mt-1 text-[11px] text-slate-400" data-testid="builder-deploy-banner-assistant">
-                Vapi assistant {deployment.assistantId} · {deployment.nodesDeployed.length}/6 nodes
-                {deployment.missingNodes.length ? ` · missing: ${deployment.missingNodes.length}` : ""}
-              </p>
-              <button
-                type="button"
-                onClick={() => setPhoneSetupOpen(true)}
-                data-testid="builder-deploy-banner-phone-setup"
-                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
-              >
-                Set up call forwarding
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setDeployment(null)}
-              data-testid="builder-deploy-banner-close"
-              className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       <main className="fixed bottom-10 left-0 right-0 top-[72px] overflow-hidden">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex">
@@ -636,9 +529,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             </aside>
 
             <div className="canvas-grid relative flex-1 overflow-hidden">
-              {nodes.length === 0 ? (
+              {/* {nodes.length === 0 ? (
                 <TemplateGallery busySlug={importingSlug} onUse={importTemplate} onPreview={setPreviewSlug} />
-              ) : null}
+              ) : null} */}
 
               <ReactFlow<BuilderNode, Edge>
                 nodes={nodes}
@@ -697,8 +590,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             runLogs={runLogs}
             runContext={runContext}
             onConnectGmail={connectGmail}
-            onRunTest={() => void runAgent("test")}
-            onRunLive={() => void runAgent("live")}
+            onRunTest={() => void runAgent()}
             onCallerNumberChange={setCallerNumber}
             onCallerNameChange={setCallerName}
             onBusinessNameChange={setBusinessName}
@@ -746,10 +638,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         businessName={businessName.trim() || "Your business"}
       />
 
-      <TemplatePreviewModal slug={previewSlug} onClose={() => setPreviewSlug(null)} onUse={importTemplate} />
-
-      <PhoneRoutingModal open={phoneSetupOpen} onClose={() => setPhoneSetupOpen(false)} workflowId={workflowId} />
-
+      {/* <TemplatePreviewModal slug={previewSlug} onClose={() => setPreviewSlug(null)} onUse={importTemplate} /> */}
 
       <MobileSheet panel={mobilePanel} onClose={() => setMobilePanel(null)}>
         {mobilePanel === "library" ? library : inspector}

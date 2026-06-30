@@ -42,6 +42,8 @@ type ResolvedAgent = {
   userId: string;
   workflowJson: unknown;
   forwardToPhone?: string;
+  /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
+  routingMode?: string;
   business?: BusinessRuntimeContext;
 };
 
@@ -252,6 +254,7 @@ async function resolveAgent({
         userId: phoneNumber.installedAgent.workflow.architectUserId,
         workflowJson: phoneNumber.installedAgent.workflow.workflowJson,
         forwardToPhone: phoneNumber.forwardToPhone ?? undefined,
+        routingMode: readRoutingMode(phoneNumber.installedAgent.configJson),
         business: buildBusinessContext(
           phoneNumber.business,
           phoneNumber.phoneNumber,
@@ -784,6 +787,74 @@ async function buildVapiAnswerTwiml({
   });
 }
 
+/** The buyer's persisted answering mode (InstalledAgent.configJson.phoneRouting.mode). */
+function readRoutingMode(configJson: unknown): string | undefined {
+  const routing = (configJson as Record<string, unknown> | null)?.phoneRouting;
+  if (typeof routing === "object" && routing !== null) {
+    const mode = (routing as Record<string, unknown>).mode;
+    if (typeof mode === "string" && mode.trim()) return mode.trim().toUpperCase();
+  }
+  return undefined;
+}
+
+/**
+ * Is "now" within the business's open hours? Returns null when hours aren't
+ * configured/parseable. Expects the buyer-setup shape:
+ * [{ day: "Monday", open: "HH:mm", close: "HH:mm", closed: boolean }].
+ */
+function isWithinBusinessHours(hours: unknown, timeZone?: string): boolean | null {
+  if (!Array.isArray(hours) || hours.length === 0) return null;
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  let dayName: string;
+  let nowHhmm: string;
+  try {
+    dayName = new Date().toLocaleDateString("en-US", { timeZone: tz, weekday: "long" }).toLowerCase();
+    nowHhmm = new Date().toLocaleTimeString("en-GB", {
+      timeZone: tz,
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  } catch {
+    return null;
+  }
+
+  const entry = hours.find((item) => {
+    if (typeof item !== "object" || item === null) return false;
+    const day = (item as Record<string, unknown>).day;
+    return typeof day === "string" && day.toLowerCase() === dayName;
+  }) as Record<string, unknown> | undefined;
+  if (!entry) return null;
+  if (entry.closed === true) return false;
+
+  const open = typeof entry.open === "string" ? entry.open.slice(0, 5) : "";
+  const close = typeof entry.close === "string" ? entry.close.slice(0, 5) : "";
+  if (!/^\d{2}:\d{2}$/.test(open) || !/^\d{2}:\d{2}$/.test(close)) return null;
+  return nowHhmm >= open && nowHhmm <= close;
+}
+
+/**
+ * Decide whether the AI answers a call that reached the assigned CoreAI number,
+ * given the buyer's answering mode. Twilio only ever receives calls that hit the
+ * CoreAI number (the carrier already forwarded any missed/busy/unreachable call),
+ * so for MVP every mode answers — except AFTER_HOURS during known open hours,
+ * where we forward to the human instead.
+ */
+function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: string): boolean {
+  switch (mode) {
+    case "AI_FIRST":
+    case "NO_ANSWER":
+    case "BUSY":
+    case "UNREACHABLE":
+      return true;
+    case "AFTER_HOURS":
+      // Answer when outside hours OR when hours are unknown; skip only when open.
+      return isWithinBusinessHours(hours, timeZone) !== true;
+    default:
+      return true;
+  }
+}
+
 export async function handleTwilioVoice(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
@@ -819,11 +890,16 @@ export async function handleTwilioVoice(c: Context) {
   const deployedAssistant = agent.business?.vapiAssistantId;
   const hasDeployedAssistant = Boolean(deployedAssistant && deployedAssistant !== env.VAPI_DEFAULT_ASSISTANT_ID);
 
-  // Live AI answer: when AI-first answering is enabled, the business has a deployed
-  // assistant, or there's no human number to forward to, connect the caller straight
-  // to the Vapi AI receptionist. If Vapi can't take the call we fall through to
-  // forwarding / the existing message, so the missed-call text-back path is never broken.
-  if (env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone) {
+  // Respect the buyer's configured answering mode when present; otherwise fall
+  // back to the env flag / deployed-assistant / no-forward heuristic (back-compat).
+  const aiShouldAnswer = agent.routingMode
+    ? shouldAnswerWithAiByMode(agent.routingMode, agent.business?.hours, agent.business?.timeZone)
+    : env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone;
+
+  // Live AI answer: connect the caller straight to the Vapi AI receptionist. If
+  // Vapi can't take the call we fall through to forwarding / the existing message,
+  // so the missed-call text-back path is never broken.
+  if (aiShouldAnswer) {
     const aiTwiml = await buildVapiAnswerTwiml({
       agent,
       callerNumber,

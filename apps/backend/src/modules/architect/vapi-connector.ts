@@ -1,4 +1,4 @@
-import { VOICE_TOOL_NAMES } from "@coreai/shared";
+import { DEFAULT_VOICE_PROVIDER, VOICE_TOOL_NAMES, getVoicePreset } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 
@@ -304,19 +304,39 @@ export async function createVapiInboundTwiml({
   return typeof twiml === "string" && twiml.trim().length > 0 ? twiml : null;
 }
 
-const ELEVENLABS_VOICE_IDS: Record<string, string> = {
-  sarah: "EXAVITQu4vr4xnSDxMaL"
-};
-
-/** Resolve the builder voice selection to a Vapi voice config, or undefined to use the account default. */
-function resolveVapiVoice(voice?: string | null): { provider: string; voiceId: string } | undefined {
-  const raw = (voice ?? "").trim();
-  const mapped = ELEVENLABS_VOICE_IDS[raw.toLowerCase()];
+/**
+ * Resolve the agent's voice selection to a Vapi voice config. Priority:
+ *   1. an explicit ElevenLabs voiceId (architect "custom voice id" / buyer override),
+ *   2. a named preset (sarah/james/priya) that has a known voiceId,
+ *   3. env VAPI_DEFAULT_VOICE_ID.
+ * Returns `{ config }` to send to Vapi, or `{ warning }` when nothing resolves
+ * (Vapi then uses its account-default voice — deploy + calls still work).
+ */
+function resolveVapiVoice(input: {
+  voice?: string | null;
+  voiceProvider?: string | null;
+  voiceId?: string | null;
+}): { config?: { provider: string; voiceId: string }; warning?: string } {
+  const provider =
+    (input.voiceProvider || env.VAPI_DEFAULT_VOICE_PROVIDER || DEFAULT_VOICE_PROVIDER).trim() ||
+    DEFAULT_VOICE_PROVIDER;
+  const explicit = (input.voiceId ?? "").trim();
   // Treat a long, space-free value as an already-resolved ElevenLabs voice id.
-  const looksLikeId = raw.length >= 18 && !raw.includes(" ");
-  const voiceId = mapped || (looksLikeId ? raw : "") || env.VAPI_DEFAULT_VOICE_ID || "";
-  if (!voiceId) return undefined;
-  return { provider: "11labs", voiceId };
+  const looksLikeId = explicit.length >= 18 && !explicit.includes(" ");
+
+  let voiceId = looksLikeId ? explicit : "";
+  if (!voiceId) {
+    const preset = getVoicePreset(input.voice ?? "");
+    if (preset?.voiceId) voiceId = preset.voiceId;
+  }
+  if (!voiceId) voiceId = (env.VAPI_DEFAULT_VOICE_ID ?? "").trim();
+  if (!voiceId) {
+    return {
+      warning:
+        "No ElevenLabs voiceId resolved (no preset id, no custom id, no VAPI_DEFAULT_VOICE_ID). Vapi will use its account-default voice."
+    };
+  }
+  return { config: { provider, voiceId } };
 }
 
 /** Map the builder model selection to a Vapi model provider/model pair. */
@@ -395,7 +415,12 @@ export type DeployVapiAssistantInput = {
   firstMessage: string;
   systemPrompt: string;
   model?: string | null;
+  /** Named voice preset (sarah/james/priya) chosen in the builder. */
   voice?: string | null;
+  /** Voice provider, e.g. "11labs". Falls back to env VAPI_DEFAULT_VOICE_PROVIDER. */
+  voiceProvider?: string | null;
+  /** Explicit ElevenLabs voice id (custom voice / buyer override). */
+  voiceId?: string | null;
   serverUrl: string;
   existingAssistantId?: string | null;
 };
@@ -406,6 +431,8 @@ export async function deployVapiAssistant({
   systemPrompt,
   model,
   voice,
+  voiceProvider,
+  voiceId,
   serverUrl,
   existingAssistantId
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean }> {
@@ -426,8 +453,12 @@ export async function deployVapiAssistant({
     server: { url: serverUrl }
   };
 
-  const voiceConfig = resolveVapiVoice(voice);
-  if (voiceConfig) body.voice = voiceConfig;
+  const voiceResolution = resolveVapiVoice({ voice, voiceProvider, voiceId });
+  if (voiceResolution.config) {
+    body.voice = voiceResolution.config;
+  } else if (voiceResolution.warning) {
+    console.warn(`[vapi] ${voiceResolution.warning}`);
+  }
 
   const base = env.VAPI_BASE_URL.replace(/\/$/, "");
 

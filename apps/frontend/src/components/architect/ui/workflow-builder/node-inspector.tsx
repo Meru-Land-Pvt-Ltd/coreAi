@@ -1,7 +1,14 @@
-import { VOICE_NODE_TYPES } from "@coreai/shared";
+import { VOICE_NODE_TYPES, VOICE_PRESETS, getNodeDefinition } from "@coreai/shared";
 import type { ReactNode } from "react";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData } from "./types";
+
+/**
+ * Who owns the connectors shown in the inspector.
+ * - "architect" → design mode: show REQUIREMENT BADGES only, never connect.
+ * - "buyer"     → install mode: show real connect buttons + connection status.
+ */
+export type ConnectorOwnership = "architect" | "buyer";
 
 type CalendarConnection = {
   connected: boolean;
@@ -15,7 +22,7 @@ type NodePropsPanel = {
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
 };
 
-type CalendarPanel = NodePropsPanel & { calendar: CalendarConnection };
+type CalendarPanel = NodePropsPanel & { calendar: CalendarConnection; ownership: ConnectorOwnership };
 
 /**
  * Node inspector — fully data-driven from node.data, with no hardcoded business
@@ -28,6 +35,7 @@ export function NodeInspector({
   onClearSelection,
   onUpdateNodeData,
   onDeleteNode,
+  connectorOwnership = "architect",
   calendarConnected = false,
   calendarEmail = null,
   connectingCalendar = false,
@@ -37,6 +45,8 @@ export function NodeInspector({
   onClearSelection: () => void;
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
   onDeleteNode: () => void;
+  /** Architect (design) shows requirement badges; buyer (install) shows real connect. */
+  connectorOwnership?: ConnectorOwnership;
   calendarConnected?: boolean;
   calendarEmail?: string | null;
   connectingCalendar?: boolean;
@@ -50,20 +60,21 @@ export function NodeInspector({
     connecting: connectingCalendar,
     onConnect: onConnectCalendar
   };
+  const ownership = connectorOwnership;
   const type = String(selectedNode.data.type ?? "");
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData };
 
   let panel: ReactNode;
   if (type === VOICE_NODE_TYPES.phoneCallTrigger) panel = <PhoneCallTriggerProps {...base} />;
   else if (type === VOICE_NODE_TYPES.voiceConversation) panel = <AiVoiceConversationProps {...base} />;
-  else if (type === VOICE_NODE_TYPES.calendarAvailability) panel = <CalendarAvailabilityProps {...base} calendar={calendar} />;
-  else if (type === VOICE_NODE_TYPES.bookAppointment) panel = <BookCalendarAppointmentProps {...base} calendar={calendar} />;
+  else if (type === VOICE_NODE_TYPES.calendarAvailability) panel = <CalendarAvailabilityProps {...base} calendar={calendar} ownership={ownership} />;
+  else if (type === VOICE_NODE_TYPES.bookAppointment) panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
-  else if (selectedNode.data.nodeKind === "connector") panel = <ConnectorProps {...base} calendar={calendar} />;
+  else if (selectedNode.data.nodeKind === "connector") panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
   else panel = <GenericProps {...base} />;
 
   return (
@@ -238,6 +249,68 @@ function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   );
 }
 
+/**
+ * Architect-mode connector display: REQUIREMENT BADGES derived from the node's
+ * registry requirements. No OAuth and no "Connect" button — the buyer connects
+ * these during install. This is what keeps the architect from connecting buyer
+ * Gmail/Calendar/Twilio while designing.
+ */
+function ConnectorRequirements({ node }: { node: BuilderNode }) {
+  const type = String(node.data.type ?? "");
+  const requirements = getNodeDefinition(type)?.requiredConnectors ?? [];
+  if (requirements.length === 0) {
+    return (
+      <p
+        className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-slate-500"
+        data-testid="connector-requirements-none"
+      >
+        No buyer connection required for this node.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2" data-testid="connector-requirements">
+      {requirements.map((req) => {
+        const buyerOwned = req.ownedBy === "buyer";
+        return (
+          <div
+            key={`${req.connector}-${req.note}`}
+            data-testid={`connector-requirement-${req.connector}`}
+            className={`rounded-xl border px-3 py-2.5 ${buyerOwned ? "border-blue-100 bg-blue-50" : "border-violet-100 bg-violet-50"}`}
+          >
+            <p className={`flex items-center gap-1.5 text-xs font-semibold ${buyerOwned ? "text-blue-700" : "text-violet-700"}`}>
+              <span className={`h-2 w-2 rounded-full ${buyerOwned ? "bg-blue-500" : "bg-violet-500"}`} />
+              {req.label}
+              {req.optional ? " (optional)" : ""}
+              <span className="ml-auto rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                {buyerOwned ? "Buyer connects" : "Platform"}
+              </span>
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-slate-600">{req.note}</p>
+            {req.scopes?.length ? (
+              <p className="mt-1 break-words text-[10px] text-slate-400">Scopes: {req.scopes.join(", ")}</p>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Real connect (buyer install) vs. requirement badges (architect design). */
+function CalendarConnector({
+  calendar,
+  ownership,
+  node
+}: {
+  calendar: CalendarConnection;
+  ownership: ConnectorOwnership;
+  node: BuilderNode;
+}) {
+  if (ownership === "buyer") return <CalendarConnect calendar={calendar} />;
+  return <ConnectorRequirements node={node} />;
+}
+
 /* ------------------------------ data helpers ------------------------------ */
 
 function fields(selectedNode: BuilderNode, onUpdateNodeData: NodePropsPanel["onUpdateNodeData"]) {
@@ -298,8 +371,24 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
       </Section>
       <Section title="Voice">
-        <Label>Voice</Label>
-        <SelectBox value={str("voice", "sarah")} onChange={set("voice")} options={["sarah", "james", "priya"]} />
+        <Label>Voice (suggested default)</Label>
+        <SelectBox
+          value={str("voice", "sarah")}
+          onChange={(value) => {
+            const preset = VOICE_PRESETS.find((option) => option.id === value);
+            onUpdateNodeData("voice", value);
+            onUpdateNodeData("voiceName", preset?.name ?? value);
+            onUpdateNodeData("voiceProvider", preset?.provider ?? "11labs");
+          }}
+          options={VOICE_PRESETS.map((option) => option.id)}
+        />
+        <p className="mt-2 text-[11px] text-slate-400" data-testid="voice-suggested-note">
+          Template default voice. The buyer accepts or changes this during install.
+        </p>
+        <div className="mt-4">
+          <Label>Custom ElevenLabs voice ID (optional)</Label>
+          <TextInput mono value={str("voiceId")} onChange={set("voiceId")} placeholder="e.g. EXAVITQu4vr4xnSDxMaL" />
+        </div>
         <div className="mt-4">
           <Label>Language</Label>
           <SelectBox value={str("language", "en-US")} onChange={set("language")} options={["en-US", "en-GB", "es", "hi"]} />
@@ -358,12 +447,12 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
   );
 }
 
-function CalendarAvailabilityProps({ selectedNode, onUpdateNodeData, calendar }: CalendarPanel) {
+function CalendarAvailabilityProps({ selectedNode, onUpdateNodeData, calendar, ownership }: CalendarPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   return (
     <>
       <Section title="Google Calendar">
-        <CalendarConnect calendar={calendar} />
+        <CalendarConnector calendar={calendar} ownership={ownership} node={selectedNode} />
         <div className="mt-4">
           <Label>Calendar ID</Label>
           <TextInput mono value={str("calendarId", "primary")} onChange={set("calendarId")} />
@@ -389,12 +478,12 @@ function CalendarAvailabilityProps({ selectedNode, onUpdateNodeData, calendar }:
   );
 }
 
-function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar }: CalendarPanel) {
+function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar, ownership }: CalendarPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
   return (
     <>
       <Section title="Google Calendar">
-        <CalendarConnect calendar={calendar} />
+        <CalendarConnector calendar={calendar} ownership={ownership} node={selectedNode} />
         <div className="mt-4">
           <Label>Calendar ID</Label>
           <TextInput mono value={str("calendarId", "primary")} onChange={set("calendarId")} />
@@ -565,7 +654,7 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function ConnectorProps({ selectedNode, onUpdateNodeData, calendar }: CalendarPanel) {
+function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }: CalendarPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const connector = str("connector", "SMS");
   const isGmail = connector === "Gmail";
@@ -608,7 +697,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar }: CalendarPa
           </>
         ) : isCalendar ? (
           <>
-            {calendar ? <CalendarConnect calendar={calendar} /> : null}
+            <CalendarConnector calendar={calendar} ownership={ownership} node={selectedNode} />
             <div className="mt-4"><Label>Action</Label><SelectBox value={str("connectorAction", "book_appointment")} onChange={set("connectorAction")} options={["check_availability", "book_appointment"]} /></div>
             <div className="mt-4"><Label>Calendar ID</Label><TextInput mono value={str("calendarId", "{{business.calendarId}}")} onChange={set("calendarId")} /></div>
             <div className="mt-4"><Label>Service</Label><TextInput value={str("appointmentService")} onChange={set("appointmentService")} placeholder="Not configured" /></div>

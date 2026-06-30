@@ -3,11 +3,13 @@
 import type { Route } from "next";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { VOICE_PRESETS } from "@coreai/shared";
 import { DashboardShell } from "@/components/common/dashboard-shell";
 import {
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
   getBusinessSetup,
+  getMarketplaceListing,
   saveBusinessSetup,
   type BusinessFaq,
   type BusinessHoursItem,
@@ -60,6 +62,28 @@ const addButtonClass =
 const removeButtonClass =
   "rounded-full border border-orange-200 px-3 py-1 text-xs font-semibold text-orange-700 transition hover:border-orange-400";
 
+const INTRO_COPY =
+  "Architects design the agent. Your business connects the accounts, phone routing, calendar, Gmail, and voice settings used when the agent runs live.";
+
+const ANSWERING_MODES: { value: string; label: string }[] = [
+  { value: "AI_FIRST", label: "AI answers all calls" },
+  { value: "NO_ANSWER", label: "AI answers missed / no-answer calls" },
+  { value: "BUSY", label: "AI answers when the line is busy" },
+  { value: "AFTER_HOURS", label: "AI answers after business hours" },
+  { value: "UNREACHABLE", label: "AI answers when the phone is unreachable" }
+];
+
+/** Preset voice ids (sarah/james/priya) — anything else is "default" or "custom". */
+const PRESET_VOICE_IDS = new Set(VOICE_PRESETS.map((preset) => preset.id));
+
+type ChecklistRow = {
+  key: string;
+  label: string;
+  required: boolean;
+  complete: boolean;
+  blocker?: string;
+};
+
 export default function BusinessAgentSetupPage() {
   return (
     <DashboardShell
@@ -105,6 +129,14 @@ function SetupWizard() {
   });
   const [calendarBusy, setCalendarBusy] = useState(false);
 
+  // Connector keys the installed agent requires (from /business/setup, unioned
+  // with the listing pre-install) + the buyer's voice/answering-mode choices.
+  const [requiredKeys, setRequiredKeys] = useState<string[]>([]);
+  const [voiceChoice, setVoiceChoice] = useState("default");
+  const [customVoiceId, setCustomVoiceId] = useState("");
+  const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
+  const [deployed, setDeployed] = useState(false);
+
   const loadSetup = useCallback(async () => {
     setLoading(true);
     const res = await getBusinessSetup();
@@ -146,10 +178,30 @@ function SetupWizard() {
       }
 
       setCalendar(data.calendar ?? { connected: false, email: null });
+      setAnsweringMode(data.answeringMode || "NO_ANSWER");
+
+      const selection = data.voiceSelection ?? null;
+      if (selection?.voiceId) {
+        setVoiceChoice("custom");
+        setCustomVoiceId(selection.voiceId);
+      } else if (selection?.name && PRESET_VOICE_IDS.has(selection.name)) {
+        setVoiceChoice(selection.name);
+      }
+
+      // Connectors the agent needs: from the installed workflow, or — before the
+      // first save resolves it — from the marketplace listing being installed.
+      let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
+      if (listingId && !data.installedAgent) {
+        const listingRes = await getMarketplaceListing(listingId);
+        if (listingRes.success && listingRes.data?.listing) {
+          keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
+        }
+      }
+      setRequiredKeys(keys);
     }
 
     setLoading(false);
-  }, []);
+  }, [listingId]);
 
   useEffect(() => {
     void loadSetup();
@@ -161,11 +213,81 @@ function SetupWizard() {
     );
   }
 
+  // Map the voice picker to the fields /business/setup persists. "default" leaves
+  // all blank → backend uses the agent default / env fallback voice.
+  function buildVoiceFields(): { voice: string; voiceProvider: string; voiceId: string } {
+    if (voiceChoice === "custom") {
+      return { voice: "", voiceProvider: "11labs", voiceId: customVoiceId.trim() };
+    }
+    if (PRESET_VOICE_IDS.has(voiceChoice)) {
+      return { voice: voiceChoice, voiceProvider: "11labs", voiceId: "" };
+    }
+    return { voice: "", voiceProvider: "", voiceId: "" };
+  }
+
+  // Single save path used by both "Deploy live agent" and save-before-connect.
+  async function persistSetup(): Promise<{ ok: boolean; number: string }> {
+    const voiceFields = buildVoiceFields();
+    const res = await saveBusinessSetup({
+      businessName: businessName.trim(),
+      businessType: businessType.trim(),
+      forwardToPhone: forwardToPhone.trim(),
+      bookingUrl: bookingUrl.trim(),
+      teamPhone: teamPhone.trim(),
+      timeZone: timeZone.trim() || "America/New_York",
+      tone,
+      escalationRules: escalationRules.trim(),
+      services: parseLines(servicesText),
+      faqs: faqs
+        .filter((faq) => faq.question.trim() && faq.answer.trim())
+        .map((faq) => ({ question: faq.question.trim(), answer: faq.answer.trim() })),
+      hours,
+      knowledge: knowledge
+        .filter((item) => item.title.trim() && item.content.trim())
+        .map((item) => ({ title: item.title.trim(), content: item.content.trim() })),
+      vapiAssistantId: vapiAssistantId.trim(),
+      vapiPhoneNumberId: vapiPhoneNumberId.trim(),
+      voice: voiceFields.voice,
+      voiceProvider: voiceFields.voiceProvider,
+      voiceId: voiceFields.voiceId,
+      answeringMode,
+      calendarId: calendarId.trim() || "primary",
+      ...(listingId ? { listingId } : {})
+    });
+
+    if (!res.success || !res.data) {
+      setError(res.error ?? "Could not save your setup. Please try again.");
+      return { ok: false, number: "" };
+    }
+
+    const number = res.data.assignedPhoneNumber ?? res.data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
+    if (number) setAssignedNumber(number);
+    if (res.data.requiredConnectors) {
+      setRequiredKeys(res.data.requiredConnectors.map((req) => req.connector));
+    }
+    setCalendar(res.data.calendar ?? calendar);
+    return { ok: true, number };
+  }
+
   async function handleConnectCalendar() {
     setError("");
     setCalendarBusy(true);
-    const res = await getBusinessCalendarOAuthUrl();
 
+    // Persist first so the buyer's form input survives the OAuth redirect — only
+    // when the required basics are present (the save would otherwise 422).
+    if (
+      businessName.trim().length >= 2 &&
+      businessType.trim().length >= 2 &&
+      forwardToPhone.trim().length >= 5
+    ) {
+      const saved = await persistSetup();
+      if (!saved.ok) {
+        setCalendarBusy(false);
+        return;
+      }
+    }
+
+    const res = await getBusinessCalendarOAuthUrl();
     if (res.success && res.data?.url) {
       window.location.href = res.data.url;
       return;
@@ -200,45 +322,109 @@ function SetupWizard() {
     }
 
     setSaving(true);
-
-    const res = await saveBusinessSetup({
-      businessName: businessName.trim(),
-      businessType: businessType.trim(),
-      forwardToPhone: forwardToPhone.trim(),
-      bookingUrl: bookingUrl.trim(),
-      teamPhone: teamPhone.trim(),
-      timeZone: timeZone.trim() || "America/New_York",
-      tone,
-      escalationRules: escalationRules.trim(),
-      services: parseLines(servicesText),
-      faqs: faqs
-        .filter((faq) => faq.question.trim() && faq.answer.trim())
-        .map((faq) => ({ question: faq.question.trim(), answer: faq.answer.trim() })),
-      hours,
-      knowledge: knowledge
-        .filter((item) => item.title.trim() && item.content.trim())
-        .map((item) => ({ title: item.title.trim(), content: item.content.trim() })),
-      vapiAssistantId: vapiAssistantId.trim(),
-      vapiPhoneNumberId: vapiPhoneNumberId.trim(),
-      calendarId: calendarId.trim() || "primary",
-      ...(listingId ? { listingId } : {})
-    });
-
+    const result = await persistSetup();
     setSaving(false);
 
-    if (!res.success || !res.data) {
-      setError(res.error ?? "Could not save your setup. Please try again.");
-      return;
-    }
+    if (!result.ok) return;
 
-    const number = res.data.assignedPhoneNumber ?? res.data.phoneNumber?.phoneNumber ?? "";
-    setAssignedNumber(number || null);
-    setSuccess({ phoneNumber: number });
+    setDeployed(true);
+    setSuccess({ phoneNumber: result.number });
 
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }
+
+  // Buyer install readiness (client-side, live as the buyer fills the form /
+  // connects accounts). Mirrors the backend checklist; gates "Deploy live agent".
+  const needs = new Set(requiredKeys);
+  const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
+  const phoneComplete = forwardToPhone.trim().length >= 5;
+  const voiceComplete = voiceChoice !== "custom" || customVoiceId.trim().length > 0;
+  const needsGmail = needs.has("gmail");
+  const needsCalendar = needs.has("google_calendar");
+  const needsPhone = needs.has("phone_provider") || needs.has("twilio");
+  const needsSms = needs.has("twilio");
+  const needsVoice = needs.has("vapi");
+
+  const checklist: ChecklistRow[] = [
+    {
+      key: "business_profile",
+      label: "Business profile",
+      required: true,
+      complete: businessComplete,
+      blocker: businessComplete ? undefined : "Add your business name and type."
+    },
+    ...(needsCalendar
+      ? [
+          {
+            key: "google_calendar",
+            label: "Google Calendar",
+            required: true,
+            complete: calendar.connected,
+            blocker: calendar.connected ? undefined : "Google Calendar is required before live booking."
+          }
+        ]
+      : []),
+    ...(needsGmail
+      ? [
+          {
+            key: "gmail",
+            label: "Gmail",
+            required: true,
+            complete: calendar.connected,
+            blocker: calendar.connected ? undefined : "Gmail connection is required before sending email."
+          }
+        ]
+      : []),
+    ...(needsPhone
+      ? [
+          {
+            key: "phone_routing",
+            label: "Phone routing / number",
+            required: true,
+            complete: phoneComplete,
+            blocker: phoneComplete ? undefined : "Phone routing is required before live calls."
+          }
+        ]
+      : []),
+    ...(needsSms
+      ? [
+          {
+            key: "sms_sender",
+            label: "SMS sender",
+            required: true,
+            complete: phoneComplete,
+            blocker: phoneComplete
+              ? undefined
+              : "An SMS sender (assigned number) is required before notifications."
+          }
+        ]
+      : []),
+    ...(needsVoice
+      ? [
+          {
+            key: "voice",
+            label: "Voice setup",
+            required: true,
+            complete: voiceComplete,
+            blocker: voiceComplete ? undefined : "Enter a custom ElevenLabs voice ID or choose a preset."
+          }
+        ]
+      : []),
+    {
+      key: "live_deployment",
+      label: "Live deployment",
+      required: false,
+      complete: deployed,
+      blocker: undefined
+    }
+  ];
+
+  const readyToDeploy = checklist.every((row) => !row.required || row.complete);
+  const blockers = checklist
+    .filter((row) => row.required && !row.complete && row.blocker)
+    .map((row) => row.blocker as string);
 
   if (loading) {
     return (
@@ -305,6 +491,68 @@ function SetupWizard() {
 
   return (
     <form data-testid="business-setup-form" onSubmit={handleSubmit} className="space-y-5">
+      <div data-testid="business-setup-intro" className={cardClass}>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-intro-heading">Connect your business</h2>
+        <p data-testid="business-setup-intro-copy" className="mt-2 text-sm text-orange-800/80">
+          {INTRO_COPY}
+        </p>
+        <p
+          data-testid="business-setup-ownership-note"
+          className="mt-3 rounded-2xl bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900"
+        >
+          Your business owns this live setup. Architects only designed the agent template.
+        </p>
+      </div>
+
+      <div data-testid="business-setup-checklist" className={cardClass}>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-checklist-heading">
+          Required setup for this agent
+        </h2>
+        <ul className="mt-4 space-y-2">
+          {checklist.map((row) => (
+            <li
+              key={row.key}
+              data-testid={`business-setup-checklist-${row.key}`}
+              className="flex items-start gap-3 rounded-2xl bg-orange-50 p-3"
+            >
+              <span
+                data-testid={`business-setup-checklist-${row.key}-status`}
+                className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                  row.complete ? "bg-green-100 text-green-700" : "bg-orange-200 text-orange-800"
+                }`}
+              >
+                {row.complete ? "✓" : "•"}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-orange-950">
+                  {row.label}
+                  <span
+                    className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                      row.required ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {row.required ? "Required" : "Optional"}
+                  </span>
+                  <span
+                    className={`ml-2 text-xs font-semibold ${row.complete ? "text-green-700" : "text-orange-700"}`}
+                  >
+                    {row.complete ? "Complete" : "Not complete"}
+                  </span>
+                </p>
+                {!row.complete && row.blocker ? (
+                  <p
+                    data-testid={`business-setup-checklist-${row.key}-blocker`}
+                    className="mt-1 text-xs text-orange-700/80"
+                  >
+                    {row.blocker}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
       <div data-testid="business-setup-number-notice" className={cardClass}>
         <h2 className={sectionTitleClass} data-testid="business-agents-setup-core-ai-phone-number-heading">CoreAI phone number</h2>
         <p data-testid="business-setup-number-notice-text" className="mt-2 text-sm text-orange-800/80">
@@ -388,6 +636,46 @@ function SetupWizard() {
             />
           </div>
         </div>
+
+        {needsPhone || needsSms ? (
+          <div data-testid="business-setup-phone-routing" className="mt-4 space-y-4">
+            <div className="rounded-2xl bg-orange-50 p-4">
+              <p
+                data-testid="business-setup-assigned-forwarding-label"
+                className="text-sm font-semibold text-orange-900"
+              >
+                Assigned CoreAI forwarding number
+              </p>
+              <p data-testid="business-setup-assigned-forwarding" className="mt-1 text-lg font-bold text-orange-950">
+                {assignedNumber ?? "Assigned automatically when you deploy"}
+              </p>
+              <p data-testid="business-setup-phone-routing-note" className="mt-2 text-xs text-orange-700/80">
+                The agent template only defines that a phone number is required — your business configures the
+                actual number and routing here. Publish this CoreAI number directly, or forward your existing
+                business number to it. Numbers come from the CoreAI platform pool for now; bring-your-own Twilio
+                can be added later.
+              </p>
+            </div>
+            <div>
+              <label data-testid="business-setup-label-answering-mode" htmlFor="answering-mode" className={labelClass}>
+                Answering mode
+              </label>
+              <select
+                data-testid="business-setup-input-answering-mode"
+                id="answering-mode"
+                value={answeringMode}
+                onChange={(event) => setAnsweringMode(event.target.value)}
+                className={inputClass}
+              >
+                {ANSWERING_MODES.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div data-testid="business-setup-services" className={cardClass}>
@@ -671,6 +959,44 @@ function SetupWizard() {
           </div>
         </div>
 
+        {needsGmail ? (
+          <div data-testid="business-setup-gmail" className="mt-4 rounded-2xl bg-orange-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p data-testid="business-setup-gmail-title" className="text-sm font-semibold text-orange-900">
+                  Gmail
+                </p>
+                <p data-testid="business-setup-gmail-status" className="mt-1 text-sm text-orange-800/80">
+                  {calendar.connected
+                    ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}`
+                    : "Not connected. Connect your Google account so the agent can send email."}
+                </p>
+              </div>
+              {calendar.connected ? (
+                <span
+                  data-testid="business-setup-gmail-connected"
+                  className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700"
+                >
+                  Connected
+                </span>
+              ) : (
+                <button
+                  data-testid="business-setup-gmail-connect"
+                  type="button"
+                  disabled={calendarBusy}
+                  onClick={handleConnectCalendar}
+                  className="rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-60"
+                >
+                  {calendarBusy ? "Connecting…" : "Connect Gmail"}
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-orange-700/70" data-testid="business-setup-gmail-note">
+              Gmail and Google Calendar share one Google connection.
+            </p>
+          </div>
+        ) : null}
+
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
             <label data-testid="business-setup-label-calendar-id" htmlFor="calendar-id" className={labelClass}>
@@ -731,20 +1057,83 @@ function SetupWizard() {
         </div>
       </div>
 
+      <div data-testid="business-setup-voice" className={cardClass}>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-voice-heading">Voice</h2>
+        <p className="mt-1 text-sm text-orange-800/80">
+          Choose the voice your AI receptionist uses on calls. Keep the agent default or pick another.
+        </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label data-testid="business-setup-label-voice" htmlFor="voice" className={labelClass}>
+              Voice
+            </label>
+            <select
+              data-testid="business-setup-input-voice"
+              id="voice"
+              value={voiceChoice}
+              onChange={(event) => setVoiceChoice(event.target.value)}
+              className={inputClass}
+            >
+              <option value="default">Use agent default voice</option>
+              {VOICE_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+              <option value="custom">Custom ElevenLabs voice ID</option>
+            </select>
+          </div>
+          {voiceChoice === "custom" ? (
+            <div>
+              <label data-testid="business-setup-label-voice-id" htmlFor="voice-id" className={labelClass}>
+                ElevenLabs voice ID
+              </label>
+              <input
+                data-testid="business-setup-input-voice-id"
+                id="voice-id"
+                type="text"
+                value={customVoiceId}
+                onChange={(event) => setCustomVoiceId(event.target.value)}
+                placeholder="EXAVITQu4vr4xnSDxMaL"
+                className={inputClass}
+              />
+            </div>
+          ) : null}
+        </div>
+        <p data-testid="business-setup-voice-note" className="mt-2 text-xs text-orange-700/70">
+          If you don&apos;t enter a custom ID, CoreAI uses the agent default (ElevenLabs via Vapi) or the platform fallback voice.
+        </p>
+      </div>
+
       {error ? (
         <p data-testid="business-setup-error" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}
 
+      {blockers.length > 0 ? (
+        <div data-testid="business-setup-blockers" className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-semibold" data-testid="business-setup-blockers-title">
+            Complete these before you can deploy live:
+          </p>
+          <ul className="mt-1 list-disc pl-5">
+            {blockers.map((blocker) => (
+              <li key={blocker} data-testid="business-setup-blocker">
+                {blocker}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div data-testid="business-setup-actions" className="flex justify-end">
         <button
           data-testid="business-setup-submit"
           type="submit"
-          disabled={saving}
+          disabled={saving || !readyToDeploy}
           className="rounded-full bg-orange-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Save & activate agent"}
+          {saving ? "Deploying…" : "Deploy live agent"}
         </button>
       </div>
     </form>

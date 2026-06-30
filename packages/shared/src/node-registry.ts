@@ -25,6 +25,32 @@ export type NodeRuntime = {
   connectorAction?: string;
 };
 
+/**
+ * A connector a node needs in order to run live. Architect-facing: in the builder
+ * we render these as REQUIREMENT BADGES (no connect buttons). The buyer/business
+ * actually connects them during install.
+ *
+ * - `ownedBy: "buyer"`    → the buyer connects their own credentials (Google
+ *   Calendar, Gmail, Twilio/phone routing).
+ * - `ownedBy: "platform"` → CoreAI's shared account provides it (Vapi voice,
+ *   ElevenLabs through Vapi); no buyer credential needed for MVP.
+ */
+export type ConnectorRequirement = {
+  /** Canonical connector key, e.g. "google_calendar", "gmail", "twilio", "vapi". */
+  connector: string;
+  /** Human label shown on the badge. */
+  label: string;
+  ownedBy: "buyer" | "platform";
+  /** OAuth scopes (where applicable). */
+  scopes?: string[];
+  /** Config the buyer must supply (e.g. sender number, forwarding). */
+  config?: string[];
+  /** Optional connectors don't block live deployment. */
+  optional?: boolean;
+  /** Architect-facing requirement copy for the builder badge. */
+  note: string;
+};
+
 export type NodeDefinition = {
   /** Stable type slug, e.g. "action.send_sms". */
   type: string;
@@ -39,6 +65,11 @@ export type NodeDefinition = {
   /** data-testid friendly slug, e.g. "node-action-send-sms". */
   testId: string;
   runtime: NodeRuntime;
+  /**
+   * Connectors this node needs to run live, supplied by `getNodeDefinition`
+   * from `REQUIRED_CONNECTORS_BY_TYPE`. Empty for platform-only/no-connector nodes.
+   */
+  requiredConnectors?: ConnectorRequirement[];
   /** Default builder config applied when the node is dropped on the canvas. */
   defaultConfig?: Record<string, string>;
 };
@@ -82,6 +113,53 @@ export const VOICE_TOOL_NAMES = {
   bookAppointment: "book_appointment",
   sendNotification: "send_notification"
 } as const;
+
+/**
+ * Voice provider/voice config for the AI Voice Conversation node. The ARCHITECT
+ * picks a suggested/default voice in the builder (template config only); the
+ * BUYER accepts or overrides it at install. Deploy sends this to Vapi as
+ * `voice: { provider, voiceId }`. A blank `voiceId` falls back to
+ * env VAPI_DEFAULT_VOICE_ID, then to the Vapi account default.
+ */
+export const DEFAULT_VOICE_PROVIDER = "11labs";
+
+export type VoicePreset = {
+  id: string;
+  name: string;
+  provider: string;
+  /** ElevenLabs (via Vapi) voice id. "" → use the platform/env default voice. */
+  voiceId: string;
+  description: string;
+};
+
+export const VOICE_PRESETS: VoicePreset[] = [
+  {
+    id: "sarah",
+    name: "Sarah",
+    provider: DEFAULT_VOICE_PROVIDER,
+    voiceId: "EXAVITQu4vr4xnSDxMaL",
+    description: "Warm, friendly female (ElevenLabs)"
+  },
+  {
+    id: "james",
+    name: "James",
+    provider: DEFAULT_VOICE_PROVIDER,
+    voiceId: "",
+    description: "Calm male — uses the platform default voice until a voice id is set"
+  },
+  {
+    id: "priya",
+    name: "Priya",
+    provider: DEFAULT_VOICE_PROVIDER,
+    voiceId: "",
+    description: "Friendly — uses the platform default voice until a voice id is set"
+  }
+];
+
+export function getVoicePreset(id: string): VoicePreset | undefined {
+  const key = (id ?? "").trim().toLowerCase();
+  return VOICE_PRESETS.find((preset) => preset.id === key);
+}
 
 /**
  * Default Vapi system prompt for the AI Voice Conversation node. Token-parameterized
@@ -369,6 +447,9 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "ai", connector: "Vapi" },
     defaultConfig: {
       voice: "sarah",
+      voiceProvider: DEFAULT_VOICE_PROVIDER,
+      voiceId: "",
+      voiceName: "Sarah",
       assistantName: "Sarah",
       language: "en-US",
       speakingSpeed: "1.0",
@@ -486,8 +567,141 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   def({ type: "logic.ab_test", label: "A/B Test", category: "logic", description: "Split traffic between variants.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } })
 ];
 
+/** Reusable connector-requirement descriptors (single source so nodes stay DRY). */
+const REQ = {
+  googleCalendarRead: {
+    connector: "google_calendar",
+    label: "Google Calendar",
+    ownedBy: "buyer",
+    scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+    note: "Requires the buyer to connect their Google Calendar (read availability)."
+  },
+  googleCalendarWrite: {
+    connector: "google_calendar",
+    label: "Google Calendar",
+    ownedBy: "buyer",
+    scopes: ["https://www.googleapis.com/auth/calendar.events"],
+    note: "Requires the buyer to connect their Google Calendar (create events)."
+  },
+  gmailRead: {
+    connector: "gmail",
+    label: "Gmail",
+    ownedBy: "buyer",
+    scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+    note: "Requires the buyer to connect their Gmail (read)."
+  },
+  gmailSend: {
+    connector: "gmail",
+    label: "Gmail",
+    ownedBy: "buyer",
+    scopes: ["https://www.googleapis.com/auth/gmail.send"],
+    note: "Requires the buyer to connect their Gmail (send)."
+  },
+  gmailCompose: {
+    connector: "gmail",
+    label: "Gmail",
+    ownedBy: "buyer",
+    scopes: ["https://www.googleapis.com/auth/gmail.compose"],
+    note: "Requires the buyer to connect their Gmail (compose drafts)."
+  },
+  twilioSms: {
+    connector: "twilio",
+    label: "Twilio / SMS sender",
+    ownedBy: "buyer",
+    config: ["senderNumber"],
+    note: "Buyer sets up Twilio / SMS sender (or platform SMS) during install."
+  },
+  phoneProvider: {
+    connector: "phone_provider",
+    label: "Phone number / routing",
+    ownedBy: "buyer",
+    config: ["assignedNumber", "forwarding"],
+    note: "Buyer sets up phone routing and the assigned number during install."
+  },
+  vapi: {
+    connector: "vapi",
+    label: "Vapi voice",
+    ownedBy: "platform",
+    note: "Runs on the CoreAI Vapi platform — no buyer credential needed for MVP."
+  },
+  elevenlabs: {
+    connector: "elevenlabs",
+    label: "ElevenLabs voice",
+    ownedBy: "platform",
+    optional: true,
+    note: "Optional ElevenLabs voice delivered through the platform Vapi account."
+  }
+} satisfies Record<string, ConnectorRequirement>;
+
+/**
+ * Connector requirements per node type. Keyed by the node's `data.type` slug.
+ * `getNodeDefinition` attaches these so consumers read them off the definition;
+ * `requiredConnectorsForWorkflow` aggregates them across a workflow.
+ */
+export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]> = {
+  "trigger.twilio_missed_call": [REQ.phoneProvider],
+  "trigger.twilio_inbound_sms": [REQ.twilioSms],
+  "trigger.vapi_tool_call": [REQ.vapi],
+  "action.send_sms": [REQ.twilioSms],
+  "action.start_vapi_call": [REQ.vapi],
+  "action.google_calendar_create_appointment": [REQ.googleCalendarWrite],
+  "action.google_calendar_availability": [REQ.googleCalendarRead],
+  "integration.gmail_read_emails": [REQ.gmailRead],
+  "integration.gmail_send_email": [REQ.gmailSend],
+  "integration.gmail_create_draft": [REQ.gmailCompose],
+  "trigger.gmail_new_email": [REQ.gmailRead],
+  [VOICE_NODE_TYPES.phoneCallTrigger]: [REQ.phoneProvider],
+  [VOICE_NODE_TYPES.voiceConversation]: [REQ.vapi, REQ.elevenlabs],
+  [VOICE_NODE_TYPES.calendarAvailability]: [REQ.googleCalendarRead],
+  [VOICE_NODE_TYPES.bookAppointment]: [REQ.googleCalendarWrite],
+  [VOICE_NODE_TYPES.sendSms]: [REQ.twilioSms]
+};
+
+/** Connector requirements declared by a single node type (empty when none). */
+export function requiredConnectorsForType(type: string): ConnectorRequirement[] {
+  return REQUIRED_CONNECTORS_BY_TYPE[type] ?? [];
+}
+
 export function getNodeDefinition(type: string): NodeDefinition | undefined {
-  return NODE_DEFINITIONS.find((node) => node.type === type);
+  const base = NODE_DEFINITIONS.find((node) => node.type === type);
+  if (!base) return undefined;
+  return { ...base, requiredConnectors: requiredConnectorsForType(type) };
+}
+
+function workflowNodeList(workflowJson: unknown): Array<Record<string, unknown>> {
+  const nodes = (workflowJson as { nodes?: unknown } | null | undefined)?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes.filter((node): node is Record<string, unknown> => typeof node === "object" && node !== null);
+}
+
+/** A workflow node's registry type slug — prefers `data.type`, falls back to `type`. */
+function workflowNodeType(node: Record<string, unknown>): string {
+  const data = node.data;
+  if (typeof data === "object" && data !== null) {
+    const type = (data as Record<string, unknown>).type;
+    if (typeof type === "string" && type) return type;
+  }
+  return typeof node.type === "string" ? node.type : "";
+}
+
+/**
+ * Aggregate the unique connectors a whole workflow needs (deduped by connector
+ * key). Used to stamp `AgentListing.requiredConnectors` at publish and to drive
+ * the buyer install checklist. Accepts a `{ nodes }` workflowJson value.
+ */
+export function requiredConnectorsForWorkflow(workflowJson: unknown): ConnectorRequirement[] {
+  const seen = new Map<string, ConnectorRequirement>();
+  for (const node of workflowNodeList(workflowJson)) {
+    for (const requirement of requiredConnectorsForType(workflowNodeType(node))) {
+      if (!seen.has(requirement.connector)) seen.set(requirement.connector, requirement);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+/** The connector keys a workflow needs, e.g. ["google_calendar","twilio","vapi"]. */
+export function requiredConnectorKeys(workflowJson: unknown): string[] {
+  return requiredConnectorsForWorkflow(workflowJson).map((requirement) => requirement.connector);
 }
 
 export function launchCriticalNodes(): NodeDefinition[] {

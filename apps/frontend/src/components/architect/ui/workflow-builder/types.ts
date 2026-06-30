@@ -31,6 +31,10 @@ export type BuilderNodeData = Record<string, unknown> & {
   gmailBody?: string;
   vapiAssistantId?: string;
   vapiPhoneNumberId?: string;
+  voice?: string;
+  voiceProvider?: string;
+  voiceId?: string;
+  voiceName?: string;
   calendarId?: string;
   calendarSummary?: string;
   calendarDescription?: string;

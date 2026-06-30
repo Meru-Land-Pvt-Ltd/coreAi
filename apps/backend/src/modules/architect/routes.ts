@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { requiredConnectorKeys } from "@coreai/shared";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -723,6 +724,27 @@ architectRoutes.delete("/workflows/:workflowId", async (c) => {
     return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
   }
 
+  // Safety: only a true draft can be deleted. Never delete a workflow that has a
+  // listing (submitted/published) or is deployed as a live agent (installed).
+  const listing = await prisma.agentListing.findFirst({ where: { workflowId } });
+  if (listing) {
+    return errorResponse(
+      c,
+      "This workflow has been submitted/published and cannot be deleted as a draft.",
+      409,
+      "WORKFLOW_HAS_LISTING"
+    );
+  }
+  const installed = await prisma.installedAgent.findFirst({ where: { workflowId } });
+  if (installed) {
+    return errorResponse(
+      c,
+      "This workflow is deployed as a live agent and cannot be deleted as a draft.",
+      409,
+      "WORKFLOW_DEPLOYED"
+    );
+  }
+
   await prisma.workflowDefinition.delete({
     where: {
       id: workflowId
@@ -732,7 +754,87 @@ architectRoutes.delete("/workflows/:workflowId", async (c) => {
   return successResponse(c, { workflowId }, "Agent deleted");
 });
 
+// Bulk draft cleanup: deletes ONLY the architect's draft workflows that have no
+// AgentListing and are not deployed (no InstalledAgent). Never touches
+// submitted/published listings or live agents.
+architectRoutes.post("/workflows/cleanup-drafts", async (c) => {
+  const authUser = c.get("authUser");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    deleteUntitled?: unknown;
+    deleteDuplicateTemplates?: unknown;
+  };
+  const deleteUntitled = body.deleteUntitled !== false;
+  const deleteDuplicateTemplates = body.deleteDuplicateTemplates !== false;
+
+  const workflows = await prisma.workflowDefinition.findMany({
+    where: { architectUserId: authUser.id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, name: true }
+  });
+
+  const listedIds = new Set(
+    (
+      await prisma.agentListing.findMany({
+        where: { architectUserId: authUser.id, workflowId: { not: null } },
+        select: { workflowId: true }
+      })
+    )
+      .map((listing) => listing.workflowId)
+      .filter((id): id is string => Boolean(id))
+  );
+  const deployedIds = new Set(
+    (
+      await prisma.installedAgent.findMany({
+        where: { workflowId: { in: workflows.map((workflow) => workflow.id) } },
+        select: { workflowId: true }
+      })
+    ).map((agent) => agent.workflowId)
+  );
+
+  // Only undeployed, unlisted workflows are eligible for cleanup.
+  const candidates = workflows.filter((workflow) => !listedIds.has(workflow.id) && !deployedIds.has(workflow.id));
+
+  const isUntitled = (name: string) => {
+    const normalized = (name ?? "").trim().toLowerCase();
+    return !normalized || normalized === "untitled" || normalized === "untitled agent" || normalized === "new agent";
+  };
+
+  const toDelete = new Map<string, string>();
+  if (deleteUntitled) {
+    for (const workflow of candidates) {
+      if (isUntitled(workflow.name)) toDelete.set(workflow.id, workflow.name);
+    }
+  }
+  if (deleteDuplicateTemplates) {
+    // candidates are newest-first; keep the first per name, delete later duplicates.
+    const seenNames = new Set<string>();
+    for (const workflow of candidates) {
+      const key = (workflow.name ?? "").trim().toLowerCase();
+      if (seenNames.has(key)) toDelete.set(workflow.id, workflow.name);
+      else seenNames.add(key);
+    }
+  }
+
+  const ids = Array.from(toDelete.keys());
+  if (ids.length > 0) {
+    await prisma.workflowDefinition.deleteMany({
+      where: { id: { in: ids }, architectUserId: authUser.id }
+    });
+  }
+
+  return successResponse(
+    c,
+    { deletedCount: ids.length, deletedNames: Array.from(toDelete.values()) },
+    "Draft clutter cleared"
+  );
+});
+
 /**
+ * DEV/DEMO-ONLY — NOT normal architect product behavior. The architect UI no
+ * longer calls this; architects only design + publish. Real buyer/business
+ * deployment happens through POST /business/setup. Kept solely for local
+ * demo/self-test of the live voice path.
+ *
  * Deploy the builder's 6-node Dental AI Receptionist as a live voice agent.
  * Full provision: builds the Vapi assistant from the AI Conversation node,
  * provisions Business + InstalledAgent + BusinessProfile, assigns a Twilio
@@ -1021,18 +1123,29 @@ architectRoutes.post("/listings", async (c) => {
     const input = listingSchema.parse(await c.req.json());
     const workflowId = input.workflowId || undefined;
 
-    if (workflowId) {
-      const workflow = await prisma.workflowDefinition.findFirst({
-        where: {
-          id: workflowId,
-          architectUserId: authUser.id
-        }
-      });
+    const workflow = workflowId
+      ? await prisma.workflowDefinition.findFirst({
+          where: {
+            id: workflowId,
+            architectUserId: authUser.id
+          }
+        })
+      : null;
 
-      if (!workflow) {
-        return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
-      }
+    if (workflowId && !workflow) {
+      return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
     }
+
+    // Connectors the BUYER must set up to run this agent live — derived from the
+    // workflow's nodes and merged with any explicitly provided. Architect publish
+    // only DECLARES these for the buyer; it never connects them.
+    const requiredConnectors = Array.from(
+      new Set([
+        ...input.requiredConnectors,
+        ...(workflow ? requiredConnectorKeys(workflow.workflowJson) : [])
+      ])
+    );
+
     const existingListing = workflowId
       ? await prisma.agentListing.findFirst({
         where: {
@@ -1051,7 +1164,7 @@ architectRoutes.post("/listings", async (c) => {
       description: input.description || null,
       priceCents: input.priceCents,
       tags: input.tags,
-      requiredConnectors: input.requiredConnectors,
+      requiredConnectors,
       supportedLlms: input.supportedLlms,
       status: "PENDING_REVIEW" as const
     };
