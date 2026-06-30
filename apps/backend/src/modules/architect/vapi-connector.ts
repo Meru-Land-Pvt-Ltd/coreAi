@@ -1,4 +1,5 @@
-import { DEFAULT_VOICE_PROVIDER, VOICE_TOOL_NAMES, getVoicePreset } from "@coreai/shared";
+import { DEFAULT_VOICE_PROVIDER, VOICE_TOOL_NAMES } from "@coreai/shared";
+import { resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 
@@ -306,11 +307,11 @@ export async function createVapiInboundTwiml({
 
 /**
  * Resolve the agent's voice selection to a Vapi voice config. Priority:
- *   1. an explicit ElevenLabs voiceId (architect "custom voice id" / buyer override),
- *   2. a named preset (sarah/james/priya) that has a known voiceId,
+ *   1. an explicit ElevenLabs voiceId (architect/buyer custom id),
+ *   2. the selected preset id → env override (ELEVENLABS_VOICE_*_ID) → preset default,
  *   3. env VAPI_DEFAULT_VOICE_ID.
- * Returns `{ config }` to send to Vapi, or `{ warning }` when nothing resolves
- * (Vapi then uses its account-default voice — deploy + calls still work).
+ * Returns `{ config }` to send to Vapi (never an empty voiceId), or `{ warning }`
+ * when nothing resolves (Vapi then uses its account-default voice — calls still work).
  */
 function resolveVapiVoice(input: {
   voice?: string | null;
@@ -324,16 +325,12 @@ function resolveVapiVoice(input: {
   // Treat a long, space-free value as an already-resolved ElevenLabs voice id.
   const looksLikeId = explicit.length >= 18 && !explicit.includes(" ");
 
-  let voiceId = looksLikeId ? explicit : "";
-  if (!voiceId) {
-    const preset = getVoicePreset(input.voice ?? "");
-    if (preset?.voiceId) voiceId = preset.voiceId;
-  }
-  if (!voiceId) voiceId = (env.VAPI_DEFAULT_VOICE_ID ?? "").trim();
+  // resolvePresetVoiceId handles preset → env override → VAPI_DEFAULT_VOICE_ID.
+  const voiceId = looksLikeId ? explicit : resolvePresetVoiceId(input.voice);
   if (!voiceId) {
     return {
       warning:
-        "No ElevenLabs voiceId resolved (no preset id, no custom id, no VAPI_DEFAULT_VOICE_ID). Vapi will use its account-default voice."
+        "No ElevenLabs voiceId resolved (no preset/custom id, no VAPI_DEFAULT_VOICE_ID). Vapi will use its account-default voice."
     };
   }
   return { config: { provider, voiceId } };

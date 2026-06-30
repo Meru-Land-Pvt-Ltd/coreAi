@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { VOICE_PRESETS } from "@coreai/shared";
 import { DashboardShell } from "@/components/common/dashboard-shell";
+import { VoicePicker } from "@/components/common/voice-picker";
 import {
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
@@ -1059,46 +1060,26 @@ function SetupWizard() {
 
       <div data-testid="business-setup-voice" className={cardClass}>
         <h2 className={sectionTitleClass} data-testid="business-agents-setup-voice-heading">Voice</h2>
-        <p className="mt-1 text-sm text-orange-800/80">
-          Choose the voice your AI receptionist uses on calls. Keep the agent default or pick another.
-        </p>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div>
-            <label data-testid="business-setup-label-voice" htmlFor="voice" className={labelClass}>
-              Voice
-            </label>
-            <select
-              data-testid="business-setup-input-voice"
-              id="voice"
-              value={voiceChoice}
-              onChange={(event) => setVoiceChoice(event.target.value)}
-              className={inputClass}
-            >
-              <option value="default">Use agent default voice</option>
-              {VOICE_PRESETS.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-              <option value="custom">Custom ElevenLabs voice ID</option>
-            </select>
-          </div>
-          {voiceChoice === "custom" ? (
-            <div>
-              <label data-testid="business-setup-label-voice-id" htmlFor="voice-id" className={labelClass}>
-                ElevenLabs voice ID
-              </label>
-              <input
-                data-testid="business-setup-input-voice-id"
-                id="voice-id"
-                type="text"
-                value={customVoiceId}
-                onChange={(event) => setCustomVoiceId(event.target.value)}
-                placeholder="EXAVITQu4vr4xnSDxMaL"
-                className={inputClass}
-              />
-            </div>
-          ) : null}
+        <div className="mt-3">
+          <VoicePicker
+            accent="orange"
+            selectedVoice={voiceChoice}
+            customVoiceId={customVoiceId}
+            testIdPrefix="business-voice-picker"
+            subtitle="Architect suggested this voice. Your business can use it or choose another voice before deployment."
+            onSelectDefault={() => {
+              setVoiceChoice("default");
+              setCustomVoiceId("");
+            }}
+            onSelectPreset={(preset) => {
+              setVoiceChoice(preset.id);
+              setCustomVoiceId("");
+            }}
+            onCustomVoiceIdChange={(value) => {
+              setVoiceChoice("custom");
+              setCustomVoiceId(value);
+            }}
+          />
         </div>
         <p data-testid="business-setup-voice-note" className="mt-2 text-xs text-orange-700/70">
           If you don&apos;t enter a custom ID, CoreAI uses the agent default (ElevenLabs via Vapi) or the platform fallback voice.

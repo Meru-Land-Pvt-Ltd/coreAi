@@ -31,7 +31,14 @@ import {
   listTemplateCards
 } from "./templates";
 import { getVoiceAnswerStatus } from "./vapi-connector";
+import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
+
+const voicePreviewSchema = z.object({
+  presetId: z.string().trim().optional(),
+  voiceId: z.string().trim().optional(),
+  text: z.string().trim().max(300).optional()
+});
 
 export const architectRoutes = new Hono();
 
@@ -151,6 +158,32 @@ architectRoutes.get("/listings/completed", requireAuth, listCompletedListings);
 architectRoutes.post("/listings/completed", requireAuth, listCompletedListings);
 architectRoutes.get("/listings/:id", requireAuth, getCompletedListingById);
 architectRoutes.post("/listings/:id", requireAuth, getCompletedListingById);
+
+// Voice catalog + preview — buyer-visible (architect builder AND buyer install
+// both render voice cards / play previews), so registered before the ARCHITECT
+// role guard. The ElevenLabs key never leaves the backend.
+architectRoutes.get("/voices", requireAuth, (c) => successResponse(c, listVoicePresets()));
+// Safe, secret-free diagnostics for debugging voice preview wiring.
+architectRoutes.get("/voices/debug", requireAuth, (c) => successResponse(c, voicePreviewDiagnostics()));
+architectRoutes.post("/voices/preview", requireAuth, async (c) => {
+  try {
+    const input = voicePreviewSchema.parse(await c.req.json().catch(() => ({})));
+    const result = await generateVoicePreview(input);
+    return successResponse(c, result);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid preview input", 422, "VALIDATION_ERROR");
+    }
+    // Surface the real status (e.g. 402 paid-plan / 404 unknown voice) + message.
+    const status = error instanceof VoicePreviewError ? error.status : 503;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Voice preview failed",
+      status,
+      "VOICE_PREVIEW_FAILED"
+    );
+  }
+});
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));

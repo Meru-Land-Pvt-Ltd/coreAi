@@ -114,58 +114,92 @@ export const VOICE_TOOL_NAMES = {
   sendNotification: "send_notification"
 } as const;
 
-/**
- * Voice provider/voice config for the AI Voice Conversation node. The ARCHITECT
- * picks a suggested/default voice in the builder (template config only); the
- * BUYER accepts or overrides it at install. Deploy sends this to Vapi as
- * `voice: { provider, voiceId }`. A blank `voiceId` falls back to
- * env VAPI_DEFAULT_VOICE_ID, then to the Vapi account default.
- */
 export const DEFAULT_VOICE_PROVIDER = "11labs";
 
-export type VoicePreset = {
+export type AgentVoicePreset = {
   id: string;
   name: string;
-  provider: string;
-  /** ElevenLabs (via Vapi) voice id. "" → use the platform/env default voice. */
+  provider: "11labs";
   voiceId: string;
+  gender?: "female" | "male";
+  accent?: string;
+ /** Short badge label, e.g. "Warm", "Professional", "Calm" , "Male", "Indian English". */
+  style: string;
+  bestFor: string;
   description: string;
+  previewText: string;
+  /** Optional static preview clip; when set the UI plays it instead of calling the TTS endpoint. */
+  previewAudioUrl?: string;
 };
 
-export const VOICE_PRESETS: VoicePreset[] = [
+export const VOICE_PRESETS: AgentVoicePreset[] = [
   {
     id: "sarah",
     name: "Sarah",
     provider: DEFAULT_VOICE_PROVIDER,
     voiceId: "EXAVITQu4vr4xnSDxMaL",
-    description: "Warm, friendly female (ElevenLabs)"
+    gender: "female",
+    accent: "American",
+    style: "Warm",
+    bestFor: "Healthcare, salon, appointment booking",
+    description: "Warm, friendly receptionist voice.",
+    previewText: "Good morning, this is Sarah. How can I help you today?"
   },
   {
-    id: "james",
-    name: "James",
+    id: "aria",
+    name: "Aria",
     provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "",
-    description: "Calm male — uses the platform default voice until a voice id is set"
+    voiceId: "9BWtsMINqrJLrRacOk9x",
+    gender: "female",
+    accent: "American",
+    style: "Professional",
+    bestFor: "Clinics, law firms, professional services",
+    description: "Polished, professional assistant voice.",
+    previewText: "Thank you for calling. This is Aria — how may I assist you?"
+  },
+  {
+    id: "rachel",
+    name: "Rachel",
+    provider: DEFAULT_VOICE_PROVIDER,
+    voiceId: "21m00Tcm4TlvDq8ikWAM",
+    gender: "female",
+    accent: "American",
+    style: "Calm",
+    bestFor: "Support lines, wellness, dental",
+    description: "Calm, reassuring support voice.",
+    previewText: "Hi, this is Rachel. I'm here to help — what can I do for you?"
+  },
+  {
+    id: "adam",
+    name: "Adam",
+    provider: DEFAULT_VOICE_PROVIDER,
+    voiceId: "pNInz6obpgDQGcFmaJgB",
+    gender: "male",
+    accent: "American",
+    style: "Male",
+    bestFor: "Home services, automotive, B2B",
+    description: "Confident male business voice.",
+    previewText: "Hello, this is Adam. Thanks for calling — how can I help?"
   },
   {
     id: "priya",
     name: "Priya",
     provider: DEFAULT_VOICE_PROVIDER,
     voiceId: "",
-    description: "Friendly — uses the platform default voice until a voice id is set"
+    gender: "female",
+    accent: "Indian English",
+    style: "Indian English",
+    bestFor: "India-based businesses, clinics, salons",
+    description: "Friendly Indian-English receptionist voice.",
+    previewText: "Hello, this is Priya. How may I help you today?"
   }
 ];
 
-export function getVoicePreset(id: string): VoicePreset | undefined {
+export function getVoicePreset(id: string): AgentVoicePreset | undefined {
   const key = (id ?? "").trim().toLowerCase();
   return VOICE_PRESETS.find((preset) => preset.id === key);
 }
 
-/**
- * Default Vapi system prompt for the AI Voice Conversation node. Token-parameterized
- * ({{practice_name}}, {{doctor_name}}, …) so it works for any business; the values
- * come from node.data and are injected at deploy/call time.
- */
 export const RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE = `You are {{assistantName}}, the AI receptionist for {{practice_name}}. You work for {{doctor_name}}.
 
 Your job: Answer patient calls, help them book appointments, and provide basic practice info.

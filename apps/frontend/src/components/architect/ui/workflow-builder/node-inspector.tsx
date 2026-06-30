@@ -1,13 +1,9 @@
-import { VOICE_NODE_TYPES, VOICE_PRESETS, getNodeDefinition } from "@coreai/shared";
+import { VOICE_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
 import type { ReactNode } from "react";
+import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData } from "./types";
 
-/**
- * Who owns the connectors shown in the inspector.
- * - "architect" → design mode: show REQUIREMENT BADGES only, never connect.
- * - "buyer"     → install mode: show real connect buttons + connection status.
- */
 export type ConnectorOwnership = "architect" | "buyer";
 
 type CalendarConnection = {
@@ -24,12 +20,6 @@ type NodePropsPanel = {
 
 type CalendarPanel = NodePropsPanel & { calendar: CalendarConnection; ownership: ConnectorOwnership };
 
-/**
- * Node inspector — fully data-driven from node.data, with no hardcoded business
- * values, fake phone numbers, or use-case (dental/missed-call) wording. Panels are
- * keyed by generic node capability (node.data.type) or connector, never by a
- * template. Use-case values appear only because a template put them in node.data.
- */
 export function NodeInspector({
   selectedNode,
   onClearSelection,
@@ -371,24 +361,24 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
       </Section>
       <Section title="Voice">
-        <Label>Voice (suggested default)</Label>
-        <SelectBox
-          value={str("voice", "sarah")}
-          onChange={(value) => {
-            const preset = VOICE_PRESETS.find((option) => option.id === value);
-            onUpdateNodeData("voice", value);
-            onUpdateNodeData("voiceName", preset?.name ?? value);
-            onUpdateNodeData("voiceProvider", preset?.provider ?? "11labs");
+        <VoicePicker
+          accent="violet"
+          selectedVoice={str("voice", "sarah")}
+          customVoiceId={str("voiceId")}
+          subtitle="Choose the suggested voice for this agent. The buyer can change it during install."
+          onSelectPreset={(preset) => {
+            onUpdateNodeData("voice", preset.id);
+            onUpdateNodeData("voiceName", preset.name);
+            onUpdateNodeData("voiceProvider", "11labs");
+            onUpdateNodeData("voiceId", "");
           }}
-          options={VOICE_PRESETS.map((option) => option.id)}
+          onCustomVoiceIdChange={(value) => {
+            onUpdateNodeData("voice", "custom");
+            onUpdateNodeData("voiceName", "Custom ElevenLabs Voice");
+            onUpdateNodeData("voiceProvider", "11labs");
+            onUpdateNodeData("voiceId", value);
+          }}
         />
-        <p className="mt-2 text-[11px] text-slate-400" data-testid="voice-suggested-note">
-          Template default voice. The buyer accepts or changes this during install.
-        </p>
-        <div className="mt-4">
-          <Label>Custom ElevenLabs voice ID (optional)</Label>
-          <TextInput mono value={str("voiceId")} onChange={set("voiceId")} placeholder="e.g. EXAVITQu4vr4xnSDxMaL" />
-        </div>
         <div className="mt-4">
           <Label>Language</Label>
           <SelectBox value={str("language", "en-US")} onChange={set("language")} options={["en-US", "en-GB", "es", "hi"]} />
