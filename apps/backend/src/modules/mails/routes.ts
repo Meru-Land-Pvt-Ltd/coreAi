@@ -1,9 +1,22 @@
 import { Hono } from "hono";
-import { sendFreeAssignmentEmail } from "../../lib/mailer";
+import { env } from "../../config/env";
+import { sendFreeAssignmentEmail, sendPaymentSuccessEmail } from "../../lib/mailer";
 
 type SendFreeAssignmentMailBody = {
   to?: string;
   name?: string | null;
+};
+
+type SendPaymentSuccessMailBody = {
+  to?: string;
+  name?: string | null;
+  agentName?: string;
+  description?: string | null;
+  amountCents?: number;
+  currency?: string;
+  status?: string;
+  invoiceNumber?: string;
+  setupUrl?: string | null;
 };
 
 export const mailRoutes = new Hono();
@@ -35,12 +48,7 @@ mailRoutes.post("/send-free-assignment-mail", async (c) => {
       );
     }
 
-    const appUrl =
-      process.env.APP_URL ||
-      process.env.FRONTEND_URL ||
-      "https://globalbrandgrowth.com";
-
-    const assignmentLink = `${appUrl.replace(/\/$/, "")}/assignment`;
+    const assignmentLink = `${env.FRONTEND_URL.replace(/\/$/, "")}/assignment`;
 
     await sendFreeAssignmentEmail({
       to,
@@ -65,6 +73,47 @@ mailRoutes.post("/send-free-assignment-mail", async (c) => {
       },
       500
     );
+  }
+});
+
+mailRoutes.post("/send-payment-success", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as SendPaymentSuccessMailBody;
+
+    const to = body.to?.trim();
+    const agentName = body.agentName?.trim();
+
+    if (!to || !isValidEmail(to)) {
+      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
+    }
+
+    if (!agentName) {
+      return c.json({ success: false, message: "agentName is required" }, 400);
+    }
+
+    const amountCents = Number.isFinite(body.amountCents) ? Number(body.amountCents) : 0;
+
+    await sendPaymentSuccessEmail({
+      to,
+      name: body.name?.trim() || null,
+      setupUrl: body.setupUrl?.trim() || null,
+      invoice: {
+        invoiceNumber: body.invoiceNumber?.trim() || `INV-${Date.now().toString(36).toUpperCase()}`,
+        date: new Date(),
+        businessName: body.name?.trim() || "Customer",
+        businessEmail: to,
+        agentName,
+        description: body.description?.trim() || agentName,
+        amountCents,
+        currency: body.currency?.trim() || "usd",
+        status: body.status?.trim() || "SUCCEEDED"
+      }
+    });
+
+    return c.json({ success: true, message: "Payment success email sent" }, 200);
+  } catch (error) {
+    console.error("Send payment success email error:", error);
+    return c.json({ success: false, message: "Failed to send payment success email" }, 500);
   }
 });
 

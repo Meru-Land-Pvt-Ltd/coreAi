@@ -795,7 +795,7 @@ export default function HomePage() {
               {[
                 {
                   quote: "“I built a missed-call agent in 20 minutes. It's already earning me $400/month.”",
-                  image: "/image2.png",
+                  image: "/image3.png",
                   name: "Alex Rao",
                   role: "AI Architect",
                   alt: "Alex Rao testimonial photo"

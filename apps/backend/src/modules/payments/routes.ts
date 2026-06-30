@@ -1,9 +1,15 @@
 import { Hono } from "hono";
+import { PaymentStatus } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
+import {
+  buildInvoicePdfBuffer,
+  sendPaymentSuccessEmail,
+  type InvoiceData
+} from "../../lib/mailer";
 import { getStripeClient, isStripeConfigured } from "./stripe";
 
 export const paymentRoutes = new Hono();
@@ -11,10 +17,28 @@ export const paymentRoutes = new Hono();
 paymentRoutes.use("*", requireAuth);
 paymentRoutes.use("*", requireRole(["BUSINESS"]));
 
+// Payments with one of these statuses count as an owned/purchased agent.
+const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
+  PaymentStatus.TRIALING,
+  PaymentStatus.SUCCEEDED,
+  PaymentStatus.PENDING
+];
+
 const startTrialSchema = z.object({
   listingId: z.string().trim().min(1),
   paymentMethodId: z.string().trim().min(1)
 });
+
+function invoiceNumberForPayment(paymentId: string) {
+  return `INV-${paymentId.slice(-8).toUpperCase()}`;
+}
+
+function setupUrlForListing(listingId?: string | null) {
+  const base = env.FRONTEND_URL.replace(/\/$/, "");
+  return listingId
+    ? `${base}/business/agents/setup?listingId=${encodeURIComponent(listingId)}`
+    : `${base}/business/agents/setup`;
+}
 
 paymentRoutes.get("/config", (c) => {
   return successResponse(c, {
@@ -158,6 +182,118 @@ paymentRoutes.get("/billing", async (c) => {
   });
 });
 
+// GET /payments/my-agents — the agents this business has purchased.
+// Backed by the Payment ledger (keyed to the business owner), so each business
+// effectively has its own array of purchased agents.
+paymentRoutes.get("/my-agents", async (c) => {
+  const authUser = c.get("authUser");
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      userId: authUser.id,
+      listingId: { not: null },
+      status: { in: OWNED_PAYMENT_STATUSES }
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      listing: {
+        include: {
+          workflow: {
+            select: { id: true, name: true, description: true }
+          },
+          architect: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              architectProfile: {
+                select: { title: true, rating: true, completedJobs: true }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Dedupe by listing — a business owns each agent once even with several
+  // payment rows (e.g. trial then renewal).
+  const seen = new Set<string>();
+  const agents = [];
+
+  for (const payment of payments) {
+    const listing = payment.listing;
+    if (!listing || seen.has(listing.id)) continue;
+    seen.add(listing.id);
+
+    agents.push({
+      purchaseId: payment.id,
+      purchasedAt: payment.createdAt,
+      purchaseStatus: payment.status,
+      listing: {
+        id: listing.id,
+        name: listing.name,
+        shortDescription: listing.shortDescription,
+        description: listing.description,
+        priceCents: listing.priceCents,
+        status: listing.status,
+        tags: listing.tags,
+        requiredConnectors: listing.requiredConnectors,
+        supportedLlms: listing.supportedLlms,
+        workflowId: listing.workflowId,
+        createdAt: listing.createdAt,
+        workflow: listing.workflow,
+        architect: listing.architect
+      }
+    });
+  }
+
+  return successResponse(c, { agents });
+});
+
+// GET /payments/invoice/:id/pdf — branded PDF for a single payment/invoice.
+paymentRoutes.get("/invoice/:id/pdf", async (c) => {
+  const authUser = c.get("authUser");
+  const paymentId = c.req.param("id");
+
+  const payment = await prisma.payment.findFirst({
+    where: { id: paymentId, userId: authUser.id },
+    include: { listing: { select: { id: true, name: true } } }
+  });
+
+  if (!payment) {
+    return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    select: { name: true }
+  });
+
+  const invoice: InvoiceData = {
+    invoiceNumber: invoiceNumberForPayment(payment.id),
+    date: payment.createdAt,
+    businessName: business?.name || authUser.fullName || "Customer",
+    businessEmail: authUser.email,
+    agentName: payment.listing?.name || "Agent purchase",
+    description: payment.description || payment.listing?.name || "Agent purchase",
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    status: payment.status
+  };
+
+  const pdf = await buildInvoicePdfBuffer(invoice);
+
+  c.header("Content-Type", "application/pdf");
+  c.header(
+    "Content-Disposition",
+    `attachment; filename="invoice-${invoice.invoiceNumber}.pdf"`
+  );
+
+  return c.body(new Uint8Array(pdf));
+});
+
 paymentRoutes.post("/start-trial", async (c) => {
   const stripe = getStripeClient();
 
@@ -287,6 +423,35 @@ paymentRoutes.post("/start-trial", async (c) => {
       }
     }
   });
+
+  // Send a purchase-confirmation email with the invoice attached. Best-effort:
+  // a mail failure must never break the purchase.
+  try {
+    const business = await prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      select: { name: true }
+    });
+
+    await sendPaymentSuccessEmail({
+      to: authUser.email,
+      name: business?.name || authUser.fullName,
+      setupUrl: setupUrlForListing(listing.id),
+      invoice: {
+        invoiceNumber: invoiceNumberForPayment(payment.id),
+        date: payment.createdAt,
+        businessName: business?.name || authUser.fullName || "Customer",
+        businessEmail: authUser.email,
+        agentName: listing.name,
+        description: `7-day trial for ${listing.name}`,
+        amountCents: listing.priceCents,
+        currency: "usd",
+        status: "TRIALING"
+      }
+    });
+  } catch (error) {
+    console.error("Payment success email failed (non-fatal)", error);
+  }
 
   return successResponse(
     c,

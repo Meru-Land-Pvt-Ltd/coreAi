@@ -2,76 +2,201 @@
 
 import type { Route } from "next";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArchitectStatusPill,
-  formatDate,
-  formatMoney
-} from "@/components/architect/ui/architect-ui";
-import {
+import { formatDate, formatMoney } from "@/components/architect/ui/architect-ui";
+import { deleteArchitectWorkflow,
   cleanupDraftWorkflows,
-  deleteArchitectWorkflow,
   getArchitectListings
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { getAuthUser } from "@/lib/auth";
+import { architectPublishingStatusPath } from "@/lib/routes";
 
-function AgentGlyph() {
+type AgentStatus = ArchitectListing["status"];
+
+const MY_AGENTS_STYLES = `
+@keyframes myAgentsPulseDot {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+.ma-pulse-dot { animation: myAgentsPulseDot 3s ease-out infinite; }
+@keyframes myAgentsSpin { to { transform: rotate(360deg); } }
+.ma-spin-slow { animation: myAgentsSpin 2.6s linear infinite; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .ma-pulse-dot, .ma-spin-slow { animation: none !important; }
+}
+`;
+
+const STATUS_STYLES: Record<
+  AgentStatus,
+  {
+    label: string;
+    pill: string;
+    iconBg: string;
+    iconBorder: string;
+    iconText: string;
+  }
+> = {
+  APPROVED: {
+    label: "Live",
+    pill: "bg-green-50 text-green-700",
+    iconBg: "bg-green-50",
+    iconBorder: "border-green-100",
+    iconText: "text-green-600"
+  },
+  PENDING_REVIEW: {
+    label: "Under Review",
+    pill: "bg-amber-50 text-amber-700",
+    iconBg: "bg-amber-50",
+    iconBorder: "border-amber-100",
+    iconText: "text-amber-600"
+  },
+  DRAFT: {
+    label: "Draft",
+    pill: "bg-slate-100 text-slate-600",
+    iconBg: "bg-slate-50",
+    iconBorder: "border-slate-100",
+    iconText: "text-slate-500"
+  },
+  REJECTED: {
+    label: "Rejected",
+    pill: "bg-red-50 text-red-700",
+    iconBg: "bg-red-50",
+    iconBorder: "border-red-100",
+    iconText: "text-red-600"
+  },
+  SUSPENDED: {
+    label: "Suspended",
+    pill: "bg-red-50 text-red-700",
+    iconBg: "bg-red-50",
+    iconBorder: "border-red-100",
+    iconText: "text-red-600"
+  }
+};
+
+function PhoneGlyph() {
   return (
     <svg
-      className="h-5 w-5"
+      className="h-[18px] w-[18px]"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
-      <rect x="4" y="8" width="16" height="12" rx="2.5" />
-      <path d="M12 8V4.5" />
-      <circle cx="9" cy="14" r="1.1" />
-      <circle cx="15" cy="14" r="1.1" />
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.1 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
     </svg>
   );
 }
 
-function EmptyAgentsState() {
+function SpinnerGlyph() {
   return (
-    <div className="pt-2">
-      <Link
-        data-testid="my-agents-empty-publish-agent-link"
-        href={"/architect/workflows" as Route}
-        className="group relative flex min-h-[360px] w-full max-w-[448px] flex-col overflow-hidden rounded-[1.8rem] border border-dashed border-amber-300 bg-[#fffdf6] p-8 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:bg-white hover:shadow-xl hover:shadow-amber-500/10"
+    <svg
+      className="ma-spin-slow h-3 w-3"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 2v4" />
+      <path d="m16.2 7.8 2.9-2.9" />
+      <path d="M18 12h4" />
+      <path d="m16.2 16.2 2.9 2.9" />
+      <path d="M12 18v4" />
+      <path d="m4.9 19.1 2.9-2.9" />
+      <path d="M2 12h4" />
+      <path d="m4.9 4.9 2.9 2.9" />
+    </svg>
+  );
+}
+
+function StatusPill({ status }: { status: AgentStatus }) {
+  const style = STATUS_STYLES[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${style.pill}`}
+      data-testid="my-agents-status-pill"
+    >
+      {status === "APPROVED" ? (
+        <span className="ma-pulse-dot h-1.5 w-1.5 rounded-full bg-green-500" />
+      ) : status === "PENDING_REVIEW" ? (
+        <SpinnerGlyph />
+      ) : status === "REJECTED" || status === "SUSPENDED" ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+      ) : null}
+      {style.label}
+    </span>
+  );
+}
+
+function StatusBand({ agent }: { agent: ArchitectListing }) {
+  if (agent.status === "PENDING_REVIEW") {
+    return (
+      <div
+        className="border-t border-amber-100 bg-amber-50/60 px-5 py-3"
+        data-testid={`my-agents-review-notice-${agent.id}`}
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.10),transparent_38%)] opacity-80" />
-
-        <div className="relative grid h-14 w-14 place-items-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/30 transition duration-300 group-hover:scale-105 group-hover:bg-amber-400">
-          <svg
-            className="h-8 w-8"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 5v14" />
-            <path d="M5 12h14" />
-          </svg>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-amber-700">Review in progress</span>
+          <span className="text-xs text-amber-600">Pending</span>
         </div>
-
-        <div className="relative mt-auto">
-          <h3 className="text-2xl font-black tracking-tight text-slate-950" data-testid="architect-ui-my-agents-view-publish-new-agent-heading">
-            Create your first agent
-          </h3>
-
-          <p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-slate-500" data-testid="architect-ui-my-agents-view-start-with-an-empty-canvas-then-load-text">
-            Start with an empty canvas, pick a template from the gallery, or build
-            your own flow.
-          </p>
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-amber-100">
+          <div className="h-full w-2/3 rounded-full bg-amber-500" />
         </div>
-      </Link>
+        <p className="mt-1.5 text-xs text-amber-600">Will be live in 24–48 hrs after review</p>
+      </div>
+    );
+  }
+
+  if (agent.status === "DRAFT") {
+    return (
+      <div className="border-t border-gray-100 bg-slate-50 px-5 py-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-500">Completion</span>
+          <span className="text-xs text-slate-400">Draft</span>
+        </div>
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+          <div className="h-full w-1/3 rounded-full bg-slate-400" />
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">Finish setup and publish to go live</p>
+      </div>
+    );
+  }
+
+  if (agent.status === "REJECTED" || agent.status === "SUSPENDED") {
+    return (
+      <div className="border-t border-red-100 bg-red-50/60 px-5 py-3">
+        <p className="text-xs font-medium text-red-600">
+          {agent.status === "REJECTED"
+            ? "Changes requested — edit and resubmit."
+            : "Suspended — contact support to restore."}
+        </p>
+      </div>
+    );
+  }
+
+  // APPROVED / live — surface the real listing facts we have.
+  return (
+    <div className="grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+      <div>
+        <div className="text-[11px] text-slate-400">Price</div>
+        <div className="text-sm font-bold text-amber-600">{formatMoney(agent.priceCents)}</div>
+      </div>
+      <div>
+        <div className="text-[11px] text-slate-400">Connectors</div>
+        <div className="text-sm font-bold text-slate-900">{agent.requiredConnectors.length}</div>
+      </div>
+      <div>
+        <div className="text-[11px] text-slate-400">Models</div>
+        <div className="text-sm font-bold text-slate-900">{agent.supportedLlms.length}</div>
+      </div>
     </div>
   );
 }
@@ -79,130 +204,270 @@ function EmptyAgentsState() {
 function AgentCard({
   agent,
   architectName,
-  onDelete
+  onDeleted
 }: {
   agent: ArchitectListing;
   architectName: string;
-  onDelete?: () => void;
+  onDeleted: () => void;
 }) {
+  const router = useRouter();
+  const style = STATUS_STYLES[agent.status];
+  const [deleting, setDeleting] = useState(false);
+
   const editHref = (agent.workflowId
     ? `/architect/workflows/${agent.workflowId}/builder`
     : "/architect/agents/publish") as Route;
 
-  const isUnderReview = agent.status === "PENDING_REVIEW";
-  // Status-specific call to action.
+  // Under-review and live agents open the publishing-status page.
+  const isStatusViewable = agent.status === "PENDING_REVIEW" || agent.status === "APPROVED";
+  const statusHref = architectPublishingStatusPath(agent.id);
+
+  const actionHref = isStatusViewable ? statusHref : editHref;
+
   const actionLabel =
     agent.status === "DRAFT"
-      ? "Continue editing"
+      ? "Continue Building"
       : agent.status === "PENDING_REVIEW"
-        ? "View submission"
+        ? "View status"
         : agent.status === "APPROVED"
-          ? "View live"
+          ? "View status"
           : agent.status === "REJECTED"
             ? "Edit & resubmit"
             : "Manage";
 
+  const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
+
+  const canDelete = agent.status === "DRAFT" && Boolean(agent.workflowId);
+
+  async function handleDelete(event: React.MouseEvent) {
+    event.stopPropagation();
+    if (!agent.workflowId || deleting) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete draft "${agent.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    const result = await deleteArchitectWorkflow(agent.workflowId);
+    setDeleting(false);
+
+    if (result.success) {
+      onDeleted();
+    }
+  }
+
+  function handleCardClick() {
+    if (!isStatusViewable) return;
+    router.push(statusHref);
+  }
+
   return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
-      <div className="flex-1 p-6">
-        <div className="flex items-start justify-between gap-3">
-          <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-100">
-            <AgentGlyph />
+    <article
+      data-testid={`my-agents-card-${agent.id}`}
+      onClick={isStatusViewable ? handleCardClick : undefined}
+      role={isStatusViewable ? "button" : undefined}
+      tabIndex={isStatusViewable ? 0 : undefined}
+      onKeyDown={
+        isStatusViewable
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleCardClick();
+              }
+            }
+          : undefined
+      }
+      className={`group flex flex-col overflow-hidden rounded-2xl border ${dashed} bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-md ${
+        isStatusViewable ? "cursor-pointer" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
+        <span
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${style.iconBg} ${style.iconBorder} ${style.iconText}`}
+        >
+          <PhoneGlyph />
+        </span>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <StatusPill status={agent.status} />
+          <span
+            className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white"
+            data-testid="architect-ui-my-agents-view-format-money-agent-price-cents-text"
+          >
+            {formatMoney(agent.priceCents)}
           </span>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <ArchitectStatusPill status={agent.status} />
-            <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="architect-ui-my-agents-view-format-money-agent-price-cents-text">
-              {formatMoney(agent.priceCents)}
-            </span>
-          </div>
         </div>
+      </div>
 
-        <h2 className="mt-4 flex flex-wrap items-center gap-2 text-lg font-bold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
+      <div className="min-w-0 px-5 pb-3">
+        <h2
+          className="truncate text-base font-semibold text-slate-900"
+          data-testid="architect-ui-my-agents-view-agent-heading"
+        >
           {agent.name}
         </h2>
 
-        <div className="mt-2 flex flex-wrap gap-2">
+        <p
+          className="mt-0.5 truncate text-xs text-slate-500"
+          data-testid="architect-ui-my-agents-view-agent-workflow-from-agent-workflow-marketplace-package-text"
+        >
+          by {architectName}
+        </p>
+
+        <p
+          className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-500"
+          data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text"
+        >
+          {agent.shortDescription || "No description added yet."}
+        </p>
+
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {agent.tags.length ? (
             agent.tags.slice(0, 3).map((tag) => (
               <span
                 key={`${agent.id}-${tag}`}
-                className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
+                className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-slate-600"
                 data-testid="architect-ui-my-agents-view-tag-text"
               >
                 {tag}
               </span>
             ))
           ) : (
-            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-500" data-testid="architect-ui-my-agents-view-no-tags-text">
+            <span
+              className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-slate-500"
+              data-testid="architect-ui-my-agents-view-no-tags-text"
+            >
               No tags
             </span>
           )}
         </div>
-
-        <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
-          {agent.shortDescription || "No description added yet."}
-        </p>
-
-        {isUnderReview ? (
-          <div
-            className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
-            data-testid={`my-agents-review-notice-${agent.id}`}
-          >
-            <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 7v5l3 2" />
-            </svg>
-            <p className="text-xs font-semibold leading-5 text-amber-700">
-              Will be live in 24–48 hrs after review
-            </p>
-          </div>
-        ) : null}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
-        <span className="truncate text-xs text-slate-500" data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text">
+      <div className="mt-auto">
+        <StatusBand agent={agent} />
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-5 py-3">
+        <span
+          className="whitespace-nowrap text-xs text-slate-400"
+          data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text"
+        >
           Created {formatDate(agent.createdAt)}
         </span>
-        <span className="truncate text-xs text-slate-500" data-testid="architect-ui-my-agents-view-agent-workflow-from-agent-workflow-marketplace-package-text">
-          {architectName}
-        </span>
-      </div>
 
-      <div className="flex items-center gap-2 px-6 pb-6 pt-4">
-        <Link
-          data-testid={`my-agents-update-${agent.id}-link`}
-          href={editHref}
-          className="block flex-1 rounded-xl border-2 border-amber-500 py-2.5 text-center font-semibold text-amber-600 transition hover:bg-amber-500 hover:text-white"
-        >
-          {actionLabel}
-        </Link>
-        {agent.status === "DRAFT" && onDelete ? (
-          <button
-            type="button"
-            onClick={onDelete}
-            data-testid={`my-agents-delete-${agent.id}`}
-            className="shrink-0 rounded-xl border-2 border-red-200 px-3 py-2.5 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50"
+        <div className="flex items-center gap-1.5">
+          {canDelete ? (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              data-testid={`my-agents-delete-${agent.id}-button`}
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+            >
+              <svg
+                className="h-3.5 w-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          ) : null}
+
+          <Link
+            data-testid={`my-agents-update-${agent.id}-link`}
+            href={actionHref}
+            onClick={(event) => event.stopPropagation()}
+            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
           >
-            Delete draft
-          </button>
-        ) : null}
+            {actionLabel}
+            <svg
+              className="h-3.5 w-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
       </div>
     </article>
   );
 }
 
+function EmptyAgentsState() {
+  return (
+    <div className="mx-auto max-w-md px-6 py-16 text-center">
+      <span className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-amber-50 text-amber-500">
+        <svg
+          className="h-8 w-8"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="4" y="8" width="16" height="12" rx="2.5" />
+          <path d="M12 8V4.5" />
+          <circle cx="9" cy="14" r="1.1" />
+          <circle cx="15" cy="14" r="1.1" />
+        </svg>
+      </span>
+
+      <h3
+        className="mt-4 text-lg font-semibold text-slate-700"
+        data-testid="architect-ui-my-agents-view-publish-new-agent-heading"
+      >
+        No agents yet
+      </h3>
+      <p
+        className="mt-2 text-sm text-slate-500"
+        data-testid="architect-ui-my-agents-view-start-with-an-empty-canvas-then-load-text"
+      >
+        Create your first agent or pick a template from the gallery to get started.
+      </p>
+
+      <Link
+        data-testid="my-agents-empty-publish-agent-link"
+        href={"/architect/workflows" as Route}
+        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+      >
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        Create Agent
+      </Link>
+    </div>
+  );
+}
+
 type AgentFilter = "ALL" | "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
 
-const FILTER_TABS: { value: AgentFilter; label: string }[] = [
+const FILTER_TABS: { value: AgentFilter; label: string; dot?: string }[] = [
   { value: "ALL", label: "All" },
-  { value: "DRAFT", label: "Drafts" },
-  { value: "PENDING_REVIEW", label: "Pending Review" },
-  { value: "APPROVED", label: "Approved" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "PENDING_REVIEW", label: "Under Review", dot: "bg-amber-400" },
+  { value: "APPROVED", label: "Live", dot: "bg-green-500" },
   { value: "REJECTED", label: "Rejected" }
 ];
 
 export function MyAgentsView() {
+  const searchParams = useSearchParams();
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [architectName, setArchitectName] = useState("Architect");
@@ -216,6 +481,18 @@ export function MyAgentsView() {
     const name = user?.fullName?.trim() || user?.email?.trim() || "Architect";
     setArchitectName(name);
   }, []);
+
+  // Honor a ?filter=live (or status) query so other pages can deep-link here.
+  useEffect(() => {
+    const requested = searchParams.get("filter");
+    if (!requested) return;
+
+    const normalized = requested.toLowerCase();
+    if (normalized === "live" || normalized === "approved") setFilter("APPROVED");
+    else if (normalized === "draft") setFilter("DRAFT");
+    else if (normalized === "pending_review" || normalized === "review") setFilter("PENDING_REVIEW");
+    else if (normalized === "rejected") setFilter("REJECTED");
+  }, [searchParams]);
 
   async function loadAgents() {
     const result = await getArchitectListings();
@@ -282,127 +559,141 @@ export function MyAgentsView() {
     [agents]
   );
 
+  const approvedShare = counts.total
+    ? `${Math.round((counts.approved / counts.total) * 100)}% of total`
+    : "0% of total";
+
   const visibleAgents = useMemo(
     () => (filter === "ALL" ? agents : agents.filter((agent) => agent.status === filter)),
     [agents, filter]
   );
 
   return (
-    <div className="min-h-screen bg-greay p-4 sm:p-6 lg:p-8">
-      <section className="px-1 py-2 sm:px-2">
-        <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <style dangerouslySetInnerHTML={{ __html: MY_AGENTS_STYLES }} />
+
+      <header className="mx-auto max-w-7xl">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl" data-testid="architect-ui-my-agents-view-agents-heading">
+            <h1
+              className="text-2xl font-bold text-slate-900"
+              data-testid="architect-ui-my-agents-view-agents-heading"
+            >
               My Agents
             </h1>
+            <p className="mt-1 text-sm text-slate-500" data-testid="my-agents-subtitle-text">
+              Manage and monitor all your AI agents
+            </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-      
-            <Link
-              data-testid="my-agents-publish-agent-link"
-              href={"/architect/workflows" as Route}
-              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 hover:shadow-md sm:px-5"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              Publish Agent
-            </Link>
-          </div>
+          <Link
+            data-testid="my-agents-publish-agent-link"
+            href={"/architect/workflows" as Route}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Create New Agent
+          </Link>
         </div>
 
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="border-l-4 border-amber-500 bg-white/70 px-5 py-4">
-            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-total-agents-text">Total agents</p>
-            <p className="mt-1 text-3xl font-black text-slate-950" data-testid="architect-ui-my-agents-view-counts-total-text">{counts.total}</p>
+        {/* Stats */}
+        <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-total-agents-text">
+              Total Agents
+            </p>
+            <p className="mt-1 text-3xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-counts-total-text">
+              {counts.total}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Across all statuses</p>
           </div>
 
-          <div className="border-l-4 border-emerald-500 bg-white/70 px-5 py-4">
-            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-approved-text">Approved</p>
-            <p className="mt-1 text-3xl font-black text-emerald-700" data-testid="architect-ui-my-agents-view-counts-approved-text">{counts.approved}</p>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-approved-text">
+              Live &amp; Approved
+            </p>
+            <p className="mt-1 text-3xl font-bold text-green-600" data-testid="architect-ui-my-agents-view-counts-approved-text">
+              {counts.approved}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">{approvedShare}</p>
           </div>
 
-          <div className="border-l-4 border-orange-500 bg-white/70 px-5 py-4">
-            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-in-review-text">In review</p>
-            <p className="mt-1 text-3xl font-black text-orange-700" data-testid="architect-ui-my-agents-view-counts-review-text">{counts.review}</p>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-in-review-text">
+              In Review
+            </p>
+            <p className="mt-1 text-3xl font-bold text-amber-600" data-testid="architect-ui-my-agents-view-counts-review-text">
+              {counts.review}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Awaiting approval</p>
           </div>
 
-          <div className="border-l-4 border-slate-400 bg-white/70 px-5 py-4">
-            <p className="text-xs font-bold text-slate-500" data-testid="architect-ui-my-agents-view-drafts-text">Drafts</p>
-            <p className="mt-1 text-3xl font-black text-slate-800" data-testid="architect-ui-my-agents-view-counts-draft-text">{counts.draft}</p>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-drafts-text">
+              Drafts
+            </p>
+            <p className="mt-1 text-3xl font-bold text-slate-800" data-testid="architect-ui-my-agents-view-counts-draft-text">
+              {counts.draft}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Not published yet</p>
           </div>
+        </div>
+      </header>
+
+      {/* Filter controls */}
+      <section className="mx-auto mt-6 max-w-7xl">
+        <div className="flex flex-wrap items-center gap-2" role="tablist" data-testid="my-agents-filter-tabs">
+          {FILTER_TABS.map((tab) => {
+            const count =
+              tab.value === "ALL"
+                ? agents.length
+                : agents.filter((agent) => agent.status === tab.value).length;
+            const active = filter === tab.value;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setFilter(tab.value)}
+                data-testid={`my-agents-filter-${tab.value.toLowerCase()}`}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                  active
+                    ? "border border-slate-900 bg-slate-900 text-white"
+                    : "border border-gray-200 bg-white text-slate-600 hover:border-amber-300"
+                }`}
+              >
+                {tab.dot ? <span className={`h-1.5 w-1.5 rounded-full ${tab.dot}`} /> : null}
+                <span>{tab.label}</span>
+                <span className={active ? "text-white/60" : "text-slate-400"}>{count}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
-      <section className="mt-10">
-        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div className="flex items-center gap-3">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-amber-600" data-testid="architect-ui-my-agents-view-inventory-text">
-              Inventory
-            </p>
-            {counts.draft > 0 ? (
-              <button
-                type="button"
-                onClick={requestClearClutter}
-                data-testid="my-agents-clear-clutter"
-                className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
-              >
-                Clear draft clutter
-              </button>
-            ) : null}
-            {actionMessage ? (
-              <span className="text-xs text-slate-500" data-testid="my-agents-action-message">{actionMessage}</span>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap gap-1.5" role="tablist" data-testid="my-agents-filter-tabs">
-            {FILTER_TABS.map((tab) => {
-              const count = tab.value === "ALL" ? agents.length : agents.filter((agent) => agent.status === tab.value).length;
-              const active = filter === tab.value;
-              return (
-                <button
-                  key={tab.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setFilter(tab.value)}
-                  data-testid={`my-agents-filter-${tab.value.toLowerCase()}`}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    active
-                      ? "border-amber-500 bg-amber-500 text-white"
-                      : "border-gray-200 bg-white text-slate-600 hover:border-amber-300"
-                  }`}
-                >
-                  {tab.label} <span className={active ? "text-white/80" : "text-slate-400"}>({count})</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
+      {/* Agent grid */}
+      <section className="mx-auto mt-5 max-w-7xl pb-12">
         {loading ? (
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-80 animate-pulse rounded-2xl bg-white/70 ring-1 ring-amber-100"
-              />
+              <div key={index} className="h-72 animate-pulse rounded-2xl border border-gray-100 bg-white shadow-sm" />
             ))}
           </div>
         ) : agents.length === 0 ? (
-          <div className="pt-4">
-            <EmptyAgentsState />
-          </div>
+          <EmptyAgentsState />
         ) : visibleAgents.length ? (
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {visibleAgents.map((agent) => (
               <AgentCard
                 key={agent.id}
                 agent={agent}
                 architectName={architectName}
-                onDelete={() => requestDeleteDraft(agent)}
+                onDeleted={() => {
+                  void loadAgents();
+                }}
               />
             ))}
           </div>
