@@ -1,19 +1,12 @@
-import { RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE, VOICE_NODE_TYPES } from "@coreai/shared";
+import {
+  DEFAULT_CALENDAR_BOOKING_RULES,
+  RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
+  VOICE_NODE_TYPES,
+  buildSilencePolicy
+} from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { deployVapiAssistant, isVapiConfigured } from "../architect/vapi-connector";
-
-/**
- * Buyer-side live deployment of the installed agent's voice assistant.
- *
- * The Vapi assistant is built per-BUSINESS (InstalledAgent), NOT for the
- * architect draft: it reads the installed WorkflowDefinition's AI Voice
- * Conversation node, merges the buyer's voice selection (configJson.voice), and
- * creates/updates the assistant for this business only. Generic — not
- * dental-specific. Calendar/Gmail tools resolve the BUSINESS OWNER's connected
- * credentials at call time (handled by the runtime), so this never touches
- * architect credentials.
- */
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
 
@@ -56,11 +49,46 @@ function readVoiceOverride(configJson: unknown): VoiceOverride {
   };
 }
 
-/**
- * Build/update this business's Vapi assistant from its installed voice workflow.
- * Returns null (so the caller can fall back to assigning the shared default
- * assistant) when Vapi isn't configured or the agent has no voice node.
- */
+type BuyerConfig = {
+  contactName?: string;
+  customInstructions?: string;
+  silence?: { repromptCount?: number; reprompt1?: string; reprompt2?: string; goodbye?: string };
+};
+
+/** The buyer's contact / custom-instructions / silence config from InstalledAgent.configJson. */
+function readBuyerConfig(configJson: unknown): BuyerConfig {
+  const c = (configJson as Record<string, unknown> | null) ?? {};
+  const silenceRaw = typeof c.silence === "object" && c.silence !== null ? (c.silence as Record<string, unknown>) : {};
+  return {
+    contactName: typeof c.contactName === "string" ? c.contactName : undefined,
+    customInstructions: typeof c.customInstructions === "string" ? c.customInstructions : undefined,
+    silence: {
+      repromptCount: typeof silenceRaw.repromptCount === "number" ? silenceRaw.repromptCount : undefined,
+      reprompt1: typeof silenceRaw.reprompt1 === "string" ? silenceRaw.reprompt1 : undefined,
+      reprompt2: typeof silenceRaw.reprompt2 === "string" ? silenceRaw.reprompt2 : undefined,
+      goodbye: typeof silenceRaw.goodbye === "string" ? silenceRaw.goodbye : undefined
+    }
+  };
+}
+
+/** Compact human-readable business hours from the buyer setup hours array. */
+function formatHours(hoursJson: unknown, fallback: string): string {
+  if (!Array.isArray(hoursJson) || hoursJson.length === 0) return fallback;
+  const parts = hoursJson
+    .map((item) => {
+      if (typeof item !== "object" || item === null) return "";
+      const record = item as Record<string, unknown>;
+      const day = typeof record.day === "string" ? record.day.slice(0, 3) : "";
+      if (!day) return "";
+      if (record.closed === true) return `${day} closed`;
+      const open = typeof record.open === "string" ? record.open : "";
+      const close = typeof record.close === "string" ? record.close : "";
+      return open && close ? `${day} ${open}-${close}` : "";
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join(", ") : fallback;
+}
+
 export async function deployInstalledAgentVoiceAssistant(
   businessId: string
 ): Promise<{ assistantId: string; created: boolean } | null> {
@@ -89,18 +117,28 @@ export async function deployInstalledAgentVoiceAssistant(
   const assistantName = str(ai, "assistantName", "Sarah");
   const model = str(ai, "model", "gpt-4o");
 
+  const buyer = readBuyerConfig(installedAgent.configJson);
+  const contactName = buyer.contactName || str(ai, "doctorName", businessName) || businessName;
+  const customInstructions = (
+    buyer.customInstructions || str(ai, "customInstructions", business.profile?.escalationRules ?? "")
+  ).trim();
+  const businessHours = formatHours(business.profile?.hoursJson, str(ai, "practiceHours", ""));
+
   const tokens: Record<string, string> = {
     assistantName,
-    practice_name: businessName,
-    doctor_name: str(ai, "doctorName", businessName),
-    practice_hours: str(ai, "practiceHours", ""),
+    business_name: businessName,
+    contact_name: contactName,
+    business_type: business.type || "business",
+    business_hours: businessHours,
     services_list: str(ai, "services", (business.profile?.services ?? []).join(", ")),
     fallback_response: str(
       ai,
       "fallbackResponse",
       "Let me take a message and have the team call you back shortly."
     ),
-    special_instructions: str(ai, "customInstructions", business.profile?.escalationRules ?? "") || "(none)"
+    calendar_booking_rules: DEFAULT_CALENDAR_BOOKING_RULES,
+    custom_instructions: customInstructions || "(none)",
+    silence_policy: buildSilencePolicy(buyer.silence)
   };
 
   const promptTemplate = str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE);

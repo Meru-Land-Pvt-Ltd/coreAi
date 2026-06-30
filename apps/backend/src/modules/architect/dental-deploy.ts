@@ -1,4 +1,9 @@
-import { RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE, VOICE_NODE_TYPES } from "@coreai/shared";
+import {
+  DEFAULT_CALENDAR_BOOKING_RULES,
+  RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
+  VOICE_NODE_TYPES,
+  buildSilencePolicy
+} from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { deployVapiAssistant } from "./vapi-connector";
@@ -119,12 +124,15 @@ export async function deployDentalWorkflow({
   const promptTemplate = str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE);
   const tokens: Record<string, string> = {
     assistantName,
-    practice_name: practiceName,
-    doctor_name: doctorName,
-    practice_hours: practiceHours,
+    business_name: practiceName,
+    contact_name: doctorName,
+    business_type: "Dental practice",
+    business_hours: practiceHours,
     services_list: servicesText,
     fallback_response: fallbackResponse,
-    special_instructions: customInstructions || "(none)"
+    calendar_booking_rules: DEFAULT_CALENDAR_BOOKING_RULES,
+    custom_instructions: customInstructions || "(none)",
+    silence_policy: buildSilencePolicy()
   };
   const systemPrompt = fillTokens(promptTemplate, tokens);
   const firstMessage = fillTokens(

@@ -3,7 +3,7 @@
 import type { Route } from "next";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { VOICE_PRESETS } from "@coreai/shared";
+import { CUSTOM_INSTRUCTION_SUGGESTIONS, DEFAULT_SILENCE, VOICE_PRESETS } from "@coreai/shared";
 import { DashboardShell } from "@/components/common/dashboard-shell";
 import { VoicePicker } from "@/components/common/voice-picker";
 import {
@@ -77,6 +77,15 @@ const ANSWERING_MODES: { value: string; label: string }[] = [
 /** Preset voice ids (sarah/james/priya) — anything else is "default" or "custom". */
 const PRESET_VOICE_IDS = new Set(VOICE_PRESETS.map((preset) => preset.id));
 
+/** Intelligent default timezone: browser timezone if available, else Asia/Kolkata. */
+function defaultTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata";
+  } catch {
+    return "Asia/Kolkata";
+  }
+}
+
 type ChecklistRow = {
   key: string;
   label: string;
@@ -112,7 +121,7 @@ function SetupWizard() {
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
   const [bookingUrl, setBookingUrl] = useState("");
-  const [timeZone, setTimeZone] = useState("America/New_York");
+  const [timeZone, setTimeZone] = useState(defaultTimeZone);
   const [tone, setTone] = useState("friendly");
   const [escalationRules, setEscalationRules] = useState("");
   const [servicesText, setServicesText] = useState("");
@@ -138,6 +147,14 @@ function SetupWizard() {
   const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
   const [deployed, setDeployed] = useState(false);
 
+  // Buyer-owned contact name, custom instructions, and silence/no-answer policy.
+  const [contactName, setContactName] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
+  const [silenceRepromptCount, setSilenceRepromptCount] = useState<number>(DEFAULT_SILENCE.repromptCount);
+  const [silenceMessage1, setSilenceMessage1] = useState("");
+  const [silenceMessage2, setSilenceMessage2] = useState("");
+  const [goodbyeMessage, setGoodbyeMessage] = useState("");
+
   const loadSetup = useCallback(async () => {
     setLoading(true);
     const res = await getBusinessSetup();
@@ -153,7 +170,7 @@ function SetupWizard() {
       if (data.profile) {
         setBookingUrl(data.profile.bookingUrl ?? "");
         setTeamPhone(data.profile.teamPhone ?? "");
-        setTimeZone(data.profile.timeZone ?? "America/New_York");
+        setTimeZone(data.profile.timeZone || defaultTimeZone());
         setTone(data.profile.tone ?? "friendly");
         setEscalationRules(data.profile.escalationRules ?? "");
         setServicesText((data.profile.services ?? []).join("\n"));
@@ -180,6 +197,14 @@ function SetupWizard() {
 
       setCalendar(data.calendar ?? { connected: false, email: null });
       setAnsweringMode(data.answeringMode || "NO_ANSWER");
+      setContactName(data.contactName ?? "");
+      setCustomInstructions(data.customInstructions ?? "");
+      if (data.silence) {
+        if (typeof data.silence.repromptCount === "number") setSilenceRepromptCount(data.silence.repromptCount);
+        setSilenceMessage1(data.silence.reprompt1 ?? "");
+        setSilenceMessage2(data.silence.reprompt2 ?? "");
+        setGoodbyeMessage(data.silence.goodbye ?? "");
+      }
 
       const selection = data.voiceSelection ?? null;
       if (selection?.voiceId) {
@@ -235,7 +260,7 @@ function SetupWizard() {
       forwardToPhone: forwardToPhone.trim(),
       bookingUrl: bookingUrl.trim(),
       teamPhone: teamPhone.trim(),
-      timeZone: timeZone.trim() || "America/New_York",
+      timeZone: timeZone.trim() || defaultTimeZone(),
       tone,
       escalationRules: escalationRules.trim(),
       services: parseLines(servicesText),
@@ -252,6 +277,12 @@ function SetupWizard() {
       voiceProvider: voiceFields.voiceProvider,
       voiceId: voiceFields.voiceId,
       answeringMode,
+      contactName: contactName.trim(),
+      customInstructions: customInstructions.trim(),
+      silenceRepromptCount,
+      silenceRepromptMessage1: silenceMessage1.trim(),
+      silenceRepromptMessage2: silenceMessage2.trim(),
+      goodbyeMessage: goodbyeMessage.trim(),
       calendarId: calendarId.trim() || "primary",
       ...(listingId ? { listingId } : {})
     });
@@ -596,6 +627,20 @@ function SetupWizard() {
               value={businessType}
               onChange={(event) => setBusinessType(event.target.value)}
               placeholder="Dental practice, HVAC, salon, law firm…"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label data-testid="business-setup-label-contact" htmlFor="contact-name" className={labelClass}>
+              Contact / owner name (optional)
+            </label>
+            <input
+              data-testid="business-setup-input-contact"
+              id="contact-name"
+              type="text"
+              value={contactName}
+              onChange={(event) => setContactName(event.target.value)}
+              placeholder="Dr. Lee, Priya, the front desk…"
               className={inputClass}
             />
           </div>
@@ -1055,6 +1100,115 @@ function SetupWizard() {
               className={inputClass}
             />
           </div>
+        </div>
+      </div>
+
+      <div data-testid="business-setup-instructions" className={cardClass}>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-instructions-heading">Custom instructions</h2>
+        <p className="mt-1 text-sm text-orange-800/80">
+          Tell the AI how to handle calls for your business. These are merged into the agent&apos;s system prompt at deploy.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2" data-testid="business-setup-instruction-chips">
+          {CUSTOM_INSTRUCTION_SUGGESTIONS.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              data-testid={`business-setup-instruction-chip-${suggestion.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+              onClick={() =>
+                setCustomInstructions((current) => {
+                  if (current.includes(suggestion)) return current;
+                  const trimmed = current.trim();
+                  return trimmed ? `${trimmed}\n- ${suggestion}` : `- ${suggestion}`;
+                })
+              }
+              className="rounded-full border border-orange-200 px-3 py-1 text-xs font-semibold text-orange-700 transition hover:border-orange-400 hover:bg-orange-50"
+            >
+              + {suggestion}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3">
+          <textarea
+            data-testid="business-setup-input-instructions"
+            value={customInstructions}
+            onChange={(event) => setCustomInstructions(event.target.value)}
+            rows={6}
+            placeholder="e.g. Always greet by business name. Confirm date and time before booking. Escalate emergencies to the on-call number."
+            className={inputClass}
+          />
+        </div>
+        <div className="mt-3 rounded-2xl bg-orange-50 p-3" data-testid="business-setup-instructions-preview">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-orange-500">Added to the AI system prompt</p>
+          <pre className="mt-1 whitespace-pre-wrap font-mono text-xs text-orange-900">
+            {`CUSTOM INSTRUCTIONS:\n${customInstructions.trim() || "(none)"}`}
+          </pre>
+        </div>
+      </div>
+
+      <div data-testid="business-setup-silence" className={cardClass}>
+        <h2 className={sectionTitleClass} data-testid="business-agents-setup-silence-heading">Silence &amp; no-answer handling</h2>
+        <p className="mt-1 text-sm text-orange-800/80">
+          If the caller goes quiet, the AI re-prompts warmly, then ends the call politely. Leave blank to use the recommended defaults.
+        </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label data-testid="business-setup-label-silence-count" htmlFor="silence-count" className={labelClass}>
+              Re-prompt attempts before ending
+            </label>
+            <select
+              data-testid="business-setup-input-silence-count"
+              id="silence-count"
+              value={String(silenceRepromptCount)}
+              onChange={(event) => setSilenceRepromptCount(Number(event.target.value))}
+              className={inputClass}
+            >
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </div>
+        </div>
+        <div className="mt-4">
+          <label data-testid="business-setup-label-silence1" htmlFor="silence-1" className={labelClass}>
+            1st silence re-prompt
+          </label>
+          <input
+            data-testid="business-setup-input-silence1"
+            id="silence-1"
+            type="text"
+            value={silenceMessage1}
+            onChange={(event) => setSilenceMessage1(event.target.value)}
+            placeholder={DEFAULT_SILENCE.reprompt1}
+            className={inputClass}
+          />
+        </div>
+        <div className="mt-4">
+          <label data-testid="business-setup-label-silence2" htmlFor="silence-2" className={labelClass}>
+            2nd silence re-prompt
+          </label>
+          <input
+            data-testid="business-setup-input-silence2"
+            id="silence-2"
+            type="text"
+            value={silenceMessage2}
+            onChange={(event) => setSilenceMessage2(event.target.value)}
+            placeholder={DEFAULT_SILENCE.reprompt2}
+            className={inputClass}
+          />
+        </div>
+        <div className="mt-4">
+          <label data-testid="business-setup-label-goodbye" htmlFor="goodbye" className={labelClass}>
+            Goodbye message
+          </label>
+          <input
+            data-testid="business-setup-input-goodbye"
+            id="goodbye"
+            type="text"
+            value={goodbyeMessage}
+            onChange={(event) => setGoodbyeMessage(event.target.value)}
+            placeholder={DEFAULT_SILENCE.goodbye}
+            className={inputClass}
+          />
         </div>
       </div>
 

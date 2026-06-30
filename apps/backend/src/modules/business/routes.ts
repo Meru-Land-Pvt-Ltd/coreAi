@@ -165,6 +165,13 @@ const businessSetupSchema = z.object({
   voiceProvider: z.string().trim().optional().or(z.literal("")),
   // Buyer-chosen answering mode (AI_FIRST | NO_ANSWER | BUSY | AFTER_HOURS | UNREACHABLE).
   answeringMode: z.string().trim().optional().or(z.literal("")),
+  // Buyer-owned contact name + custom instructions + silence/no-answer policy.
+  contactName: z.string().trim().optional().or(z.literal("")),
+  customInstructions: z.string().trim().optional().or(z.literal("")),
+  silenceRepromptCount: z.coerce.number().int().min(0).max(3).optional(),
+  silenceRepromptMessage1: z.string().trim().optional().or(z.literal("")),
+  silenceRepromptMessage2: z.string().trim().optional().or(z.literal("")),
+  goodbyeMessage: z.string().trim().optional().or(z.literal("")),
   calendarId: z.string().trim().optional().or(z.literal("")),
   workflowId: z.string().trim().optional().or(z.literal("")),
   listingId: z.string().trim().optional().or(z.literal(""))
@@ -367,6 +374,10 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
     config && typeof config.phoneRouting === "object" && config.phoneRouting !== null
       ? (config.phoneRouting as Record<string, unknown>)
       : null;
+  const silenceConfig =
+    config && typeof config.silence === "object" && config.silence !== null
+      ? (config.silence as Record<string, unknown>)
+      : null;
 
   return {
     business: business
@@ -421,7 +432,18 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
     answeringMode:
       phoneRoutingConfig && typeof phoneRoutingConfig.mode === "string"
         ? phoneRoutingConfig.mode
-        : null
+        : null,
+    // Buyer-owned contact + custom instructions + silence policy (prefill the UI).
+    contactName: typeof config?.contactName === "string" ? config.contactName : null,
+    customInstructions: typeof config?.customInstructions === "string" ? config.customInstructions : null,
+    silence: silenceConfig
+      ? {
+          repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
+          reprompt1: typeof silenceConfig.reprompt1 === "string" ? silenceConfig.reprompt1 : null,
+          reprompt2: typeof silenceConfig.reprompt2 === "string" ? silenceConfig.reprompt2 : null,
+          goodbye: typeof silenceConfig.goodbye === "string" ? silenceConfig.goodbye : null
+        }
+      : null
   };
 }
 
@@ -552,6 +574,15 @@ businessRoutes.post("/setup", async (c) => {
       // Buyer's phone answering mode (routing). Stored for the live voice path.
       phoneRouting: {
         mode: input.answeringMode || "NO_ANSWER"
+      },
+      // Buyer-owned contact + custom instructions + silence/no-answer policy.
+      contactName: input.contactName || null,
+      customInstructions: input.customInstructions || null,
+      silence: {
+        repromptCount: input.silenceRepromptCount ?? 2,
+        reprompt1: input.silenceRepromptMessage1 || null,
+        reprompt2: input.silenceRepromptMessage2 || null,
+        goodbye: input.goodbyeMessage || null
       }
     };
 
