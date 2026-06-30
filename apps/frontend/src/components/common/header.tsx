@@ -47,7 +47,7 @@ export function CoreHeader({
         </a>
 
         <div className="hidden min-w-0 flex-1 items-center justify-center gap-4 md:flex lg:gap-7 xl:gap-8">
-          <Link href="/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+          <Link data-testid="header-marketplace-link" href="/marketplace" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Marketplace
           </Link>
 
@@ -59,7 +59,7 @@ export function CoreHeader({
             About
           </Link>
 
-          <Link href="/contactus" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+          <Link data-testid="header-contact-us-link" href="/contactus" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Contact US
           </Link>
 
