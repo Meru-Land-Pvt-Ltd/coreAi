@@ -1,14 +1,3 @@
-/**
- * Single source of truth for workflow node kinds shared by the frontend builder
- * and the backend runner so the two cannot drift.
- *
- * - `runtime` maps each node to how the backend runner dispatches it
- *   (nodeKind + connector + connectorAction).
- * - `backendExecutable` marks whether the runner actually performs work.
- * - `comingSoon` nodes are shown in the builder but must NOT be added to a
- *   publishable/executable workflow.
- */
-
 export type NodeCategory =
   | "trigger"
   | "action"
@@ -25,29 +14,13 @@ export type NodeRuntime = {
   connectorAction?: string;
 };
 
-/**
- * A connector a node needs in order to run live. Architect-facing: in the builder
- * we render these as REQUIREMENT BADGES (no connect buttons). The buyer/business
- * actually connects them during install.
- *
- * - `ownedBy: "buyer"`    → the buyer connects their own credentials (Google
- *   Calendar, Gmail, Twilio/phone routing).
- * - `ownedBy: "platform"` → CoreAI's shared account provides it (Vapi voice,
- *   ElevenLabs through Vapi); no buyer credential needed for MVP.
- */
 export type ConnectorRequirement = {
-  /** Canonical connector key, e.g. "google_calendar", "gmail", "twilio", "vapi". */
   connector: string;
-  /** Human label shown on the badge. */
   label: string;
   ownedBy: "buyer" | "platform";
-  /** OAuth scopes (where applicable). */
   scopes?: string[];
-  /** Config the buyer must supply (e.g. sender number, forwarding). */
   config?: string[];
-  /** Optional connectors don't block live deployment. */
   optional?: boolean;
-  /** Architect-facing requirement copy for the builder badge. */
   note: string;
 };
 
@@ -200,49 +173,104 @@ export function getVoicePreset(id: string): AgentVoicePreset | undefined {
   return VOICE_PRESETS.find((preset) => preset.id === key);
 }
 
-export const RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE = `You are {{assistantName}}, the AI receptionist for {{practice_name}}. You work for {{doctor_name}}.
+export const RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE = `You are {{assistantName}}, the AI receptionist for {{business_name}}.
 
-Your job: Answer patient calls, help them book appointments, and provide basic practice info.
+Your job: answer calls for this {{business_type}}, help callers book appointments, and answer basic questions.
 
 CURRENT DATE & TIME (CRITICAL):
 - The current date and time is {{currentDateTime}} ({{timeZone}}).
 - For relative dates like "today", "tomorrow", or "next Monday", ALWAYS calculate the exact calendar date from {{currentDateTime}}.
 - Pass dates to tools as YYYY-MM-DD computed from {{currentDateTime}} — never a date from memory or training data.
-- NEVER call check_availability or book_appointment with a past date. If unsure, ask the patient to confirm the date.
+- NEVER call check_availability or book_appointment with a past date. If unsure, ask the caller to confirm the date.
+- Always confirm the chosen date and time back to the caller in {{timeZone}} before booking.
 
-PRACTICE DETAILS:
-- Name: {{practice_name}}
-- Doctor: {{doctor_name}}
-- Hours: {{practice_hours}}
+BUSINESS DETAILS:
+- Name: {{business_name}}
+- Contact: {{contact_name}}
+- Type: {{business_type}}
+- Hours: {{business_hours}}
 - Services: {{services_list}}
+
+CALENDAR BOOKING RULES:
+{{calendar_booking_rules}}
 
 RULES:
 1. Always be warm, friendly, and professional.
-2. When a patient wants to book, call the check_availability function first.
-3. Offer the available slots and let the patient choose.
+2. When a caller wants to book, call check_availability first.
+3. Offer the available slots and let the caller choose.
 4. After they choose, call book_appointment to confirm.
-5. After booking, call send_notification to send SMS confirmations.
+5. After booking, call send_notification to send any confirmations.
 6. If you cannot help with something, say: "{{fallback_response}}"
 7. Never make up availability. Always check the calendar.
-8. Never provide medical advice.
-9. If it's an emergency, advise them to call 911 or go to the nearest ER.
 
 BEFORE CALLING book_appointment YOU MUST HAVE:
-- the patient's REAL full name
+- the caller's REAL full name
 - a callback phone number
 - the service type
 - the date
 - the time
-Never call book_appointment with a placeholder name (e.g. John Doe, Patient Name, Full Name, or "the caller"). If the patient's name is unclear, ask: "Could you please repeat your full name?" Always confirm the spelling/pronunciation of the full name before booking.
+Never call book_appointment with a placeholder name (e.g. John Doe, Full Name, or "the caller"). If the caller's name is unclear, ask them to repeat it and confirm the spelling before booking.
+
+SILENCE / NO-ANSWER POLICY:
+{{silence_policy}}
 
 CUSTOM INSTRUCTIONS:
-{{special_instructions}}
+{{custom_instructions}}
 
 CONVERSATION STYLE:
 - Keep responses short (1-2 sentences max)
 - Sound natural, not robotic
-- Use the patient's name after they give it
+- Use the caller's name after they give it
 - Confirm details by repeating them back`;
+
+/** Default silence/no-answer reprompt + goodbye copy (buyer can override in setup). */
+export const DEFAULT_SILENCE = {
+  repromptCount: 2,
+  reprompt1: "Are you still there? I can help you book an appointment or answer a quick question.",
+  reprompt2: "No problem. If now is not a good time, you can call us back anytime.",
+  goodbye: "Thanks for calling. I'll end the call for now. Have a great day."
+} as const;
+
+export type SilenceConfig = {
+  repromptCount?: number;
+  reprompt1?: string;
+  reprompt2?: string;
+  goodbye?: string;
+};
+
+/** Render the silence/no-answer policy block injected into the system prompt. */
+export function buildSilencePolicy(cfg?: SilenceConfig): string {
+  const count =
+    cfg?.repromptCount && cfg.repromptCount > 0 ? Math.min(Math.floor(cfg.repromptCount), 3) : DEFAULT_SILENCE.repromptCount;
+  const reprompt1 = (cfg?.reprompt1 || DEFAULT_SILENCE.reprompt1).trim();
+  const reprompt2 = (cfg?.reprompt2 || DEFAULT_SILENCE.reprompt2).trim();
+  const goodbye = (cfg?.goodbye || DEFAULT_SILENCE.goodbye).trim();
+
+  const lines = [
+    `If the caller does not respond or stays silent, re-prompt warmly up to ${count} time(s) before ending the call.`,
+    `- 1st silence, say: "${reprompt1}"`
+  ];
+  if (count >= 2) lines.push(`- 2nd silence, say: "${reprompt2}"`);
+  lines.push(`- After ${count} attempt(s) with no response, say: "${goodbye}" and end the call politely.`);
+  return lines.join("\n");
+}
+
+/** Default calendar booking rules. {{timeZone}} is filled by Vapi at call time. */
+export const DEFAULT_CALENDAR_BOOKING_RULES = [
+  "- Offer the earliest available slots first and never double-book.",
+  "- All times are in the business timezone ({{timeZone}}); confirm the date and time back to the caller before booking.",
+  "- Use the default appointment length unless the caller asks for something different."
+].join("\n");
+
+/** Quick-add custom-instruction suggestions surfaced as chips in buyer setup. */
+export const CUSTOM_INSTRUCTION_SUGGESTIONS: string[] = [
+  "Ask for full name before booking",
+  "Escalate urgent calls",
+  "Do not quote prices",
+  "Mention parking",
+  "Confirm date and time before booking",
+  "Collect insurance provider"
+];
 
 function slug(type: string) {
   return `node-${type.replace(/[._]/g, "-")}`;

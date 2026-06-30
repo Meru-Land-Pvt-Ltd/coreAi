@@ -41,6 +41,10 @@ export function BuilderHeader({
   saving,
   hasGmailFlow,
   locked = false,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   onAgentNameChange,
   onMobileLibrary,
   onTabChange,
@@ -55,6 +59,10 @@ export function BuilderHeader({
   saving: boolean;
   hasGmailFlow: boolean;
   locked?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onAgentNameChange: (value: string) => void;
   onMobileLibrary: () => void;
   onTabChange: (tab: BuilderTab) => void;
@@ -116,6 +124,36 @@ export function BuilderHeader({
         >
           <BuilderIcon name="menu" className="h-4 w-4" />
         </button>
+        <div className="hidden items-center gap-1 sm:flex">
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!canUndo || locked}
+            data-testid="builder-undo"
+            aria-label="Undo"
+            title="Undo (Ctrl/Cmd+Z)"
+            className="rounded-lg border border-gray-200 p-2 text-slate-500 transition hover:bg-gray-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M9 14L4 9l5-5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 9h11a5 5 0 0 1 0 10h-1" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!canRedo || locked}
+            data-testid="builder-redo"
+            aria-label="Redo"
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+            className="rounded-lg border border-gray-200 p-2 text-slate-500 transition hover:bg-gray-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M15 14l5-5-5-5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M20 9H9a5 5 0 0 0 0 10h1" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
         <select data-testid="builder-mobile-tab-select"
           value={activeTab}
           onChange={(event) => onTabChange(event.target.value as BuilderTab)}

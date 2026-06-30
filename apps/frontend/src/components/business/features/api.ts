@@ -36,6 +36,12 @@ export type BusinessSetupInput = {
   voiceId?: string;
   voiceProvider?: string;
   answeringMode?: string;
+  contactName?: string;
+  customInstructions?: string;
+  silenceRepromptCount?: number;
+  silenceRepromptMessage1?: string;
+  silenceRepromptMessage2?: string;
+  goodbyeMessage?: string;
   calendarId?: string;
   listingId?: string;
   workflowId?: string;
@@ -99,6 +105,15 @@ export type BusinessSetupData = {
   voiceSelection?: { name: string | null; voiceId: string | null; provider: string | null } | null;
   /** Buyer's persisted answering mode (prefills the routing selector). */
   answeringMode?: string | null;
+  /** Buyer's persisted contact name + custom instructions + silence policy. */
+  contactName?: string | null;
+  customInstructions?: string | null;
+  silence?: {
+    repromptCount: number | null;
+    reprompt1: string | null;
+    reprompt2: string | null;
+    goodbye: string | null;
+  } | null;
 };
 
 /** A marketplace listing as the buyer sees it (used to read requiredConnectors pre-install). */

@@ -41,6 +41,7 @@ import { PublishPanel } from "./workflow-builder/publish-panel";
 import { TemplateGallery } from "./workflow-builder/template-gallery";
 import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal";
 import { TestPanel } from "./workflow-builder/test-panel";
+import { useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
 
@@ -113,6 +114,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       ),
     [nodes]
   );
+  
+  const { canUndo, canRedo, undo, redo, markSaved } = useBuilderAutosaveHistory({
+    workflowId,
+    loading,
+    enabled: !isUnderReview,
+    nodes,
+    edges,
+    agentName,
+    tagline,
+    setNodes,
+    setEdges,
+    setAgentName,
+    setTagline,
+    setStatus: setMessage
+  });
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -297,6 +313,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return false;
     }
 
+    markSaved();
     if (showMessage) setMessage("Saved just now");
     return true;
   }
@@ -491,6 +508,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         saving={saving}
         hasGmailFlow={hasGmailFlow}
         locked={isUnderReview}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={undo}
+        onRedo={redo}
         onAgentNameChange={setAgentName}
         onMobileLibrary={() => setMobilePanel("library")}
         onTabChange={setActiveTab}
