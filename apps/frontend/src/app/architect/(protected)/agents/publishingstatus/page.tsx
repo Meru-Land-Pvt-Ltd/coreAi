@@ -613,7 +613,7 @@ function PublishingStatusContent() {
     <div className="min-h-screen bg-[#f9fafb]">
       <style dangerouslySetInnerHTML={{ __html: PUBLISH_STATUS_STYLES }} />
       <main className="px-4 py-6 sm:px-8">
-        <div className="mx-auto max-w-[720px]">
+        <div className="mx-auto w-full max-w-full">
           <button
             type="button"
             onClick={goToMyAgents}

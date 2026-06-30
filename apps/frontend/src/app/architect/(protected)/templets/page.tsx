@@ -436,7 +436,7 @@ export default function ArchitectTemplateGalleryPage() {
       />
 
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/85 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-[1280px] items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-full items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl" data-testid="architect-templates-title-heading">
               Template Gallery
@@ -467,7 +467,7 @@ export default function ArchitectTemplateGalleryPage() {
       </header>
 
       {featured ? (
-      <section className="mx-auto w-full max-w-[1280px] px-4 pt-8 sm:px-6 lg:px-8 lg:pt-10">
+      <section className="mx-auto w-full max-w-full px-4 pt-8 sm:px-6 lg:px-8 lg:pt-10">
         <div className="mb-3 flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Featured template</span>
           <span className="h-px flex-1 bg-gradient-to-r from-amber-200 to-transparent" />
@@ -570,7 +570,7 @@ export default function ArchitectTemplateGalleryPage() {
       ) : null}
 
       <div className="sticky top-[73px] z-20 mt-8 border-y border-gray-100 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6 lg:flex-nowrap lg:px-8">
+        <div className="mx-auto flex w-full max-w-full flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6 lg:flex-nowrap lg:px-8">
           <div className="order-1 w-full min-w-0 overflow-x-auto no-scrollbar lg:w-auto lg:flex-1">
             <div className="flex w-max items-center gap-2" role="group" aria-label="Filter by category">
               {categories.map((c) => {
@@ -620,7 +620,7 @@ export default function ArchitectTemplateGalleryPage() {
         </div>
       </div>
 
-      <section className="mx-auto w-full max-w-[1280px] px-4 pt-8 sm:px-6 lg:px-8">
+      <section className="mx-auto w-full max-w-full px-4 pt-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <div className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-amber-600">All templates</div>
@@ -754,7 +754,7 @@ export default function ArchitectTemplateGalleryPage() {
         )}
       </section>
 
-      <section className="mx-auto w-full max-w-[1280px] px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
+      <section className="mx-auto w-full max-w-full px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
         <div className="relative overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_10px_28px_-10px_rgba(15,23,42,.12)]">
           <div className="canvas-grid absolute inset-0 opacity-60" />
           <div className="pointer-events-none absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-amber-100/40 blur-3xl" />
