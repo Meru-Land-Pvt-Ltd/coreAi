@@ -39,9 +39,8 @@ const businessNavItems = [
     },
     {
         label: "My Agents",
-        href: "/business/dashboard#agents",
-        icon: "bot" as IconName,
-        count: "3"
+        href: "/business/agents",
+        icon: "bot" as IconName
     },
     {
         label: "Billing & Usage",
@@ -156,12 +155,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             >
                                 <Icon name={item.icon} className="h-5 w-5" />
                                 <span data-testid="business-sidebar-label-text">{item.label}</span>
-
-                                {item.count ? (
-                                    <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500" data-testid="business-sidebar-count-text">
-                                        {item.count}
-                                    </span>
-                                ) : null}
                             </Link>
                         );
                     })}
@@ -381,6 +374,7 @@ function isMarketplaceRoute(pathname: string) {
         "/business/billingandusage",
         "/business/paymentsuccess",
         "/business/paymentfailed",
+        "/business/agents",
         "/business/agents/setup"
     ]);
 
@@ -396,10 +390,13 @@ function isBusinessNavItemActive(
         return pathname === "/business/billingandusage";
     }
 
+    if (item.label === "My Agents") {
+        return pathname === "/business/agents" || pathname.startsWith("/business/agents/");
+    }
+
     if (pathname !== "/business/dashboard") return false;
 
     if (item.label === "Overview") return hash === "" || hash === "#";
-    if (item.label === "My Agents") return hash === "#agents";
 
     return false;
 }

@@ -4,6 +4,7 @@ export const HOME_PATH = "/" as Route;
 export const BUSINESS_MARKETPLACE_PATH = "/business/marketplace" as Route;
 export const BUSINESS_MARKETPLACE_PUBLIC_PATH = "/marketplace" as Route;
 export const BUSINESS_CHECKOUT_PATH = "/business/checkout" as Route;
+export const BUSINESS_AGENTS_PATH = "/business/agents" as Route;
 export const BUSINESS_PAYMENT_SUCCESS_PATH = "/business/paymentsuccess" as Route;
 export const BUSINESS_PAYMENT_FAILED_PATH = "/business/paymentfailed" as Route;
 export const BUSINESS_LOGIN_PATH = "/business/login" as Route;
@@ -12,6 +13,7 @@ export const MISSED_CALL_SETUP_PATH = "/business/agent/missed-call/setup" as Rou
 export const ASSIGNMENT_PATH = "/assignment" as Route;
 export const MARKETPLACE_PATH = "/marketplace" as Route;
 export const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
+export const ARCHITECT_MY_AGENTS_PATH = "/architect/agents" as Route;
 
 export const FOOTER_HASH_PATH = "#footer" as Route;
 export const ABOUT_HASH_PATH = "/#about" as Route;
@@ -25,6 +27,21 @@ export const ABOUT_PATH = "/about" as Route;
 
 export function businessAgentPath(agentId: string): Route {
   return `/business/${agentId}` as Route;
+}
+
+// Architect publishing-status page. Carries the listing/agent id so the page can
+// resolve the agent and open the matching status panel (under review, approved, …).
+export function architectPublishingStatusPath(listingId?: string): Route {
+  return (listingId
+    ? `/architect/agents/publishingstatus?listingId=${encodeURIComponent(listingId)}`
+    : "/architect/agents/publishingstatus") as Route;
+}
+
+// Architect My Agents page, optionally pre-filtered (e.g. "live" → APPROVED).
+export function architectMyAgentsPath(filter?: string): Route {
+  return (filter
+    ? `/architect/agents?filter=${encodeURIComponent(filter)}`
+    : "/architect/agents") as Route;
 }
 
 // Business install/setup destination. Buyers installing an agent go to the

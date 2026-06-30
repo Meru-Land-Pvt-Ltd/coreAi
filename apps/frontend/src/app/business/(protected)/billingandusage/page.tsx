@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiGet } from "@/lib/api";
+import { apiClient, apiGet } from "@/lib/api";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -135,6 +135,52 @@ export default function BusinessBillingUsagePage() {
         window.setTimeout(() => setToast(""), 2800);
     }
 
+    async function downloadInvoice(invoice: BillingInvoice) {
+        showToast(`Preparing ${invoice.description || "invoice"} PDF…`);
+
+        try {
+            const token =
+                localStorage.getItem("coreai-token") || localStorage.getItem("coreai_token");
+            const base = apiClient.defaults.baseURL ?? "";
+
+            const response = await fetch(`${base}/payments/invoice/${invoice.id}/pdf`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined
+            });
+
+            if (!response.ok) {
+                throw new Error("Download failed");
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `invoice-${invoice.id}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+
+            showToast(`Downloaded ${invoice.description || "invoice"}`);
+        } catch {
+            showToast("Could not download invoice PDF");
+        }
+    }
+
+    async function downloadAllInvoices() {
+        if (invoices.length === 0) {
+            showToast("No invoices to download");
+            return;
+        }
+
+        showToast("Preparing invoices…");
+
+        for (const invoice of invoices) {
+            // eslint-disable-next-line no-await-in-loop
+            await downloadInvoice(invoice);
+        }
+    }
+
     const totalAgentFees = formatCurrencyCents(billing?.summary.totalAgentFeesPaidCents);
     const nextCharge = formatCurrencyCents(billing?.summary.nextChargeCents ?? 0);
     const currentMonthExecution = billing
@@ -182,7 +228,7 @@ export default function BusinessBillingUsagePage() {
                     <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
                     <button
                         type="button"
-                        onClick={() => showToast("Preparing ZIP of all invoices…")}
+                        onClick={downloadAllInvoices}
                         data-testid="billing-download-all"
                         className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700 sm:px-4"
                     >
@@ -313,7 +359,7 @@ export default function BusinessBillingUsagePage() {
                         <h2 className="text-lg font-bold">Invoices</h2>
                         <button
                             type="button"
-                            onClick={() => showToast("Preparing ZIP of all invoices…")}
+                            onClick={downloadAllInvoices}
                             data-testid="billing-invoices-download-all"
                             className="rounded text-sm font-semibold text-amber-600 transition hover:text-amber-700"
                         >
@@ -349,7 +395,7 @@ export default function BusinessBillingUsagePage() {
                                             <td className="px-6 py-4 text-right">
                                                 <button
                                                     type="button"
-                                                    onClick={() => showToast(`Downloading ${invoice.description || "invoice"}…`)}
+                                                    onClick={() => downloadInvoice(invoice)}
                                                     data-testid="billing-invoice-download"
                                                     aria-label={`Download ${invoice.description || "invoice"} PDF`}
                                                     className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
