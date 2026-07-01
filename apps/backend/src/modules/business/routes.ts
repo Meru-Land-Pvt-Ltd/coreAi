@@ -21,21 +21,14 @@ import {
   handleStripeWebhook
 } from "./billing";
 import { ensureBusinessVapiAssistant } from "../architect/vapi-connector";
+import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import { isBillingEnabled } from "../../lib/stripe";
 
 export const businessRoutes = new Hono();
 
-/**
- * Stripe billing webhook must stay PUBLIC and read the RAW body for signature
- * verification, so it is registered BEFORE the auth guards below.
- */
 businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
-/**
- * Every business route requires an authenticated BUSINESS user. The buyer is
- * always the owner of the records they create here.
- */
 businessRoutes.use("*", requireAuth);
 businessRoutes.use("*", requireRole(["BUSINESS"]));
 
@@ -320,6 +313,80 @@ businessRoutes.get("/setup/phone-numbers", async (c) => {
   });
   const { availablePhoneNumbers } = await loadPhoneOptions(business?.id ?? null);
   return successResponse(c, { numbers: availablePhoneNumbers });
+});
+
+/**
+ * Buyer "Test call routing": runs the same resolver the live Twilio webhook uses
+ * against the buyer's selected CoreAI number and returns a pass/fail checklist so
+ * the buyer can confirm an inbound call will reach their deployed agent.
+ */
+businessRoutes.post("/setup/test-call-routing", async (c) => {
+  const authUser = c.get("authUser");
+  const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/twilio/voice`;
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    include: {
+      phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
+      installedAgents: { orderBy: { createdAt: "desc" }, take: 1 }
+    }
+  });
+
+  const requested = await c.req
+    .json()
+    .then((body) => (body && typeof body.phoneNumber === "string" ? body.phoneNumber : ""))
+    .catch(() => "");
+
+  const activePhone = business?.phoneNumbers?.[0] ?? null;
+  const assignedPlatform = business
+    ? await prisma.platformPhoneNumber.findFirst({
+        where: { businessId: business.id },
+        orderBy: { assignedAt: "desc" }
+      })
+    : null;
+
+  const number = normalizePhoneNumber(requested) || activePhone?.phoneNumber || assignedPlatform?.phoneNumber || "";
+
+  if (!number) {
+    return successResponse(c, {
+      number: null,
+      webhookUrl,
+      readyForCall: false,
+      resolveReason: null,
+      checks: [{ key: "number_selected", label: "A CoreAI number is selected", ok: false }]
+    });
+  }
+
+  const [platformForNumber, businessPhoneForNumber, diagnostics] = await Promise.all([
+    prisma.platformPhoneNumber.findUnique({ where: { phoneNumber: number } }),
+    prisma.businessPhoneNumber.findUnique({ where: { phoneNumber: number }, include: { installedAgent: true } }),
+    getCallRoutingDiagnostics(number)
+  ]);
+
+  const assignedToThisBusiness = Boolean(
+    (business && platformForNumber && platformForNumber.businessId === business.id) ||
+      (business && businessPhoneForNumber && businessPhoneForNumber.businessId === business.id)
+  );
+  const installedAgent = businessPhoneForNumber?.installedAgent ?? business?.installedAgents?.[0] ?? null;
+
+  const checks = [
+    { key: "number_exists", label: "Selected CoreAI number exists", ok: Boolean(platformForNumber || businessPhoneForNumber) },
+    { key: "assigned_to_business", label: "Number is assigned to this business", ok: assignedToThisBusiness },
+    { key: "business_phone_number", label: "BusinessPhoneNumber mapping exists", ok: Boolean(businessPhoneForNumber) },
+    { key: "installed_agent_linked", label: "Mapping is linked to an installed agent", ok: Boolean(businessPhoneForNumber?.installedAgentId) },
+    {
+      key: "installed_agent_active",
+      label: "Installed agent exists and is ACTIVE",
+      ok: Boolean(installedAgent && installedAgent.status === "ACTIVE")
+    },
+    { key: "vapi_assistant", label: "Vapi assistant id exists", ok: diagnostics.hasVapiAssistantId },
+    { key: "answering_mode", label: "Answering mode allows answering", ok: diagnostics.aiWouldAnswer },
+    { key: "resolver", label: "Twilio resolver can resolve this number", ok: diagnostics.resolved }
+  ];
+  const readyForCall = checks.every((check) => check.ok);
+
+  return successResponse(c, { number, webhookUrl, readyForCall, resolveReason: diagnostics.resolveReason, checks });
 });
 
 type SetupChecklistItem = {

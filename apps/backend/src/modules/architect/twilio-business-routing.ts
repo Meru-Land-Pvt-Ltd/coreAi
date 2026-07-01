@@ -4,7 +4,7 @@ import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { escapeXml, sendTwilioSms } from "./twilio-connector";
-import { createVapiInboundTwiml, startVapiOutboundCall } from "./vapi-connector";
+import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
 import {
   createGoogleCalendarAppointment,
   getDefaultAppointmentWindow,
@@ -45,6 +45,10 @@ type ResolvedAgent = {
   /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
   routingMode?: string;
   business?: BusinessRuntimeContext;
+  /** How the number resolved (diagnostics only — never affects call behavior). */
+  matchedBusinessPhoneNumberId?: string;
+  matchedPlatformPhoneNumberId?: string;
+  resolveReason?: string;
 };
 
 function normalizePhoneNumber(value: string) {
@@ -211,6 +215,47 @@ function buildBusinessContext(
   };
 }
 
+/** Latest ACTIVE installed agent for a business (used when a number isn't linked). */
+async function latestActiveInstalledAgent(businessId: string) {
+  return prisma.installedAgent.findFirst({
+    where: { businessId, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    include: { workflow: true }
+  });
+}
+
+async function loadBusinessWithContext(businessId: string) {
+  return prisma.business.findUnique({
+    where: { id: businessId },
+    include: { profile: true, knowledgeBases: true }
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toResolvedAgent(opts: {
+  business: any;
+  phoneNumber: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  installedAgent: any;
+  forwardToPhone?: string | null;
+  matchedBusinessPhoneNumberId?: string;
+  matchedPlatformPhoneNumberId?: string;
+  resolveReason: string;
+}): ResolvedAgent {
+  const { business, phoneNumber, installedAgent } = opts;
+  return {
+    workflowId: installedAgent.workflow?.id ?? installedAgent.workflowId ?? "",
+    userId: installedAgent.workflow?.architectUserId ?? business?.ownerId ?? "",
+    workflowJson: installedAgent.workflow?.workflowJson ?? null,
+    forwardToPhone: opts.forwardToPhone ?? undefined,
+    routingMode: readRoutingMode(installedAgent.configJson),
+    business: buildBusinessContext(business, phoneNumber, installedAgent),
+    matchedBusinessPhoneNumberId: opts.matchedBusinessPhoneNumberId,
+    matchedPlatformPhoneNumberId: opts.matchedPlatformPhoneNumberId,
+    resolveReason: opts.resolveReason
+  };
+}
+
 async function resolveAgent({
   calledNumber,
   calledNumbers,
@@ -231,36 +276,72 @@ async function resolveAgent({
   );
 
   for (const normalizedCalledNumber of candidates) {
+    // ---- A / C: BusinessPhoneNumber exact match (active) ----
     const phoneNumber = await prisma.businessPhoneNumber.findUnique({
       where: { phoneNumber: normalizedCalledNumber },
       include: {
-        business: {
-          include: {
-            profile: true,
-            knowledgeBases: true
-          }
-        },
-        installedAgent: {
-          include: {
-            workflow: true
-          }
-        }
+        business: { include: { profile: true, knowledgeBases: true } },
+        installedAgent: { include: { workflow: true } }
       }
     });
 
-    if (phoneNumber?.installedAgent?.workflow) {
-      return {
-        workflowId: phoneNumber.installedAgent.workflow.id,
-        userId: phoneNumber.installedAgent.workflow.architectUserId,
-        workflowJson: phoneNumber.installedAgent.workflow.workflowJson,
-        forwardToPhone: phoneNumber.forwardToPhone ?? undefined,
-        routingMode: readRoutingMode(phoneNumber.installedAgent.configJson),
-        business: buildBusinessContext(
-          phoneNumber.business,
-          phoneNumber.phoneNumber,
-          phoneNumber.installedAgent
-        )
-      };
+    if (phoneNumber && phoneNumber.isActive) {
+      // A: the mapping already points at an installed agent.
+      if (phoneNumber.installedAgent) {
+        return toResolvedAgent({
+          business: phoneNumber.business,
+          phoneNumber: phoneNumber.phoneNumber,
+          installedAgent: phoneNumber.installedAgent,
+          forwardToPhone: phoneNumber.forwardToPhone,
+          matchedBusinessPhoneNumberId: phoneNumber.id,
+          resolveReason: "business_phone_number"
+        });
+      }
+      // C: mapping exists but installedAgentId is null — use the business's latest ACTIVE agent.
+      if (phoneNumber.businessId) {
+        const agent = await latestActiveInstalledAgent(phoneNumber.businessId);
+        if (agent) {
+          return toResolvedAgent({
+            business: phoneNumber.business,
+            phoneNumber: phoneNumber.phoneNumber,
+            installedAgent: agent,
+            forwardToPhone: phoneNumber.forwardToPhone,
+            matchedBusinessPhoneNumberId: phoneNumber.id,
+            resolveReason: "business_phone_number_latest_active_agent"
+          });
+        }
+      }
+    }
+
+    // ---- B / D: PlatformPhoneNumber exact match assigned to a business ----
+    const platform = await prisma.platformPhoneNumber.findUnique({
+      where: { phoneNumber: normalizedCalledNumber }
+    });
+    if (platform?.businessId) {
+      const bizPhone = await prisma.businessPhoneNumber.findFirst({
+        where: { businessId: platform.businessId, isActive: true },
+        orderBy: { createdAt: "desc" },
+        include: {
+          business: { include: { profile: true, knowledgeBases: true } },
+          installedAgent: { include: { workflow: true } }
+        }
+      });
+      const business = bizPhone?.business ?? (await loadBusinessWithContext(platform.businessId));
+      const installedAgent =
+        bizPhone?.installedAgent ?? (await latestActiveInstalledAgent(platform.businessId));
+      if (business && installedAgent) {
+        return toResolvedAgent({
+          business,
+          phoneNumber: platform.phoneNumber,
+          installedAgent,
+          forwardToPhone: bizPhone?.forwardToPhone,
+          matchedBusinessPhoneNumberId: bizPhone?.id,
+          matchedPlatformPhoneNumberId: platform.id,
+          resolveReason: bizPhone?.installedAgent
+            ? "platform_phone_number_business_mapping"
+            : "platform_phone_number_latest_active_agent"
+        });
+      }
     }
   }
 
@@ -833,13 +914,6 @@ function isWithinBusinessHours(hours: unknown, timeZone?: string): boolean | nul
   return nowHhmm >= open && nowHhmm <= close;
 }
 
-/**
- * Decide whether the AI answers a call that reached the assigned CoreAI number,
- * given the buyer's answering mode. Twilio only ever receives calls that hit the
- * CoreAI number (the carrier already forwarded any missed/busy/unreachable call),
- * so for MVP every mode answers — except AFTER_HOURS during known open hours,
- * where we forward to the human instead.
- */
 function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: string): boolean {
   switch (mode) {
     case "AI_FIRST":
@@ -855,11 +929,64 @@ function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: strin
   }
 }
 
+/**
+ * Read-only routing diagnostics for a CoreAI number — powers the buyer's
+ * "Test call routing" check. Runs the same resolver the live webhook uses.
+ */
+export async function getCallRoutingDiagnostics(rawNumber: string) {
+  const normalizedNumber = normalizePhoneNumber(rawNumber);
+  const agent = normalizedNumber ? await resolveAgent({ calledNumber: normalizedNumber }) : null;
+  const assistantId = agent?.business?.vapiAssistantId;
+  const routingMode = agent?.routingMode;
+  const aiWouldAnswer = agent
+    ? routingMode
+      ? shouldAnswerWithAiByMode(routingMode, agent.business?.hours, agent.business?.timeZone)
+      : true
+    : false;
+
+  return {
+    normalizedNumber,
+    resolved: Boolean(agent),
+    matchedBusinessPhoneNumberId: agent?.matchedBusinessPhoneNumberId ?? null,
+    matchedPlatformPhoneNumberId: agent?.matchedPlatformPhoneNumberId ?? null,
+    businessId: agent?.business?.businessId ?? null,
+    installedAgentId: agent?.business?.installedAgentId ?? null,
+    routingMode: routingMode ?? null,
+    hasVapiAssistantId: isRealId(assistantId),
+    hasVapiPhoneNumberId: isRealId(agent?.business?.vapiPhoneNumberId),
+    aiWouldAnswer,
+    resolveReason: agent?.resolveReason ?? null
+  };
+}
+
+const NOT_DEPLOYED_MESSAGE = "This AI agent is not deployed yet.";
+
+/** Valid 200 TwiML with a spoken message (used for every non-streaming outcome). */
+function sayTwiml(c: Context, message: string) {
+  return c.text(`<Response><Say>${escapeXml(message)}</Say></Response>`, 200, {
+    "Content-Type": "text/xml"
+  });
+}
+
+/** 200 TwiML that forwards the call to a human (the assigned forwarding number). */
+function dialForward(c: Context, forwardToPhone: string, workflowId: string, calledNumber: string) {
+  const actionUrl = `${env.BACKEND_URL}/architect/connectors/twilio/voice-action/${workflowId}?to=${encodeURIComponent(calledNumber)}`;
+  const responseXml = [
+    "<Response>",
+    `<Dial timeout=\"${env.TWILIO_FORWARD_TIMEOUT_SECONDS}\" action=\"${escapeXml(actionUrl)}\" method=\"POST\" answerOnBridge=\"true\">`,
+    `<Number>${escapeXml(forwardToPhone)}</Number>`,
+    "</Dial>",
+    "</Response>"
+  ].join("");
+  return c.text(responseXml, 200, { "Content-Type": "text/xml" });
+}
+
 export async function handleTwilioVoice(c: Context) {
   const workflowId = c.req.param("workflowId") || undefined;
   const body = await parseBody(c);
 
   if (!isValidTwilioRequest(c, body)) {
+    // A genuine signature failure is a security rejection — never a setup 404.
     return c.text("<Response><Reject /></Response>", 403, {
       "Content-Type": "text/xml"
     });
@@ -868,38 +995,66 @@ export async function handleTwilioVoice(c: Context) {
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]) || undefined;
-  // Forwarded calls carry the assigned CoreAI number in To/Called and the original
-  // business number in ForwardedFrom/OriginalCalled — try all, resolve by the
-  // assigned number first.
   const forwardedFrom = readBodyString(body, ["ForwardedFrom", "OriginalCalled", "forwardedFrom"]);
+
+  const normalizedCandidates = Array.from(
+    new Set(
+      [calledNumber, forwardedFrom].map((value) => (value ? normalizePhoneNumber(value) : "")).filter(Boolean)
+    )
+  );
+
   const agent = await resolveAgent({
     calledNumber,
     calledNumbers: forwardedFrom ? [forwardedFrom] : [],
     workflowId
   });
 
-  if (!agent) {
-    return c.text("<Response><Reject /></Response>", 404, {
-      "Content-Type": "text/xml"
+  const forwardToPhone = agent?.forwardToPhone ?? env.TWILIO_FORWARD_TO_PHONE;
+  const assistantId = agent?.business?.vapiAssistantId;
+  const hasVapiAssistantId = isRealId(assistantId);
+
+  // Structured, secret-free diagnostics for every inbound voice webhook.
+  const logDiag = (reasonIfRejected: string | null) => {
+    console.log("[twilio.voice]", {
+      to: calledNumber || null,
+      called: calledNumber || null,
+      from: callerNumber || null,
+      normalizedCandidates,
+      matchedBusinessPhoneNumberId: agent?.matchedBusinessPhoneNumberId ?? null,
+      matchedPlatformPhoneNumberId: agent?.matchedPlatformPhoneNumberId ?? null,
+      businessId: agent?.business?.businessId ?? null,
+      installedAgentId: agent?.business?.installedAgentId ?? null,
+      answeringMode: agent?.routingMode ?? null,
+      hasConfigJson: Boolean(agent?.business?.installedAgentId),
+      hasVapiAssistantId,
+      hasVapiPhoneNumberId: isRealId(agent?.business?.vapiPhoneNumberId),
+      resolveReason: agent?.resolveReason ?? null,
+      reasonIfRejected
     });
+  };
+
+  // Never 404: an unresolved number returns friendly, valid 200 TwiML.
+  if (!agent) {
+    logDiag("no_agent_resolved");
+    return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
   }
 
-  const forwardToPhone = agent.forwardToPhone ?? env.TWILIO_FORWARD_TO_PHONE;
-  // A deployed per-business Vapi assistant means this business is set up for AI
-  // answering — answer with AI regardless of the global flag or forward number.
-  const deployedAssistant = agent.business?.vapiAssistantId;
-  const hasDeployedAssistant = Boolean(deployedAssistant && deployedAssistant !== env.VAPI_DEFAULT_ASSISTANT_ID);
-
-  // Respect the buyer's configured answering mode when present; otherwise fall
-  // back to the env flag / deployed-assistant / no-forward heuristic (back-compat).
+  const hasDeployedAssistant = Boolean(assistantId && assistantId !== env.VAPI_DEFAULT_ASSISTANT_ID);
   const aiShouldAnswer = agent.routingMode
     ? shouldAnswerWithAiByMode(agent.routingMode, agent.business?.hours, agent.business?.timeZone)
     : env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone;
 
-  // Live AI answer: connect the caller straight to the Vapi AI receptionist. If
-  // Vapi can't take the call we fall through to forwarding / the existing message,
-  // so the missed-call text-back path is never broken.
   if (aiShouldAnswer) {
+    // Validate the Vapi assistant before attempting to stream.
+    if (!hasVapiAssistantId) {
+      if (forwardToPhone) {
+        logDiag("no_vapi_assistant_forwarding_to_human");
+        return dialForward(c, forwardToPhone, agent.workflowId, calledNumber);
+      }
+      logDiag("no_vapi_assistant");
+      return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
+    }
+
     const aiTwiml = await buildVapiAnswerTwiml({
       agent,
       callerNumber,
@@ -908,28 +1063,28 @@ export async function handleTwilioVoice(c: Context) {
     });
 
     if (aiTwiml) {
+      logDiag(null);
       return c.text(aiTwiml, 200, { "Content-Type": "text/xml" });
     }
+
+    // Assistant present but Vapi couldn't build the stream — human fallback or say.
+    if (forwardToPhone) {
+      logDiag("vapi_stream_build_failed_forwarding_to_human");
+      return dialForward(c, forwardToPhone, agent.workflowId, calledNumber);
+    }
+    logDiag("vapi_stream_build_failed");
+    return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
   }
 
   if (!forwardToPhone) {
+    logDiag("ai_skipped_no_forward");
     return c.text("<Response><Say>Sorry, this business is not available right now.</Say></Response>", 200, {
       "Content-Type": "text/xml"
     });
   }
 
-  const actionUrl = `${env.BACKEND_URL}/architect/connectors/twilio/voice-action/${agent.workflowId}?to=${encodeURIComponent(calledNumber)}`;
-  const responseXml = [
-    "<Response>",
-    `<Dial timeout=\"${env.TWILIO_FORWARD_TIMEOUT_SECONDS}\" action=\"${escapeXml(actionUrl)}\" method=\"POST\" answerOnBridge=\"true\">`,
-    `<Number>${escapeXml(forwardToPhone)}</Number>`,
-    "</Dial>",
-    "</Response>"
-  ].join("");
-
-  return c.text(responseXml, 200, {
-    "Content-Type": "text/xml"
-  });
+  logDiag("forwarded_to_human");
+  return dialForward(c, forwardToPhone, agent.workflowId, calledNumber);
 }
 
 export async function handleTwilioVoiceAction(c: Context) {
