@@ -38,7 +38,7 @@ const serveCards = [
   {
     tag: "For Business Owners",
     description:
-      "Dentists, HVAC companies, real estate agents, med spas, law firms. If you're losing leads to missed calls and slow follow-ups, CORE fixes that."
+      "Dentists, HVAC companies, real estate agents, med spas, law firms. If you're losing leads to missed calls and slow follow-ups, Triven fixes that."
   },
   {
     tag: "For AI Architects",
@@ -89,11 +89,13 @@ export default function AboutPage() {
           `
         }}
       />
-      <CoreHeader navTop={0} navScrolled={false} menuOpen={false} onToggleMenu={function (): void {
-        throw new Error("Function not implemented.");
-      }} onCloseMenu={function (): void {
-        throw new Error("Function not implemented.");
-      }} />
+      <CoreHeader
+        navTop={0}
+        navScrolled={false}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        onCloseMenu={() => setMenuOpen(false)}
+      />
 
       <section className="pb-20 pt-32 md:pb-28 md:pt-40">
         <div className="mx-auto max-w-6xl px-6 text-center">
@@ -102,7 +104,7 @@ export default function AboutPage() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-600">
-            CORE is the marketplace where AI Architects build, test, and deploy intelligent agents 
+            Triven is the marketplace where AI Architects build, test, and deploy intelligent agents 
             that handle repetitive tasks, so you can focus on growth.
           </p>
         </div>
@@ -114,7 +116,7 @@ export default function AboutPage() {
 
           <p className="mt-5 text-lg leading-relaxed text-slate-600">
           We believe every small business deserves enterprise-level 
-          AI without the enterprise-level complexity or cost. CORE connects 
+          AI without the enterprise-level complexity or cost. Triven connects 
           businesses with pre-built AI agents that start working in minutes, not months.
           </p>
         </div>
