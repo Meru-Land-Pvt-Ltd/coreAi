@@ -321,7 +321,20 @@ authRoutes.post("/firebase-login", async (c) => {
   try {
     const input = firebaseLoginSchema.parse(await c.req.json());
 
+    console.log("Firebase login request:", {
+      role: input.role,
+      tokenLength: input.idToken.length
+    });
+
     const decodedToken = await getFirebaseAdminAuth().verifyIdToken(input.idToken);
+
+    console.log("Firebase token verified:", {
+      email: decodedToken.email,
+      uid: decodedToken.uid,
+      aud: decodedToken.aud,
+      iss: decodedToken.iss,
+      role: input.role
+    });
 
     if (!decodedToken.email) {
       return errorResponse(
@@ -339,6 +352,11 @@ authRoutes.post("/firebase-login", async (c) => {
         ? decodedToken.name.trim()
         : getNameFromEmail(email);
 
+    console.log("Finding user:", {
+      email,
+      role: input.role
+    });
+
     let user = await prisma.user.findFirst({
       where: {
         email,
@@ -347,6 +365,12 @@ authRoutes.post("/firebase-login", async (c) => {
       include: {
         architectProfile: true
       }
+    });
+
+    console.log("User lookup result:", {
+      found: Boolean(user),
+      userId: user?.id,
+      role: user?.role
     });
 
     if (user?.isSuspended) {
@@ -359,6 +383,11 @@ authRoutes.post("/firebase-login", async (c) => {
     }
 
     if (!user) {
+      console.log("Creating user:", {
+        email,
+        role: input.role
+      });
+
       user = await prisma.user.create({
         data: {
           email,
@@ -368,13 +397,19 @@ authRoutes.post("/firebase-login", async (c) => {
           architectProfile:
             input.role === "ARCHITECT"
               ? {
-                create: {}
-              }
+                  create: {}
+                }
               : undefined
         },
         include: {
           architectProfile: true
         }
+      });
+
+      console.log("User created:", {
+        userId: user.id,
+        email: user.email,
+        role: user.role
       });
     } else if (!user.fullName) {
       user = await prisma.user.update({
@@ -390,6 +425,12 @@ authRoutes.post("/firebase-login", async (c) => {
       });
     }
 
+    console.log("Creating auth token:", {
+      userId: user.id,
+      email: user.email,
+      role: user.role
+    });
+
     const safeUser = {
       ...toSafeUser(user),
       architectProfile: user.architectProfile
@@ -401,6 +442,12 @@ authRoutes.post("/firebase-login", async (c) => {
       role: user.role as JwtUserRole
     });
 
+    console.log("Firebase login success:", {
+      userId: user.id,
+      email: user.email,
+      role: user.role
+    });
+
     return successResponse(
       c,
       {
@@ -410,6 +457,12 @@ authRoutes.post("/firebase-login", async (c) => {
       "Google login successful"
     );
   } catch (error) {
+    console.error("Firebase login failed:", {
+      name: error instanceof Error ? error.name : undefined,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+
     if (error instanceof z.ZodError) {
       return errorResponse(
         c,
@@ -419,16 +472,15 @@ authRoutes.post("/firebase-login", async (c) => {
       );
     }
 
-    return errorResponse(c, "Google login failed", 500, "GOOGLE_LOGIN_FAILED");
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Google login failed",
+      500,
+      "GOOGLE_LOGIN_FAILED"
+    );
   }
 });
 
-/**
- * Security stub only. There is NO public password signup in this product —
- * BUSINESS/ARCHITECT sign in via email OTP or Google, and ADMINs are created
- * exclusively by the seed script. This route exists purely to return an explicit
- * 403 for any ADMIN signup attempt (and 404 NOT_IMPLEMENTED for everything else).
- */
 authRoutes.post("/signup", async (c) => {
   const rawBody = (await c.req.json().catch(() => ({}))) as { role?: unknown };
 

@@ -12,7 +12,7 @@ export function isVapiConfigured(): boolean {
   return Boolean(key && !key.includes("your_") && !key.includes("xxx"));
 }
 
-function isRealId(value?: string | null): boolean {
+export function isRealId(value?: string | null): boolean {
   return Boolean(value && !value.includes("your_") && !value.includes("xxx"));
 }
 
