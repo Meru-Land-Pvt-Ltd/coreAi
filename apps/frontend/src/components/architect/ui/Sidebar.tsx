@@ -231,7 +231,11 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const isBuilder = pathname.includes("/builder");
+  // The workflow builder is fullscreen (fixed inset-0). Treat the unsaved builder
+  // at /architect/workflows and every /architect/workflows/* route as builder so
+  // the sidebar shell doesn't wrap/overlap it.
+  const isBuilder =
+    pathname === "/architect/workflows" || pathname.startsWith("/architect/workflows/");
 
   useEffect(() => {
     const authUser = getAuthUser();

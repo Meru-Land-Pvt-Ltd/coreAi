@@ -121,10 +121,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         </span>
                     </a>
 
-                    <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:hidden" data-testid="business-sidebar-beta-text">
-                        Beta
-                    </span>
-
                     <button
                         type="button"
                         onClick={closeSidebar}

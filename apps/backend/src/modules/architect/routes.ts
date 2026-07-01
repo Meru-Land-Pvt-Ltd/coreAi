@@ -635,10 +635,25 @@ architectRoutes.get("/workflows", async (c) => {
   });
 });
 
+const PLACEHOLDER_WORKFLOW_NAMES = new Set([
+  "",
+  "untitled",
+  "untitled agent",
+  "new agent",
+  "missed call text-back"
+]);
+
 architectRoutes.post("/workflows", async (c) => {
   try {
     const authUser = c.get("authUser");
     const input = workflowSchema.parse(await c.req.json());
+
+    // Safety net: never create an empty/placeholder draft (frontend defers draft
+    // creation until a meaningful edit, but guard the API too).
+    const nodeCount = Array.isArray(input.workflowJson.nodes) ? input.workflowJson.nodes.length : 0;
+    if (nodeCount === 0 && PLACEHOLDER_WORKFLOW_NAMES.has(input.name.trim().toLowerCase())) {
+      return errorResponse(c, "Cannot create empty workflow draft.", 422, "EMPTY_WORKFLOW_DRAFT");
+    }
 
     const workflow = await prisma.workflowDefinition.create({
       data: {

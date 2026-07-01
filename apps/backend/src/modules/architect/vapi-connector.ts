@@ -1,4 +1,4 @@
-import { DEFAULT_VOICE_PROVIDER, VOICE_TOOL_NAMES } from "@coreai/shared";
+import { DEFAULT_VOICE_PROVIDER, normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
 import { resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -122,7 +122,7 @@ export function buildVapiVariableValues({
   business: VapiBusinessContext;
   reason: string;
 }) {
-  const timeZone = business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const timeZone = business.timeZone ? normalizeTimeZone(business.timeZone) : env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
   // Real "now" in the business timezone so the assistant resolves relative dates
   // (today/tomorrow/next Monday) correctly instead of guessing from training data.
   const currentDateTime = new Date().toLocaleString("en-US", {
