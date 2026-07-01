@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   addEdge,
   Controls,
@@ -18,6 +18,7 @@ import type { Route } from "next";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectListing,
+  createArchitectWorkflow,
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
@@ -41,7 +42,7 @@ import { PublishPanel } from "./workflow-builder/publish-panel";
 import { TemplateGallery } from "./workflow-builder/template-gallery";
 import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal";
 import { TestPanel } from "./workflow-builder/test-panel";
-import { useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
+import { isMeaningfulWorkflow, useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
 
@@ -75,6 +76,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [publishError, setPublishError] = useState("");
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [importingSlug, setImportingSlug] = useState<string | null>(null);
+
+  // The builder may open UNSAVED (workflowId === "") — no draft exists until the
+  // architect makes a meaningful edit. `currentWorkflowId` becomes the real id
+  // once the first save creates the draft.
+  const [currentWorkflowId, setCurrentWorkflowId] = useState(workflowId);
+  const currentWorkflowIdRef = useRef(workflowId);
+  const creatingDraftRef = useRef(false);
+  useEffect(() => {
+    currentWorkflowIdRef.current = currentWorkflowId;
+  }, [currentWorkflowId]);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -115,10 +126,54 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes]
   );
   
-  const { canUndo, canRedo, undo, redo, markSaved } = useBuilderAutosaveHistory({
-    workflowId,
+  // A new draft is worth creating only with real content; an existing draft is
+  // always saveable (even if edited down to empty).
+  const meaningfulForSave = useCallback(
+    (snap: { nodes: BuilderNode[]; agentName: string }) =>
+      Boolean(currentWorkflowIdRef.current) || isMeaningfulWorkflow(snap),
+    []
+  );
+
+  // Persist a snapshot: CREATE the draft the first time (no id yet), else UPDATE.
+  // A create-in-flight guard prevents duplicate drafts. Never creates for empty.
+  const saveDraft = useCallback(
+    async (snap: { nodes: BuilderNode[]; edges: Edge[]; agentName: string; tagline: string }): Promise<boolean> => {
+      const id = currentWorkflowIdRef.current;
+      if (!id) {
+        if (creatingDraftRef.current) return false;
+        creatingDraftRef.current = true;
+        const res = await createArchitectWorkflow({
+          name: snap.agentName,
+          description: snap.tagline,
+          isTemplate: false,
+          workflowJson: { nodes: snap.nodes, edges: snap.edges }
+        });
+        creatingDraftRef.current = false;
+        if (!res.success || !res.data) return false;
+        const newId = res.data.workflow.id;
+        currentWorkflowIdRef.current = newId;
+        setCurrentWorkflowId(newId);
+        // Reflect the saved draft in the URL WITHOUT a Next navigation/remount
+        // (keeps the builder mounted so undo history survives the first save).
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", `/architect/workflows/${newId}/builder`);
+        }
+        return true;
+      }
+      const res = await updateArchitectWorkflow(id, {
+        name: snap.agentName,
+        description: snap.tagline,
+        workflowJson: { nodes: snap.nodes, edges: snap.edges }
+      });
+      return res.success;
+    },
+    []
+  );
+
+  const { canUndo, canRedo, undo, redo, saveNow } = useBuilderAutosaveHistory({
     loading,
     enabled: !isUnderReview,
+    resetKey: currentWorkflowId,
     nodes,
     edges,
     agentName,
@@ -127,7 +182,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setEdges,
     setAgentName,
     setTagline,
-    setStatus: setMessage
+    setStatus: setMessage,
+    save: saveDraft,
+    isMeaningful: meaningfulForSave
   });
 
   const onConnect = useCallback(
@@ -152,8 +209,24 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   );
 
   async function loadWorkflow() {
+    if (!currentWorkflowIdRef.current) {
+      // Unsaved builder — blank canvas, NO draft created until a meaningful edit.
+      setWorkflow({
+        id: "",
+        name: defaultAgentName,
+        description: defaultAgentDescription,
+        workflowJson: { nodes: [], edges: [] },
+        isTemplate: false,
+        createdAt: ""
+      });
+      setSelectedNodeId(null);
+      setMessage("New agent");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    const result = await getArchitectWorkflow(workflowId);
+    const result = await getArchitectWorkflow(currentWorkflowIdRef.current);
 
     if (result.success && result.data) {
       const loadedWorkflow = result.data.workflow;
@@ -230,7 +303,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setPreviewSlug(null);
     setMessage("Importing template...");
 
-    const result = await useArchitectTemplate(slug, { workflowId });
+    const result = await useArchitectTemplate(slug, { workflowId: currentWorkflowIdRef.current || undefined });
     setImportingSlug(null);
 
     if (!result.success || !result.data) {
@@ -239,6 +312,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
 
     const imported = result.data;
+    // Importing a template is a meaningful user action: it creates exactly ONE
+    // draft (backend clones into the current workflow, or creates one if unsaved).
+    if (imported.workflowId && imported.workflowId !== currentWorkflowIdRef.current) {
+      currentWorkflowIdRef.current = imported.workflowId;
+      setCurrentWorkflowId(imported.workflowId);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", `/architect/workflows/${imported.workflowId}/builder`);
+      }
+    }
     const importedWorkflow: ArchitectWorkflow = {
       id: imported.workflowId,
       name: imported.name,
@@ -301,19 +383,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   async function saveAgent(showMessage = true) {
     if (blockIfUnderReview()) return false;
     setSaving(true);
-    const result = await updateArchitectWorkflow(workflowId, {
-      name: agentName,
-      description: tagline,
-      workflowJson: { nodes, edges }
-    });
+    const result = await saveNow();
     setSaving(false);
 
-    if (!result.success) {
-      setMessage(result.error ?? "Could not save agent");
+    if (result === "empty") {
+      // Never create an empty draft from a manual Save on a fresh builder.
+      setMessage("Add a node before saving this draft.");
+      return false;
+    }
+    if (result === "failed") {
+      setMessage("Could not save agent");
       return false;
     }
 
-    markSaved();
     if (showMessage) setMessage("Saved just now");
     return true;
   }
@@ -330,11 +412,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     // Validation errors stay visible on the Publish tab (no silent tab switch).
     setPublishError("");
 
-    if (!workflowId) {
-      setPublishError("Save this workflow before publishing.");
-      return;
-    }
-
     if (name.length < 2 || shortDescription.length < 10) {
       setPublishError(
         "Please add an Agent name and a tagline (at least 10 characters) in Configure before publishing."
@@ -344,15 +421,22 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     setMessage("Submitting for review...");
 
+    // Saving here creates the draft if it doesn't exist yet (never on empty).
     const saved = await saveAgent(false);
     if (!saved) {
+      setPublishError("Add a node and save this agent before publishing.");
+      return;
+    }
+
+    const publishId = currentWorkflowIdRef.current;
+    if (!publishId) {
       setPublishError("Could not save the workflow before publishing. Please try again.");
       return;
     }
 
     setSaving(true);
     const result = await createArchitectListing({
-      workflowId,
+      workflowId: publishId,
       name,
       shortDescription,
       description: tagline,
@@ -439,7 +523,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         }
       : {};
 
-    const result = await runArchitectWorkflowTest(workflowId, payload);
+    const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
 
     if (!result.success || !result.data) {
       setMessage(result.error ?? (hasGmailFlow ? "Could not run Gmail workflow" : "Could not run test"));
@@ -458,7 +542,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="rounded-2xl border border-amber-100 bg-white px-5 py-3 text-sm font-black text-amber-700 shadow-sm">
-          Loading Missed Call Text-Back builder...
+          Loading Builder...
         </div>
       </div>
     );
@@ -634,7 +718,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
         {activeTab === "publish" ? (
           <PublishPanel
-            workflowId={workflowId}
+            workflowId={currentWorkflowId}
             agentName={agentName}
             tagline={tagline}
             price={price}

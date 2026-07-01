@@ -1,12 +1,3 @@
-/**
- * Create or update an ADMIN user. Admins are never created via public signup.
- *
- * Usage:
- *   npm run seed:admin --workspace=@coreai/backend -- "admin@example.com" "StrongPassword123" "Core Admin"
- *
- * Same email can still exist as BUSINESS/ARCHITECT because uniqueness is (email, role).
- * The password is never logged.
- */
 import { prisma } from "../src/lib/prisma";
 import { hashPassword } from "../src/lib/password";
 

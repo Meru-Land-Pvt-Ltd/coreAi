@@ -2,9 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Edge } from "@xyflow/react";
-import { updateArchitectWorkflow } from "@/components/architect/features/api";
 import { defaultAgentName } from "./node-defaults";
 import type { BuilderNode } from "./types";
+
+/**
+ * Architect-builder draft auto-save + undo/redo. Scoped to the architect builder
+ * only — it never touches buyer/business setup.
+ *
+ * Persistence is INVERTED: the hook owns history + dirty tracking + debounced
+ * triggering, but the caller supplies `save(snapshot)` (create-or-update) and
+ * `isMeaningful(snapshot)`. This lets the builder open UNSAVED (no draft) and
+ * create a draft only on the first meaningful edit — no empty/duplicate drafts.
+ */
 
 const COMMIT_DEBOUNCE_MS = 400; // coalesce dragging / typing into one history entry
 const AUTOSAVE_DEBOUNCE_MS = 2000; // 1.5–3s after the last change
@@ -17,10 +26,16 @@ export type BuilderSnapshot = {
   tagline: string;
 };
 
+export type SaveResult = "saved" | "empty" | "failed";
+
+const PLACEHOLDER_NAMES = new Set(
+  ["", "untitled", "untitled agent", "new agent", defaultAgentName.trim().toLowerCase()].filter(Boolean)
+);
+
+/** A brand-new workflow is worth creating only with real nodes or a real (non-default) name. */
 export function isMeaningfulWorkflow(snap: { nodes: { length: number }; agentName: string }): boolean {
   if (snap.nodes.length > 0) return true;
-  const name = (snap.agentName || "").trim().toLowerCase();
-  return name.length > 0 && name !== "untitled" && name !== defaultAgentName.trim().toLowerCase();
+  return !PLACEHOLDER_NAMES.has((snap.agentName || "").trim().toLowerCase());
 }
 
 /** Stable identity of a builder state — ignores volatile React Flow fields (selected/measured). */
@@ -46,10 +61,11 @@ function snapshotKey(snap: BuilderSnapshot): string {
 }
 
 type Options = {
-  workflowId: string;
   loading: boolean;
   /** False when the agent is locked (under review) — disables history + auto-save. */
   enabled: boolean;
+  /** Current workflow id ("" when unsaved). History resets when it changes to a DIFFERENT existing id. */
+  resetKey: string;
   nodes: BuilderNode[];
   edges: Edge[];
   agentName: string;
@@ -59,10 +75,14 @@ type Options = {
   setAgentName: (name: string) => void;
   setTagline: (tagline: string) => void;
   setStatus: (message: string) => void;
+  /** Persist the snapshot (create when unsaved, else update). Returns success. */
+  save: (snap: BuilderSnapshot) => Promise<boolean>;
+  /** Whether the snapshot is worth persisting (true for any existing draft). */
+  isMeaningful: (snap: BuilderSnapshot) => boolean;
 };
 
 export function useBuilderAutosaveHistory(opts: Options) {
-  const { workflowId, loading, nodes, edges, agentName, tagline } = opts;
+  const { loading, resetKey, nodes, edges, agentName, tagline } = opts;
 
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -75,13 +95,15 @@ export function useBuilderAutosaveHistory(opts: Options) {
   const presentSnapRef = useRef<BuilderSnapshot | null>(null);
   const presentKeyRef = useRef<string | null>(null);
   const latestRef = useRef<BuilderSnapshot | null>(null);
-  const skipRef = useRef(false); // suppress capturing the next change as a user edit
+  const skipRef = useRef(false);
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
   const mountedRef = useRef(true);
+  const prevResetKeyRef = useRef(resetKey);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveRef = useRef<() => void>(() => {});
+  const saveNowRef = useRef<() => Promise<SaveResult>>(async () => "failed");
 
   useEffect(() => {
     mountedRef.current = true;
@@ -92,8 +114,12 @@ export function useBuilderAutosaveHistory(opts: Options) {
     };
   }, []);
 
-  // Reset history + draft tracking whenever the edited workflow changes.
+  // Reset history when switching to a DIFFERENT existing workflow — but NOT when a
+  // fresh unsaved builder just received its id from its own create (falsy → truthy).
   useEffect(() => {
+    const prev = prevResetKeyRef.current;
+    prevResetKeyRef.current = resetKey;
+    if (!prev && resetKey) return; // our own create → keep undo history
     pastRef.current = [];
     futureRef.current = [];
     presentSnapRef.current = null;
@@ -103,35 +129,24 @@ export function useBuilderAutosaveHistory(opts: Options) {
     dirtyRef.current = false;
     setCanUndo(false);
     setCanRedo(false);
-  }, [workflowId]);
+  }, [resetKey]);
 
   const scheduleAutoSave = useCallback(() => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => autoSaveRef.current(), AUTOSAVE_DEBOUNCE_MS);
   }, []);
 
-  // Latest auto-save impl (reads current workflowId/state via refs to avoid stale closures).
-  autoSaveRef.current = async () => {
-    if (!dirtyRef.current || !optsRef.current.enabled) return;
-    const snap = latestRef.current;
-    if (!snap || !isMeaningfulWorkflow(snap)) return;
-    if (savingRef.current) {
-      scheduleAutoSave();
-      return;
-    }
-    const keyAtSave = snapshotKey(snap);
+  // Shared persistence path (used by both auto-save and manual save).
+  const performSave = async (snap: BuilderSnapshot): Promise<boolean> => {
     savingRef.current = true;
+    const keyAtSave = snapshotKey(snap);
     optsRef.current.setStatus("Saving…");
-    const res = await updateArchitectWorkflow(optsRef.current.workflowId, {
-      name: snap.agentName,
-      description: snap.tagline,
-      workflowJson: { nodes: snap.nodes, edges: snap.edges }
-    });
+    const ok = await optsRef.current.save(snap);
     savingRef.current = false;
-    if (!mountedRef.current) return;
-    if (!res.success) {
+    if (!mountedRef.current) return ok;
+    if (!ok) {
       optsRef.current.setStatus("Save failed");
-      return;
+      return false;
     }
     // Clear the unsaved flag only if nothing changed while the save was in flight.
     if (latestRef.current && snapshotKey(latestRef.current) === keyAtSave) {
@@ -140,6 +155,26 @@ export function useBuilderAutosaveHistory(opts: Options) {
     } else {
       scheduleAutoSave();
     }
+    return true;
+  };
+
+  autoSaveRef.current = () => {
+    if (!dirtyRef.current || !optsRef.current.enabled) return;
+    const snap = latestRef.current;
+    if (!snap || !optsRef.current.isMeaningful(snap)) return; // never create an empty/untouched draft
+    if (savingRef.current) {
+      scheduleAutoSave();
+      return;
+    }
+    void performSave(snap);
+  };
+
+  // Manual save — returns "empty" (nothing meaningful to save) so the caller can prompt.
+  saveNowRef.current = async () => {
+    const snap = latestRef.current ?? { nodes, edges, agentName, tagline };
+    if (!optsRef.current.isMeaningful(snap)) return "empty";
+    if (savingRef.current) return "failed";
+    return (await performSave(snap)) ? "saved" : "failed";
   };
 
   const markDirty = useCallback(() => {
@@ -173,7 +208,7 @@ export function useBuilderAutosaveHistory(opts: Options) {
     const key = snapshotKey(snap);
 
     if (presentKeyRef.current === null) {
-      // Baseline established after a load — never a user edit.
+      // Baseline after a load/hydration — never a user edit, never marks dirty.
       presentKeyRef.current = key;
       presentSnapRef.current = snap;
       return;
@@ -199,7 +234,7 @@ export function useBuilderAutosaveHistory(opts: Options) {
     optsRef.current.setEdges(snap.edges);
     optsRef.current.setAgentName(snap.agentName);
     optsRef.current.setTagline(snap.tagline);
-    markDirty(); // restored state is unsaved → allow auto-save
+    markDirty(); // restored state is unsaved → allow auto-save (update only if a draft exists)
   }, [markDirty]);
 
   const undo = useCallback(() => {
@@ -220,11 +255,7 @@ export function useBuilderAutosaveHistory(opts: Options) {
     setCanRedo(futureRef.current.length > 0);
   }, [applySnapshot]);
 
-  /** Called after a successful MANUAL save so auto-save doesn't redundantly re-save. */
-  const markSaved = useCallback(() => {
-    dirtyRef.current = false;
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-  }, []);
+  const saveNow = useCallback(() => saveNowRef.current(), []);
 
   // Keyboard: Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z or Ctrl+Y = redo. Skip while typing.
   useEffect(() => {
@@ -247,5 +278,5 @@ export function useBuilderAutosaveHistory(opts: Options) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [undo, redo]);
 
-  return { canUndo, canRedo, undo, redo, markSaved };
+  return { canUndo, canRedo, undo, redo, saveNow };
 }

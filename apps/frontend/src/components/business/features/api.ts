@@ -42,9 +42,23 @@ export type BusinessSetupInput = {
   silenceRepromptMessage1?: string;
   silenceRepromptMessage2?: string;
   goodbyeMessage?: string;
+  selectedPlatformPhoneNumberId?: string;
+  selectedPhoneNumber?: string;
+  /** true only on the final Deploy — incremental saves skip the Vapi assistant build. */
+  deploy?: boolean;
   calendarId?: string;
   listingId?: string;
   workflowId?: string;
+};
+
+export type PlatformPhoneOption = {
+  id: string;
+  phoneNumber: string;
+  provider: string;
+  status: "AVAILABLE" | "ASSIGNED" | "DISABLED";
+  assignedToThisBusiness: boolean;
+  /** True for the number currently assigned to this business (server-computed). */
+  selected?: boolean;
 };
 
 export type ConnectorRequirement = {
@@ -114,6 +128,9 @@ export type BusinessSetupData = {
     reprompt2: string | null;
     goodbye: string | null;
   } | null;
+  /** Platform (CoreAI/Twilio) numbers the buyer can pick + the currently-selected one. */
+  availablePhoneNumbers?: PlatformPhoneOption[];
+  selectedPlatformPhoneNumberId?: string | null;
 };
 
 /** A marketplace listing as the buyer sees it (used to read requiredConnectors pre-install). */
@@ -151,6 +168,11 @@ export function saveBusinessSetup(body: BusinessSetupInput) {
  */
 export function getMarketplaceListing(listingId: string) {
   return apiGet<{ listing: MarketplaceListing }>(`/architect/listings/${listingId}`);
+}
+
+/** Available CoreAI/platform phone numbers the buyer can select (Step 2). */
+export function getBusinessPhoneNumbers() {
+  return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");
 }
 
 export function getBusinessCalendarStatus() {

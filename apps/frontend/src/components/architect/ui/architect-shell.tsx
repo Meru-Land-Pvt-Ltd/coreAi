@@ -241,7 +241,8 @@ export function ArchitectShell({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const isBuilder = pathname.includes("/builder");
+  const isBuilder =
+    pathname === "/architect/workflows" || pathname.startsWith("/architect/workflows/");
 
   useEffect(() => {
     const authUser = getAuthUser();
