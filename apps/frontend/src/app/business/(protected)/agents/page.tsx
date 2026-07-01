@@ -203,7 +203,7 @@ export default function BusinessMyAgentsPage() {
 
     return (
         <main className="min-h-screen bg-gray-50 text-slate-900">
-            <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-full px-4 py-8 sm:px-6 lg:px-8">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                         <h1 className="text-2xl font-black tracking-tight text-slate-900" data-testid="business-my-agents-heading">
@@ -273,12 +273,6 @@ export default function BusinessMyAgentsPage() {
                             </button>
                         </div>
                     )}
-
-                    {!isLoading && !apiError && agents.length ? (
-                        <p className="mt-8 text-center text-sm text-slate-400" data-testid="business-my-agents-count-text">
-                            {agents.length} {agents.length === 1 ? "agent" : "agents"} in your account
-                        </p>
-                    ) : null}
                 </div>
             </div>
         </main>

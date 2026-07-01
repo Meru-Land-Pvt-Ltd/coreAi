@@ -13,7 +13,7 @@ import {
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { getAuthUser } from "@/lib/auth";
-import { architectPublishingStatusPath } from "@/lib/routes";
+import { architectPublishingStatusPath, architectAnalyticsPath } from "@/lib/routes";
 
 type AgentStatus = ArchitectListing["status"];
 type ViewMode = "grid" | "list";
@@ -202,6 +202,17 @@ function StatusGlyphIcon() {
   );
 }
 
+function ChartIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 3v18h18" />
+      <path d="M7 16v-5" />
+      <path d="M12 16V8" />
+      <path d="M17 16v-3" />
+    </svg>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -282,8 +293,10 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
         <div className="text-sm font-bold text-slate-900">{agent.requiredConnectors.length}</div>
       </div>
       <div>
-        <div className="text-[11px] text-slate-400">Models</div>
-        <div className="text-sm font-bold text-slate-900">{agent.supportedLlms.length}</div>
+        <div className="text-[11px] text-slate-400">Installed</div>
+        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-install-count-${agent.id}`}>
+          {agent.installCount ?? 0}
+        </div>
       </div>
     </div>
   );
@@ -295,12 +308,10 @@ function builderHrefFor(agent: ArchitectListing): Route {
 
 function FooterActions({
   agent,
-  onDuplicate,
-  onDeleteRequest
+  onDuplicate
 }: {
   agent: ArchitectListing;
   onDuplicate: (agent: ArchitectListing) => void;
-  onDeleteRequest: (agent: ArchitectListing) => void;
 }) {
   const stop = (event: React.MouseEvent) => event.stopPropagation();
   const builderHref = builderHrefFor(agent);
@@ -337,27 +348,14 @@ function FooterActions({
 
   if (agent.status === "DRAFT") {
     return (
-      <>
-        <Link
-          data-testid={`my-agents-update-${agent.id}-link`}
-          href={builderHref}
-          onClick={stop}
-          className="ma-continue inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
-        >
-          Continue Building <ArrowIcon />
-        </Link>
-        <button
-          type="button"
-          onClick={(event) => {
-            stop(event);
-            onDeleteRequest(agent);
-          }}
-          data-testid={`my-agents-delete-${agent.id}-button`}
-          className="rounded-lg px-2 py-1 text-xs font-medium text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
-        >
-          Delete
-        </button>
-      </>
+      <Link
+        data-testid={`my-agents-update-${agent.id}-link`}
+        href={builderHref}
+        onClick={stop}
+        className="ma-continue inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
+      >
+        Continue Building <ArrowIcon />
+      </Link>
     );
   }
 
@@ -381,8 +379,7 @@ function AgentCard({
   animate,
   onOpen,
   onDots,
-  onDuplicate,
-  onDeleteRequest
+  onDuplicate
 }: {
   agent: ArchitectListing;
   architectName: string;
@@ -391,7 +388,6 @@ function AgentCard({
   onOpen: (agent: ArchitectListing) => void;
   onDots: (event: React.MouseEvent, agentId: string) => void;
   onDuplicate: (agent: ArchitectListing) => void;
-  onDeleteRequest: (agent: ArchitectListing) => void;
 }) {
   const style = STATUS_STYLES[agent.status];
   const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
@@ -470,7 +466,7 @@ function AgentCard({
           Created {formatDate(agent.createdAt)}
         </span>
         <div className="flex items-center gap-1">
-          <FooterActions agent={agent} onDuplicate={onDuplicate} onDeleteRequest={onDeleteRequest} />
+          <FooterActions agent={agent} onDuplicate={onDuplicate} />
         </div>
       </div>
     </article>
@@ -965,7 +961,6 @@ export function MyAgentsView() {
                 onOpen={openAgent}
                 onDots={openMenu}
                 onDuplicate={duplicateAgent}
-                onDeleteRequest={requestDeleteDraft}
               />
             ))}
           </div>
@@ -1009,6 +1004,22 @@ export function MyAgentsView() {
             <CopyIcon />
             <span>Duplicate</span>
           </button>
+
+          {menuAgent.status === "APPROVED" ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                router.push(architectAnalyticsPath(menuAgent.id));
+              }}
+              data-testid={`my-agents-menu-analytics-${menuAgent.id}`}
+              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-gray-50"
+            >
+              <ChartIcon />
+              <span>View analytics</span>
+            </button>
+          ) : null}
 
           {menuAgent.status !== "DRAFT" ? (
             <button

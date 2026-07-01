@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getArchitectTemplate,
   getArchitectTemplates,
+  submitArchitectTemplateRequest,
   useArchitectTemplate,
   type TemplateCard
 } from "@/components/architect/features/api";
@@ -247,18 +248,17 @@ function fullWorkflowSVG(wf: Workflow, fit: boolean) {
 
 const WORKFLOWS_ROUTE = "/architect/workflows" as Route;
 
-function StarRow({ n, size = "h-3.5 w-3.5" }: { n: number; size?: string }) {
-  const path = "M12 2.6l2.7 5.5 6 .9-4.35 4.24 1.03 6L12 16.9 6.62 19.24l1.03-6L3.3 9l6-.9z";
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <svg key={i} viewBox="0 0 24 24" className={`${size} ${i < Math.round(n) ? "text-amber-400" : "text-slate-200"}`} fill="currentColor">
-          <path d={path} />
-        </svg>
-      ))}
-    </div>
-  );
-}
+const REQUEST_INDUSTRIES = [
+  "Dental",
+  "Healthcare",
+  "Legal",
+  "Home Services",
+  "Salon & Spa",
+  "Fitness",
+  "Real Estate",
+  "Automotive",
+  "Other"
+];
 
 export default function ArchitectTemplateGalleryPage() {
   const router = useRouter();
@@ -268,6 +268,11 @@ export default function ArchitectTemplateGalleryPage() {
   const [sort, setSort] = useState("popular");
   const [search, setSearch] = useState("");
   const [modalId, setModalId] = useState<string | null>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestIndustry, setRequestIndustry] = useState("");
+  const [requestDescription, setRequestDescription] = useState("");
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const [templates, setTemplates] = useState<TemplateCard[]>([]);
@@ -287,13 +292,13 @@ export default function ArchitectTemplateGalleryPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (modalId) {
+    if (modalId || requestOpen) {
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = "";
       };
     }
-  }, [modalId]);
+  }, [modalId, requestOpen]);
 
   useEffect(() => {
     let active = true;
@@ -320,6 +325,11 @@ export default function ArchitectTemplateGalleryPage() {
   const industries = useMemo(
     () => Array.from(new Set(templates.flatMap((t) => t.tags))).sort(),
     [templates]
+  );
+
+  const requestIndustryOptions = useMemo(
+    () => Array.from(new Set([...REQUEST_INDUSTRIES, ...industries])).sort((a, b) => a.localeCompare(b)),
+    [industries]
   );
 
   const featured = useMemo(
@@ -361,10 +371,9 @@ export default function ArchitectTemplateGalleryPage() {
       return true;
     };
     const list = templates.filter(matches);
-    if (sort === "popular") list.sort((x, y) => y.forks - x.forks || y.rating - x.rating);
+    if (sort === "popular") list.sort((x, y) => y.forks - x.forks);
     else if (sort === "newest") list.sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime());
     else if (sort === "forks") list.sort((x, y) => y.forks - x.forks);
-    else if (sort === "rated") list.sort((x, y) => y.rating - x.rating || y.reviewCount - x.reviewCount);
     return list;
   }, [templates, category, industry, complexity, sort, search]);
 
@@ -413,6 +422,37 @@ export default function ArchitectTemplateGalleryPage() {
     }
     setToast(result.error ?? "Could not open this template");
     setUsingSlug(null);
+  }
+
+  function openRequestModal() {
+    setRequestIndustry((current) => current || requestIndustryOptions[0] || REQUEST_INDUSTRIES[0]);
+    setRequestDescription("");
+    setRequestError(null);
+    setRequestOpen(true);
+  }
+
+  async function submitTemplateRequest(event: React.FormEvent) {
+    event.preventDefault();
+    if (requestSubmitting) return;
+
+    setRequestError(null);
+    setRequestSubmitting(true);
+
+    const result = await submitArchitectTemplateRequest({
+      industry: requestIndustry.trim(),
+      description: requestDescription.trim()
+    });
+
+    setRequestSubmitting(false);
+
+    if (!result.success) {
+      setRequestError(result.error ?? "Could not submit your request.");
+      return;
+    }
+
+    setRequestOpen(false);
+    setRequestDescription("");
+    setToast("Request received — we'll review it soon.");
   }
 
   const selectClass =
@@ -505,16 +545,6 @@ export default function ArchitectTemplateGalleryPage() {
                   </div>
                   <div className="h-9 w-px bg-slate-200" />
                   <div>
-                    <div className="flex items-center gap-1 text-2xl font-extrabold tracking-tight text-slate-900">
-                      {featured.rating}
-                      <svg viewBox="0 0 24 24" className="h-4 w-4 text-amber-400" fill="currentColor">
-                        <path d="M12 2.6l2.7 5.5 6 .9-4.35 4.24 1.03 6L12 16.9 6.62 19.24l1.03-6L3.3 9l6-.9z" />
-                      </svg>
-                    </div>
-                    <div className="mt-0.5 text-xs font-medium text-slate-400">rating</div>
-                  </div>
-                  <div className="h-9 w-px bg-slate-200" />
-                  <div>
                     <div className="text-2xl font-extrabold tracking-tight text-slate-900">{featured.tags.length}</div>
                     <div className="mt-0.5 text-xs font-medium text-slate-400">industries</div>
                   </div>
@@ -559,7 +589,6 @@ export default function ArchitectTemplateGalleryPage() {
                   <div className="overflow-x-auto no-scrollbar" dangerouslySetInnerHTML={{ __html: fullWorkflowSVG(featuredWorkflow ?? chainWorkflow(featured.nodeCount), true) }} />
                   <div className="mt-4 flex items-center justify-between text-[11px] font-medium text-slate-400">
                     <span>{featured.nodeCount} nodes · {featured.difficulty}</span>
-                    <span className="font-mono">{featured.rating} ★ · {featured.reviewCount} reviews</span>
                   </div>
                 </div>
               </div>
@@ -614,7 +643,6 @@ export default function ArchitectTemplateGalleryPage() {
               <option value="popular">Most popular</option>
               <option value="newest">Newest</option>
               <option value="forks">Most forks</option>
-              <option value="rated">Highest rated</option>
             </select>
           </div>
         </div>
@@ -683,13 +711,6 @@ export default function ArchitectTemplateGalleryPage() {
                           </svg>
                           <span className="text-xl font-bold text-slate-900">{t.forks}</span>
                           <span className="text-xs font-medium text-slate-400">forks</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <svg className="h-4 w-4 text-amber-400" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 2.6l2.7 5.5 6 .9-4.35 4.24 1.03 6L12 16.9 6.62 19.24l1.03-6L3.3 9l6-.9z" />
-                          </svg>
-                          <span className="text-xl font-bold text-slate-900">{t.rating}</span>
-                          <span className="text-xs font-medium text-slate-400">({t.reviewCount})</span>
                         </div>
                       </div>
 
@@ -769,7 +790,7 @@ export default function ArchitectTemplateGalleryPage() {
               <div className="mt-6 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <button
                   type="button"
-                  onClick={() => setToast("Request received — we’ll review it soon")}
+                  onClick={openRequestModal}
                   data-testid="architect-templates-request"
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 active:scale-[.98]"
                 >
@@ -879,15 +900,6 @@ export default function ArchitectTemplateGalleryPage() {
                     </div>
                   </div>
                 ) : null}
-
-                <div>
-                  <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Rating</h3>
-                  <div className="flex items-center gap-2.5">
-                    <StarRow n={modalTemplate.rating} />
-                    <span className="text-sm font-semibold text-slate-800">{modalTemplate.rating}</span>
-                    <span className="text-sm text-slate-400">· {modalTemplate.reviewCount} reviews</span>
-                  </div>
-                </div>
               </div>
 
               <div className="border-t border-slate-100 bg-white p-5 sm:p-6">
@@ -899,12 +911,121 @@ export default function ArchitectTemplateGalleryPage() {
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3.5 text-sm font-bold text-white shadow-[0_10px_26px_-8px_rgba(245,158,11,.55)] transition hover:bg-amber-600 active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {usingSlug === modalTemplate.slug ? "Opening…" : "Use this template"}
-                  <span className="hidden font-medium text-amber-100 sm:inline">— opens in Agent Builder</span>
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 12h14M12 5l7 7-7 7" />
                   </svg>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {requestOpen ? (
+        <div className="fixed inset-0 z-50" data-testid="architect-templates-request-modal">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => !requestSubmitting && setRequestOpen(false)}
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-[6px]"
+            data-testid="architect-templates-request-backdrop"
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="architect-templates-request-title"
+              className="relative w-full max-w-lg rounded-2xl border border-slate-100 bg-white shadow-2xl"
+            >
+              <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 id="architect-templates-request-title" className="text-xl font-extrabold tracking-tight text-slate-900">
+                      Request a template
+                    </h2>
+                    <p className="mt-1.5 text-sm text-slate-500">
+                      Tell us what industry you need and what the template should do.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={() => !requestSubmitting && setRequestOpen(false)}
+                    data-testid="architect-templates-request-close"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <form onSubmit={(event) => void submitTemplateRequest(event)} className="space-y-5 px-5 py-5 sm:px-6">
+                <div>
+                  <label htmlFor="architect-templates-request-industry" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    Industry
+                  </label>
+                  <select
+                    id="architect-templates-request-industry"
+                    value={requestIndustry}
+                    onChange={(event) => setRequestIndustry(event.target.value)}
+                    required
+                    data-testid="architect-templates-request-industry"
+                    className={selectClass + " w-full"}
+                  >
+                    {requestIndustryOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="architect-templates-request-description" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    What do you need?
+                  </label>
+                  <textarea
+                    id="architect-templates-request-description"
+                    value={requestDescription}
+                    onChange={(event) => setRequestDescription(event.target.value)}
+                    required
+                    minLength={10}
+                    maxLength={5000}
+                    rows={5}
+                    placeholder="Describe the workflow, integrations, and outcomes you want from this template…"
+                    data-testid="architect-templates-request-description"
+                    className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 placeholder-slate-400 transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                  />
+                </div>
+
+                {requestError ? (
+                  <p className="text-sm font-medium text-red-600" data-testid="architect-templates-request-error">
+                    {requestError}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setRequestOpen(false)}
+                    disabled={requestSubmitting}
+                    data-testid="architect-templates-request-cancel"
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={requestSubmitting}
+                    data-testid="architect-templates-request-submit"
+                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {requestSubmitting ? "Submitting…" : "Submit request"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

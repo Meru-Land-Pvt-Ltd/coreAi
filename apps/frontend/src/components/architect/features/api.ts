@@ -122,6 +122,12 @@ export function getArchitectTemplate(slug: string) {
   return apiGet<{ template: TemplateDetail }>(`/architect/templates/${slug}`);
 }
 
+export function submitArchitectTemplateRequest(body: { industry: string; description: string }) {
+  return apiPost<{
+    request: { id: string; industry: string; description: string; createdAt: string };
+  }>("/architect/template-requests", body);
+}
+
 /** Import a template's workflowJson into the current (or a new) workflow. */
 export function useArchitectTemplate(slug: string, body: { workflowId?: string } = {}) {
   return apiPost<TemplateImport>(`/architect/templates/${slug}/use`, body);

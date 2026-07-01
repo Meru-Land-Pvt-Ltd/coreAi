@@ -229,6 +229,11 @@ const listingSchema = z.object({
   supportedLlms: z.array(z.string().trim().min(1)).default([])
 });
 
+const templateRequestSchema = z.object({
+  industry: z.string().trim().min(1, "Industry is required"),
+  description: z.string().trim().min(10, "Please describe what you need (at least 10 characters)").max(5000)
+});
+
 const proposalSchema = z.object({
   coverLetter: z.string().trim().min(20, "Cover letter must be at least 20 characters"),
   bidAmountCents: z.number().int().nonnegative().optional(),
@@ -997,6 +1002,39 @@ architectRoutes.post("/templates/:slug/use", async (c) => {
   );
 });
 
+architectRoutes.post("/template-requests", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = templateRequestSchema.parse(await c.req.json());
+
+    const request = await prisma.templateRequest.create({
+      data: {
+        architectUserId: authUser.id,
+        industry: input.industry,
+        description: input.description
+      },
+      select: {
+        id: true,
+        industry: true,
+        description: true,
+        createdAt: true
+      }
+    });
+
+    return successResponse(c, { request }, "Template request submitted", 201);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid template request",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+    return errorResponse(c, "Could not submit template request", 500, "TEMPLATE_REQUEST_FAILED");
+  }
+});
+
 async function runOwnedWorkflow({
   c,
   mode
@@ -1102,19 +1140,27 @@ architectRoutes.get("/listings", async (c) => {
       architectUserId: authUser.id
     },
     include: {
-      workflow: true
+      workflow: true,
+      _count: {
+        select: { installedAgents: true }
+      }
     },
     orderBy: {
       createdAt: "desc"
     }
   });
   const seenWorkflowIds = new Set<string>();
-  const listings = allListings.filter((listing) => {
-    if (!listing.workflowId) return true;
-    if (seenWorkflowIds.has(listing.workflowId)) return false;
-    seenWorkflowIds.add(listing.workflowId);
-    return true;
-  });
+  const listings = allListings
+    .filter((listing) => {
+      if (!listing.workflowId) return true;
+      if (seenWorkflowIds.has(listing.workflowId)) return false;
+      seenWorkflowIds.add(listing.workflowId);
+      return true;
+    })
+    .map(({ _count, ...listing }) => ({
+      ...listing,
+      installCount: _count.installedAgents
+    }));
 
   // Workflows the architect saved or imported (builder/template) but hasn't
   // published yet → their DRAFT agents. Never hidden.
@@ -1136,6 +1182,7 @@ architectRoutes.get("/listings", async (c) => {
       tags: [] as string[],
       requiredConnectors: [] as string[],
       supportedLlms: [] as string[],
+      installCount: 0,
       createdAt: workflow.createdAt,
       workflow: null
     }));

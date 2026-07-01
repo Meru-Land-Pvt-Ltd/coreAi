@@ -100,6 +100,9 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
   );
 }
 
+
+
+
 function SidebarContent({
   user,
   pathname,
@@ -108,7 +111,15 @@ function SidebarContent({
   user: AuthUser | null;
   pathname: string;
   onNavigate?: () => void;
+
+
 }) {
+
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setProfileMenuOpen(false);
+  }, [pathname]);
   return (
     <>
       <div className="flex items-center gap-2.5 border-b border-gray-100 px-5 py-5">
@@ -156,26 +167,58 @@ function SidebarContent({
       </nav>
 
       <div className="border-t border-gray-100 p-3">
-        <div className="flex items-center gap-3 rounded-xl p-2">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-500 text-sm font-bold text-white" data-testid="architect-sidebar-initial-text">
+        <div className="relative flex items-center gap-3 rounded-xl p-2">
+          <span
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-500 text-sm font-bold text-white"
+            data-testid="architect-sidebar-initial-text"
+          >
             {getInitial(user)}
           </span>
+
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-slate-900" data-testid="architect-sidebar-user-name-text">
+            <span
+              className="block truncate text-sm font-semibold text-slate-900"
+              data-testid="architect-sidebar-user-name-text"
+            >
               {user?.fullName ?? "Architect"}
             </span>
-            <span className="block truncate text-xs font-medium text-slate-500" data-testid="architect-sidebar-user-email-text">
-              {user?.email}
-            </span>
           </span>
+
           <button
-            data-testid="architect-sidebar-logout"
+            data-testid="architect-sidebar-user-menu-trigger"
             type="button"
-            onClick={logout}
-            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            aria-label="Open user menu"
+            aria-expanded={profileMenuOpen}
+            onClick={() => setProfileMenuOpen((open) => !open)}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
           >
-            Logout
+            <svg
+              viewBox="0 0 24 24"
+              className="h-5 w-5"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <circle cx="5" cy="12" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="19" cy="12" r="1.8" />
+            </svg>
           </button>
+
+          {profileMenuOpen ? (
+            <div className="absolute bottom-full right-2 mb-2 w-36 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl shadow-slate-900/10">
+              <button
+                data-testid="architect-sidebar-logout"
+                type="button"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  logout();
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left text-xs font-bold text-slate-600 transition hover:bg-red-50 hover:text-red-600"
+              >
+                Logout
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </>

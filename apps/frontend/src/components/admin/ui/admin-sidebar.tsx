@@ -9,7 +9,9 @@ const LINKS: { label: string; href: Route }[] = [
   { label: "Dashboard", href: "/admin/dashboard" as Route },
   { label: "Businesses", href: "/admin/businesses" as Route },
   { label: "Architects", href: "/admin/architects" as Route },
-  { label: "Agents", href: "/admin/agents" as Route }
+  { label: "Agents", href: "/admin/agents" as Route },
+  { label: "Template requests", href: "/admin/templetrequests" as Route },
+  { label: "Contact us", href: "/admin/contactus" as Route }
 ];
 
 export function AdminSidebar() {

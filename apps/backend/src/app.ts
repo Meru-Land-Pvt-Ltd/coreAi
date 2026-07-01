@@ -12,6 +12,7 @@ import { mailRoutes } from "./modules/mails/routes";
 import { adminRoutes } from "./modules/admin/routes";
 import { paymentRoutes } from "./modules/payments/routes";
 import { setupRoutes } from "./modules/setup/routes";
+import { contactRoutes } from "./modules/contact/routes";
 
 export const app = new Hono();
 
@@ -35,6 +36,7 @@ app.route("/mail",mailRoutes);
 app.route("/admin", adminRoutes);
 app.route("/payments", paymentRoutes);
 app.route("/setup", setupRoutes);
+app.route("/contact", contactRoutes);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

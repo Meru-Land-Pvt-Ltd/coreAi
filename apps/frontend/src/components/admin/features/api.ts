@@ -102,3 +102,32 @@ export function updateAdminArchitectStatus(userId: string, approvalStatus: Archi
 export function updateAdminUserSuspension(userId: string, isSuspended: boolean) {
   return apiPatch<{ user: unknown }>(`/admin/users/${userId}/suspension`, { isSuspended });
 }
+
+export type AdminTemplateRequest = {
+  id: string;
+  industry: string;
+  description: string;
+  createdAt: string;
+  architect: { id: string; email: string; fullName: string | null } | null;
+};
+
+export function getAdminTemplateRequests(
+  params: { search?: string; industry?: string; page?: number; limit?: number } = {}
+) {
+  return apiGet<AdminPaged<AdminTemplateRequest>>(`/admin/template-requests${query(params)}`);
+}
+
+export type AdminContactSubmission = {
+  id: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  createdAt: string;
+};
+
+export function getAdminContactSubmissions(
+  params: { search?: string; subject?: string; page?: number; limit?: number } = {}
+) {
+  return apiGet<AdminPaged<AdminContactSubmission>>(`/admin/contact-submissions${query(params)}`);
+}

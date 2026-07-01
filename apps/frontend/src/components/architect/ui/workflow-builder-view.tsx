@@ -46,6 +46,7 @@ import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
 
 const REVIEW_LOCK_MESSAGE = "Agent is under review";
+const LIVE_PUBLISH_LOCK_MESSAGE = "Agent is live — publishing is locked";
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
   const router = useRouter();
@@ -88,10 +89,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   // An agent submitted for review is locked: the architect can look but not edit
   // until an admin approves/rejects it.
-  const isUnderReview = useMemo(
-    () => workflow?.listings?.[0]?.status === "PENDING_REVIEW",
-    [workflow]
-  );
+  const listingStatus = workflow?.listings?.[0]?.status;
+  const isUnderReview = listingStatus === "PENDING_REVIEW";
+  const isLive = listingStatus === "APPROVED";
+  const isPublishLocked = isUnderReview || isLive;
 
   // Returns true and surfaces a notice when editing is blocked by review lock.
   const blockIfUnderReview = useCallback(() => {
@@ -101,6 +102,20 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
     return false;
   }, [isUnderReview]);
+
+  const blockIfPublishLocked = useCallback(() => {
+    if (isLive) {
+      setPublishError("This agent is already live. You can test changes in the builder, but you can't publish again.");
+      setMessage(LIVE_PUBLISH_LOCK_MESSAGE);
+      return true;
+    }
+    if (isUnderReview) {
+      setPublishError("This agent is under review. Publishing is locked until the review completes.");
+      setMessage(REVIEW_LOCK_MESSAGE);
+      return true;
+    }
+    return false;
+  }, [isLive, isUnderReview]);
 
   const hasGmailFlow = useMemo(
     () => nodes.some((node) => String(node.data.connector ?? "").toLowerCase() === "gmail"),
@@ -323,7 +338,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // server-side) and routes to My Agents. Surfaces validation/API errors instead
   // of failing silently.
   async function publishAgent() {
-    if (blockIfUnderReview()) return;
+    if (blockIfPublishLocked()) return;
     const name = agentName.trim();
     const shortDescription = tagline.trim();
 
@@ -508,6 +523,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         saving={saving}
         hasGmailFlow={hasGmailFlow}
         locked={isUnderReview}
+        isLive={isLive}
+        publishLocked={isPublishLocked}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={undo}
@@ -519,6 +536,27 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onSave={() => void saveAgent()}
         onPreview={() => setPreviewOpen(true)}
       />
+
+      {isLive && !isUnderReview ? (
+        <div
+          data-testid="builder-live-lock-banner"
+          className="fixed left-1/2 top-20 z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 shadow-lg"
+        >
+          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </span>
+          <div>
+            <p className="text-sm font-black text-green-800" data-testid="builder-live-lock-title">
+              Agent is live
+            </p>
+            <p className="mt-1 text-sm leading-6 text-green-700" data-testid="builder-live-lock-text">
+              This agent is published on the marketplace. 
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {isUnderReview ? (
         <div
@@ -641,6 +679,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             saving={saving}
             statusMessage={message}
             errorMessage={publishError}
+            publishLocked={isPublishLocked}
+            publishLockedMessage={
+              isLive
+                ? "This agent is already live on the marketplace. You can test workflow changes, but you can't submit a new publish."
+                : isUnderReview
+                  ? "Publishing is locked while this agent is under review."
+                  : ""
+            }
             onGoConfigure={() => setActiveTab("configure")}
             onSave={() => void publishAgent()}
           />

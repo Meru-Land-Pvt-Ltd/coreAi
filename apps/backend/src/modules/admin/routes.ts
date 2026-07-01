@@ -347,3 +347,124 @@ adminRoutes.patch("/users/:userId/suspension", async (c) => {
     return errorResponse(c, "Could not update suspension", 500, "SUSPENSION_FAILED");
   }
 });
+
+const templateRequestListQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  industry: z.string().trim().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional()
+});
+
+// 8. GET /admin/template-requests — list architect template requests
+adminRoutes.get("/template-requests", async (c) => {
+  const parsed = templateRequestListQuerySchema.safeParse({
+    search: c.req.query("search"),
+    industry: c.req.query("industry"),
+    page: c.req.query("page"),
+    limit: c.req.query("limit")
+  });
+
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid query", 422, "VALIDATION_ERROR");
+  }
+
+  const { page, limit, skip } = parsePagination(c);
+  const search = (parsed.data.search ?? "").trim();
+  const industry = (parsed.data.industry ?? "").trim();
+
+  const where: Record<string, unknown> = {};
+  if (industry) {
+    where.industry = { equals: industry, mode: "insensitive" };
+  }
+  if (search) {
+    where.OR = [
+      { industry: { contains: search, mode: "insensitive" as const } },
+      { description: { contains: search, mode: "insensitive" as const } },
+      { architect: { email: { contains: search, mode: "insensitive" as const } } },
+      { architect: { fullName: { contains: search, mode: "insensitive" as const } } }
+    ];
+  }
+
+  const [total, requests] = await Promise.all([
+    prisma.templateRequest.count({ where }),
+    prisma.templateRequest.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        industry: true,
+        description: true,
+        createdAt: true,
+        architect: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true
+          }
+        }
+      }
+    })
+  ]);
+
+  return successResponse(c, { items: requests, total, page, limit });
+});
+
+const contactSubmissionListQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  subject: z.string().trim().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional()
+});
+
+// 9. GET /admin/contact-submissions — list public contact form submissions
+adminRoutes.get("/contact-submissions", async (c) => {
+  const parsed = contactSubmissionListQuerySchema.safeParse({
+    search: c.req.query("search"),
+    subject: c.req.query("subject"),
+    page: c.req.query("page"),
+    limit: c.req.query("limit")
+  });
+
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid query", 422, "VALIDATION_ERROR");
+  }
+
+  const { page, limit, skip } = parsePagination(c);
+  const search = (parsed.data.search ?? "").trim();
+  const subject = (parsed.data.subject ?? "").trim();
+
+  const where: Record<string, unknown> = {};
+  if (subject) {
+    where.subject = { equals: subject, mode: "insensitive" };
+  }
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: "insensitive" as const } },
+      { email: { contains: search, mode: "insensitive" as const } },
+      { subject: { contains: search, mode: "insensitive" as const } },
+      { message: { contains: search, mode: "insensitive" as const } }
+    ];
+  }
+
+  const [total, submissions] = await Promise.all([
+    prisma.contactSubmission.count({ where }),
+    prisma.contactSubmission.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        subject: true,
+        message: true,
+        createdAt: true
+      }
+    })
+  ]);
+
+  return successResponse(c, { items: submissions, total, page, limit });
+});

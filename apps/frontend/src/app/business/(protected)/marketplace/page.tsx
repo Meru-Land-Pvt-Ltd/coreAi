@@ -1179,7 +1179,7 @@ export default function MarketplacePage() {
                                 🔍
                             </div>
                             <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="business-protected-marketplace-no-agents-match-those-filters-heading">
-                                No agents match those filters
+                                No agents found.
                             </h3>
                             <p className="mt-1 text-sm text-slate-500" data-testid="business-protected-marketplace-try-clearing-search-or-selecting-another-industry-text">
                                 Try clearing search or selecting another industry.

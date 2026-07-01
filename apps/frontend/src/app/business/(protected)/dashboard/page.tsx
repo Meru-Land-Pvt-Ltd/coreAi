@@ -4,7 +4,24 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
-import { BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
+import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
+
+type ApiPurchasedAgent = {
+    purchaseId: string;
+    purchasedAt: string;
+    purchaseStatus: string;
+    listing: {
+        id: string;
+        name: string;
+        shortDescription?: string | null;
+        priceCents?: number | null;
+        tags?: string[];
+    };
+};
+
+type MyAgentsResponse = {
+    agents?: ApiPurchasedAgent[];
+};
 
 type DashboardOverview = {
     installedAgent: { name: string; status: string } | null;
@@ -26,11 +43,14 @@ type MetricCard = {
 
 type Agent = {
     id: string;
+    listingId: string;
     name: string;
     since: string;
     runs: string;
     cost: string;
     icon: IconName;
+    purchaseStatus: string;
+    isActive: boolean;
 };
 
 type Activity = {
@@ -156,33 +176,6 @@ const metrics: MetricCard[] = [
     }
 ];
 
-const agents: Agent[] = [
-    {
-        id: "missed-call",
-        name: "Missed Call Text-Back",
-        since: "Active since Nov 12, 2024",
-        runs: "89 runs",
-        cost: "$13.35",
-        icon: "chat"
-    },
-    {
-        id: "appointment-reminder",
-        name: "Appointment Reminder Pro",
-        since: "Active since Dec 3, 2024",
-        runs: "34 runs",
-        cost: "$8.50",
-        icon: "clock"
-    },
-    {
-        id: "review-booster",
-        name: "Google Review Booster",
-        since: "Active since Jan 2, 2025",
-        runs: "24 runs",
-        cost: "$2.40",
-        icon: "star"
-    }
-];
-
 const notifications = [
     {
         title: "New 5-star review posted",
@@ -266,6 +259,50 @@ const chartData: Record<ChartMetric, number[]> = {
 
 const chartLabels = ["Dec 17", "Dec 23", "Dec 29", "Jan 4", "Jan 10", "Jan 15"];
 
+function formatPurchasedDate(value: string) {
+    return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+    }).format(new Date(value));
+}
+
+function pickAgentIcon(name: string, tags: string[] = []): IconName {
+    const haystack = `${name} ${tags.join(" ")}`.toLowerCase();
+    if (haystack.includes("call") || haystack.includes("sms") || haystack.includes("text") || haystack.includes("chat")) {
+        return "chat";
+    }
+    if (haystack.includes("appointment") || haystack.includes("reminder") || haystack.includes("calendar")) {
+        return "clock";
+    }
+    if (haystack.includes("review")) {
+        return "star";
+    }
+    return "bot";
+}
+
+function isActivePurchaseStatus(status: string) {
+    const value = status.toUpperCase();
+    return value === "SUCCEEDED" || value === "TRIALING";
+}
+
+function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
+    const { listing } = entry;
+    const priceCents = listing.priceCents ?? 0;
+
+    return {
+        id: entry.purchaseId,
+        listingId: listing.id,
+        name: listing.name,
+        since: `Purchased ${formatPurchasedDate(entry.purchasedAt)}`,
+        runs: "NA",
+        cost: priceCents > 0 ? `$${(priceCents / 100).toFixed(0)}/mo` : "NA",
+        icon: pickAgentIcon(listing.name, listing.tags ?? []),
+        purchaseStatus: entry.purchaseStatus,
+        isActive: isActivePurchaseStatus(entry.purchaseStatus)
+    };
+}
+
 export default function BusinessDashboardPage() {
     const [bellOpen, setBellOpen] = useState(false);
     const [activeAgentMenu, setActiveAgentMenu] = useState<string | null>(null);
@@ -274,6 +311,8 @@ export default function BusinessDashboardPage() {
     const [fullDate, setFullDate] = useState("");
     const [overview, setOverview] = useState<DashboardOverview | null>(null);
     const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
+    const [agents, setAgents] = useState<Agent[]>([]);
+    const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
 
     const currentData = chartData[chartMetric];
     const maxValue = Math.max(...currentData);
@@ -298,6 +337,30 @@ export default function BusinessDashboardPage() {
             }
         }
         void loadOverview();
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+
+        async function loadAgents() {
+            setAgentsState("loading");
+            const result = await apiGet<MyAgentsResponse>("/payments/my-agents");
+            if (!active) return;
+
+            if (result.success && result.data) {
+                setAgents((result.data.agents ?? []).map(mapPurchasedToDashboardAgent));
+                setAgentsState("ready");
+            } else {
+                setAgents([]);
+                setAgentsState("error");
+            }
+        }
+
+        void loadAgents();
+
         return () => {
             active = false;
         };
@@ -474,13 +537,43 @@ export default function BusinessDashboardPage() {
                         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
                             <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agents-heading">My Agents</h2>
                             <Link data-testid="dashboard-view-all-link"
-                                href={"#" as Route}
+                                href={BUSINESS_AGENTS_PATH}
                                 className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 transition-colors hover:text-amber-700"
                             >
                                 View all <span aria-hidden="true">→</span>
                             </Link>
                         </div>
 
+                        {agentsState === "loading" ? (
+                            <div className="divide-y divide-gray-50" data-testid="dashboard-agents-loading">
+                                {Array.from({ length: 2 }).map((_, index) => (
+                                    <div key={index} className="flex animate-pulse items-center gap-4 px-6 py-5">
+                                        <div className="h-11 w-11 rounded-xl bg-gray-100" />
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-4 w-40 rounded bg-gray-100" />
+                                            <div className="h-3 w-28 rounded bg-gray-100" />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : agentsState === "error" ? (
+                            <div className="px-6 py-10 text-center" data-testid="dashboard-agents-error">
+                                <p className="text-sm font-semibold text-slate-700">Could not load your agents</p>
+                                <p className="mt-1 text-sm text-slate-500">Refresh the page or open My Agents to try again.</p>
+                            </div>
+                        ) : agents.length === 0 ? (
+                            <div className="px-6 py-10 text-center" data-testid="dashboard-agents-empty">
+                                <p className="text-sm font-semibold text-slate-700">No agents yet</p>
+                                <p className="mt-1 text-sm text-slate-500">Purchase an agent from the marketplace to get started.</p>
+                                <Link
+                                    href={BUSINESS_MARKETPLACE_PATH}
+                                    data-testid="dashboard-agents-empty-browse"
+                                    className="mt-4 inline-flex rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
+                                >
+                                    Browse marketplace
+                                </Link>
+                            </div>
+                        ) : (
                         <div className="divide-y divide-gray-50">
                             {agents.map((agent) => (
                                 <AgentRow
@@ -494,6 +587,7 @@ export default function BusinessDashboardPage() {
                                 />
                             ))}
                         </div>
+                        )}
                     </section>
 
                     <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -621,13 +715,6 @@ export default function BusinessDashboardPage() {
                             <button data-testid="dashboard-pause-all-agents" className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-red-300 hover:text-red-600">
                                 Pause all agents
                             </button>
-
-                            <Link data-testid="dashboard-get-support-link"
-                                href={HELP_PATH}
-                                className="w-full rounded-xl border border-gray-200 py-3 text-center text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700"
-                            >
-                                Get support
-                            </Link>
                         </div>
                     </section>
 
@@ -720,9 +807,19 @@ function AgentRow({
 }) {
     return (
         <div className="group flex flex-wrap items-center gap-4 px-6 py-5 transition-colors hover:bg-gray-50">
-            <span className="relative flex h-2.5 w-2.5 shrink-0" title="Active" data-testid="business-protected-dashboard-active-text">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+            <span
+                className="relative flex h-2.5 w-2.5 shrink-0"
+                title={agent.isActive ? "Active" : "Inactive"}
+                data-testid="business-protected-dashboard-active-text"
+            >
+                {agent.isActive ? (
+                    <>
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                    </>
+                ) : (
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-slate-300" />
+                )}
             </span>
 
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
@@ -742,7 +839,7 @@ function AgentRow({
 
                 <div className="text-right">
                     <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">{agent.cost}</p>
-                    <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">cost</p>
+                    <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">plan</p>
                 </div>
             </div>
 

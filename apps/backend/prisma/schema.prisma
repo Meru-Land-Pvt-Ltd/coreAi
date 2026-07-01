@@ -22,6 +22,7 @@ model User {
   connectorCredentials ConnectorCredential[]
   payments             Payment[]
   proposals            ProjectProposal[]
+  templateRequests     TemplateRequest[]
   workflows            WorkflowDefinition[]
 
   // Same email may exist once per role (e.g. BUSINESS + ARCHITECT), but not twice
@@ -396,6 +397,34 @@ model Payment {
   @@index([stripeCustomerId])
   @@index([stripeSessionId])
   @@index([stripeSubscriptionId])
+}
+
+model TemplateRequest {
+  id              String   @id @default(cuid())
+  architectUserId String
+  industry        String
+  description     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  architect User @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@index([architectUserId])
+  @@index([createdAt])
+}
+
+model ContactSubmission {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([subject])
+  @@index([createdAt])
 }
 
 enum UserRole {

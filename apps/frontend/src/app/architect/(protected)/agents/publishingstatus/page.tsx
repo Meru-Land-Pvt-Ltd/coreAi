@@ -6,7 +6,7 @@ import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "reac
 import { formatDate } from "@/components/architect/ui/architect-ui";
 import { getArchitectListings } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
-import { architectMyAgentsPath, ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
+import { ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
 
 type StatusState = 1 | 2 | 3 | 4;
 
@@ -239,7 +239,7 @@ function ApprovedConfetti() {
   );
 }
 
-function ApprovedPanel({ agent, architectName, onViewLive }: { agent: ResolvedAgent; architectName: string; onViewLive: () => void }) {
+function ApprovedPanel({ agent, architectName, onViewAgent }: { agent: ResolvedAgent; architectName: string; onViewAgent: () => void }) {
   return (
     <div className="ps-reveal" role="status" aria-label="Agent status: Approved" data-testid="publishing-status-panel-approved">
       <div className="ps-glow-green rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" style={{ borderLeft: "4px solid var(--ps-green)" }}>
@@ -268,11 +268,11 @@ function ApprovedPanel({ agent, architectName, onViewLive }: { agent: ResolvedAg
           <h3 className="text-sm font-semibold text-slate-900">Marketplace listing</h3>
           <button
             type="button"
-            onClick={onViewLive}
+            onClick={onViewAgent}
             data-testid="publishing-status-view-live-link"
             className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-sm font-medium text-amber-700 hover:underline"
           >
-            View live listing <ArrowIcon />
+            View Agent <ArrowIcon />
           </button>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
@@ -316,11 +316,11 @@ function ApprovedPanel({ agent, architectName, onViewLive }: { agent: ResolvedAg
       <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
         <button
           type="button"
-          onClick={onViewLive}
+          onClick={onViewAgent}
           data-testid="publishing-status-view-live-button"
           className="inline-flex items-center justify-center gap-2 rounded-[10px] border border-transparent bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
         >
-          View live listing
+          View Agent
         </button>
       </div>
     </div>
@@ -593,8 +593,12 @@ function PublishingStatusContent() {
     router.push(ARCHITECT_MY_AGENTS_PATH);
   }
 
-  function viewLiveListing() {
-    router.push(architectMyAgentsPath("live"));
+  function viewAgent() {
+    router.push(
+      (headerAgent.workflowId
+        ? `/architect/workflows/${headerAgent.workflowId}/builder`
+        : "/architect/agents/publish") as Route
+    );
   }
 
   function editSubmission() {
@@ -666,7 +670,7 @@ function PublishingStatusContent() {
                 {activeState === 2 ? (
                   <>
                     <ApprovedConfetti />
-                    <ApprovedPanel agent={headerAgent} architectName={architectName} onViewLive={viewLiveListing} />
+                    <ApprovedPanel agent={headerAgent} architectName={architectName} onViewAgent={viewAgent} />
                   </>
                 ) : null}
                 {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} /> : null}

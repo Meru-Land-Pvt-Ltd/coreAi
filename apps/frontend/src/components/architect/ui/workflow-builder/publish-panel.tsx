@@ -10,6 +10,8 @@ export function PublishPanel({
   saving,
   statusMessage = "",
   errorMessage = "",
+  publishLocked = false,
+  publishLockedMessage = "",
   onGoConfigure,
   onSave
 }: {
@@ -20,6 +22,8 @@ export function PublishPanel({
   saving: boolean;
   statusMessage?: string;
   errorMessage?: string;
+  publishLocked?: boolean;
+  publishLockedMessage?: string;
   onGoConfigure?: () => void;
   onSave: () => void;
 }) {
@@ -95,12 +99,20 @@ export function PublishPanel({
                 ) : null}
               </div>
             ) : null}
+            {publishLocked && publishLockedMessage ? (
+              <div
+                data-testid="publish-panel-locked"
+                className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800"
+              >
+                <p data-testid="publish-panel-locked-message">{publishLockedMessage}</p>
+              </div>
+            ) : null}
             <button
               data-testid="publish-panel-submit"
               type="button"
               onClick={onSave}
-              disabled={saving}
-              className="mt-4 w-full rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
+              disabled={saving || publishLocked}
+              className="mt-4 w-full rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? "Submitting..." : "Submit for review"}
             </button>

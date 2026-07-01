@@ -3,6 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
+import { submitContactSubmission, type ContactSubject } from "@/lib/contact-api";
 import { CoreHeader } from "@/components/common/header";
 import { CoreFooter } from "@/components/common/footer";
 
@@ -55,6 +56,8 @@ export default function ContactPage() {
   const [form, setForm] = useState<ContactFormState>(initialForm);
   const [errors, setErrors] = useState<ContactErrors>({});
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     const onScroll = () => setNavScrolled(window.scrollY > 8);
@@ -101,12 +104,29 @@ export default function ContactPage() {
     return Object.keys(nextErrors).length === 0;
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!validateForm()) return;
 
-    setSubmitted(true);
+    setSubmitting(true);
+    setSubmitError("");
+
+    const result = await submitContactSubmission({
+      name: form.name.trim(),
+      email: form.email.trim(),
+      subject: form.subject as ContactSubject,
+      message: form.message.trim()
+    });
+
+    setSubmitting(false);
+
+    if (result.success) {
+      setSubmitted(true);
+      return;
+    }
+
+    setSubmitError(result.error ?? "Could not send your message. Please try again.");
   }
 
   return (
@@ -221,12 +241,19 @@ export default function ContactPage() {
                   {errors.message ? <ErrorMessage>{errors.message}</ErrorMessage> : null}
                 </div>
 
+                {submitError ? (
+                  <p className="mt-4 text-sm font-semibold text-red-600" data-testid="contact-submit-error">
+                    {submitError}
+                  </p>
+                ) : null}
+
                 <button
                   type="submit"
                   data-testid="contact-submit"
-                  className="mt-6 w-full rounded-xl bg-amber-500 py-3 font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-amber-600 hover:shadow-[0_8px_20px_-6px_rgba(245,158,11,0.5)] active:scale-[0.99]"
+                  disabled={submitting}
+                  className="mt-6 w-full rounded-xl bg-amber-500 py-3 font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-amber-600 hover:shadow-[0_8px_20px_-6px_rgba(245,158,11,0.5)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                 >
-                  Send Message
+                  {submitting ? "Sending..." : "Send Message"}
                 </button>
               </form>
             ) : (
@@ -249,7 +276,7 @@ export default function ContactPage() {
                 </h2>
 
                 <p className="mt-2 text-sm text-slate-500" data-testid="contactus-we-apos-ll-get-back-to-you-text">
-                  We&apos;ll get back to you within 2 hours.
+                  We&apos;ll get back to you shortly.
                 </p>
 
                 <button
@@ -259,6 +286,7 @@ export default function ContactPage() {
                     setSubmitted(false);
                     setForm(initialForm);
                     setErrors({});
+                    setSubmitError("");
                   }}
                   className="mt-6 rounded-xl border border-amber-500 px-5 py-2.5 text-sm font-semibold text-amber-600 transition hover:bg-amber-50"
                 >

@@ -41,6 +41,8 @@ export function BuilderHeader({
   saving,
   hasGmailFlow,
   locked = false,
+  isLive = false,
+  publishLocked = false,
   canUndo = false,
   canRedo = false,
   onUndo,
@@ -59,6 +61,8 @@ export function BuilderHeader({
   saving: boolean;
   hasGmailFlow: boolean;
   locked?: boolean;
+  isLive?: boolean;
+  publishLocked?: boolean;
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
@@ -94,11 +98,15 @@ export function BuilderHeader({
         <span
           className={cn(
             "hidden rounded-full border px-2.5 py-0.5 text-[11px] font-medium sm:inline-flex",
-            locked ? "border-orange-100 bg-orange-50 text-orange-700" : "border-amber-100 bg-amber-50 text-amber-700"
+            locked
+              ? "border-orange-100 bg-orange-50 text-orange-700"
+              : isLive
+                ? "border-green-100 bg-green-50 text-green-700"
+                : "border-amber-100 bg-amber-50 text-amber-700"
           )}
           data-testid="architect-ui-workflow-builder-builder-header-draft-text"
         >
-          {locked ? "In Review" : "Draft"}
+          {locked ? "In Review" : isLive ? "Live" : "Draft"}
         </span>
         <span className="ml-1 hidden items-center gap-1.5 text-xs text-slate-400 lg:flex" data-testid="architect-ui-workflow-builder-builder-header-saving-message-text">
           <span className={cn("h-1.5 w-1.5 rounded-full bg-green-500", saving && "save-pop")} />
@@ -190,7 +198,7 @@ export function BuilderHeader({
             onSave();
             onTabChange("publish");
           }}
-          disabled={saving || locked}
+          disabled={saving || publishLocked}
           data-testid="builder-publish-marketplace"
           className="hidden rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
         >

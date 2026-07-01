@@ -14,6 +14,7 @@ export const ASSIGNMENT_PATH = "/assignment" as Route;
 export const MARKETPLACE_PATH = "/marketplace" as Route;
 export const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 export const ARCHITECT_MY_AGENTS_PATH = "/architect/agents" as Route;
+export const ARCHITECT_ANALYTICS_PATH = "/architect/analytics" as Route;
 
 export const FOOTER_HASH_PATH = "#footer" as Route;
 export const ABOUT_HASH_PATH = "/#about" as Route;
@@ -42,6 +43,12 @@ export function architectMyAgentsPath(filter?: string): Route {
   return (filter
     ? `/architect/agents?filter=${encodeURIComponent(filter)}`
     : "/architect/agents") as Route;
+}
+
+export function architectAnalyticsPath(listingId?: string): Route {
+  return (listingId
+    ? `/architect/analytics?listingId=${encodeURIComponent(listingId)}`
+    : "/architect/analytics") as Route;
 }
 
 // Business install/setup destination. Buyers installing an agent go to the

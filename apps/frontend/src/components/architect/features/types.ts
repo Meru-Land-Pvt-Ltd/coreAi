@@ -50,6 +50,7 @@ export type ArchitectListing = {
   tags: string[];
   requiredConnectors: string[];
   supportedLlms: string[];
+  installCount?: number;
   createdAt: string;
   workflow?: ArchitectWorkflow | null;
 };
