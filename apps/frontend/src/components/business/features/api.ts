@@ -128,9 +128,25 @@ export type BusinessSetupData = {
     reprompt2: string | null;
     goodbye: string | null;
   } | null;
-  /** Platform (CoreAI/Twilio) numbers the buyer can pick + the currently-selected one. */
   availablePhoneNumbers?: PlatformPhoneOption[];
   selectedPlatformPhoneNumberId?: string | null;
+  installedAgentId?: string | null;
+  vapiAssistantId?: string | null;
+};
+
+export type CallRoutingCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  message?: string;
+};
+
+export type CallRoutingResult = {
+  number: string | null;
+  webhookUrl: string;
+  readyForCall: boolean;
+  resolveReason: string | null;
+  checks: CallRoutingCheck[];
 };
 
 /** A marketplace listing as the buyer sees it (used to read requiredConnectors pre-install). */
@@ -173,6 +189,13 @@ export function getMarketplaceListing(listingId: string) {
 /** Available CoreAI/platform phone numbers the buyer can select (Step 2). */
 export function getBusinessPhoneNumbers() {
   return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");
+}
+
+export function testCallRouting(body: { phoneNumber?: string }) {
+  return apiPost<CallRoutingResult>(
+    "/business/setup/test-call-routing",
+    body as Record<string, unknown>
+  );
 }
 
 export function getBusinessCalendarStatus() {

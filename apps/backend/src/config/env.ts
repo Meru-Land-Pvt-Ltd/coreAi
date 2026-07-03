@@ -65,6 +65,44 @@ const envSchema = z.object({
 
 });
 
-export const env = envSchema.parse(process.env);
+/** True when a URL is only suitable for local/dev use (never production). */
+function isDevOnlyUrl(url: string): boolean {
+  return (
+    !url.startsWith("https://") ||
+    /localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.\d+\.|\.ngrok(-free)?\./i.test(url)
+  );
+}
+
+const parsedEnv = envSchema.parse(process.env);
+
+// Production hard guards: fail fast on dev-only URLs so Twilio/Google/Stripe
+// webhooks and OAuth callbacks can never silently point at localhost or ngrok.
+if (parsedEnv.NODE_ENV === "production") {
+  const problems: string[] = [];
+  if (isDevOnlyUrl(parsedEnv.BACKEND_URL)) {
+    problems.push(
+      `BACKEND_URL (${parsedEnv.BACKEND_URL}) must be a public https URL in production (e.g. https://api.triven.ai).`
+    );
+  }
+  if (isDevOnlyUrl(parsedEnv.FRONTEND_URL)) {
+    problems.push(
+      `FRONTEND_URL (${parsedEnv.FRONTEND_URL}) must be a public https URL in production (e.g. https://triven.ai).`
+    );
+  }
+  if (problems.length > 0) {
+    throw new Error(`Production env misconfigured:\n- ${problems.join("\n- ")}`);
+  }
+
+  if (!parsedEnv.TWILIO_VALIDATE_SIGNATURE) {
+    console.warn(
+      "[env] TWILIO_VALIDATE_SIGNATURE is OFF in production — Twilio webhooks are unauthenticated. Set TWILIO_VALIDATE_SIGNATURE=true."
+    );
+  }
+  if (parsedEnv.TWILIO_TEST_MODE) {
+    console.warn("[env] TWILIO_TEST_MODE is ON in production — SMS sends are mocked. Set TWILIO_TEST_MODE=false.");
+  }
+}
+
+export const env = parsedEnv;
 
 export const isProduction = env.NODE_ENV === "production";

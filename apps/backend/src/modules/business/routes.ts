@@ -35,11 +35,6 @@ businessRoutes.use("*", requireRole(["BUSINESS"]));
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
 
-/**
- * Aggregated data for the business dashboard: installed agent, assigned number,
- * subscription status, counts, recent leads/appointments/missed calls, and the
- * Google Calendar connection state. Read-only.
- */
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");
 
@@ -190,12 +185,6 @@ function buildWebhookUrls() {
   };
 }
 
-/**
- * Resolves which workflow the installed AI Receptionist should run. Prefers an
- * explicit id, then a published receptionist listing, then any template, and
- * finally falls back to creating a runnable default workflow so a brand-new
- * platform (no seeded listings) still produces a working agent.
- */
 async function resolveReceptionistWorkflow(opts: {
   ownerId: string;
   workflowId?: string;
@@ -272,11 +261,6 @@ async function loadBusinessForOwner(ownerId: string) {
 
 type LoadedBusiness = NonNullable<Awaited<ReturnType<typeof loadBusinessForOwner>>>;
 
-/**
- * Platform (CoreAI/Twilio) numbers the buyer may pick: all AVAILABLE numbers plus
- * any already assigned to THIS business. Numbers assigned to other businesses are
- * never returned. Also resolves the currently-selected number for this business.
- */
 async function loadPhoneOptions(businessId: string | null) {
   const numbers = await prisma.platformPhoneNumber.findMany({
     where: {
@@ -315,23 +299,71 @@ businessRoutes.get("/setup/phone-numbers", async (c) => {
   return successResponse(c, { numbers: availablePhoneNumbers });
 });
 
-/**
- * Buyer "Test call routing": runs the same resolver the live Twilio webhook uses
- * against the buyer's selected CoreAI number and returns a pass/fail checklist so
- * the buyer can confirm an inbound call will reach their deployed agent.
- */
+/** True when a URL is public https (not localhost/LAN); ngrok passes but is flagged dev-only. */
+function isPublicHttpsUrl(url: string): boolean {
+  return url.startsWith("https://") && !/localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.\d+\./i.test(url);
+}
+
 businessRoutes.post("/setup/test-call-routing", async (c) => {
   const authUser = c.get("authUser");
-  const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/twilio/voice`;
+  const backendUrl = env.BACKEND_URL.replace(/\/$/, "");
+  const webhookUrl = `${backendUrl}/architect/connectors/twilio/voice`;
+  const backendPublic = isPublicHttpsUrl(backendUrl);
+  const backendIsTunnel = /\.ngrok(-free)?\./i.test(backendUrl);
 
-  const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
-    include: {
-      phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
-      installedAgents: { orderBy: { createdAt: "desc" }, take: 1 }
+  const [business, calendar] = await Promise.all([
+    prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      include: {
+        profile: true,
+        phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
+        installedAgents: { orderBy: { createdAt: "desc" }, take: 1 }
+      }
+    }),
+    getGmailConnectionStatus(authUser.id)
+  ]);
+
+  // Environment/production checks are independent of the selected number, so the
+  // buyer sees them even before a CoreAI number is picked.
+  const environmentChecks = [
+    {
+      key: "business_found",
+      label: "Business profile complete",
+      ok: Boolean(business && business.name && business.type),
+      message: business ? undefined : "Save your business name and type in Step 1."
+    },
+    {
+      key: "calendar_connected",
+      label: "Google Calendar connected",
+      ok: calendar.connected,
+      message: calendar.connected ? undefined : "Connect Google Calendar in Step 2 so the agent can book appointments."
+    },
+    {
+      key: "timezone_set",
+      label: "Calendar timezone selected",
+      ok: Boolean(business?.profile?.timeZone),
+      message: business?.profile?.timeZone
+        ? `Timezone: ${normalizeTimeZone(business.profile.timeZone)}`
+        : "Pick a calendar timezone in Step 2."
+    },
+    {
+      key: "backend_url_public",
+      label: "Backend URL is public HTTPS",
+      ok: backendPublic,
+      message: backendPublic
+        ? backendIsTunnel
+          ? "Reachable via an ngrok tunnel — fine for testing, use a real domain (e.g. https://api.triven.ai) in production."
+          : undefined
+        : "BACKEND_URL is not a public https URL — Twilio cannot reach the webhook."
+    },
+    {
+      key: "webhook_configured",
+      label: "Twilio voice webhook URL",
+      ok: backendPublic,
+      message: `Set the Twilio number's voice webhook to POST ${webhookUrl}`
     }
-  });
+  ];
 
   const requested = await c.req
     .json()
@@ -354,7 +386,10 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       webhookUrl,
       readyForCall: false,
       resolveReason: null,
-      checks: [{ key: "number_selected", label: "A CoreAI number is selected", ok: false }]
+      checks: [
+        ...environmentChecks,
+        { key: "number_selected", label: "A CoreAI number is selected", ok: false, message: "Select a CoreAI number in Step 2." }
+      ]
     });
   }
 
@@ -371,6 +406,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
   const installedAgent = businessPhoneForNumber?.installedAgent ?? business?.installedAgents?.[0] ?? null;
 
   const checks = [
+    ...environmentChecks,
     { key: "number_exists", label: "Selected CoreAI number exists", ok: Boolean(platformForNumber || businessPhoneForNumber) },
     { key: "assigned_to_business", label: "Number is assigned to this business", ok: assignedToThisBusiness },
     { key: "business_phone_number", label: "BusinessPhoneNumber mapping exists", ok: Boolean(businessPhoneForNumber) },
@@ -397,11 +433,6 @@ type SetupChecklistItem = {
   blocker?: string;
 };
 
-/**
- * Buyer install readiness: derives the connectors the installed workflow needs,
- * checks each against the business's connection/setup state, and gates live
- * deployment. Live deploy is enabled only when every REQUIRED item is complete.
- */
 function buildSetupReadiness(business: LoadedBusiness | null, calendarConnected: boolean) {
   const profile = business?.profile ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
@@ -533,13 +564,10 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
       })) ?? [],
     calendar: { connected: calendar.connected, email: calendar.email },
     webhooks: phone ? buildWebhookUrls() : null,
-    // Buyer install checklist: required connectors, per-item status, blockers,
-    // and the live-deploy gate.
     requiredConnectors: readiness.requiredConnectors,
     checklist: readiness.checklist,
     readyToDeploy: readiness.readyToDeploy,
     blockers: readiness.blockers,
-    // Buyer's persisted voice + answering-mode choices (prefill the setup UI).
     voiceSelection: voiceConfig
       ? {
           name: typeof voiceConfig.name === "string" ? voiceConfig.name : null,
@@ -581,8 +609,6 @@ businessRoutes.post("/setup", async (c) => {
     const authUser = c.get("authUser");
     const input = businessSetupSchema.parse(await c.req.json());
 
-    // Activation requires an active subscription — but only when real Stripe keys
-    // are configured, so local/dev with placeholder keys is not blocked.
     if (isBillingEnabled()) {
       const billed = await prisma.business.findFirst({
         where: { ownerId: authUser.id },
@@ -637,10 +663,6 @@ businessRoutes.post("/setup", async (c) => {
     ) {
       return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
     }
-
-    // No auto-assign: the buyer must pick a CoreAI number (primary UX). When no
-    // number is selected and none exists yet, the business simply stays without a
-    // phone until one is chosen (the deploy checklist blocks going live).
 
     const resolved = await resolveReceptionistWorkflow({
       ownerId: authUser.id,
@@ -799,23 +821,27 @@ businessRoutes.post("/setup", async (c) => {
         data: { forwardToPhone: forward, installedAgentId: installedAgent.id, isActive: true }
       });
     }
-    // else: no number selected yet — the business stays without a phone (blocked at deploy).
 
-    // Build/refresh the per-business Vapi assistant ONLY on the final deploy (or for
-    // legacy callers that don't send `deploy`). Incremental "Save progress" skips it
-    // to keep saves fast. Non-fatal — setup still succeeds on failure.
+    let deployedVapiAssistantId: string | null = null;
     if (input.deploy !== false) {
       try {
         const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
-        if (!voiceDeploy) {
-          await ensureBusinessVapiAssistant(business.id);
-        }
+        deployedVapiAssistantId = voiceDeploy?.assistantId ?? (await ensureBusinessVapiAssistant(business.id));
       } catch (error) {
         console.error("voice assistant deploy failed (non-fatal); falling back", error);
         try {
-          await ensureBusinessVapiAssistant(business.id);
+          deployedVapiAssistantId = await ensureBusinessVapiAssistant(business.id);
         } catch (fallbackError) {
           console.error("ensureBusinessVapiAssistant fallback failed (non-fatal)", fallbackError);
+        }
+      }
+      if (deployedVapiAssistantId) {
+        const prevConfig = (installedAgent.configJson as Record<string, unknown> | null) ?? {};
+        if (prevConfig.vapiAssistantId !== deployedVapiAssistantId) {
+          await prisma.installedAgent.update({
+            where: { id: installedAgent.id },
+            data: { configJson: { ...prevConfig, vapiAssistantId: deployedVapiAssistantId } as never }
+          });
         }
       }
     }
@@ -826,11 +852,23 @@ businessRoutes.post("/setup", async (c) => {
     ]);
     const phoneOptions = await loadPhoneOptions(refreshed?.id ?? null);
 
+    const refreshedAgent = refreshed?.installedAgents?.[0] ?? null;
+    const refreshedConfig = (refreshedAgent?.configJson ?? null) as Record<string, unknown> | null;
+    const responseVapiAssistantId =
+      deployedVapiAssistantId ||
+      (typeof refreshedConfig?.vapiAssistantId === "string" && refreshedConfig.vapiAssistantId
+        ? (refreshedConfig.vapiAssistantId as string)
+        : null) ||
+      refreshed?.profile?.vapiAssistantId ||
+      null;
+
     return successResponse(
       c,
       {
         ...serializeSetup(refreshed, calendar),
+        installedAgentId: refreshedAgent?.id ?? installedAgent.id,
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
+        vapiAssistantId: responseVapiAssistantId,
         ...phoneOptions
       },
       "Business setup saved"

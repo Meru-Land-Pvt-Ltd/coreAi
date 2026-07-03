@@ -58,6 +58,11 @@ async function main() {
 
   // Explicit, dev-only escape hatch — never un-assign numbers automatically.
   if (rawArgs.includes("--release-demo")) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("--release-demo is a local/dev-only flag and refuses to run with NODE_ENV=production.");
+      process.exitCode = 1;
+      return;
+    }
     await releaseDemoNumber();
     return;
   }
