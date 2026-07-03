@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { env } from "../../config/env";
-import { sendFreeAssignmentEmail, sendPaymentSuccessEmail } from "../../lib/mailer";
+import {
+  sendBuyerPopularAgentsEmail,
+  sendBuyerRoiEmail,
+  sendBuyerWelcomeEmail,
+  sendFreeAssignmentEmail,
+  sendPaymentSuccessEmail
+} from "../../lib/mailer";
 
 type SendFreeAssignmentMailBody = {
   to?: string;
@@ -114,6 +120,104 @@ mailRoutes.post("/send-payment-success", async (c) => {
   } catch (error) {
     console.error("Send payment success email error:", error);
     return c.json({ success: false, message: "Failed to send payment success email" }, 500);
+  }
+});
+
+// --- Buyer onboarding emails ------------------------------------------------
+
+type SendBuyerWelcomeMailBody = {
+  to?: string;
+  buyerName?: string | null;
+  companyName?: string | null;
+  onboardingLink?: string | null;
+  docsLink?: string | null;
+};
+
+mailRoutes.post("/send-buyer-welcome", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as SendBuyerWelcomeMailBody;
+    const to = body.to?.trim();
+
+    if (!to || !isValidEmail(to)) {
+      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
+    }
+
+    await sendBuyerWelcomeEmail({
+      to,
+      buyerName: body.buyerName?.trim() || null,
+      companyName: body.companyName?.trim() || null,
+      onboardingLink: body.onboardingLink?.trim() || null,
+      docsLink: body.docsLink?.trim() || null
+    });
+
+    return c.json({ success: true, message: "Welcome email sent" }, 200);
+  } catch (error) {
+    console.error("Send buyer welcome email error:", error);
+    return c.json({ success: false, message: "Failed to send welcome email" }, 500);
+  }
+});
+
+type SendBuyerPopularAgentsMailBody = {
+  to?: string;
+  buyerName?: string | null;
+  featuredAgents?: string | null;
+  browseLink?: string | null;
+  successStoriesLink?: string | null;
+};
+
+mailRoutes.post("/send-buyer-popular-agents", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as SendBuyerPopularAgentsMailBody;
+    const to = body.to?.trim();
+
+    if (!to || !isValidEmail(to)) {
+      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
+    }
+
+    await sendBuyerPopularAgentsEmail({
+      to,
+      buyerName: body.buyerName?.trim() || null,
+      featuredAgents: body.featuredAgents?.trim() || null,
+      browseLink: body.browseLink?.trim() || null,
+      successStoriesLink: body.successStoriesLink?.trim() || null
+    });
+
+    return c.json({ success: true, message: "Popular agents email sent" }, 200);
+  } catch (error) {
+    console.error("Send buyer popular agents email error:", error);
+    return c.json({ success: false, message: "Failed to send popular agents email" }, 500);
+  }
+});
+
+type SendBuyerRoiMailBody = {
+  to?: string;
+  buyerName?: string | null;
+  industry?: string | null;
+  caseStudies?: string | null;
+  demoLink?: string | null;
+};
+
+mailRoutes.post("/send-buyer-roi", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as SendBuyerRoiMailBody;
+    const to = body.to?.trim();
+
+    if (!to || !isValidEmail(to)) {
+      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
+    }
+
+    await sendBuyerRoiEmail({
+      to,
+      buyerName: body.buyerName?.trim() || null,
+      industry: body.industry?.trim() || null,
+      caseStudies: body.caseStudies?.trim() || null,
+      demoLink: body.demoLink?.trim() || null
+    });
+
+    return c.json({ success: true, message: "ROI email sent" }, 200);
+  } catch (error) {
+    console.error("Send buyer ROI email error:", error);
+    return c.json({ success: false, message: "Failed to send ROI email" }, 500);
   }
 });
 

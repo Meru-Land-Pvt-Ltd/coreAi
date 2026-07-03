@@ -167,7 +167,7 @@ export function saveBusinessSetup(body: BusinessSetupInput) {
  * first save resolves the workflow server-side.
  */
 export function getMarketplaceListing(listingId: string) {
-  return apiGet<{ listing: MarketplaceListing }>(`/architect/listings/${listingId}`);
+  return apiGet<{ listing: MarketplaceListing }>(`/architect/listings/public/${listingId}`);
 }
 
 /** Available CoreAI/platform phone numbers the buyer can select (Step 2). */

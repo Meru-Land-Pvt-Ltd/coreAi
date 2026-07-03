@@ -21,7 +21,7 @@ const DASHBOARD_ROUTE = "/business/dashboard" as Route;
 const STEP_STORAGE_KEY = "biz-setup-step";
 
 const STEPS = [
-  { id: 1, title: "Business" },
+  { id: 1, title: "Business Details" },
   { id: 2, title: "Phone & Calendar" },
   { id: 3, title: "Voice & Instructions" },
   { id: 4, title: "Test & Go live" }
@@ -756,7 +756,7 @@ function StepBusiness({
 }) {
   return (
     <div className={CARD}>
-      <h2 className={H2}>Business</h2>
+      <h2 className={H2}>Business Details</h2>
       <p className={SUB}>Tell us about your business so the agent answers and books accurately. You can change any of this later.</p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">

@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
-import { apiPost } from "@/lib/api";
+import { apiGet } from "@/lib/api";
 import { ASSIGNMENT_PATH } from "@/lib/routes";
 
 type Agent = {
@@ -83,7 +83,7 @@ type Industry = {
   icon: string;
 };
 
-const LISTINGS_API_PATH = "/architect/listings/completed";
+const LISTINGS_API_PATH = "/architect/listings/public";
 
 const baseIndustries: Omit<Industry, "count">[] = [
   { id: "all", label: "All industries", icon: "✨" },
@@ -248,7 +248,7 @@ export default function MarketplacePage() {
         setIsLoading(true);
         setApiError("");
 
-        const response = (await apiPost(LISTINGS_API_PATH, {})) as ListingsApiResponse;
+        const response = (await apiGet<ListingsApiResponse>(LISTINGS_API_PATH)) as ListingsApiResponse;
 
         const listings = response?.data?.listings ?? response?.listings ?? [];
 

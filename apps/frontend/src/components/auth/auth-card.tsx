@@ -18,7 +18,8 @@ import { saveAuthSession, type AuthRole, type AuthUser } from "@/lib/auth";
 import {
   PRIVACY_PATH,
   TERM_PATH,
-  HELP_PATH
+  HELP_PATH,
+  BUSINESS_MARKETPLACE_PATH
 } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -32,6 +33,7 @@ type CoreOtpAuthProps = {
 type AuthResponse = {
   token: string;
   user: AuthUser;
+  isNewUser?: boolean;
 };
 
 const roleContent: Record<
@@ -169,12 +171,20 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
         return;
       }
 
-      saveAuthSession(result.data.token, result.data.user);
+      const data = result.data;
+      saveAuthSession(data.token, data.user);
 
       setStep(3);
 
+      // New buyers land on the marketplace to install their first agent;
+      // everyone else goes to their dashboard.
+      const destination =
+        role === "BUSINESS" && data.isNewUser
+          ? BUSINESS_MARKETPLACE_PATH
+          : roleContent[role].dashboardPath;
+
       window.setTimeout(() => {
-        router.push(roleContent[role].dashboardPath);
+        router.push(destination);
       }, 700);
     } catch {
       setError("Something went wrong. Please check if backend is running.");
@@ -210,8 +220,15 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
         return;
       }
 
-      saveAuthSession(result.data.token, result.data.user);
-      router.push(roleContent[role].dashboardPath);
+      const data = result.data;
+      saveAuthSession(data.token, data.user);
+
+      const destination =
+        role === "BUSINESS" && data.isNewUser
+          ? BUSINESS_MARKETPLACE_PATH
+          : roleContent[role].dashboardPath;
+
+      router.push(destination);
     } catch (err) {
       console.error("Google login failed:", err);
 

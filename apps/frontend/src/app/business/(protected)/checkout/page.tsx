@@ -545,7 +545,7 @@ export default function BusinessCheckoutPage() {
 
         async function loadListing() {
             const response = await apiGet<CheckoutListingResponse>(
-                `/architect/listings/${listingId}`
+                `/architect/listings/public/${listingId}`
             );
 
             if (!mounted) return;

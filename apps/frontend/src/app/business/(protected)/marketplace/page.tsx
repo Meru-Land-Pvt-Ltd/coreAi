@@ -1,7 +1,7 @@
 "use client";
 
 import type { Route } from "next";
-import { apiPost } from "@/lib/api";
+import { apiGet } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -89,7 +89,7 @@ type Industry = {
     icon: string;
 };
 
-const LISTINGS_API_PATH = "/architect/listings/completed";
+const LISTINGS_API_PATH = "/architect/listings/public";
 
 const sortOptions = [
     { value: "popular", label: "Most popular" },
@@ -407,7 +407,7 @@ export default function MarketplacePage() {
                 setIsLoading(true);
                 setApiError("");
 
-                const response = (await apiPost(LISTINGS_API_PATH, {})) as ListingsApiResponse;
+                const response = (await apiGet<ListingsApiResponse>(LISTINGS_API_PATH)) as ListingsApiResponse;
 
                 const listings = response?.data?.listings ?? response?.listings ?? [];
 
@@ -1181,22 +1181,6 @@ export default function MarketplacePage() {
                             <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="business-protected-marketplace-no-agents-match-those-filters-heading">
                                 No agents found.
                             </h3>
-                            <p className="mt-1 text-sm text-slate-500" data-testid="business-protected-marketplace-try-clearing-search-or-selecting-another-industry-text">
-                                Try clearing search or selecting another industry.
-                            </p>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setQuery("");
-                                    setIndustry("all");
-                                    setFreeTrialOnly(false);
-                                    setNewOnly(false);
-                                }}
-                                data-testid="business-marketplace-clear-filters"
-                                className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
-                            >
-                                Clear filters
-                            </button>
                         </div>
                     )}
 

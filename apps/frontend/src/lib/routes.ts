@@ -7,6 +7,7 @@ export const BUSINESS_CHECKOUT_PATH = "/business/checkout" as Route;
 export const BUSINESS_AGENTS_PATH = "/business/agents" as Route;
 export const BUSINESS_PAYMENT_SUCCESS_PATH = "/business/paymentsuccess" as Route;
 export const BUSINESS_PAYMENT_FAILED_PATH = "/business/paymentfailed" as Route;
+export const BUSINESS_BILLING_PATH = "/business/billingandusage" as Route;
 export const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 export const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;
 export const MISSED_CALL_SETUP_PATH = "/business/agent/missed-call/setup" as Route;
@@ -28,6 +29,11 @@ export const ABOUT_PATH = "/about" as Route;
 
 export function businessAgentPath(agentId: string): Route {
   return `/business/${agentId}` as Route;
+}
+
+// Owned-agent detail page under My Agents (/business/agents/[agentId]).
+export function businessAgentDetailPath(agentId: string): Route {
+  return `/business/agents/${agentId}` as Route;
 }
 
 // Architect publishing-status page. Carries the listing/agent id so the page can

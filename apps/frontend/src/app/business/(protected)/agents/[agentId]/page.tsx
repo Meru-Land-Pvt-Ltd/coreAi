@@ -527,37 +527,7 @@ export default function BusinessAgentDetailPage() {
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
                   <span className="text-lg font-medium text-slate-500">/month</span>
-                </div>
-
-                <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
-                  per business location · billed after your free trial
-                </p>
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  <Link
-                    ref={heroCtaRef}
-                    id="hero-cta"
-                    href={checkoutPath}
-                    data-testid="agent-detail-start-trial"
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
-                  >
-                    Start 7-Day Free Trial
-                    <ArrowIcon />
-                  </Link>
-                </div>
-
-                <p className="mt-3 text-xs text-slate-500">
-                  No credit card required to start. ${price}/month after trial.
-                </p>
-              </div>
-
-              <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
-                {["7-day free trial", "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
-                  <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
-                    <CheckIcon className="h-4 w-4 text-emerald-500" />
-                    {item}
-                  </span>
-                ))}
+                </div>       
               </div>
             </div>
 
@@ -590,7 +560,7 @@ export default function BusinessAgentDetailPage() {
           </div>
         </section>
 
-        <section className="px-6 py-16 sm:py-20">
+        <section className="px-6 pt-16 pb-4 sm:pt-20 sm:pb-4">
           <div className="mx-auto max-w-3xl">
             <SectionHeader title="What's included" description="One flat price. No usage caps on anything that matters." />
 
@@ -607,7 +577,7 @@ export default function BusinessAgentDetailPage() {
           </div>
         </section>
 
-        <section className="px-6 py-16 sm:py-20">
+        <section className="px-6 pt-4 pb-16 sm:pt-4 sm:pb-20">
           <div className="mx-auto max-w-3xl">
             <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
               <button
@@ -661,31 +631,6 @@ export default function BusinessAgentDetailPage() {
                 </dl>
               </div>
             </div>
-          </div>
-        </section>
-
-        <section id="bottom-cta" className="scroll-mt-24 px-6 py-16 sm:py-20">
-          <div className="relative mx-auto max-w-4xl overflow-hidden rounded-3xl border border-amber-200 bg-amber-50 px-6 py-14 text-center shadow-glow sm:px-12">
-            <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(50%_70%_at_50%_0%,rgba(245,158,11,0.12),transparent_70%)]" />
-            <h2 className="text-balance text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-              Start using {listing.name}
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-lg text-slate-600">
-              Install this agent in minutes and automate your customer workflow.
-            </p>
-            <div className="mt-8">
-              <Link
-                href={checkoutPath}
-                data-testid="agent-detail-bottom-start-trial"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-9 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
-              >
-                Start 7-Day Free Trial
-                <ArrowIcon className="h-5 w-5" />
-              </Link>
-            </div>
-            <p className="mt-5 text-sm text-slate-500">
-              No credit card required. ${price}/month after trial.
-            </p>
           </div>
         </section>
       </main>
