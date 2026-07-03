@@ -25,9 +25,7 @@ try {
 const expectedVoice = `${base}${VOICE_ROUTE}`;
 
 let allOk = true;
-// Proxy strips the prefix (normal nginx `location /api/ { proxy_pass ...:8787/; }`).
 allOk = expect("proxy strips prefix", buildPublicWebhookUrl(VOICE_ROUTE), expectedVoice) && allOk;
-// Proxy does NOT strip the prefix — must not double it.
 if (basePath) {
   allOk = expect(
     "proxy keeps prefix (no doubling)",
@@ -35,7 +33,6 @@ if (basePath) {
     expectedVoice
   ) && allOk;
 }
-// Query strings survive (Twilio signs them too).
 allOk = expect(
   "query string preserved",
   buildPublicWebhookUrl(VOICE_ROUTE, "?to=%2B17252202182"),
