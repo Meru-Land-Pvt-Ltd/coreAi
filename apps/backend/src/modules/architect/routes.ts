@@ -77,7 +77,7 @@ architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
-async function listCompletedListings(c: Context) {
+async function listPublicMarketplaceListings(c: Context) {
   const allListings = await prisma.agentListing.findMany({
     where: {
       status: { in: ["APPROVED", "PENDING_REVIEW"] }
@@ -115,7 +115,7 @@ async function listCompletedListings(c: Context) {
   return successResponse(c, { listings });
 }
 
-async function getCompletedListingById(c: Context) {
+async function getPublicMarketplaceListingById(c: Context) {
   const id = c.req.param("id");
 
   if (!id) {
@@ -154,10 +154,9 @@ async function getCompletedListingById(c: Context) {
   return successResponse(c, { listing });
 }
 
-architectRoutes.get("/listings/completed", requireAuth, listCompletedListings);
-architectRoutes.post("/listings/completed", requireAuth, listCompletedListings);
-architectRoutes.get("/listings/:id", requireAuth, getCompletedListingById);
-architectRoutes.post("/listings/:id", requireAuth, getCompletedListingById);
+// Public marketplace — no auth required (buyer marketplace + public catalog).
+architectRoutes.get("/listings/public", listPublicMarketplaceListings);
+architectRoutes.get("/listings/public/:id", getPublicMarketplaceListingById);
 
 // Voice catalog + preview — buyer-visible (architect builder AND buyer install
 // both render voice cards / play previews), so registered before the ARCHITECT

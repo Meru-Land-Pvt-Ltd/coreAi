@@ -7,8 +7,12 @@ import { getAuthToken, getAuthUser } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
+    businessAgentDetailPath,
+    businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+
+const TRIAL_DAYS = 7;
 
 type ApiArchitectProfile = {
     title?: string | null;
@@ -60,7 +64,21 @@ type OwnedAgent = {
     author: string;
     tags: string[];
     purchaseStatus: string;
+    purchasedAt: string;
 };
+
+// Trial runs for TRIAL_DAYS from the purchase date. Day of purchase = 7 left,
+// counting down to 0 when the trial has fully elapsed.
+function getTrialInfo(purchasedAt: string, status: string) {
+    const isTrial = status.toUpperCase() === "TRIALING";
+    const start = new Date(purchasedAt).getTime();
+    const elapsedDays = Number.isFinite(start)
+        ? Math.floor((Date.now() - start) / (1000 * 60 * 60 * 24))
+        : 0;
+    const daysLeft = Math.max(0, TRIAL_DAYS - elapsedDays);
+    const trialEnded = isTrial && daysLeft <= 0;
+    return { isTrial, daysLeft, trialEnded };
+}
 
 function normalizeFilterValue(value: string) {
     return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -124,7 +142,8 @@ function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {
             listing.architect?.email ||
             "Triven Architect",
         tags: listing.tags ?? [],
-        purchaseStatus: entry.purchaseStatus
+        purchaseStatus: entry.purchaseStatus,
+        purchasedAt: entry.purchasedAt
     };
 }
 
@@ -197,6 +216,14 @@ export default function BusinessMyAgentsPage() {
         router.push(businessSetupPath(agent.listingId));
     }
 
+    function payAgent(agent: OwnedAgent) {
+        router.push(businessCheckoutPath(agent.listingId));
+    }
+
+    function openAgent(agent: OwnedAgent) {
+        router.push(businessAgentDetailPath(agent.listingId));
+    }
+
     if (!authReady) {
         return <main className="min-h-screen bg-gray-50" />;
     }
@@ -249,7 +276,13 @@ export default function BusinessMyAgentsPage() {
                     ) : agents.length ? (
                         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             {agents.map((agent) => (
-                                <OwnedAgentCard key={agent.id} agent={agent} onSetup={() => setupAgent(agent)} />
+                                <OwnedAgentCard
+                                    key={agent.id}
+                                    agent={agent}
+                                    onSetup={() => setupAgent(agent)}
+                                    onPay={() => payAgent(agent)}
+                                    onOpen={() => openAgent(agent)}
+                                />
                             ))}
                         </div>
                     ) : (
@@ -263,14 +296,6 @@ export default function BusinessMyAgentsPage() {
                             <p className="mx-auto mt-1 max-w-md text-sm text-slate-500" data-testid="business-my-agents-empty-text">
                                 Agents you purchase from the marketplace will appear here, ready to set up.
                             </p>
-                            <button
-                                type="button"
-                                onClick={() => router.push(BUSINESS_MARKETPLACE_PATH)}
-                                data-testid="business-my-agents-empty-browse"
-                                className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
-                            >
-                                Browse marketplace
-                            </button>
                         </div>
                     )}
                 </div>
@@ -279,13 +304,35 @@ export default function BusinessMyAgentsPage() {
     );
 }
 
-function OwnedAgentCard({ agent, onSetup }: { agent: OwnedAgent; onSetup: () => void }) {
-    const badge = statusBadge(agent.purchaseStatus);
+function OwnedAgentCard({
+    agent,
+    onSetup,
+    onPay,
+    onOpen
+}: {
+    agent: OwnedAgent;
+    onSetup: () => void;
+    onPay: () => void;
+    onOpen: () => void;
+}) {
+    const { isTrial, daysLeft, trialEnded } = getTrialInfo(agent.purchasedAt, agent.purchaseStatus);
+    const badge = trialEnded
+        ? { label: "Trial ended", className: "bg-red-50 text-red-700" }
+        : statusBadge(agent.purchaseStatus);
 
     return (
         <article
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen();
+                }
+            }}
             data-testid={`business-my-agent-card-${agent.listingId}`}
-            className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-xl"
+            className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-xl"
         >
             <div className="flex-1 p-6">
                 <div className="flex items-start justify-between gap-2">
@@ -331,14 +378,40 @@ function OwnedAgentCard({ agent, onSetup }: { agent: OwnedAgent; onSetup: () => 
             </div>
 
             <div className="px-6 pb-6 pt-4">
-                <button
-                    type="button"
-                    onClick={onSetup}
-                    data-testid={`business-my-agent-setup-${agent.listingId}`}
-                    className="w-full rounded-xl bg-amber-500 py-2.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-amber-600"
-                >
-                    Setup
-                </button>
+                {trialEnded ? (
+                    <button
+                        type="button"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onPay();
+                        }}
+                        data-testid={`business-my-agent-pay-${agent.listingId}`}
+                        className="w-full rounded-xl bg-amber-500 py-2.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-amber-600"
+                    >
+                        Pay To Continue
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onSetup();
+                        }}
+                        data-testid={`business-my-agent-setup-${agent.listingId}`}
+                        className="w-full rounded-xl bg-amber-500 py-2.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-amber-600"
+                    >
+                        Setup
+                    </button>
+                )}
+
+                {isTrial ? (
+                    <p
+                        className={`mt-2 text-center text-xs font-semibold ${trialEnded ? "text-red-600" : "text-slate-500"}`}
+                        data-testid={`business-my-agent-days-left-${agent.listingId}`}
+                    >
+                        {daysLeft} {daysLeft === 1 ? "day" : "days"} left
+                    </p>
+                ) : null}
             </div>
         </article>
     );

@@ -4,7 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
-import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
+import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
@@ -148,30 +148,30 @@ function getFullDate() {
 const metrics: MetricCard[] = [
     {
         label: "Revenue Saved",
-        value: "$4,280",
+        value: "$0",
         subtitle: "this month · vs last month",
-        trend: "23%",
+        trend: "0%",
         icon: "dollar"
     },
     {
         label: "Calls Handled",
-        value: "147",
+        value: "0",
         subtitle: "this month · vs last month",
-        trend: "18%",
+        trend: "0%",
         icon: "phone"
     },
     {
         label: "Appointments Booked",
-        value: "34",
+        value: "0",
         subtitle: "this month · vs last month",
-        trend: "12%",
+        trend: "0%",
         icon: "calendar"
     },
     {
         label: "Total Spend",
-        value: "$62.40",
+        value: "$0",
         subtitle: "execution fees this month",
-        badge: "ROI 6,859%",
+        badge: "ROI 0%",
         icon: "receipt"
     }
 ];
@@ -295,8 +295,8 @@ function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
         listingId: listing.id,
         name: listing.name,
         since: `Purchased ${formatPurchasedDate(entry.purchasedAt)}`,
-        runs: "NA",
-        cost: priceCents > 0 ? `$${(priceCents / 100).toFixed(0)}/mo` : "NA",
+        runs: "0",
+        cost: priceCents > 0 ? `$${(priceCents / 100).toFixed(0)}/mo` : "0",
         icon: pickAgentIcon(listing.name, listing.tags ?? []),
         purchaseStatus: entry.purchaseStatus,
         isActive: isActivePurchaseStatus(entry.purchaseStatus)
@@ -401,70 +401,6 @@ export default function BusinessDashboardPage() {
                         </span>
                     ) : null}
 
-                    <div className="relative">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setBellOpen((open) => !open);
-                                setActiveAgentMenu(null);
-                            }}
-                            data-testid="dashboard-notifications-toggle"
-                            className="relative rounded-xl border border-gray-200 bg-white p-2.5 text-slate-600 shadow-sm transition-colors hover:border-amber-300 hover:text-amber-600"
-                            aria-label="Notifications"
-                            aria-haspopup="true"
-                            aria-expanded={bellOpen}
-                        >
-                            <Icon name="bell" className="h-5 w-5" />
-                            <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-gray-50" data-testid="business-protected-dashboard-3-text">
-                                3
-                            </span>
-                        </button>
-
-                        {bellOpen ? (
-                            <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl">
-                                <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                                    <p className="text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-notifications-text">Notifications</p>
-                                    <button type="button" data-testid="dashboard-mark-all-read" className="text-xs font-medium text-amber-600 hover:text-amber-700">
-                                        Mark all read
-                                    </button>
-                                </div>
-
-                                <div className="divide-y divide-gray-50">
-                                    {notifications.map((item) => (
-                                        <Link data-testid="dashboard-control-link"
-                                            key={item.title}
-                                            href={"#" as Route}
-                                            className="flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50"
-                                        >
-                                            <span
-                                                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${item.tone === "amber"
-                                                    ? "bg-amber-50 text-amber-600"
-                                                    : item.tone === "blue"
-                                                        ? "bg-blue-50 text-blue-600"
-                                                        : "bg-slate-100 text-slate-600"
-                                                    }`}
-                                            >
-                                                <Icon name={item.icon} className="h-4 w-4" />
-                                            </span>
-
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-medium text-slate-800" data-testid="business-protected-dashboard-title-text">{item.title}</p>
-                                                <p className="mt-0.5 text-xs text-slate-400" data-testid="business-protected-dashboard-meta-text">{item.meta}</p>
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-
-                                <Link data-testid="dashboard-view-all-notifications-link"
-                                    href={"#" as Route}
-                                    className="block border-t border-gray-100 px-4 py-3 text-center text-sm font-medium text-amber-600 transition-colors hover:bg-amber-50"
-                                >
-                                    View all notifications
-                                </Link>
-                            </div>
-                        ) : null}
-                    </div>
-
                     <button
                         type="button"
                         onClick={closeMenus}
@@ -476,51 +412,6 @@ export default function BusinessDashboardPage() {
                     </button>
                 </div>
             </div>
-
-            <section data-testid="dashboard-overview" aria-label="Account overview" className="mb-8 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                {overviewState === "loading" ? (
-                    <p data-testid="dashboard-overview-loading" className="text-sm font-medium text-slate-500">Loading your account…</p>
-                ) : overviewState === "error" ? (
-                    <p data-testid="dashboard-overview-error" className="text-sm font-medium text-red-600">Could not load your account data. Please refresh.</p>
-                ) : (
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
-                        <div data-testid="dashboard-overview-subscription">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-subscription-text">Subscription</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-subscription-active-overview-subscription-status-inactive">
-                                {overview?.subscription.active ? "Active" : (overview?.subscription.status ?? "inactive")}
-                            </p>
-                        </div>
-                        <div data-testid="dashboard-overview-agent">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-installed-agent-text">Installed agent</p>
-                            <p className="mt-1 truncate text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-installed-agent-not-installed-text">{overview?.installedAgent?.name ?? "Not installed"}</p>
-                        </div>
-                        <div data-testid="dashboard-overview-number">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-core-ai-number-text">CoreAI number</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-phone-number-phone-number-not-assigned-text">{overview?.phoneNumber?.phoneNumber ?? "Not assigned"}</p>
-                        </div>
-                        <div data-testid="dashboard-overview-leads">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-leads-text">Leads</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-counts-leads-0-text">{overview?.counts.leads ?? 0}</p>
-                        </div>
-                        <div data-testid="dashboard-overview-conversations">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-conversations-text">Conversations</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-counts-conversations-0-text">{overview?.counts.conversations ?? 0}</p>
-                        </div>
-                        <div data-testid="dashboard-overview-appointments">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-appointments-text">Appointments</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-counts-appointments-0-text">{overview?.counts.appointments ?? 0}</p>
-                        </div>
-                        <div data-testid="dashboard-overview-calendar">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-calendar-text">Calendar</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-calendar-connected-not-connected-text">{overview?.calendarConnected ? "Connected" : "Not connected"}</p>
-                        </div>
-                        <div data-testid="dashboard-overview-missed">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400" data-testid="business-protected-dashboard-recent-missed-calls-text">Recent missed calls</p>
-                            <p className="mt-1 text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-overview-recent-missed-calls-0-text">{overview?.recentMissedCalls.length ?? 0}</p>
-                        </div>
-                    </div>
-                )}
-            </section>
 
             <section aria-label="Key metrics" className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
                 {metrics.map((metric) => (
@@ -690,10 +581,10 @@ export default function BusinessDashboardPage() {
                             </span>
                         </div>
 
-                        <div className="max-h-96 divide-y divide-gray-50 overflow-y-auto">
-                            {initialActivities.map((activity, index) => (
-                                <ActivityItem key={`${activity.time}-${index}`} activity={activity} />
-                            ))}
+                        <div className="flex h-96 items-center justify-center overflow-y-auto px-5 text-center">
+                            <p className="text-sm font-medium text-slate-400" data-testid="business-protected-dashboard-no-activity-text">
+                                No Activity Found
+                            </p>
                         </div>
                     </section>
 
@@ -708,51 +599,17 @@ export default function BusinessDashboardPage() {
                                 Browse more agents
                             </Link>
 
-                            <button data-testid="dashboard-view-billing" className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700">
+                            <Link data-testid="dashboard-view-billing" href={BUSINESS_BILLING_PATH} className="block w-full rounded-xl border border-gray-200 py-3 text-center text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700">
                                 View billing details
-                            </button>
+                            </Link>
 
-                            <button data-testid="dashboard-pause-all-agents" className="w-full rounded-xl border border-gray-200 py-3 text-slate-600 transition-all duration-300 hover:border-red-300 hover:text-red-600">
+                            <Link data-testid="dashboard-pause-all-agents" href={BUSINESS_AGENTS_PATH} className="block w-full rounded-xl border border-gray-200 py-3 text-center text-slate-600 transition-all duration-300 hover:border-red-300 hover:text-red-600">
                                 Pause all agents
-                            </button>
+                            </Link>
                         </div>
-                    </section>
-
-                    <section
-                        id="billing"
-                        className="scroll-mt-24 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 p-5"
-                    >
-                        <div className="flex items-center justify-between">
-                            <h2 className="font-bold text-slate-900" data-testid="business-protected-dashboard-january-summary-heading">January summary</h2>
-                            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-amber-700" data-testid="business-protected-dashboard-day-15-of-31-text">
-                                Day 15 of 31
-                            </span>
-                        </div>
-
-                        <div className="mt-4 space-y-3 text-sm">
-                            <SummaryRow label="Missed calls recovered" value="89" />
-                            <SummaryRow label="Appointments booked" value="34" />
-                            <SummaryRow label="Reviews generated" value="12" />
-                            <SummaryRow label="Estimated revenue" value="$4,280" green />
-                        </div>
-
-                        <div className="my-3 border-t border-amber-200" />
-
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-slate-900" data-testid="business-protected-dashboard-total-cost-text">Total cost</span>
-                            <span className="text-sm font-bold text-slate-900" data-testid="business-protected-dashboard-62-40-text">$62.40</span>
-                        </div>
-
-                        <p className="mt-1 text-xs text-amber-700" data-testid="business-protected-dashboard-that-apos-s-just-0-42-per-text">
-                            That&apos;s just $0.42 per customer interaction.
-                        </p>
                     </section>
                 </div>
             </div>
-
-            <p className="mt-8 text-center text-xs text-slate-400" data-testid="business-protected-dashboard-core-ai-agent-platform-syncs-in-real-text">
-                CORE AI Agent Platform · Data syncs in real time · Last updated just now
-            </p>
         </main>
     );
 }
@@ -859,10 +716,6 @@ function AgentRow({
                 {open ? (
                     <div className="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
                         <AgentMenuButton icon="pause" label="Pause agent" />
-                        <AgentMenuButton icon="stats" label="View stats" />
-                        <AgentMenuButton icon="settings" label="Configure" />
-                        <div className="my-1 border-t border-gray-100" />
-                        <AgentMenuButton icon="trash" label="Remove" danger />
                     </div>
                 ) : null}
             </div>

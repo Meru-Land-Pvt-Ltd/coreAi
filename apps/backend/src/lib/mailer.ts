@@ -13,10 +13,10 @@ const verificationCodeExpirationMinutes = Number(
 
 const appUrl = env.FRONTEND_URL.replace(/\/$/, "");
 const brandName = "Triven.ai";
-const EMAIL_LOGO_CID = "triven-logo@triven.ai";
-const trivenLogoUrl = `${appUrl.replace(/\/$/, "")}/${encodeURIComponent("triven.ai word logo transparent bg.PNG")}`;
 const privacyLink = process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`;
 const termsLink = process.env.CORE_TERMS_URL ?? `${appUrl}/terms`;
+const helpLink = process.env.CORE_HELP_URL ?? `${appUrl}/contact`;
+const marketplaceLink = `${appUrl}/business/marketplace`;
 
 export const mailTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -50,8 +50,7 @@ export async function sendVerificationEmail({
       code,
       roleLabel,
       expirationMinutes: verificationCodeExpirationMinutes
-    }),
-    attachments: getEmailLogoAttachments()
+    })
   });
 }
 
@@ -67,7 +66,6 @@ function buildVerificationEmailHtml({
   const safeCode = escapeHtml(code);
   const safeRoleLabel = escapeHtml(roleLabel);
   const safeExpirationMinutes = escapeHtml(String(expirationMinutes));
-  const safeLogoSrc = escapeHtml(getEmailLogoSrc());
   const safePrivacyLink = escapeHtml(privacyLink);
   const safeTermsLink = escapeHtml(termsLink);
 
@@ -90,8 +88,7 @@ function buildVerificationEmailHtml({
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
 <tr>
 <td style="padding:28px 32px 0 32px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">
-<img src="${safeLogoSrc}" alt="${brandName} logo" width="36" height="36" style="display:inline-block;vertical-align:middle;border:0;outline:none;text-decoration:none;" />
-<span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#f59e0b;">${brandName}</span>
+${emailLogoMarkup()}
 </td>
 </tr>
 
@@ -160,6 +157,44 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
+// Text-based wordmark (amber dot + brand name) rendered inline in the email
+// header. Using HTML instead of an <img> avoids the "1 attachment" indicator
+// and broken-image issues in clients that block remote/inline images.
+function emailLogoMarkup() {
+  return `<span style="color:#f59e0b;font-size:22px;line-height:1;vertical-align:middle;">&#9679;</span><span style="vertical-align:middle;margin-left:8px;color:#f59e0b;">${brandName}</span>`;
+}
+
+// Shared header (logo row + amber divider) used by all transactional emails.
+function buildEmailHeaderRows() {
+  return `<tr>
+<td style="padding:28px 32px 0 32px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">
+${emailLogoMarkup()}
+</td>
+</tr>
+<tr>
+<td style="padding:14px 32px 0 32px;">
+<div style="height:4px;line-height:4px;font-size:0;background-color:#f59e0b;background-image:linear-gradient(90deg,#f59e0b,#d97706);border-radius:2px;">&nbsp;</div>
+</td>
+</tr>`;
+}
+
+// Minimal footer: brand name + Privacy / Help links only. No mailing address,
+// no unsubscribe link, no "AI Agent Platform" tagline.
+function buildEmailFooterRow() {
+  return `<tr>
+<td style="padding:10px 32px 30px 32px;">
+<div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
+<div style="font-weight:600;color:#64748b;">${brandName}</div>
+<div style="margin-top:8px;">
+<a href="${escapeHtml(privacyLink)}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
+&nbsp;&middot;&nbsp;
+<a href="${escapeHtml(helpLink)}" target="_blank" style="color:#d97706;text-decoration:none;">Help Center</a>
+</div>
+</div>
+</td>
+</tr>`;
+}
+
 // ---------------------------------------------------------------------------
 // Invoices + payment-success email
 // ---------------------------------------------------------------------------
@@ -207,24 +242,6 @@ function getLogoBuffer(): Buffer | null {
 
   cachedLogoBuffer = null;
   return cachedLogoBuffer;
-}
-
-function getEmailLogoSrc() {
-  return getLogoBuffer() ? `cid:${EMAIL_LOGO_CID}` : trivenLogoUrl;
-}
-
-function getEmailLogoAttachments() {
-  const logoBuffer = getLogoBuffer();
-  if (!logoBuffer) return [];
-
-  return [
-    {
-      filename: "triven-logo.png",
-      content: logoBuffer,
-      cid: EMAIL_LOGO_CID,
-      contentType: "image/png"
-    }
-  ];
 }
 
 function formatMoney(amountCents: number, currency = "usd") {
@@ -431,7 +448,6 @@ export async function sendPaymentSuccessEmail({
     text: `Thanks for your purchase on ${brandName}. ${invoice.agentName} is now in your account. Amount: ${formatMoney(invoice.amountCents, invoice.currency)}. Invoice #${invoice.invoiceNumber}. Your invoice PDF is attached.`,
     html: buildPaymentSuccessEmailHtml({ name, invoice, setupUrl }),
     attachments: [
-      ...getEmailLogoAttachments(),
       {
         filename: `invoice-${invoice.invoiceNumber}.pdf`,
         content: pdfBuffer,
@@ -457,7 +473,6 @@ function buildPaymentSuccessEmailHtml({
   const safeInvoiceNumber = escapeHtml(invoice.invoiceNumber);
   const safeDate = escapeHtml(formatInvoiceDate(invoice.date));
   const safeStatus = escapeHtml(prettyStatus(invoice.status));
-  const safeLogoSrc = escapeHtml(getEmailLogoSrc());
   const safePrivacyLink = escapeHtml(privacyLink);
   const safeTermsLink = escapeHtml(termsLink);
   const safeSetupUrl = setupUrl ? escapeHtml(setupUrl) : null;
@@ -482,8 +497,7 @@ function buildPaymentSuccessEmailHtml({
 
 <tr>
 <td style="padding:28px 32px 0 32px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">
-<img src="${safeLogoSrc}" alt="${brandName} logo" width="36" height="36" style="display:inline-block;vertical-align:middle;border:0;outline:none;text-decoration:none;" />
-<span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#f59e0b;">${brandName}</span>
+${emailLogoMarkup()}
 </td>
 </tr>
 
@@ -588,8 +602,7 @@ export async function sendFreeAssignmentEmail({
     html: buildFreeAssignmentEmailHtml({
       name,
       assignmentLink
-    }),
-    attachments: getEmailLogoAttachments()
+    })
   });
 }
 
@@ -602,7 +615,6 @@ function buildFreeAssignmentEmailHtml({
 }) {
   const safeName = escapeHtml(name?.trim() || "there");
   const safeAssignmentLink = escapeHtml(assignmentLink);
-  const safeLogoSrc = escapeHtml(getEmailLogoSrc());
   const safePrivacyLink = escapeHtml(privacyLink);
   const safeTermsLink = escapeHtml(termsLink);
 
@@ -629,8 +641,7 @@ Your free ${brandName} AI assessment link is ready.
 
 <tr>
 <td style="padding:28px 32px 0 32px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#111827;letter-spacing:-0.3px;">
-<img src="${safeLogoSrc}" alt="${brandName} logo" width="36" height="36" style="display:inline-block;vertical-align:middle;border:0;outline:none;text-decoration:none;" />
-<span style="display:inline-block;vertical-align:middle;margin-left:10px;color:#f59e0b;">${brandName}</span>
+${emailLogoMarkup()}
 </td>
 </tr>
 
@@ -699,4 +710,249 @@ This assessment helps ${brandName} understand your business needs before recomme
 </table>
 </body>
 </html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Buyer onboarding sequence: welcome (first login) → popular agents (day 3)
+// → ROI / results (day 7). All use the shared Triven header + minimal footer.
+// ---------------------------------------------------------------------------
+
+const emailBodyStyle = "font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;";
+
+function emailShell(previewText: string, title: string, innerRows: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>${title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f1f5f9;">${previewText}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+${buildEmailHeaderRows()}
+${innerRows}
+${buildEmailFooterRow()}
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+function primaryButton(href: string, label: string) {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 14px 0;"><tr><td align="center" bgcolor="#f59e0b" style="border-radius:8px;background-image:linear-gradient(90deg,#f59e0b,#d97706);"><a href="${href}" target="_blank" style="display:inline-block;padding:12px 30px;${emailBodyStyle}font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">${label}</a></td></tr></table>`;
+}
+
+function secondaryButton(href: string, label: string) {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;"><tr><td align="center" bgcolor="#ffffff" style="border-radius:8px;border:1px solid #fcd34d;"><a href="${href}" target="_blank" style="display:inline-block;padding:11px 28px;${emailBodyStyle}font-size:15px;font-weight:600;color:#b45309;text-decoration:none;border-radius:8px;">${label}</a></td></tr></table>`;
+}
+
+// --- 1) Welcome email (sent on a buyer's first login) ----------------------
+
+type SendBuyerWelcomeEmailInput = {
+  to: string;
+  buyerName?: string | null;
+  companyName?: string | null;
+  onboardingLink?: string | null;
+  docsLink?: string | null;
+};
+
+export async function sendBuyerWelcomeEmail({
+  to,
+  buyerName,
+  companyName,
+  onboardingLink,
+  docsLink
+}: SendBuyerWelcomeEmailInput) {
+  const name = buyerName?.trim() || "there";
+  const onboarding = onboardingLink?.trim() || marketplaceLink;
+
+  await mailTransporter.sendMail({
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+    to,
+    subject: `Welcome to ${brandName}, ${name}! Let's get started`,
+    text: `Welcome aboard, ${name}. Your ${brandName} account is ready. Browse the marketplace and pick an agent, connect your tools, and run your first task. Start here: ${onboarding}`,
+    html: buildBuyerWelcomeEmailHtml({ buyerName: name, companyName, onboardingLink: onboarding, docsLink })
+  });
+}
+
+function buildBuyerWelcomeEmailHtml({
+  buyerName,
+  companyName,
+  onboardingLink,
+  docsLink
+}: {
+  buyerName: string;
+  companyName?: string | null;
+  onboardingLink: string;
+  docsLink?: string | null;
+}) {
+  const safeName = escapeHtml(buyerName);
+  const safeCompany = companyName?.trim() ? escapeHtml(companyName.trim()) : "your business";
+  const safeOnboarding = escapeHtml(onboardingLink);
+
+  const step = (text: string) =>
+    `<tr><td valign="top" width="20" style="padding:0 0 8px 0;${emailBodyStyle}font-size:15px;line-height:1.6;color:#f59e0b;">&#8226;</td><td valign="top" style="padding:0 0 8px 0;${emailBodyStyle}font-size:15px;line-height:1.6;color:#334155;">${text}</td></tr>`;
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Welcome aboard, ${safeName}. Your ${brandName} account for ${safeCompany} is ready, and you're a few steps away from your first working agent.</p>
+<p style="margin:22px 0 10px 0;${emailBodyStyle}font-size:16px;font-weight:700;color:#111827;line-height:1.4;">Your first steps</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 16px 0;">
+${step("Browse the marketplace and pick an agent that fits your workflow")}
+${step("Connect the tools your team already uses")}
+${step("Run your first task and review the results")}
+</table>
+${primaryButton(safeOnboarding, "Start onboarding")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">Have a question along the way? Just reply to this email.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    "Your first steps to putting AI agents to work.",
+    `Welcome to ${brandName}, ${safeName}! Let's get started`,
+    inner
+  );
+}
+
+// --- 2) Popular agents email (day 3 of onboarding) -------------------------
+
+type SendBuyerPopularAgentsEmailInput = {
+  to: string;
+  buyerName?: string | null;
+  featuredAgents?: string | null;
+  browseLink?: string | null;
+  successStoriesLink?: string | null;
+};
+
+export async function sendBuyerPopularAgentsEmail({
+  to,
+  buyerName,
+  featuredAgents,
+  browseLink,
+  successStoriesLink
+}: SendBuyerPopularAgentsEmailInput) {
+  const name = buyerName?.trim() || "there";
+
+  await mailTransporter.sendMail({
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+    to,
+    subject: `Discover the most popular agents on ${brandName}`,
+    text: `Hi ${name}, now that you're set up, here are some of the most popular agents on ${brandName} right now. Browse them here: ${browseLink?.trim() || marketplaceLink}`,
+    html: buildBuyerPopularAgentsEmailHtml({ buyerName: name, featuredAgents, browseLink, successStoriesLink })
+  });
+}
+
+function buildBuyerPopularAgentsEmailHtml({
+  buyerName,
+  featuredAgents,
+  browseLink,
+  successStoriesLink
+}: {
+  buyerName: string;
+  featuredAgents?: string | null;
+  browseLink?: string | null;
+  successStoriesLink?: string | null;
+}) {
+  const safeName = escapeHtml(buyerName);
+  const safeFeatured = escapeHtml(
+    featuredAgents?.trim() ||
+      "Missed Call Text-Back, Appointment Reminder Pro, and Google Review Booster"
+  );
+  const safeBrowse = escapeHtml(browseLink?.trim() || marketplaceLink);
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, now that you're set up, here are some of the most popular agents on ${brandName} right now.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background-color:#f8fafc;"><tr><td width="4" style="width:4px;background-color:#cbd5e1;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#334155;">${safeFeatured}</td></tr></table>
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Each one is ready to try in minutes, with no setup required to test it out.</p>
+${primaryButton(safeBrowse, "Browse featured agents")}
+</td>
+</tr>`;
+
+  return emailShell(
+    "Hand-picked agents teams are using every day.",
+    `Discover the most popular agents on ${brandName}`,
+    inner
+  );
+}
+
+// --- 3) ROI / results email (day 7 of onboarding) --------------------------
+
+type SendBuyerRoiEmailInput = {
+  to: string;
+  buyerName?: string | null;
+  industry?: string | null;
+  caseStudies?: string | null;
+  demoLink?: string | null;
+};
+
+export async function sendBuyerRoiEmail({
+  to,
+  buyerName,
+  industry,
+  caseStudies,
+  demoLink
+}: SendBuyerRoiEmailInput) {
+  const name = buyerName?.trim() || "there";
+  const industryLabel = industry?.trim() || "service";
+
+  await mailTransporter.sendMail({
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+    to,
+    subject: `See the ROI: ${name}, here's what other ${industryLabel} teams achieve`,
+    text: `Hi ${name}, a week in is a good time to look at what's possible. Teams in ${industryLabel} are seeing measurable results with ${brandName} agents. Explore your dashboard or schedule a demo: ${demoLink?.trim() || helpLink}`,
+    html: buildBuyerRoiEmailHtml({ buyerName: name, industry: industryLabel, caseStudies, demoLink })
+  });
+}
+
+function buildBuyerRoiEmailHtml({
+  buyerName,
+  industry,
+  caseStudies,
+  demoLink
+}: {
+  buyerName: string;
+  industry: string;
+  caseStudies?: string | null;
+  demoLink?: string | null;
+}) {
+  const safeName = escapeHtml(buyerName);
+  const safeIndustry = escapeHtml(industry);
+  const safeCaseStudies = escapeHtml(
+    caseStudies?.trim() || "how teams like yours automate follow-ups and win back missed calls"
+  );
+  const safeDemo = escapeHtml(demoLink?.trim() || helpLink);
+
+  const statCell = (value: string, label: string) =>
+    `<td align="center" valign="top" width="33%" style="padding:14px 8px;background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;"><div style="${emailBodyStyle}font-size:21px;font-weight:700;color:#b45309;line-height:1.2;">${value}</div><div style="${emailBodyStyle}font-size:12px;color:#92400e;margin-top:4px;line-height:1.3;">${label}</div></td>`;
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, a week in is a good time to look at what's possible. Teams in ${safeIndustry} are seeing measurable results with ${brandName} agents.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;"><tr>
+${statCell("30%", "Less time on admin")}
+<td width="10" style="font-size:0;line-height:0;">&nbsp;</td>
+${statCell("2x", "Faster response time")}
+<td width="10" style="font-size:0;line-height:0;">&nbsp;</td>
+${statCell("98%", "Tasks completed")}
+</tr></table>
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">We've pulled together case studies relevant to your work: ${safeCaseStudies}</p>
+${primaryButton(safeDemo, "Schedule a demo")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">Prefer to explore on your own? Everything above is available in your dashboard.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    "Real results from teams like yours.",
+    `See the ROI: ${safeName}, here's what other ${safeIndustry} teams achieve`,
+    inner
+  );
 }

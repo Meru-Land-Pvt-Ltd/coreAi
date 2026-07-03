@@ -6,7 +6,7 @@ import { hashPassword, verifyPassword } from "../../lib/password";
 import { createAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth } from "../../middleware/auth";
-import { sendVerificationEmail } from "../../lib/mailer";
+import { sendBuyerWelcomeEmail, sendVerificationEmail } from "../../lib/mailer";
 import { getFirebaseAdminAuth } from "../../lib/firebase-admin";
 import {
   loginSchema,
@@ -31,6 +31,22 @@ function getNameFromEmail(email: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 
   return formattedName || "User";
+}
+
+// Fire-and-forget welcome email for a buyer's very first login. Failures are
+// logged but never block the auth response.
+function sendWelcomeEmailIfNewBuyer(
+  user: { email: string; fullName: string | null; role: unknown },
+  isNewUser: boolean
+) {
+  if (!isNewUser || user.role !== "BUSINESS") return;
+
+  void sendBuyerWelcomeEmail({
+    to: user.email,
+    buyerName: user.fullName
+  }).catch((error) => {
+    console.error("Failed to send buyer welcome email:", error);
+  });
 }
 
 function toSafeUser(user: {
@@ -252,6 +268,8 @@ authRoutes.post("/verify-code", async (c) => {
       );
     }
 
+    const isNewUser = !user;
+
     if (!user) {
       user = await prisma.user.create({
         data: {
@@ -284,6 +302,8 @@ authRoutes.post("/verify-code", async (c) => {
       });
     }
 
+    sendWelcomeEmailIfNewBuyer(user, isNewUser);
+
     const safeUser = {
       ...toSafeUser(user),
       architectProfile: user.architectProfile
@@ -299,7 +319,8 @@ authRoutes.post("/verify-code", async (c) => {
       c,
       {
         token,
-        user: safeUser
+        user: safeUser,
+        isNewUser
       },
       "Email verified successfully"
     );
@@ -382,6 +403,8 @@ authRoutes.post("/firebase-login", async (c) => {
       );
     }
 
+    const isNewUser = !user;
+
     if (!user) {
       console.log("Creating user:", {
         email,
@@ -431,6 +454,8 @@ authRoutes.post("/firebase-login", async (c) => {
       role: user.role
     });
 
+    sendWelcomeEmailIfNewBuyer(user, isNewUser);
+
     const safeUser = {
       ...toSafeUser(user),
       architectProfile: user.architectProfile
@@ -452,7 +477,8 @@ authRoutes.post("/firebase-login", async (c) => {
       c,
       {
         token,
-        user: safeUser
+        user: safeUser,
+        isNewUser
       },
       "Google login successful"
     );
