@@ -59,6 +59,11 @@ export type PlatformPhoneOption = {
   assignedToThisBusiness: boolean;
   /** True for the number currently assigned to this business (server-computed). */
   selected?: boolean;
+  /** e.g. { voice: true, sms: false, mms: false } */
+  capabilities?: { voice?: boolean; sms?: boolean; mms?: boolean } | null;
+  country?: string | null;
+  region?: string | null;
+  locality?: string | null;
 };
 
 export type ConnectorRequirement = {
@@ -142,6 +147,7 @@ export type CallRoutingCheck = {
 };
 
 export type CallRoutingResult = {
+  ok?: boolean;
   number: string | null;
   webhookUrl: string;
   readyForCall: boolean;
@@ -191,7 +197,7 @@ export function getBusinessPhoneNumbers() {
   return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");
 }
 
-export function testCallRouting(body: { phoneNumber?: string }) {
+export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPhoneNumberId?: string }) {
   return apiPost<CallRoutingResult>(
     "/business/setup/test-call-routing",
     body as Record<string, unknown>

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { normalizeTimeZone, requiredConnectorsForWorkflow, type ConnectorRequirement } from "@coreai/shared";
-import { env } from "../../config/env";
+import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
@@ -141,7 +141,8 @@ const businessSetupSchema = z.object({
   deploy: z.boolean().optional(),
   bookingUrl: z.string().trim().url().optional().or(z.literal("")),
   teamPhone: z.string().trim().optional().or(z.literal("")),
-  timeZone: z.string().trim().default("America/New_York"),
+  // Priority: buyer-saved tz > browser tz (sent by the wizard) > Asia/Kolkata.
+  timeZone: z.string().trim().default("Asia/Kolkata"),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
   services: z.array(z.string().trim().min(1)).default([]),
@@ -275,7 +276,11 @@ async function loadPhoneOptions(businessId: string | null) {
     phoneNumber: number.phoneNumber,
     provider: number.provider,
     status: number.status,
-    assignedToThisBusiness: Boolean(businessId && number.businessId === businessId)
+    assignedToThisBusiness: Boolean(businessId && number.businessId === businessId),
+    capabilities: number.capabilities ?? null,
+    country: number.country ?? null,
+    region: number.region ?? null,
+    locality: number.locality ?? null
   }));
 
   const selectedPlatformPhoneNumberId = mapped.find((number) => number.assignedToThisBusiness)?.id ?? null;
@@ -353,7 +358,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       ok: backendPublic,
       message: backendPublic
         ? backendIsTunnel
-          ? "Reachable via an ngrok tunnel — fine for testing, use a real domain (e.g. https://api.triven.ai) in production."
+          ? "Reachable via a tunnel — fine for testing, use the production domain (e.g. https://triven.ai/api) in production."
           : undefined
         : "BACKEND_URL is not a public https URL — Twilio cannot reach the webhook."
     },
@@ -362,13 +367,36 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       label: "Twilio voice webhook URL",
       ok: backendPublic,
       message: `Set the Twilio number's voice webhook to POST ${webhookUrl}`
+    },
+    {
+      key: "signature_validation",
+      label: "Twilio signature validation",
+      ok: !isProduction || env.TWILIO_VALIDATE_SIGNATURE,
+      message: env.TWILIO_VALIDATE_SIGNATURE
+        ? undefined
+        : isProduction
+          ? "Set TWILIO_VALIDATE_SIGNATURE=true in production — webhooks are currently unauthenticated."
+          : "Off in dev (fine); set TWILIO_VALIDATE_SIGNATURE=true in production."
+    },
+    {
+      key: "no_env_phone_dependency",
+      label: "Phone numbers managed in database",
+      ok: true,
+      message: "Numbers are resolved from PlatformPhoneNumber/BusinessPhoneNumber — no env phone number required."
     }
   ];
 
-  const requested = await c.req
+  const requestBody = await c.req
     .json()
-    .then((body) => (body && typeof body.phoneNumber === "string" ? body.phoneNumber : ""))
-    .catch(() => "");
+    .then((body) => (body && typeof body === "object" ? (body as Record<string, unknown>) : {}))
+    .catch(() => ({}) as Record<string, unknown>);
+  const requested = typeof requestBody.phoneNumber === "string" ? requestBody.phoneNumber : "";
+  const requestedId =
+    typeof requestBody.selectedPlatformPhoneNumberId === "string" ? requestBody.selectedPlatformPhoneNumberId.trim() : "";
+
+  const requestedPlatform = requestedId
+    ? await prisma.platformPhoneNumber.findUnique({ where: { id: requestedId } })
+    : null;
 
   const activePhone = business?.phoneNumbers?.[0] ?? null;
   const assignedPlatform = business
@@ -378,10 +406,16 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       })
     : null;
 
-  const number = normalizePhoneNumber(requested) || activePhone?.phoneNumber || assignedPlatform?.phoneNumber || "";
+  const number =
+    normalizePhoneNumber(requested) ||
+    requestedPlatform?.phoneNumber ||
+    activePhone?.phoneNumber ||
+    assignedPlatform?.phoneNumber ||
+    "";
 
   if (!number) {
     return successResponse(c, {
+      ok: false,
       number: null,
       webhookUrl,
       readyForCall: false,
@@ -417,12 +451,18 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       ok: Boolean(installedAgent && installedAgent.status === "ACTIVE")
     },
     { key: "vapi_assistant", label: "Vapi assistant id exists", ok: diagnostics.hasVapiAssistantId },
+    {
+      key: "answering_mode_set",
+      label: "Answering mode is set",
+      ok: Boolean(diagnostics.routingMode),
+      message: diagnostics.routingMode ? `Mode: ${diagnostics.routingMode}` : "Choose an answering mode in Step 2."
+    },
     { key: "answering_mode", label: "Answering mode allows answering", ok: diagnostics.aiWouldAnswer },
     { key: "resolver", label: "Twilio resolver can resolve this number", ok: diagnostics.resolved }
   ];
   const readyForCall = checks.every((check) => check.ok);
 
-  return successResponse(c, { number, webhookUrl, readyForCall, resolveReason: diagnostics.resolveReason, checks });
+  return successResponse(c, { ok: readyForCall, number, webhookUrl, readyForCall, resolveReason: diagnostics.resolveReason, checks });
 });
 
 type SetupChecklistItem = {
@@ -779,41 +819,69 @@ businessRoutes.post("/setup", async (c) => {
         return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
       }
 
-      // Switching numbers: release the old platform number + deactivate the old mapping.
-      if (existingPhone && existingPhone.phoneNumber !== targetNumber) {
-        await prisma.platformPhoneNumber.updateMany({
-          where: { phoneNumber: existingPhone.phoneNumber, businessId: business.id },
-          data: { status: "AVAILABLE", businessId: null, assignedAt: null }
-        });
-        await prisma.businessPhoneNumber.update({
-          where: { id: existingPhone.id },
-          data: { isActive: false, installedAgentId: null }
-        });
-      }
-
-      businessPhone = await prisma.businessPhoneNumber.upsert({
-        where: { phoneNumber: targetNumber },
-        update: {
-          businessId: business.id,
-          installedAgentId: installedAgent.id,
-          twilioPhoneNumberSid: targetPlatform.twilioSid ?? null,
-          forwardToPhone: forward,
-          isActive: true
-        },
-        create: {
-          businessId: business.id,
-          installedAgentId: installedAgent.id,
-          phoneNumber: targetNumber,
-          twilioPhoneNumberSid: targetPlatform.twilioSid ?? null,
-          forwardToPhone: forward,
-          isActive: true
+      // Number release + mapping + assignment are one atomic unit: either the
+      // platform number, the BusinessPhoneNumber mapping, and the agent link all
+      // update together, or none do (no half-assigned numbers on failure).
+      businessPhone = await prisma.$transaction(async (tx) => {
+        // Re-check inside the transaction so two concurrent deploys can't both
+        // grab the same AVAILABLE number.
+        const fresh = await tx.platformPhoneNumber.findUnique({ where: { id: targetPlatform.id } });
+        if (!fresh || (fresh.businessId && fresh.businessId !== business.id)) {
+          throw new Error("PHONE_NUMBER_TAKEN");
         }
+
+        // Switching numbers: release the old platform number + deactivate the old mapping.
+        if (existingPhone && existingPhone.phoneNumber !== targetNumber) {
+          await tx.platformPhoneNumber.updateMany({
+            where: { phoneNumber: existingPhone.phoneNumber, businessId: business.id },
+            data: { status: "AVAILABLE", businessId: null, assignedAt: null }
+          });
+          await tx.businessPhoneNumber.update({
+            where: { id: existingPhone.id },
+            data: { isActive: false, installedAgentId: null }
+          });
+        }
+
+        const mapping = await tx.businessPhoneNumber.upsert({
+          where: { phoneNumber: targetNumber },
+          update: {
+            businessId: business.id,
+            installedAgentId: installedAgent.id,
+            provider: targetPlatform.provider,
+            twilioPhoneNumberSid: targetPlatform.twilioSid ?? null,
+            forwardToPhone: forward,
+            isActive: true
+          },
+          create: {
+            businessId: business.id,
+            installedAgentId: installedAgent.id,
+            phoneNumber: targetNumber,
+            provider: targetPlatform.provider,
+            twilioPhoneNumberSid: targetPlatform.twilioSid ?? null,
+            forwardToPhone: forward,
+            isActive: true
+          }
+        });
+
+        await tx.platformPhoneNumber.update({
+          where: { id: targetPlatform.id },
+          data: {
+            status: "ASSIGNED",
+            businessId: business.id,
+            // Preserve the original assignment time on re-deploys.
+            assignedAt: fresh.assignedAt ?? new Date()
+          }
+        });
+
+        return mapping;
+      }).catch((error: unknown) => {
+        if (error instanceof Error && error.message === "PHONE_NUMBER_TAKEN") return null;
+        throw error;
       });
 
-      await prisma.platformPhoneNumber.update({
-        where: { id: targetPlatform.id },
-        data: { status: "ASSIGNED", businessId: business.id, assignedAt: new Date() }
-      });
+      if (!businessPhone) {
+        return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
+      }
     } else if (existingPhone) {
       // Kept the existing number (no new selection) — update forwarding + agent link.
       businessPhone = await prisma.businessPhoneNumber.update({

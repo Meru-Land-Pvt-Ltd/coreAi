@@ -433,7 +433,10 @@ function SetupWizard() {
   async function handleTestCallRouting() {
     setError("");
     setTesting(true);
-    const res = await testCallRouting({ phoneNumber: assignedNumber ?? undefined });
+    const res = await testCallRouting({
+      phoneNumber: assignedNumber ?? undefined,
+      selectedPlatformPhoneNumberId: selectedPhoneId || undefined
+    });
     setTesting(false);
     if (res.success && res.data) {
       setTestResult(res.data);
@@ -941,6 +944,10 @@ function StepPhoneCalendar({
                 : selected
                   ? "bg-amber-100 text-amber-700"
                   : "bg-gray-100 text-gray-500";
+              const location = [number.locality, number.region, number.country].filter(Boolean).join(", ");
+              const capabilities = number.capabilities
+                ? (["voice", "sms", "mms"] as const).filter((cap) => number.capabilities?.[cap])
+                : [];
               return (
                 <button
                   key={number.id}
@@ -957,7 +964,19 @@ function StepPhoneCalendar({
                   >
                     {selected ? "✓" : ""}
                   </span>
-                  <span className="font-mono text-lg font-bold text-slate-900">{number.phoneNumber}</span>
+                  <span className="min-w-0">
+                    <span className="block font-mono text-lg font-bold text-slate-900">{number.phoneNumber}</span>
+                    {location || capabilities.length > 0 ? (
+                      <span
+                        className="block text-xs text-slate-400"
+                        data-testid={`business-setup-phone-meta-${number.id}`}
+                      >
+                        {location}
+                        {location && capabilities.length > 0 ? " · " : ""}
+                        {capabilities.map((cap) => cap.toUpperCase()).join(" / ")}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className={PROVIDER_BADGE}>{number.provider === "TWILIO" ? "Twilio" : number.provider}</span>
                   <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>
                     {statusLabel}

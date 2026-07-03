@@ -24,6 +24,8 @@ const envSchema = z.object({
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_API_KEY_SID: z.string().optional(),
+  TWILIO_API_KEY_SECRET: z.string().optional(),
   TWILIO_PHONE_NUMBER: z.string().optional(),
   TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
   TWILIO_TEST_MODE: z
@@ -81,7 +83,7 @@ if (parsedEnv.NODE_ENV === "production") {
   const problems: string[] = [];
   if (isDevOnlyUrl(parsedEnv.BACKEND_URL)) {
     problems.push(
-      `BACKEND_URL (${parsedEnv.BACKEND_URL}) must be a public https URL in production (e.g. https://api.triven.ai).`
+      `BACKEND_URL (${parsedEnv.BACKEND_URL}) must be a public https URL in production (e.g. https://triven.ai/api).`
     );
   }
   if (isDevOnlyUrl(parsedEnv.FRONTEND_URL)) {

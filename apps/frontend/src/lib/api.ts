@@ -1,6 +1,6 @@
 import axios, { AxiosError } from "axios";
 
-// NEXT_PUBLIC_API_URL must be set per environment (e.g. https://api.triven.ai in
+// NEXT_PUBLIC_API_URL must be set per environment (e.g. https://triven.ai/api in
 // production). The localhost fallback exists only so a bare local checkout runs.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 
