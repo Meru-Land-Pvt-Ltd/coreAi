@@ -49,6 +49,16 @@ Boot-required: `DATABASE_URL`, `JWT_SECRET` (24+ chars), `ENCRYPTION_KEY` (24+ c
 
 **Rotate before production:** every secret that ever lived in a dev `.env` (Twilio token, Vapi key, ElevenLabs key, Google secret, JWT_SECRET, ENCRYPTION_KEY, SMTP, Stripe). AppleDouble `._.env` artifacts were committed to git history early on — treat all dev secrets as exposed. The frontend env must only contain `NEXT_PUBLIC_*` values (a stray `STRIPE_SECRET_KEY` was removed from `apps/frontend/.env.local`).
 
+### Firebase Admin (service account) — security rules
+
+Firebase Admin is **backend-only and optional** — it verifies Google sign-in ID tokens on `POST /auth/firebase-login`; if `FIREBASE_PROJECT_ID`/`FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY` are unset (or left as placeholders), the backend boots normally and only that route errors.
+
+- **Never commit a service-account JSON** — `.gitignore` blocks `service-account*.json`, `serviceAccount*.json`, `firebase-admin*.json`, `*-firebase-adminsdk-*.json`, and all `.env*` files.
+- **Never put the private key in frontend env** — the frontend uses only public `NEXT_PUBLIC_FIREBASE_*` client config (`apps/frontend/src/lib/firebase.ts`).
+- **Rotate any key that was ever pasted or shared** (incl. the `triven-ai-713a6` key generated during 2026-07-03 setup): Firebase console → Project settings → Service accounts → *Generate new private key*, then **delete the old key** in Google Cloud IAM → Service accounts → Keys.
+- `FIREBASE_PRIVATE_KEY` must be quoted with `\n`-escaped newlines (the backend unescapes via `replace(/\\n/g, "\n")`). `FIREBASE_PROJECT_ID` is the project id (`triven-ai-713a6`), **not** the JSON's `private_key_id` hex string.
+- The key is never logged; keep it that way.
+
 ## 3. Dashboard setup
 
 Twilio: see `docs/production-twilio-setup.md`. Vapi: production API key; assistants are created per business at buyer deploy (architect publish never touches Vapi). Google Cloud: publish the OAuth consent screen (Testing mode expires refresh tokens after 7 days) and add the exact redirect URI `https://triven.ai/api/architect/connectors/gmail/callback`.

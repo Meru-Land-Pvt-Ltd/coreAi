@@ -1,11 +1,15 @@
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
+function isConfigured(value: string | undefined): value is string {
+  return Boolean(value && !value.includes("CHANGE_ME"));
+}
+
 function hasFirebaseAdminConfig() {
-  return Boolean(
-    process.env.FIREBASE_PROJECT_ID &&
-      process.env.FIREBASE_CLIENT_EMAIL &&
-      process.env.FIREBASE_PRIVATE_KEY
+  return (
+    isConfigured(process.env.FIREBASE_PROJECT_ID) &&
+    isConfigured(process.env.FIREBASE_CLIENT_EMAIL) &&
+    isConfigured(process.env.FIREBASE_PRIVATE_KEY)
   );
 }
 
