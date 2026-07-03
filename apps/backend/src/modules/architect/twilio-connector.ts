@@ -17,6 +17,18 @@ export function escapeXml(value: string) {
     .replace(/'/g, "&apos;");
 }
 
+export function twilioRestAuthHeader(): string | null {
+  const apiKeySid = env.TWILIO_API_KEY_SID;
+  const apiKeySecret = env.TWILIO_API_KEY_SECRET;
+  if (apiKeySid && apiKeySecret) {
+    return `Basic ${Buffer.from(`${apiKeySid}:${apiKeySecret}`).toString("base64")}`;
+  }
+  if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
+    return `Basic ${Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString("base64")}`;
+  }
+  return null;
+}
+
 export async function sendTwilioSms({
   to,
   body,
@@ -27,16 +39,16 @@ export async function sendTwilioSms({
   fromPhoneNumber?: string | null;
 }): Promise<TwilioSmsResult> {
   const accountSid = env.TWILIO_ACCOUNT_SID;
-  const authToken = env.TWILIO_AUTH_TOKEN;
+  const authHeader = twilioRestAuthHeader();
   const isTwilioTestMode = env.TWILIO_TEST_MODE;
   const from = isTwilioTestMode ? "+15005550006" : fromPhoneNumber || env.TWILIO_PHONE_NUMBER;
   const messagingServiceSid = isTwilioTestMode
     ? undefined
     : env.TWILIO_MESSAGING_SERVICE_SID;
 
-  if (!accountSid || !authToken || (!from && !messagingServiceSid)) {
+  if (!accountSid || !authHeader || (!from && !messagingServiceSid)) {
     throw new Error(
-      "Twilio is not configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER or TWILIO_MESSAGING_SERVICE_SID. For Twilio test credentials, set TWILIO_TEST_MODE=true."
+      "Twilio is not configured. Add TWILIO_ACCOUNT_SID plus TWILIO_API_KEY_SID/TWILIO_API_KEY_SECRET (or TWILIO_AUTH_TOKEN), and an assigned business number (or TWILIO_MESSAGING_SERVICE_SID). For Twilio test credentials, set TWILIO_TEST_MODE=true."
     );
   }
 
@@ -56,7 +68,7 @@ export async function sendTwilioSms({
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        Authorization: authHeader,
         "Content-Type": "application/x-www-form-urlencoded"
       },
       body: bodyParams

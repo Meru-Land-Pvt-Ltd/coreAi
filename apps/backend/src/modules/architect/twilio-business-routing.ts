@@ -74,14 +74,30 @@ function stringParams(body: Record<string, unknown>): Record<string, string> {
 }
 
 /**
- * Rebuild the exact URL Twilio signed. Twilio signs the webhook URL it was
- * configured with, so we anchor to BACKEND_URL (the same base advertised by the
- * installation endpoint) and keep the path + query string intact.
+ * Rebuild the exact PUBLIC URL Twilio signed. Twilio signs the webhook URL it
+ * was configured with (e.g. https://triven.ai/api/architect/connectors/twilio/voice),
+ * so we anchor to BACKEND_URL — which may carry a path prefix like /api that the
+ * reverse proxy strips before the request reaches Hono. If the proxy does NOT
+ * strip the prefix, we avoid doubling it.
  */
-function twilioRequestUrl(c: Context): string {
+export function buildPublicWebhookUrl(routePath: string, search = ""): string {
   const base = env.BACKEND_URL.replace(/\/$/, "");
+  let basePath = "";
+  try {
+    basePath = new URL(base).pathname.replace(/\/$/, ""); // e.g. "/api" or ""
+  } catch {
+    basePath = "";
+  }
+  const path =
+    basePath && (routePath === basePath || routePath.startsWith(`${basePath}/`))
+      ? routePath.slice(basePath.length) // proxy didn't strip the prefix — don't double it
+      : routePath;
+  return `${base}${path}${search}`;
+}
+
+function twilioRequestUrl(c: Context): string {
   const parsed = new URL(c.req.url);
-  return `${base}${parsed.pathname}${parsed.search}`;
+  return buildPublicWebhookUrl(parsed.pathname, parsed.search);
 }
 
 function computeTwilioSignature(

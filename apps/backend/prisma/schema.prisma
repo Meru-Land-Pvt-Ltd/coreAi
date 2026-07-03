@@ -212,17 +212,19 @@ model BusinessProfile {
 }
 
 model BusinessPhoneNumber {
-  id                   String          @id @default(cuid())
+  id                   String            @id @default(cuid())
   businessId           String
   installedAgentId     String?
-  phoneNumber          String          @unique
+  phoneNumber          String            @unique
+  provider             ConnectorProvider @default(TWILIO)
   twilioPhoneNumberSid String?
   forwardToPhone       String?
-  isActive             Boolean         @default(true)
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  business             Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent       InstalledAgent? @relation(fields: [installedAgentId], references: [id])
+  isActive             Boolean           @default(true)
+  configJson           Json?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  business             Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent       InstalledAgent?   @relation(fields: [installedAgentId], references: [id])
 
   @@index([businessId])
   @@index([installedAgentId])
@@ -357,15 +359,22 @@ model VapiCall {
 }
 
 model PlatformPhoneNumber {
-  id          String              @id @default(cuid())
-  phoneNumber String              @unique
-  provider    ConnectorProvider   @default(TWILIO)
-  status      PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid   String?
-  businessId  String?
-  assignedAt  DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id               String              @id @default(cuid())
+  phoneNumber      String              @unique
+  provider         ConnectorProvider   @default(TWILIO)
+  status           PlatformPhoneStatus @default(AVAILABLE)
+  twilioSid        String?
+  /// Provider-agnostic number id (alias for twilioSid; future non-Twilio providers).
+  providerNumberId String?
+  country          String?
+  region           String?
+  locality         String?
+  /// e.g. { "voice": true, "sms": false, "mms": false }
+  capabilities     Json?
+  businessId       String?
+  assignedAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@index([status])
   @@index([businessId])

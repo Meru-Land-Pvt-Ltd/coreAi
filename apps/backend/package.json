@@ -12,6 +12,7 @@
     "seed:numbers": "tsx scripts/seed-platform-numbers.ts",
     "seed:platform-phone-numbers": "tsx scripts/seed-platform-phone-numbers.ts",
     "repair:phone-agent-links": "tsx scripts/repair-phone-agent-links.ts",
+    "verify:webhook-url": "tsx scripts/verify-webhook-url.ts",
     "list:numbers": "tsx scripts/list-platform-numbers.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",
     "cleanup:draft-agents": "tsx scripts/cleanup-draft-agents.ts"

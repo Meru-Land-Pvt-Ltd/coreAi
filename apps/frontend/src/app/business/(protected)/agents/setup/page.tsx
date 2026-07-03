@@ -11,9 +11,11 @@ import {
   getBusinessSetup,
   getMarketplaceListing,
   saveBusinessSetup,
+  testCallRouting,
   type BusinessFaq,
   type BusinessHoursItem,
   type BusinessKnowledgeItem,
+  type CallRoutingResult,
   type PlatformPhoneOption
 } from "@/components/business/features/api";
 
@@ -153,6 +155,10 @@ function SetupWizard() {
   const [deployed, setDeployed] = useState(false);
   const [successNumber, setSuccessNumber] = useState<string | null>(null);
 
+  // Step 4 — "Test call routing" checker result (runs the live Twilio resolver).
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
+
   // Step 1 — business (services/faqs editable; hours/knowledge/bookingUrl/tone preserved)
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
@@ -170,7 +176,9 @@ function SetupWizard() {
   const [assignedNumber, setAssignedNumber] = useState<string | null>(null);
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
-  const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
+  // AI_FIRST is the default for the forwarding flow: once a call reaches the CoreAI
+  // number, the AI answers immediately (carrier forwarding handles "missed" calls).
+  const [answeringMode, setAnsweringMode] = useState("AI_FIRST");
   const [calendar, setCalendar] = useState<{ connected: boolean; email: string | null }>({
     connected: false,
     email: null
@@ -229,7 +237,7 @@ function SetupWizard() {
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId ?? "");
 
       setCalendar(data.calendar ?? { connected: false, email: null });
-      setAnsweringMode(data.answeringMode || "NO_ANSWER");
+      setAnsweringMode(data.answeringMode || "AI_FIRST");
 
       const selection = data.voiceSelection ?? null;
       if (selection?.voiceId) {
@@ -272,7 +280,9 @@ function SetupWizard() {
   // required only to DEPLOY, enforced by the checklist blockers below).
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
-  async function persistSetup(deploy: boolean): Promise<{ ok: boolean; number: string }> {
+  async function persistSetup(
+    deploy: boolean
+  ): Promise<{ ok: boolean; number: string; vapiAssistantId: string | null; installedAgentId: string | null }> {
     const voiceFields = buildVoiceFields();
     const res = await saveBusinessSetup({
       deploy,
@@ -308,7 +318,7 @@ function SetupWizard() {
 
     if (!res.success || !res.data) {
       setError(res.error ?? "Could not save your setup. Please try again.");
-      return { ok: false, number: "" };
+      return { ok: false, number: "", vapiAssistantId: null, installedAgentId: null };
     }
     const data = res.data;
     const number = data.assignedPhoneNumber ?? data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
@@ -317,7 +327,12 @@ function SetupWizard() {
     if (data.availablePhoneNumbers) setPhoneNumbers(data.availablePhoneNumbers);
     if (typeof data.selectedPlatformPhoneNumberId === "string") setSelectedPhoneId(data.selectedPlatformPhoneNumberId);
     setCalendar(data.calendar ?? calendar);
-    return { ok: true, number };
+    return {
+      ok: true,
+      number,
+      vapiAssistantId: data.vapiAssistantId ?? null,
+      installedAgentId: data.installedAgentId ?? data.installedAgent?.id ?? null
+    };
   }
 
   async function handleConnectCalendar() {
@@ -392,9 +407,42 @@ function SetupWizard() {
     const result = await persistSetup(true);
     setSaving(false);
     if (!result.ok) return;
+
+    // Never show a live "success" without a real voice assistant when the agent
+    // needs one. The backend returns vapiAssistantId=null if the Vapi build failed
+    // or Vapi isn't configured.
+    const requiresVoice = new Set(requiredKeys).has("vapi");
+    if (requiresVoice && !result.vapiAssistantId) {
+      setStep(4);
+      setError("Live voice assistant was not created. Check Vapi configuration.");
+      return;
+    }
+
+    // A live deploy must have produced an installed agent and an assigned number.
+    if (!result.installedAgentId || !(result.number || assignedNumber)) {
+      setStep(4);
+      setError("Deploy did not complete — the agent or phone number was not saved. Please try again.");
+      return;
+    }
+
     setDeployed(true);
     setSuccessNumber(result.number || assignedNumber || "");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleTestCallRouting() {
+    setError("");
+    setTesting(true);
+    const res = await testCallRouting({
+      phoneNumber: assignedNumber ?? undefined,
+      selectedPlatformPhoneNumberId: selectedPhoneId || undefined
+    });
+    setTesting(false);
+    if (res.success && res.data) {
+      setTestResult(res.data);
+    } else {
+      setError(res.error ?? "Could not test call routing. Please try again.");
+    }
   }
 
   // ---- client readiness (mirrors backend; drives the deploy gate) ----
@@ -640,7 +688,15 @@ function SetupWizard() {
         ) : null}
 
         {step === 4 ? (
-          <StepDeploy checklist={checklist} blockers={blockers} readyToDeploy={readyToDeploy} assignedNumber={assignedNumber} />
+          <StepDeploy
+            checklist={checklist}
+            blockers={blockers}
+            readyToDeploy={readyToDeploy}
+            assignedNumber={assignedNumber}
+            testing={testing}
+            testResult={testResult}
+            onTestCallRouting={handleTestCallRouting}
+          />
         ) : null}
 
         {error ? (
@@ -888,6 +944,10 @@ function StepPhoneCalendar({
                 : selected
                   ? "bg-amber-100 text-amber-700"
                   : "bg-gray-100 text-gray-500";
+              const location = [number.locality, number.region, number.country].filter(Boolean).join(", ");
+              const capabilities = number.capabilities
+                ? (["voice", "sms", "mms"] as const).filter((cap) => number.capabilities?.[cap])
+                : [];
               return (
                 <button
                   key={number.id}
@@ -904,7 +964,19 @@ function StepPhoneCalendar({
                   >
                     {selected ? "✓" : ""}
                   </span>
-                  <span className="font-mono text-lg font-bold text-slate-900">{number.phoneNumber}</span>
+                  <span className="min-w-0">
+                    <span className="block font-mono text-lg font-bold text-slate-900">{number.phoneNumber}</span>
+                    {location || capabilities.length > 0 ? (
+                      <span
+                        className="block text-xs text-slate-400"
+                        data-testid={`business-setup-phone-meta-${number.id}`}
+                      >
+                        {location}
+                        {location && capabilities.length > 0 ? " · " : ""}
+                        {capabilities.map((cap) => cap.toUpperCase()).join(" / ")}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className={PROVIDER_BADGE}>{number.provider === "TWILIO" ? "Twilio" : number.provider}</span>
                   <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>
                     {statusLabel}
@@ -1109,12 +1181,18 @@ function StepDeploy({
   checklist,
   blockers,
   readyToDeploy,
-  assignedNumber
+  assignedNumber,
+  testing,
+  testResult,
+  onTestCallRouting
 }: {
   checklist: ChecklistRow[];
   blockers: string[];
   readyToDeploy: boolean;
   assignedNumber: string | null;
+  testing: boolean;
+  testResult: CallRoutingResult | null;
+  onTestCallRouting: () => void;
 }) {
   return (
     <div className={CARD}>
@@ -1126,6 +1204,68 @@ function StepDeploy({
 
       <div className="mt-6">
         <ChecklistSummary checklist={checklist} />
+      </div>
+
+      {/* Test call routing — runs the same resolver the live Twilio webhook uses. */}
+      <div className={SECTION} data-testid="business-setup-test-routing">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className={SECTION_TITLE}>Test call routing</h3>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Confirm an inbound call to your CoreAI number will reach this deployed agent.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="business-setup-test-routing-run"
+            disabled={testing}
+            onClick={onTestCallRouting}
+            className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300"
+          >
+            {testing ? "Testing…" : "Test call routing"}
+          </button>
+        </div>
+
+        {testResult ? (
+          <div className="mt-4">
+            <div
+              className={`rounded-xl px-4 py-3 text-sm font-semibold ${
+                testResult.readyForCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
+              }`}
+              data-testid="business-setup-test-routing-summary"
+            >
+              {testResult.readyForCall
+                ? `Ready — a call to ${testResult.number ?? "your CoreAI number"} will reach your agent.`
+                : "Not ready yet — resolve the failing checks below, then re-test."}
+            </div>
+            <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
+              {testResult.checks.map((check) => (
+                <li
+                  key={check.key}
+                  data-testid={`business-setup-test-routing-check-${check.key}`}
+                  className="flex items-center gap-2.5 text-sm"
+                >
+                  <span
+                    className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                      check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
+                    }`}
+                  >
+                    {check.ok ? "✓" : "✕"}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-slate-800">{check.label}</span>
+                    {check.message ? (
+                      <span className="block break-all text-xs text-slate-400">{check.message}</span>
+                    ) : null}
+                  </span>
+                  <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
+                    {check.ok ? "Pass" : "Fail"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       <div className={SECTION}>
