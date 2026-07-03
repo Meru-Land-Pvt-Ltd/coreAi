@@ -3,8 +3,8 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties } from "react";
-import { CoreHeader } from "@/components/common/header";
-import { CoreFooter } from "@/components/common/footer";
+import { CoreHeader as TrivenHeader } from "@/components/common/header";
+import { CoreFooter as TrivenFooter } from "@/components/common/footer";
 import {
   ASSIGNMENT_PATH,
   BUSINESS_LOGIN_PATH,
@@ -111,7 +111,7 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-white font-sans text-slate-600 antialiased selection:bg-amber-500/20 selection:text-slate-900">
-      <CoreHeader
+      <TrivenHeader
         navTop={0}
         navScrolled={navScrolled}
         menuOpen={menuOpen}
@@ -124,22 +124,32 @@ export default function PricingPage() {
           <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(245,158,11,0.09),rgba(255,255,255,0)_72%)]" />
 
           <div className="mx-auto max-w-3xl text-center">
-            <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700" data-testid="pricing-simple-transparent-pricing-text">
+            <span
+              className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700"
+              data-testid="pricing-simple-transparent-pricing-text"
+            >
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
               Simple, transparent pricing
             </span>
 
-            <h1 className="mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl" data-testid="pricing-pay-for-results-not-promises-heading">
+            <h1
+              className="mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl"
+              data-testid="pricing-pay-for-results-not-promises-heading"
+            >
               Pay for Results. Not Promises.
             </h1>
 
-            <p className="mx-auto mt-5 max-w-2xl text-pretty text-xl leading-relaxed text-slate-600" data-testid="pricing-buy-an-agent-once-pay-only-when-text">
+            <p
+              className="mx-auto mt-5 max-w-2xl text-pretty text-xl leading-relaxed text-slate-600"
+              data-testid="pricing-buy-an-agent-once-pay-only-when-text"
+            >
               Buy an agent once. Pay only when it works for you. No subscriptions, no
               monthly fees, no surprises.
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link data-testid="pricing-start-free-trial-link"
+              <Link
+                data-testid="pricing-start-free-trial-link"
                 href={"#free-trial" as Route}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-7 py-3.5 text-base font-semibold text-slate-950 shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)] transition duration-200 hover:scale-[1.03] hover:bg-amber-400 sm:w-auto"
               >
@@ -147,7 +157,8 @@ export default function PricingPage() {
                 <ArrowIcon />
               </Link>
 
-              <Link data-testid="pricing-see-the-calculator-link"
+              <Link
+                data-testid="pricing-see-the-calculator-link"
                 href={"#calculator" as Route}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-7 py-3.5 text-base font-semibold text-slate-700 transition duration-200 hover:border-amber-400 hover:text-amber-600 sm:w-auto"
               >
@@ -158,14 +169,18 @@ export default function PricingPage() {
 
           <div className="mx-auto mt-14 grid max-w-2xl gap-5 sm:grid-cols-2">
             <div className="rounded-2xl border border-gray-100 bg-white p-7 text-center shadow-xl transition duration-200 hover:-translate-y-1">
-              <p className="text-sm font-medium text-slate-500" data-testid="pricing-average-roi-text">Average ROI</p>
+              <p className="text-sm font-medium text-slate-500" data-testid="pricing-average-roi-text">
+                Average ROI
+              </p>
               <div className="mt-2 text-5xl font-black tracking-tight text-amber-600">
                 2,150%
               </div>
             </div>
 
             <div className="rounded-2xl border border-gray-100 bg-white p-7 text-center shadow-xl transition duration-200 hover:-translate-y-1">
-              <p className="text-sm font-medium text-slate-500" data-testid="pricing-average-monthly-cost-text">Average monthly cost</p>
+              <p className="text-sm font-medium text-slate-500" data-testid="pricing-average-monthly-cost-text">
+                Average monthly cost
+              </p>
               <div className="mt-2 text-5xl font-black tracking-tight text-slate-900">
                 $40
               </div>
@@ -179,10 +194,16 @@ export default function PricingPage() {
         <section className="px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-how-pricing-works-heading">
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-how-pricing-works-heading"
+              >
                 How pricing works
               </h2>
-              <p className="mt-3 text-lg text-slate-600" data-testid="pricing-three-simple-steps-zero-monthly-commitment-text">
+              <p
+                className="mt-3 text-lg text-slate-600"
+                data-testid="pricing-three-simple-steps-zero-monthly-commitment-text"
+              >
                 Three simple steps. Zero monthly commitment.
               </p>
             </div>
@@ -212,7 +233,8 @@ export default function PricingPage() {
                           ? "gap-2 border border-gray-200 bg-white text-slate-700"
                           : "border border-amber-200 bg-amber-50 text-amber-700"
                       }`}
-                     data-testid="pricing-step-badge-active-text">
+                      data-testid="pricing-step-badge-active-text"
+                    >
                       {step.badge === "Active" ? (
                         <span className="relative flex h-2.5 w-2.5">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -241,10 +263,16 @@ export default function PricingPage() {
         <section className="bg-gray-50 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-transparent-execution-pricing-heading">
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-transparent-execution-pricing-heading"
+              >
                 Transparent execution pricing
               </h2>
-              <p className="mt-3 text-lg text-slate-600" data-testid="pricing-every-action-has-a-clear-fixed-cost-text">
+              <p
+                className="mt-3 text-lg text-slate-600"
+                data-testid="pricing-every-action-has-a-clear-fixed-cost-text"
+              >
                 Every action has a clear, fixed cost. No surprises.
               </p>
             </div>
@@ -278,7 +306,10 @@ export default function PricingPage() {
               ))}
             </div>
 
-            <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500" data-testid="pricing-fees-cover-ai-processing-api-calls-and-text">
+            <p
+              className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500"
+              data-testid="pricing-fees-cover-ai-processing-api-calls-and-text"
+            >
               Fees cover AI processing, API calls, and infrastructure. Volume discounts at
               1,000+ executions/month.
             </p>
@@ -288,10 +319,16 @@ export default function PricingPage() {
         <section id="calculator" className="scroll-mt-24 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-5xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-estimate-your-monthly-cost-heading">
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-estimate-your-monthly-cost-heading"
+              >
                 Estimate your monthly cost
               </h2>
-              <p className="mt-3 text-lg text-slate-600" data-testid="pricing-see-exactly-what-you-apos-d-pay-text">
+              <p
+                className="mt-3 text-lg text-slate-600"
+                data-testid="pricing-see-exactly-what-you-apos-d-pay-text"
+              >
                 See exactly what you&apos;d pay based on your usage.
               </p>
             </div>
@@ -323,7 +360,11 @@ export default function PricingPage() {
                 </div>
 
                 <div className="mt-9">
-                  <label className="text-sm font-medium text-slate-700" htmlFor="exec-slider" data-testid="pricing-estimated-executions-per-month-label">
+                  <label
+                    className="text-sm font-medium text-slate-700"
+                    htmlFor="exec-slider"
+                    data-testid="pricing-estimated-executions-per-month-label"
+                  >
                     Estimated executions per month
                   </label>
 
@@ -335,7 +376,8 @@ export default function PricingPage() {
                       {executions.toLocaleString("en-US")}
                     </div>
 
-                    <input data-testid="pricing-exec-slider-input"
+                    <input
+                      data-testid="pricing-exec-slider-input"
                       id="exec-slider"
                       type="range"
                       min={50}
@@ -356,7 +398,11 @@ export default function PricingPage() {
                 </div>
 
                 <div className="mt-7">
-                  <label className="text-sm font-medium text-slate-700" htmlFor="fee-slider" data-testid="pricing-average-fee-per-execution-label">
+                  <label
+                    className="text-sm font-medium text-slate-700"
+                    htmlFor="fee-slider"
+                    data-testid="pricing-average-fee-per-execution-label"
+                  >
                     Average fee per execution
                   </label>
 
@@ -368,7 +414,8 @@ export default function PricingPage() {
                       ${(feeCents / 100).toFixed(2)}
                     </div>
 
-                    <input data-testid="pricing-fee-slider-input"
+                    <input
+                      data-testid="pricing-fee-slider-input"
                       id="fee-slider"
                       type="range"
                       min={10}
@@ -390,19 +437,27 @@ export default function PricingPage() {
               </div>
 
               <div className="flex flex-col rounded-2xl border border-amber-200 bg-amber-50 p-8 shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)]">
-                <p className="text-sm text-slate-500" data-testid="pricing-one-time-agent-cost-agent-price-to-text">
+                <p
+                  className="text-sm text-slate-500"
+                  data-testid="pricing-one-time-agent-cost-agent-price-to-text"
+                >
                   One-time agent cost:{" "}
                   <span className="font-semibold text-slate-700" data-testid="pricing-agent-price-to-locale-string-en-us-text">
                     ${agentPrice.toLocaleString("en-US")}
                   </span>{" "}
-                  <span className="text-slate-400" data-testid="pricing-billed-once-text">· billed once</span>
+                  <span className="text-slate-400" data-testid="pricing-billed-once-text">
+                    · billed once
+                  </span>
                 </p>
 
                 <div className="mt-5">
                   <p className="text-sm font-medium text-slate-500" data-testid="pricing-monthly-execution-cost-text">
                     Monthly execution cost
                   </p>
-                  <p className="mt-1 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl" data-testid="pricing-money-monthly-cost-text">
+                  <p
+                    className="mt-1 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl"
+                    data-testid="pricing-money-monthly-cost-text"
+                  >
                     {money(monthlyCost)}
                   </p>
                 </div>
@@ -418,7 +473,9 @@ export default function PricingPage() {
                     </p>
                     <p className="text-2xl font-bold text-emerald-600" data-testid="pricing-money-revenue-recovered-mo-text">
                       {money(revenueRecovered)}
-                      <span className="text-base font-medium" data-testid="pricing-mo-text">/mo</span>
+                      <span className="text-base font-medium" data-testid="pricing-mo-text">
+                        /mo
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -427,12 +484,16 @@ export default function PricingPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500" data-testid="pricing-your-roi-text">
                     Your ROI
                   </p>
-                  <p className="mt-1 text-5xl font-black tracking-tight text-amber-600" data-testid="pricing-math-round-roi-to-locale-string-en-text">
+                  <p
+                    className="mt-1 text-5xl font-black tracking-tight text-amber-600"
+                    data-testid="pricing-math-round-roi-to-locale-string-en-text"
+                  >
                     {Math.round(roi).toLocaleString("en-US")}%
                   </p>
                 </div>
 
-                <Link data-testid="pricing-start-free-first-50-executions-on-us-link"
+                <Link
+                  data-testid="pricing-start-free-first-50-executions-on-us-link"
                   href={"#free-trial" as Route}
                   className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)] transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
                 >
@@ -447,10 +508,16 @@ export default function PricingPage() {
         <section className="bg-gray-50 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-why-core-wins-heading">
-                Why CORE wins
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-why-triven-wins-heading"
+              >
+                Why Triven wins
               </h2>
-              <p className="mt-3 text-lg text-slate-600" data-testid="pricing-same-job-a-fraction-of-the-cost-text">
+              <p
+                className="mt-3 text-lg text-slate-600"
+                data-testid="pricing-same-job-a-fraction-of-the-cost-text"
+              >
                 Same job. A fraction of the cost — and it never clocks out.
               </p>
             </div>
@@ -460,11 +527,21 @@ export default function PricingPage() {
                 <table className="w-full min-w-[680px] text-left">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-6 py-4" data-testid="pricing-solution-column-header">Solution</th>
-                      <th className="px-6 py-4" data-testid="pricing-monthly-cost-column-header">Monthly cost</th>
-                      <th className="px-6 py-4" data-testid="pricing-availability-column-header">Availability</th>
-                      <th className="px-6 py-4" data-testid="pricing-personalization-column-header">Personalization</th>
-                      <th className="px-6 py-4" data-testid="pricing-setup-time-column-header">Setup time</th>
+                      <th className="px-6 py-4" data-testid="pricing-solution-column-header">
+                        Solution
+                      </th>
+                      <th className="px-6 py-4" data-testid="pricing-monthly-cost-column-header">
+                        Monthly cost
+                      </th>
+                      <th className="px-6 py-4" data-testid="pricing-availability-column-header">
+                        Availability
+                      </th>
+                      <th className="px-6 py-4" data-testid="pricing-personalization-column-header">
+                        Personalization
+                      </th>
+                      <th className="px-6 py-4" data-testid="pricing-setup-time-column-header">
+                        Setup time
+                      </th>
                     </tr>
                   </thead>
 
@@ -492,16 +569,33 @@ export default function PricingPage() {
                     />
 
                     <tr className="border-l-4 border-amber-500 bg-amber-50">
-                      <td className="px-6 py-5 font-extrabold text-slate-900" data-testid="pricing-core-cell">CORE</td>
-                      <td className="px-6 py-5 font-extrabold text-amber-700" data-testid="pricing-40-80-mo-average-cell">
-                        $40–80/mo{" "}
-                        <span className="font-medium text-slate-500" data-testid="pricing-average-text">average</span>
+                      <td
+                        className="px-6 py-5 font-extrabold text-slate-900"
+                        data-testid="pricing-triven-cell"
+                      >
+                        Triven
                       </td>
-                      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-24-7-cell">24/7</td>
-                      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-fully-personalized-ai-cell">
+                      <td
+                        className="px-6 py-5 font-extrabold text-amber-700"
+                        data-testid="pricing-40-80-mo-average-cell"
+                      >
+                        $40–80/mo{" "}
+                        <span className="font-medium text-slate-500" data-testid="pricing-average-text">
+                          average
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-24-7-cell">
+                        24/7
+                      </td>
+                      <td
+                        className="px-6 py-5 font-semibold text-slate-900"
+                        data-testid="pricing-fully-personalized-ai-cell"
+                      >
                         Fully personalized AI
                       </td>
-                      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-2-minutes-cell">2 minutes</td>
+                      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-2-minutes-cell">
+                        2 minutes
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -513,10 +607,16 @@ export default function PricingPage() {
         <section className="px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-volume-discounts-heading">
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-volume-discounts-heading"
+              >
                 Volume discounts
               </h2>
-              <p className="mt-3 text-lg text-slate-600" data-testid="pricing-the-more-your-agents-work-the-less-text">
+              <p
+                className="mt-3 text-lg text-slate-600"
+                data-testid="pricing-the-more-your-agents-work-the-less-text"
+              >
                 The more your agents work, the less each execution costs.
               </p>
             </div>
@@ -533,7 +633,10 @@ export default function PricingPage() {
         <section id="free-trial" className="scroll-mt-24 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-2xl rounded-3xl bg-gradient-to-br from-amber-300 to-amber-100 p-[2px] shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)]">
             <div className="rounded-[calc(1.5rem-2px)] bg-white px-6 py-12 text-center sm:px-12">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-try-before-you-pay-heading">
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-try-before-you-pay-heading"
+              >
                 Try before you pay
               </h2>
 
@@ -543,14 +646,24 @@ export default function PricingPage() {
                   "No credit card required",
                   "Full functionality — zero feature limits"
                 ].map((item) => (
-                  <li key={item} data-testid={`pricing-free-feature-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3">
+                  <li
+                    key={item}
+                    data-testid={`pricing-free-feature-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    className="flex items-center gap-3"
+                  >
                     <CheckCircle />
-                    <span className="text-slate-700" data-testid={`pricing-free-feature-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
+                    <span
+                      className="text-slate-700"
+                      data-testid={`pricing-free-feature-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {item}
+                    </span>
                   </li>
                 ))}
               </ul>
 
-              <Link data-testid="pricing-start-free-trial-link-2"
+              <Link
+                data-testid="pricing-start-free-trial-link-2"
                 href={BUSINESS_LOGIN_PATH}
                 className="mt-9 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-9 py-4 text-lg font-semibold text-slate-950 shadow-[0_0_90px_-10px_rgba(245,158,11,0.3)] transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
               >
@@ -564,7 +677,10 @@ export default function PricingPage() {
         <section className="bg-gray-50 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-3xl">
             <div className="text-center">
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl" data-testid="pricing-frequently-asked-questions-heading">
+              <h2
+                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
+                data-testid="pricing-frequently-asked-questions-heading"
+              >
                 Frequently asked questions
               </h2>
             </div>
@@ -611,11 +727,17 @@ export default function PricingPage() {
           <div className="pointer-events-none absolute inset-x-0 top-1/2 z-0 h-64 -translate-y-1/2 bg-[radial-gradient(50%_70%_at_50%_50%,rgba(245,158,11,0.22),transparent_70%)]" />
 
           <div className="relative mx-auto max-w-3xl text-center">
-            <h2 className="text-balance text-3xl font-extrabold tracking-tight text-white sm:text-4xl lg:text-5xl" data-testid="pricing-ready-to-stop-overpaying-for-automation-heading">
+            <h2
+              className="text-balance text-3xl font-extrabold tracking-tight text-white sm:text-4xl lg:text-5xl"
+              data-testid="pricing-ready-to-stop-overpaying-for-automation-heading"
+            >
               Ready to Stop Overpaying for Automation?
             </h2>
 
-            <p className="mx-auto mt-4 max-w-xl text-lg text-slate-300" data-testid="pricing-browse-50-agents-buy-once-pay-only-text">
+            <p
+              className="mx-auto mt-4 max-w-xl text-lg text-slate-300"
+              data-testid="pricing-browse-50-agents-buy-once-pay-only-text"
+            >
               Browse 50+ agents. Buy once. Pay only when they deliver.
             </p>
 
@@ -628,7 +750,8 @@ export default function PricingPage() {
                 <ArrowIcon className="h-5 w-5" />
               </Link>
 
-              <Link data-testid="pricing-take-free-assessment-link"
+              <Link
+                data-testid="pricing-take-free-assessment-link"
                 href={ASSIGNMENT_PATH}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 px-8 py-4 text-base font-semibold text-white transition duration-200 hover:scale-[1.03] hover:bg-white/10 sm:w-auto"
               >
@@ -639,7 +762,7 @@ export default function PricingPage() {
         </section>
       </main>
 
-      <CoreFooter />
+      <TrivenFooter />
     </div>
   );
 }
@@ -676,13 +799,21 @@ function CompareRow({
 }) {
   return (
     <tr className="border-b border-gray-100">
-      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-solution-cell">{solution}</td>
+      <td className="px-6 py-5 font-semibold text-slate-900" data-testid="pricing-solution-cell">
+        {solution}
+      </td>
       <td className="px-6 py-5" data-testid="pricing-cost-cell">
         <s className="text-slate-400">{cost}</s>
       </td>
-      <td className="px-6 py-5 text-slate-600" data-testid="pricing-availability-cell">{availability}</td>
-      <td className="px-6 py-5 text-slate-600" data-testid="pricing-personalization-cell">{personalization}</td>
-      <td className="px-6 py-5 text-slate-600" data-testid="pricing-setup-cell">{setup}</td>
+      <td className="px-6 py-5 text-slate-600" data-testid="pricing-availability-cell">
+        {availability}
+      </td>
+      <td className="px-6 py-5 text-slate-600" data-testid="pricing-personalization-cell">
+        {personalization}
+      </td>
+      <td className="px-6 py-5 text-slate-600" data-testid="pricing-setup-cell">
+        {setup}
+      </td>
     </tr>
   );
 }
@@ -714,18 +845,24 @@ function DiscountCard({
         </span>
       ) : null}
 
-      <p className="text-sm font-semibold text-slate-900" data-testid="pricing-title-text">{title}</p>
-      <p className="mt-1 text-xs text-slate-500" data-testid="pricing-range-text">{range}</p>
+      <p className="text-sm font-semibold text-slate-900" data-testid="pricing-title-text">
+        {title}
+      </p>
+      <p className="mt-1 text-xs text-slate-500" data-testid="pricing-range-text">
+        {range}
+      </p>
       <p
         className={`mt-4 text-2xl font-extrabold tracking-tight ${
           value.includes("off") ? "text-amber-600" : "text-slate-900"
         }`}
-       data-testid="pricing-4-2xl-extrabold-tracking-text">
+        data-testid="pricing-4-2xl-extrabold-tracking-text"
+      >
         {value}
       </p>
 
       {enterprise ? (
-        <Link data-testid="pricing-contact-sales-link"
+        <Link
+          data-testid="pricing-contact-sales-link"
           href={"/#footer" as Route}
           className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700"
         >

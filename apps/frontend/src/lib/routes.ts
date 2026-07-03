@@ -8,6 +8,7 @@ export const BUSINESS_AGENTS_PATH = "/business/agents" as Route;
 export const BUSINESS_PAYMENT_SUCCESS_PATH = "/business/paymentsuccess" as Route;
 export const BUSINESS_PAYMENT_FAILED_PATH = "/business/paymentfailed" as Route;
 export const BUSINESS_BILLING_PATH = "/business/billingandusage" as Route;
+export const BUSINESS_INVOICE_PATH = "/business/billingandusage/billing" as Route;
 export const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 export const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;
 export const MISSED_CALL_SETUP_PATH = "/business/agent/missed-call/setup" as Route;
@@ -15,7 +16,7 @@ export const ASSIGNMENT_PATH = "/assignment" as Route;
 export const MARKETPLACE_PATH = "/marketplace" as Route;
 export const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 export const ARCHITECT_MY_AGENTS_PATH = "/architect/agents" as Route;
-export const ARCHITECT_ANALYTICS_PATH = "/architect/analytics" as Route;
+export const ARCHITECT_ANALYTICS_PATH = "/architect/agents/analytics" as Route;
 
 export const FOOTER_HASH_PATH = "#footer" as Route;
 export const ABOUT_HASH_PATH = "/#about" as Route;
@@ -36,6 +37,11 @@ export function businessAgentDetailPath(agentId: string): Route {
   return `/business/agents/${agentId}` as Route;
 }
 
+// Single invoice detail page, carrying the invoice/payment id.
+export function businessInvoicePath(invoiceId: string): Route {
+  return `/business/billingandusage/billing?invoiceId=${encodeURIComponent(invoiceId)}` as Route;
+}
+
 // Architect publishing-status page. Carries the listing/agent id so the page can
 // resolve the agent and open the matching status panel (under review, approved, …).
 export function architectPublishingStatusPath(listingId?: string): Route {
@@ -53,8 +59,8 @@ export function architectMyAgentsPath(filter?: string): Route {
 
 export function architectAnalyticsPath(listingId?: string): Route {
   return (listingId
-    ? `/architect/analytics?listingId=${encodeURIComponent(listingId)}`
-    : "/architect/analytics") as Route;
+    ? `/architect/agents/analytics?listingId=${encodeURIComponent(listingId)}`
+    : "/architect/agents/analytics") as Route;
 }
 
 // Business install/setup destination. Buyers installing an agent go to the

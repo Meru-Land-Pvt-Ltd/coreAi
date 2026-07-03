@@ -9,15 +9,34 @@ import { getAuthToken, getAuthUser } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
+    PRIVACY_PATH,
+    TERM_PATH,
     businessPaymentFailedPath,
     businessPaymentSuccessPath,
     businessSetupPath
 } from "@/lib/routes";
 
+type CheckoutWorkflowNode = {
+    data?: {
+        label?: string;
+        title?: string;
+        connector?: string;
+    };
+};
+
+type CheckoutWorkflow = {
+    workflowJson?: {
+        nodes?: CheckoutWorkflowNode[];
+    } | null;
+};
+
 type CheckoutListing = {
     id: string;
     name: string;
     priceCents?: number | null;
+    requiredConnectors?: string[];
+    supportedLlms?: string[];
+    workflow?: CheckoutWorkflow | null;
     architect?: {
         fullName?: string | null;
         email?: string | null;
@@ -380,7 +399,7 @@ const agent = {
     reviews: 47
 };
 
-const includedItems = [
+const DEFAULT_INCLUDED_ITEMS = [
     "Automatic text-back on missed calls",
     "Customizable message templates",
     "Smart scheduling (business hours only)",
@@ -388,6 +407,29 @@ const includedItems = [
     "Performance analytics dashboard",
     "Lifetime updates — free forever"
 ];
+
+// Derive the "What's included" list from the purchased agent's listing so the
+// order summary reflects the real agent rather than static copy. The workflow
+// nodes describe the actual steps; connectors/LLMs and requiredConnectors are
+// used as a fallback when the workflow has no usable step labels.
+function getIncludedItems(listing: CheckoutListing) {
+    const nodes = listing.workflow?.workflowJson?.nodes ?? [];
+
+    const fromNodes = nodes
+        .map((node) => node.data?.label || node.data?.title)
+        .filter((value): value is string => Boolean(value?.trim()));
+
+    const fromConnectors = (listing.requiredConnectors ?? []).map(
+        (connector) => `${connector} integration`
+    );
+    const fromLlms = (listing.supportedLlms ?? []).map((llm) => `${llm} support`);
+
+    const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
+
+    if (items.length) return items;
+
+    return ["Real-time workflow automation", "Business-specific configuration"];
+}
 
 const nextSteps = [
     "Connect your phone number",
@@ -472,6 +514,7 @@ export default function BusinessCheckoutPage() {
     const [listingName, setListingName] = useState(agent.name);
     const [listingAuthor, setListingAuthor] = useState(agent.author);
     const [basePrice, setBasePrice] = useState(agent.price);
+    const [includedItems, setIncludedItems] = useState<string[]>(DEFAULT_INCLUDED_ITEMS);
     const [trialError, setTrialError] = useState("");
     const [paymentTab, setPaymentTab] = useState<PaymentTab>("credit");
 
@@ -479,22 +522,22 @@ export default function BusinessCheckoutPage() {
     const [expiry, setExpiry] = useState("");
     const [cvc, setCvc] = useState("");
     const [cardName, setCardName] = useState("");
-    const [country, setCountry] = useState("US");
+    const [addressLine, setAddressLine] = useState("");
     const [zip, setZip] = useState("");
+
+    // Country is fixed to the United States for now.
+    const country = "US";
 
     const [touched, setTouched] = useState({
         card: false,
         expiry: false,
         cvc: false,
         name: false,
+        address: false,
         zip: false
     });
 
     const [attemptedSubmit, setAttemptedSubmit] = useState(false);
-    const [promoOpen, setPromoOpen] = useState(false);
-    const [promoCode, setPromoCode] = useState("");
-    const [promoApplied, setPromoApplied] = useState(false);
-    const [promoError, setPromoError] = useState("");
     const [processing, setProcessing] = useState(false);
     const [checkoutError, setCheckoutError] = useState("");
     const [confirmation, setConfirmation] = useState(false);
@@ -511,10 +554,11 @@ export default function BusinessCheckoutPage() {
         expiry: isExpiryValid(expiry),
         cvc: new RegExp(`^\\d{${requiredCvcLength}}$`).test(cvc),
         name: cardName.trim().length >= 2 && /[a-zA-Z]/.test(cardName),
+        address: addressLine.trim().length >= 3,
         zip: isZipValid(country, zip)
     };
 
-    const futureAmount = promoApplied ? Math.round(basePrice * 0.9 * 100) / 100 : basePrice;
+    const futureAmount = basePrice;
 
     const formReady =
         authReady &&
@@ -523,6 +567,7 @@ export default function BusinessCheckoutPage() {
                 validations.expiry &&
                 validations.cvc &&
                 validations.name &&
+                validations.address &&
                 validations.zip));
 
     useEffect(() => {
@@ -561,6 +606,9 @@ export default function BusinessCheckoutPage() {
                     agent.author
                 );
                 setBasePrice(Math.round((listing.priceCents ?? 0) / 100) || agent.price);
+
+                const items = getIncludedItems(listing);
+                if (items.length) setIncludedItems(items);
             }
         }
 
@@ -588,25 +636,6 @@ export default function BusinessCheckoutPage() {
 
         setCardNumber(formatted);
         setCvc(nextCvc);
-    }
-
-    function applyPromo() {
-        const cleanCode = promoCode.trim().toUpperCase();
-
-        if (!cleanCode) {
-            setPromoApplied(false);
-            setPromoError("Enter a code first.");
-            return;
-        }
-
-        if (cleanCode === "CORE10") {
-            setPromoApplied(true);
-            setPromoError("");
-            return;
-        }
-
-        setPromoApplied(false);
-        setPromoError("That code isn’t valid.");
     }
 
     function buildConfetti() {
@@ -746,14 +775,6 @@ export default function BusinessCheckoutPage() {
                                             <CardIcon />
                                             Credit card
                                         </PaymentTabButton>
-
-                                        <PaymentTabButton active={paymentTab === "google"} onClick={() => setPaymentTab("google")} testId="checkout-payment-tab-google">
-                                            Google&nbsp;Pay
-                                        </PaymentTabButton>
-
-                                        <PaymentTabButton active={paymentTab === "apple"} onClick={() => setPaymentTab("apple")} testId="checkout-payment-tab-apple">
-                                            Apple&nbsp;Pay
-                                        </PaymentTabButton>
                                     </div>
 
                                     {paymentTab === "credit" ? (
@@ -880,21 +901,36 @@ export default function BusinessCheckoutPage() {
                                                     Billing address
                                                 </h3>
 
-                                                <select data-testid="checkout-country-select"
-                                                    value={country}
-                                                    onChange={(event) => setCountry(event.target.value)}
+                                                <input data-testid="checkout-country-select"
+                                                    type="text"
+                                                    value="United States"
+                                                    readOnly
                                                     className="field"
-                                                    autoComplete="country"
-                                                >
-                                                    <option value="US">United States</option>
-                                                    <option value="CA">Canada</option>
-                                                    <option value="GB">United Kingdom</option>
-                                                    <option value="AU">Australia</option>
-                                                    <option value="IN">India</option>
-                                                    <option value="DE">Germany</option>
-                                                    <option value="FR">France</option>
-                                                    <option value="OT">Other</option>
-                                                </select>
+                                                    autoComplete="country-name"
+                                                    aria-label="Country"
+                                                />
+
+                                                <div className="field-wrap mt-3">
+                                                    <input data-testid="checkout-address-line-input"
+                                                        type="text"
+                                                        autoComplete="street-address"
+                                                        value={addressLine}
+                                                        onChange={(event) => setAddressLine(event.target.value)}
+                                                        onBlur={() => setTouched((current) => ({ ...current, address: true }))}
+                                                        className={`field with-adorn ${fieldState(validations.address, showError("address"))}`}
+                                                        placeholder="Address line"
+                                                    />
+
+                                                    {validations.address ? (
+                                                        <span className="adorn text-green-600" aria-hidden="true">
+                                                            <CheckIcon />
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+
+                                                {!validations.address && showError("address") ? (
+                                                    <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-address-text">Enter your billing address</p>
+                                                ) : null}
 
                                                 <div className="field-wrap mt-3">
                                                     <input data-testid="checkout-zip-code-input"
@@ -918,49 +954,6 @@ export default function BusinessCheckoutPage() {
                                                 {!validations.zip && showError("zip") ? (
                                                     <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-zip-postal-code-text">Enter a valid ZIP / postal code</p>
                                                 ) : null}
-                                            </div>
-
-                                            <div className="mt-5">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setPromoOpen((current) => !current)}
-                                                    data-testid="checkout-promo-toggle"
-                                                    className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-700"
-                                                >
-                                                    🏷 Have a promo code?
-                                                </button>
-
-                                                <div className={`reveal ${promoOpen ? "open mt-3" : ""}`}>
-                                                    <div className="flex gap-3">
-                                                        <input data-testid="checkout-promo-code-input"
-                                                            type="text"
-                                                            value={promoCode}
-                                                            onChange={(event) => {
-                                                                setPromoCode(event.target.value.toUpperCase());
-                                                                setPromoError("");
-                                                            }}
-                                                            className="field flex-1 uppercase"
-                                                            placeholder="Enter code"
-                                                        />
-
-                                                        <button
-                                                            type="button"
-                                                            onClick={applyPromo}
-                                                            data-testid="checkout-apply-promo"
-                                                            className="shrink-0 rounded-xl border border-gray-200 px-5 py-4 font-semibold text-slate-600 transition-colors hover:border-amber-300 hover:text-amber-600"
-                                                        >
-                                                            Apply
-                                                        </button>
-                                                    </div>
-
-                                                    {promoApplied ? (
-                                                        <p className="mt-2 text-xs text-green-600" data-testid="business-protected-checkout-code-applied-10-off-your-first-charge-text">
-                                                            ✓ Code applied — 10% off your first charge.
-                                                        </p>
-                                                    ) : promoError ? (
-                                                        <p className="mt-2 text-xs text-red-500" data-testid="business-protected-checkout-promo-error-text">{promoError}</p>
-                                                    ) : null}
-                                                </div>
                                             </div>
 
                                             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 pt-6">
@@ -1018,11 +1011,11 @@ export default function BusinessCheckoutPage() {
 
                                     <p className="mt-1.5 text-center text-xs text-slate-400" data-testid="business-protected-checkout-by-proceeding-you-agree-to-our-terms-text">
                                         By proceeding, you agree to our{" "}
-                                        <a data-testid="checkout-terms-of-service-link" href={"#" as Route} className="font-medium text-amber-600 hover:text-amber-700">
+                                        <a data-testid="checkout-terms-of-service-link" href={TERM_PATH} className="font-medium text-amber-600 hover:text-amber-700">
                                             Terms of Service
                                         </a>{" "}
                                         and{" "}
-                                        <a data-testid="checkout-privacy-policy-link" href={"#" as Route} className="font-medium text-amber-600 hover:text-amber-700">
+                                        <a data-testid="checkout-privacy-policy-link" href={PRIVACY_PATH} className="font-medium text-amber-600 hover:text-amber-700">
                                             Privacy Policy
                                         </a>
                                         .
@@ -1033,7 +1026,7 @@ export default function BusinessCheckoutPage() {
                             <aside className="order-1 lg:order-2 lg:col-span-2">
                                 <OrderSummary
                                     trialDate={trialDate}
-                                    promoApplied={promoApplied}
+                                    includedItems={includedItems}
                                     futureAmount={futureAmount}
                                     agentName={listingName}
                                     agentAuthor={listingAuthor}
@@ -1223,14 +1216,14 @@ function WalletPanel({ tab }: { tab: Exclude<PaymentTab, "credit"> }) {
 
 function OrderSummary({
     trialDate,
-    promoApplied,
+    includedItems,
     futureAmount,
     agentName,
     agentAuthor,
     price
 }: {
     trialDate: string;
-    promoApplied: boolean;
+    includedItems: string[];
     futureAmount: number;
     agentName: string;
     agentAuthor: string;
@@ -1282,14 +1275,6 @@ function OrderSummary({
                         <PriceRow label="Agent price" value={`$${priceLabel}`} />
                         <PriceRow label="7-day free trial" value={`−$${priceLabel}`} green />
                         <PriceRow label="Execution fees" value="Pay as you go" muted />
-
-                        {promoApplied ? (
-                            <PriceRow
-                                label="Promo (CORE10)"
-                                value={`−$${(price * 0.1).toFixed(2)}`}
-                                green
-                            />
-                        ) : null}
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />

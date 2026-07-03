@@ -116,6 +116,14 @@ paymentRoutes.get("/billing", async (c) => {
     status: payment.status
   }));
 
+  // Resolve the business name and billing address from the owner's business
+  // profile so the billing/invoice UI shows real details instead of "NA".
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "asc" },
+    include: { profile: { select: { serviceArea: true } } }
+  });
+
   // Best-effort fetch of the default card from Stripe. Any failure -> null (UI shows NA).
   let paymentMethod: {
     brand: string;
@@ -176,8 +184,8 @@ paymentRoutes.get("/billing", async (c) => {
       usage: null,
       invoices,
       paymentMethod,
-      businessName: authUser.fullName ?? null,
-      billingAddress: null
+      businessName: business?.name ?? authUser.fullName ?? null,
+      billingAddress: business?.profile?.serviceArea ?? null
     }
   });
 });

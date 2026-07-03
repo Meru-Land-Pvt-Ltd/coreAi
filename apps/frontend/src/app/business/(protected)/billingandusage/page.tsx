@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { apiClient, apiGet } from "@/lib/api";
+import { businessInvoicePath } from "@/lib/routes";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -87,13 +89,11 @@ const DOWNLOAD_STYLES = `
 `;
 
 export default function BusinessBillingUsagePage() {
+    const router = useRouter();
     const [billing, setBilling] = useState<Billing | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [apiError, setApiError] = useState("");
     const [toast, setToast] = useState("");
-    const [modalOpen, setModalOpen] = useState(false);
-    const [alertsOn, setAlertsOn] = useState(true);
-    const [threshold, setThreshold] = useState("$50");
 
     useEffect(() => {
         let mounted = true;
@@ -189,12 +189,6 @@ export default function BusinessBillingUsagePage() {
 
     const agents = billing?.agents ?? [];
     const invoices = billing?.invoices ?? [];
-
-    const thresholdLabel = useMemo(() => {
-        const num = parseFloat(threshold.replace(/[^0-9.]/g, ""));
-        if (Number.isNaN(num) || num <= 0) return NA;
-        return `$${Number.isInteger(num) ? num.toFixed(2) : num.toFixed(2)}`;
-    }, [threshold]);
 
     if (isLoading) {
         return (
@@ -395,9 +389,9 @@ export default function BusinessBillingUsagePage() {
                                             <td className="px-6 py-4 text-right">
                                                 <button
                                                     type="button"
-                                                    onClick={() => downloadInvoice(invoice)}
+                                                    onClick={() => router.push(businessInvoicePath(invoice.id))}
                                                     data-testid="billing-invoice-download"
-                                                    aria-label={`Download ${invoice.description || "invoice"} PDF`}
+                                                    aria-label={`View ${invoice.description || "invoice"} details`}
                                                     className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
                                                 >
                                                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinejoin="round" d="M7 3h7l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /><path strokeLinejoin="round" d="M14 3v4h4" /></svg>
@@ -416,14 +410,6 @@ export default function BusinessBillingUsagePage() {
                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" aria-label="Payment method">
                     <div className="flex items-center justify-between">
                         <h2 className="text-lg font-bold">Payment Method</h2>
-                        <button
-                            type="button"
-                            onClick={() => setModalOpen(true)}
-                            data-testid="billing-update-payment"
-                            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
-                        >
-                            Update
-                        </button>
                     </div>
 
                     {billing?.paymentMethod ? (
@@ -454,130 +440,19 @@ export default function BusinessBillingUsagePage() {
                         </div>
                     )}
 
-                    <div className="mt-4 border-t border-gray-50 pt-4">
-                        <div className="text-sm font-medium text-slate-800">{billing?.businessName ?? NA}</div>
-                        <div className="text-sm text-slate-500">{billing?.billingAddress ?? NA}</div>
-                    </div>
-                </section>
-
-                {/* 5. Spending alerts */}
-                <section className="mb-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" aria-label="Spending alerts">
-                    <h2 className="text-base font-bold">Spending Alerts</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                        Get notified when your monthly execution costs exceed a threshold.
-                    </p>
-
-                    <div className="mt-4 flex flex-wrap items-center gap-4">
-                        <label htmlFor="thresholdInput" className="text-sm text-slate-700">
-                            Alert me when monthly costs exceed:
-                        </label>
-                        <input
-                            id="thresholdInput"
-                            type="text"
-                            inputMode="decimal"
-                            value={threshold}
-                            onChange={(event) => setThreshold(event.target.value)}
-                            data-testid="billing-threshold-input"
-                            className="w-24 rounded-lg border border-gray-200 px-3 py-2 text-center font-mono text-sm tabular-nums text-slate-800 focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                            aria-label="Spending alert threshold in dollars"
-                        />
-                        <button
-                            type="button"
-                            role="switch"
-                            aria-checked={alertsOn}
-                            onClick={() => {
-                                setAlertsOn((current) => !current);
-                                showToast(!alertsOn ? "Spending alerts on" : "Spending alerts off");
-                            }}
-                            data-testid="billing-alerts-toggle"
-                            aria-label="Enable spending alerts"
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${alertsOn ? "bg-amber-500" : "bg-gray-300"}`}
-                        >
-                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${alertsOn ? "translate-x-[22px]" : "translate-x-[2px]"}`} />
-                        </button>
-                    </div>
-
-                    <p className="mt-3 text-xs text-slate-400">
-                        Current month: <span className="font-mono tabular-nums">{currentMonthExecution}</span> of{" "}
-                        <span className="font-mono tabular-nums">{thresholdLabel}</span> limit
-                    </p>
-                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-100">
-                        <div className="h-full rounded-full bg-amber-400" style={{ width: "0%" }} />
-                    </div>
-                </section>
-            </div>
-
-            {modalOpen ? (
-                <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
-                    <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-                    <div className="absolute inset-0 flex items-end justify-center p-0 sm:items-center sm:p-4">
-                        <div className="relative w-full rounded-t-2xl bg-white p-6 shadow-xl sm:max-w-md sm:rounded-2xl">
-                            <div className="flex items-start justify-between">
-                                <div>
-                                    <h2 id="billing-modal-title" className="text-lg font-bold">Update payment method</h2>
-                                    <p className="mt-0.5 text-sm text-slate-500">
-                                        {billing?.paymentMethod
-                                            ? `Your card replaces the ${billing.paymentMethod.brand} ending ${billing.paymentMethod.last4}.`
-                                            : "Add a card to your account."}
-                                    </p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setModalOpen(false)}
-                                    data-testid="billing-modal-close"
-                                    className="-mr-1.5 -mt-1.5 rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-50 hover:text-slate-700"
-                                    aria-label="Close dialog"
-                                >
-                                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" /></svg>
-                                </button>
-                            </div>
-
-                            <div className="mt-5 space-y-4">
-                                <div>
-                                    <label htmlFor="billingCardName" className="mb-1.5 block text-sm font-medium text-slate-700">Name on card</label>
-                                    <input id="billingCardName" type="text" placeholder="Name" className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
-                                </div>
-                                <div>
-                                    <label htmlFor="billingCardNumber" className="mb-1.5 block text-sm font-medium text-slate-700">Card number</label>
-                                    <input id="billingCardNumber" type="text" inputMode="numeric" placeholder="1234 5678 9012 3456" className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 font-mono text-sm tabular-nums focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label htmlFor="billingCardExp" className="mb-1.5 block text-sm font-medium text-slate-700">Expiry</label>
-                                        <input id="billingCardExp" type="text" inputMode="numeric" placeholder="MM / YY" className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 font-mono text-sm tabular-nums focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
-                                    </div>
-                                    <div>
-                                        <label htmlFor="billingCardCvc" className="mb-1.5 block text-sm font-medium text-slate-700">CVC</label>
-                                        <input id="billingCardCvc" type="text" inputMode="numeric" placeholder="123" className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 font-mono text-sm tabular-nums focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mt-6 flex gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setModalOpen(false)}
-                                    data-testid="billing-modal-cancel"
-                                    className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-gray-50"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setModalOpen(false);
-                                        showToast("Payment method updated");
-                                    }}
-                                    data-testid="billing-modal-save"
-                                    className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
-                                >
-                                    Save changes
-                                </button>
-                            </div>
+                    {(billing?.businessName || billing?.billingAddress) ? (
+                        <div className="mt-4 border-t border-gray-50 pt-4">
+                            {billing?.businessName ? (
+                                <div className="text-sm font-medium text-slate-800">{billing.businessName}</div>
+                            ) : null}
+                            {billing?.billingAddress ? (
+                                <div className="text-sm text-slate-500">{billing.billingAddress}</div>
+                            ) : null}
                         </div>
-                    </div>
-                </div>
-            ) : null}
+                    ) : null}
+                </section>
+
+            </div>
 
             <div className="pointer-events-none fixed bottom-4 left-4 right-4 z-[70] flex flex-col items-stretch gap-2 sm:left-auto sm:items-end" aria-live="polite">
                 {toast ? (
