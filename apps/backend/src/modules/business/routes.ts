@@ -674,9 +674,6 @@ businessRoutes.post("/setup", async (c) => {
 
     const existingPhone = existing?.phoneNumbers?.[0] ?? null;
 
-    // Resolve the CoreAI/platform number to assign (before any writes → fail fast).
-    // The buyer's explicit selection wins; otherwise reuse the current number, else
-    // auto-assign the first available (legacy fallback only when nothing selected).
     let targetPlatform: Awaited<ReturnType<typeof prisma.platformPhoneNumber.findFirst>> = null;
     const selectedId = input.selectedPlatformPhoneNumberId?.trim();
     const selectedNumber = input.selectedPhoneNumber ? normalizePhoneNumber(input.selectedPhoneNumber) : "";

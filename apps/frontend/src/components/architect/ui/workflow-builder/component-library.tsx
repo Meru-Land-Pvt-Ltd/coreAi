@@ -65,7 +65,7 @@ export function ComponentLibrary({
           data-testid="library-template-missed-call"
           className="mb-3 w-full rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-left transition hover:border-amber-400"
         >
-          <span className="block text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-missed-call-text">Missed Call Text-Back</span>
+          <span className="block text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-missed-call-text">AI Receptionist Template</span>
           <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-load-exact-flow-text">Import the 3-node flow</span>
         </button>
 

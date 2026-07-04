@@ -129,7 +129,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
   {
     id: "tpl-missed-call",
     slug: "missed-call-text-back",
-    title: "Missed Call Text-Back",
+    title: "AI Receptionist Template",
     category: "Communication",
     difficulty: "Beginner",
     description: "Detect missed calls → generate an AI response → send an SMS. Average 28-second response time.",

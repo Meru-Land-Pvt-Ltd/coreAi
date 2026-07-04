@@ -106,7 +106,7 @@ function CreateAgentCard({ onClick, compact = false }: { onClick: () => void; co
       <div>
         <h2 className="text-2xl font-black text-slate-950" data-testid="architect-ui-workflows-view-create-new-agent-heading">Create New Agent</h2>
         <p className="mt-2 max-w-sm text-sm font-semibold leading-6 text-slate-600" data-testid="architect-ui-workflows-view-start-with-an-empty-canvas-then-load-text">
-          Start with an empty canvas. Then load Missed Call Text-Back or build your own flow.
+          Start with an empty canvas. Then load AI Receptionist Template or build your own flow.
         </p>
       </div>
     </button>
@@ -187,7 +187,7 @@ export function ArchitectWorkflowsView() {
               <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-600" data-testid="architect-ui-workflows-view-architect-studio-text">Architect Studio</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl" data-testid="architect-ui-workflows-view-agent-builder-heading">Agent Builder</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 sm:text-base sm:leading-7" data-testid="architect-ui-workflows-view-build-responsive-production-ready-agents-first-core-text">
-                Build responsive, production-ready agents. First CORE template: Missed Call Text-Back — Customer Calls → Auto Text in 5 Seconds → Lead Captured.
+                Build responsive, production-ready agents. First CORE template: AI Receptionist Template — Customer Calls → Auto Text in 5 Seconds → Lead Captured.
               </p>
             </div>
           </div>

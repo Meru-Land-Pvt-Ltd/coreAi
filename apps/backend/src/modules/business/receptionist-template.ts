@@ -1,6 +1,6 @@
 import { CORE_CONNECTOR, CORE_CONNECTOR_ACTIONS } from "@coreai/shared";
 
-export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist – Missed Call Text-Back";
+export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist – AI Receptionist Template";
 export const RECEPTIONIST_WORKFLOW_DESCRIPTION =
   "Detects missed calls, saves the lead, texts the caller back with per-business context, and stores the conversation.";
 
