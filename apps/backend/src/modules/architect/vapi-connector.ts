@@ -245,6 +245,7 @@ export async function createVapiInboundTwiml({
   reason,
   assistantId,
   phoneNumberId,
+  phoneNumber,
   metadata = {}
 }: {
   callerNumber: string;
@@ -253,6 +254,7 @@ export async function createVapiInboundTwiml({
   reason: string;
   assistantId?: string | null;
   phoneNumberId?: string | null;
+  phoneNumber?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<string | null> {
   const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
@@ -284,9 +286,12 @@ export async function createVapiInboundTwiml({
   };
 
   const resolvedPhoneNumberId = clean(phoneNumberId) || clean(env.VAPI_DEFAULT_PHONE_NUMBER_ID);
+  const resolvedPhoneNumber = clean(phoneNumber);
 
   if (isRealId(resolvedPhoneNumberId)) {
     payload.phoneNumberId = resolvedPhoneNumberId;
+  } else if (resolvedPhoneNumber) {
+    payload.phoneNumber = resolvedPhoneNumber;
   }
 
   let response: Response;
