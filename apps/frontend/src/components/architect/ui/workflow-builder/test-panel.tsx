@@ -327,7 +327,7 @@ export function TestPanel({
                 type="text"
                 value={businessName}
                 onChange={(event) => onBusinessNameChange(event.target.value)}
-                placeholder={isVoiceWorkflow ? "Triven Dental Care" : "Your business name"}
+                placeholder={isVoiceWorkflow ? "Sample Business" : "Your business name"}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>

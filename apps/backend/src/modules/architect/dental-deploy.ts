@@ -115,9 +115,9 @@ export async function deployDentalWorkflow({
     "Let me have the doctor's team call you back within 30 minutes."
   );
   const customInstructions = str(ai, "customInstructions", "");
-  const assistantName = str(ai, "assistantName", "Sarah");
-  const model = str(ai, "model", "gpt-4o");
-  const voice = str(ai, "voice", "sarah");
+  const assistantName = str(ai, "assistantName", "Ruby");
+  const model = str(ai, "model", "gpt-4o-mini");
+  const voice = str(ai, "voice", "triven-default");
   const voiceProvider = str(ai, "voiceProvider", "");
   const voiceId = str(ai, "voiceId", "");
 
@@ -226,7 +226,7 @@ export async function deployDentalWorkflow({
 
   const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
   const assistant = await deployVapiAssistant({
-    name: `Triven Dental — ${practiceName}`,
+    name: `${practiceName} - ${assistantName}`,
     firstMessage,
     systemPrompt,
     model,

@@ -67,11 +67,16 @@ const envSchema = z.object({
   VAPI_DEFAULT_VOICE_PROVIDER: z.string().default("11labs"),
   VAPI_DEFAULT_VOICE_ID: z.string().optional(),
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
+  VAPI_ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),
+  VAPI_TRANSCRIBER_PROVIDER: z.string().default("deepgram"),
+  VAPI_TRANSCRIBER_MODEL: z.string().default("nova-3"),
+  VAPI_ENABLE_BOOKING_TOOLS: booleanFromEnv.default(true),
 
   /**
    * Optional selectable voice presets.
    * Do not put these in frontend.
    */
+  ELEVENLABS_VOICE_RUBY_ID: z.string().optional(),
   ELEVENLABS_VOICE_SARAH_ID: z.string().optional(),
   ELEVENLABS_VOICE_ARIA_ID: z.string().optional(),
   ELEVENLABS_VOICE_ADAM_ID: z.string().optional(),

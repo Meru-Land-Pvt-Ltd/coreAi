@@ -174,7 +174,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // Test-tab-only prefills — they never change the workflow nodes themselves.
   useEffect(() => {
     if (!isVoiceWorkflow) return;
-    setBusinessName((value) => value || "Triven Dental Care");
+    setBusinessName((value) => value || "Sample Business");
     setBusinessType((value) => value || "Dental Clinic");
     setCallerName((value) => value || "Test Patient");
     setCalendarId((value) => value || "primary");
@@ -653,7 +653,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         input: {
           callerNumber: normalizedCallerNumber,
           callerName: callerName.trim(),
-          businessName: normalizedBusinessName || "Triven Dental Care",
+          businessName: normalizedBusinessName || "Sample Business",
           businessType: businessType.trim() || "Dental Clinic",
           businessPhoneNumber: "",
           calendarId: calendarId.trim() || "primary",

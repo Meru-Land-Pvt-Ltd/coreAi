@@ -451,8 +451,8 @@ function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLo
       firstMessage: asString(node.data?.firstMessage, "Thanks for calling. How can I help you today?"),
       practiceName: asString(node.data?.practiceName),
       doctorName: asString(node.data?.doctorName),
-      voice: asString(node.data?.voice, "sarah"),
-      model: asString(node.data?.model, "gpt-4o"),
+      voice: asString(node.data?.voice, "triven-default"),
+      model: asString(node.data?.model, "gpt-4o-mini"),
       language: asString(node.data?.language, "en-US")
     };
     context.voiceConversation = voicePreview;
@@ -902,7 +902,7 @@ async function runGoogleCalendarConnectorNode({
   const startAtRaw = renderTemplate(node.data?.appointmentStartAt, context) || asString(context.appointmentStartAt, defaultWindow.startAt.toISOString());
   const endAtRaw = renderTemplate(node.data?.appointmentEndAt, context) || asString(context.appointmentEndAt, defaultWindow.endAt.toISOString());
   const summary = renderTemplate(node.data?.calendarSummary, context) || `${service} - ${context.caller_name || customerPhone}`;
-  const description = renderTemplate(node.data?.calendarDescription, context) || `Booked by CORE AI Receptionist for ${businessName}.`;
+  const description = renderTemplate(node.data?.calendarDescription, context) || `Booked by Triven AI Receptionist for ${businessName}.`;
 
   if (!customerPhone && mode === "live") {
     logs.push(createLog(node, "error", "Calendar booking failed because caller phone number is missing."));

@@ -22,6 +22,24 @@ function looksLikeVoiceId(value?: string | null): boolean {
   return v.length >= 18 && !/\s/.test(v);
 }
 
+function dateOnlyInZone(timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function addDaysToDateStr(dateStr: string, days: number): string {
+  const date = new Date(`${dateStr}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function getVoiceAnswerStatus() {
   const vapiApiKeyConfigured = isVapiConfigured();
   const defaultAssistantConfigured = isRealId(env.VAPI_DEFAULT_ASSISTANT_ID);
@@ -148,9 +166,14 @@ export function buildVapiVariableValues({
     hour: "numeric",
     minute: "2-digit"
   });
+  const currentDate = dateOnlyInZone(timeZone);
+  const tomorrowDate = addDaysToDateStr(currentDate, 1);
 
   return {
     currentDateTime,
+    currentDate,
+    todayDate: currentDate,
+    tomorrowDate,
     customerPhone,
     customerName: customerName || "the caller",
     businessId: business.businessId || "",
@@ -342,6 +365,7 @@ function resolveVapiVoice(input: {
   config?: {
     provider: string;
     voiceId: string;
+    model?: string;
   };
   warning?: string;
 } {
@@ -364,7 +388,8 @@ function resolveVapiVoice(input: {
   return {
     config: {
       provider,
-      voiceId
+      voiceId,
+      ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {})
     }
   };
 }
@@ -373,7 +398,7 @@ function resolveVapiModel(model?: string | null): {
   provider: string;
   model: string;
 } {
-  const m = (model ?? "gpt-4o").toLowerCase();
+  const m = (model ?? "gpt-4o-mini").toLowerCase();
 
   if (m.includes("claude")) {
     return {
@@ -408,7 +433,7 @@ function genericAssistantTools() {
           properties: {
             date: {
               type: "string",
-              description: "Requested appointment date in ISO format: YYYY-MM-DD."
+              description: "Appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
             },
             service_type: {
               type: "string",
@@ -452,7 +477,7 @@ function genericAssistantTools() {
             },
             date: {
               type: "string",
-              description: "Appointment date in ISO format: YYYY-MM-DD."
+              description: "Appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
             },
             time: {
               type: "string",
@@ -561,7 +586,24 @@ export async function deployVapiAssistant({
           content: systemPrompt
         }
       ],
-      tools: genericAssistantTools()
+      tools: env.VAPI_ENABLE_BOOKING_TOOLS ? genericAssistantTools() : []
+    },
+    transcriber: {
+      provider: env.VAPI_TRANSCRIBER_PROVIDER,
+      model: env.VAPI_TRANSCRIBER_MODEL,
+      language: "en-US"
+    },
+    startSpeakingPlan: {
+      waitSeconds: 0.4,
+      smartEndpointingPlan: {
+        provider: "livekit",
+        waitFunction: "2000 / (1 + exp(-10 * (x - 0.5)))"
+      }
+    },
+    stopSpeakingPlan: {
+      numWords: 0,
+      voiceSeconds: 0.2,
+      backoffSeconds: 1
     },
     server: {
       url: serverUrl

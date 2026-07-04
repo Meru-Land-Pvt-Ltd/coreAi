@@ -38,6 +38,7 @@ function allVoicePresets(): AgentVoicePreset[] {
 const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
   [PLATFORM_DEFAULT_VOICE_ID]: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
   default: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
+  ruby: env.ELEVENLABS_VOICE_RUBY_ID || env.ELEVENLABS_VOICE_SARAH_ID,
   sarah: env.ELEVENLABS_VOICE_SARAH_ID,
   aria: env.ELEVENLABS_VOICE_ARIA_ID,
   rachel: env.ELEVENLABS_VOICE_RACHEL_ID,

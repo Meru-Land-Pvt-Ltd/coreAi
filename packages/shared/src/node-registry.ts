@@ -108,14 +108,14 @@ export const VOICE_PRESETS: AgentVoicePreset[] = [
     isDefault: true
   },
   {
-    id: "sarah",
-    name: "Sarah",
+    id: "ruby",
+    name: "Ruby",
     provider: DEFAULT_VOICE_PROVIDER,
     voiceId: "",
     style: "Warm receptionist",
     bestFor: "Healthcare, salons, appointment booking",
     description: "Warm, friendly receptionist voice.",
-    previewText: "Good morning, this is Sarah. How can I help you today?"
+    previewText: "Good morning, this is Ruby. How can I help you today?"
   },
   {
     id: "aria",
@@ -493,10 +493,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       voiceName: "Triven Default Voice",
       voiceProvider: DEFAULT_VOICE_PROVIDER,
       voiceId: "",
-      assistantName: "Sarah",
+      assistantName: "Ruby",
       language: "en-US",
       speakingSpeed: "1.0",
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       firstMessage: "Thanks for calling. This is your AI receptionist — how can I help you today?",
       practiceName: "",
       doctorName: "",
@@ -776,7 +776,7 @@ export function isVoiceNodeType(type: string): boolean {
 /** Builder presentation (icon/accent/kind) per voice node so template nodes look like dragged nodes. */
 export const VOICE_NODE_PRESENTATION: Record<string, { kind: string; icon: string; accent: string }> = {
   [VOICE_NODE_TYPES.phoneCallTrigger]: { kind: "TWILIO", icon: "phone", accent: "amber" },
-  [VOICE_NODE_TYPES.voiceConversation]: { kind: "VAPI · GPT-4o", icon: "sparkles", accent: "violet" },
+  [VOICE_NODE_TYPES.voiceConversation]: { kind: "VAPI · GPT-4o Mini", icon: "sparkles", accent: "violet" },
   [VOICE_NODE_TYPES.calendarAvailability]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.bookAppointment]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.sendSms]: { kind: "TWILIO SMS", icon: "message", accent: "green" },

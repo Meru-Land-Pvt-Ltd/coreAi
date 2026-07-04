@@ -334,7 +334,7 @@ export async function startArchitectTestDeployment(
     name: `Sandbox Test — ${workflow.name || businessName}`,
     firstMessage,
     systemPrompt,
-    model: str(ai, "model", "gpt-4o"),
+    model: str(ai, "model", "gpt-4o-mini"),
     voice: str(ai, "voice", ""),
     voiceProvider: str(ai, "voiceProvider", ""),
     voiceId: str(ai, "voiceId", ""),

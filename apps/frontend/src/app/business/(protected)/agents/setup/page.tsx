@@ -31,6 +31,7 @@ const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 const TRIVEN_VOICE_NAME = "Triven Voice";
 const DEFAULT_VOICE_PROVIDER = "11labs";
 const PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
+const DEFAULT_ASSISTANT_NAME = "Ruby";
 
 const STEPS = [
   { id: 1, title: "Business Details" },
@@ -199,6 +200,30 @@ function readInstalledAgentId(data: unknown): string | null {
   return stringOrNull(installedAgent?.id);
 }
 
+function readAssistantName(data: unknown): string {
+  const root = objectOrNull(data);
+  if (!root) return DEFAULT_ASSISTANT_NAME;
+
+  const direct = stringOrNull(root.assistantName);
+  if (direct) return direct;
+
+  const setup = objectOrNull(root.setup);
+  const fromSetup = stringOrNull(setup?.assistantName);
+  if (fromSetup) return fromSetup;
+
+  const installedAgent = objectOrNull(root.installedAgent);
+  const configJson = objectOrNull(installedAgent?.configJson);
+
+  const fromConfig = stringOrNull(configJson?.assistantName);
+  if (fromConfig) return fromConfig;
+
+  const businessDetails = objectOrNull(configJson?.businessDetails);
+  const fromBusinessDetails = stringOrNull(businessDetails?.assistantName);
+  if (fromBusinessDetails) return fromBusinessDetails;
+
+  return DEFAULT_ASSISTANT_NAME;
+}
+
 export default function BusinessAgentSetupPage() {
   return (
     <Suspense
@@ -257,6 +282,7 @@ function SetupWizard() {
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
+  const [assistantName, setAssistantName] = useState(DEFAULT_ASSISTANT_NAME);
   const [voiceChoice, setVoiceChoice] = useState(PLATFORM_DEFAULT_VOICE_ID);
   const [customVoiceId, setCustomVoiceId] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
@@ -280,6 +306,7 @@ function SetupWizard() {
 
       setLiveVapiAssistantId(existingVapiAssistantId);
       setLiveInstalledAgentId(existingInstalledAgentId);
+      setAssistantName(readAssistantName(data));
 
       if (data.business) {
         setBusinessName(data.business.name);
@@ -430,10 +457,11 @@ function SetupWizard() {
       };
     }
 
-    const res = await saveBusinessSetup({
+    const payload = {
       deploy,
       businessName: businessName.trim(),
       businessType: businessType.trim(),
+      assistantName: assistantName.trim() || DEFAULT_ASSISTANT_NAME,
       forwardToPhone: forwardToPhone.trim(),
       bookingUrl: bookingUrl.trim(),
       teamPhone: teamPhone.trim(),
@@ -460,7 +488,9 @@ function SetupWizard() {
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
       ...(listingId ? { listingId } : {})
-    });
+    };
+
+    const res = await saveBusinessSetup(payload);
 
     if (!res.success || !res.data) {
       setError(res.error ?? "Could not save your setup. Please try again.");
@@ -580,6 +610,12 @@ function SetupWizard() {
       return;
     }
 
+    if (assistantName.trim().length < 2) {
+      setStep(3);
+      setError("Add your AI assistant name.");
+      return;
+    }
+
     if (!(selectedPhoneId || assignedNumber)) {
       setStep(2);
       setError("Select a Triven phone number.");
@@ -640,10 +676,12 @@ function SetupWizard() {
 
   const needs = new Set(requiredKeys);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
+  const assistantNameComplete = assistantName.trim().length >= 2;
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
   const forwardRequired = answeringMode !== "AI_FIRST";
   const phoneComplete = phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5);
-  const voiceComplete = voiceChoice !== "custom" || customVoiceId.trim().length > 0;
+  const voiceChoiceComplete = voiceChoice !== "custom" || customVoiceId.trim().length > 0;
+  const voiceComplete = assistantNameComplete && voiceChoiceComplete;
   const needsCalendar = needs.has("google_calendar");
   const needsGmail = needs.has("gmail");
   const needsPhone = needs.has("phone_provider") || needs.has("twilio");
@@ -715,7 +753,11 @@ function SetupWizard() {
             label: "Voice setup",
             required: true,
             complete: voiceComplete,
-            blocker: voiceComplete ? undefined : "Enter a custom ElevenLabs voice ID or choose a preset."
+            blocker: !assistantNameComplete
+              ? "Add your AI assistant name."
+              : voiceChoiceComplete
+                ? undefined
+                : "Enter a custom ElevenLabs voice ID or choose a preset."
           }
         ]
       : [])
@@ -875,6 +917,7 @@ function SetupWizard() {
 
         {step === 3 ? (
           <StepVoice
+            assistantName={assistantName}
             voiceChoice={voiceChoice}
             customVoiceId={customVoiceId}
             customInstructions={customInstructions}
@@ -882,6 +925,7 @@ function SetupWizard() {
             silenceMessage1={silenceMessage1}
             silenceMessage2={silenceMessage2}
             goodbyeMessage={goodbyeMessage}
+            onAssistantName={setAssistantName}
             onVoiceChoice={setVoiceChoice}
             onCustomVoiceId={setCustomVoiceId}
             onCustomInstructions={setCustomInstructions}
@@ -1420,6 +1464,7 @@ function StepPhoneCalendar({
 /* -------------------------------- Step 3 -------------------------------- */
 
 function StepVoice({
+  assistantName,
   voiceChoice,
   customVoiceId,
   customInstructions,
@@ -1427,6 +1472,7 @@ function StepVoice({
   silenceMessage1,
   silenceMessage2,
   goodbyeMessage,
+  onAssistantName,
   onVoiceChoice,
   onCustomVoiceId,
   onCustomInstructions,
@@ -1435,6 +1481,7 @@ function StepVoice({
   onSilence2,
   onGoodbye
 }: {
+  assistantName: string;
   voiceChoice: string;
   customVoiceId: string;
   customInstructions: string;
@@ -1442,6 +1489,7 @@ function StepVoice({
   silenceMessage1: string;
   silenceMessage2: string;
   goodbyeMessage: string;
+  onAssistantName: (v: string) => void;
   onVoiceChoice: (v: string) => void;
   onCustomVoiceId: (v: string) => void;
   onCustomInstructions: (v: string) => void;
@@ -1453,9 +1501,35 @@ function StepVoice({
   return (
     <div className={CARD}>
       <h2 className={H2}>Voice &amp; Instructions</h2>
-      <p className={SUB}>Choose how your agent sounds and how it should handle calls.</p>
+      <p className={SUB}>Choose the AI name, voice, and call behavior your customers will hear.</p>
 
-      <div className="mt-6" data-testid="business-setup-voice">
+      <div className="mt-6" data-testid="business-setup-assistant-name">
+        <h3 className={SECTION_TITLE}>AI assistant name</h3>
+        <p className="mt-0.5 text-sm text-slate-500">
+          This is the name your AI uses on calls.
+        </p>
+
+        <div className="mt-3">
+          <label className={LABEL} htmlFor="assistant-name">
+            AI assistant name
+          </label>
+
+          <input
+            data-testid="business-setup-input-assistant-name"
+            id="assistant-name"
+            value={assistantName}
+            onChange={(e) => onAssistantName(e.target.value)}
+            placeholder={DEFAULT_ASSISTANT_NAME}
+            className={FIELD}
+          />
+
+          <p className="mt-1 text-xs text-slate-400">
+            Example: “Hello, this is {assistantName.trim() || DEFAULT_ASSISTANT_NAME} from {"{{business name}}"}. How can I help you today?”
+          </p>
+        </div>
+      </div>
+
+      <div className={SECTION} data-testid="business-setup-voice">
         <h3 className={SECTION_TITLE}>Voice</h3>
 
         <div className="mt-3">
