@@ -628,7 +628,7 @@ export default function HelpPage() {
               Our team typically responds within 2 hours during business hours.
             </p>
 
-            <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-1">
               <div className="rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
                 <span className="mx-auto inline-grid h-12 w-12 place-items-center rounded-full bg-amber-50 text-amber-600">
                   <MailIcon />
@@ -643,26 +643,6 @@ export default function HelpPage() {
                 >
                   info@triven.ai
                 </a>
-              </div>
-
-              <div className="rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
-                <span className="mx-auto inline-grid h-12 w-12 place-items-center rounded-full bg-green-50 text-green-600">
-                  <ChatIcon />
-                </span>
-
-                <h3 className="mt-3 text-lg font-bold text-slate-900" data-testid="contact-live-chat-heading">Live Chat</h3>
-                <p className="mt-1 text-sm text-slate-500" data-testid="contact-available-mon-fri-9am-6pm-est-text">
-                  Available Mon-Fri, 9am-6pm EST
-                </p>
-
-                <button
-                  type="button"
-                  data-testid="help-start-chat"
-                  onClick={() => showToast("Starting live chat…")}
-                  className="mt-4 inline-flex items-center justify-center rounded-xl border border-amber-500 px-6 py-3 font-semibold text-amber-600 transition-colors hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                >
-                  Start a chat
-                </button>
               </div>
             </div>
           </div>

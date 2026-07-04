@@ -6,6 +6,13 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
+  buildBillingInvoices,
+  invoiceDateForPayment,
+  invoiceDisplayAmountCents,
+  type PaymentWithListing
+} from "../../lib/billing-invoices";
+import {
+  buildInvoiceDocumentHtml,
   buildInvoicePdfBuffer,
   sendPaymentSuccessEmail,
   type InvoiceData
@@ -24,10 +31,93 @@ const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
   PaymentStatus.PENDING
 ];
 
+function resolveActivePayment<T extends { status: PaymentStatus }>(payments: T[]) {
+  const owned = payments.filter((payment) => OWNED_PAYMENT_STATUSES.includes(payment.status));
+
+  return (
+    owned.find((payment) => payment.status === PaymentStatus.SUCCEEDED) ??
+    owned.find((payment) => payment.status === PaymentStatus.TRIALING) ??
+    owned.find((payment) => payment.status === PaymentStatus.PENDING) ??
+    null
+  );
+}
+
+function resolveInvoicePaymentId(paymentId: string) {
+  if (paymentId.endsWith("-trial")) {
+    return {
+      basePaymentId: paymentId.slice(0, -"-trial".length),
+      syntheticTrial: true
+    };
+  }
+
+  return {
+    basePaymentId: paymentId,
+    syntheticTrial: false
+  };
+}
+
 const startTrialSchema = z.object({
   listingId: z.string().trim().min(1),
-  paymentMethodId: z.string().trim().min(1)
+  paymentMethodId: z.string().trim().min(1),
+  billingName: z.string().trim().min(2),
+  billingEmail: z.string().trim().email(),
+  billingAddress: z.string().trim().min(3)
 });
+
+const purchaseSchema = z.object({
+  listingId: z.string().trim().min(1),
+  paymentMethodId: z.string().trim().min(1),
+  billingName: z.string().trim().min(2),
+  billingEmail: z.string().trim().email(),
+  billingAddress: z.string().trim().min(3)
+});
+
+type CheckoutBillingDetails = {
+  billingName: string;
+  billingEmail: string;
+  billingAddress: string;
+};
+
+async function persistCheckoutBilling(ownerId: string, billing: CheckoutBillingDetails) {
+  await prisma.business.updateMany({
+    where: { ownerId },
+    data: billing
+  });
+}
+
+function paymentBillingData(billing: CheckoutBillingDetails) {
+  return {
+    billingName: billing.billingName,
+    billingEmail: billing.billingEmail,
+    billingAddress: billing.billingAddress
+  };
+}
+
+function resolveInvoiceBillTo(
+  payment: {
+    billingName?: string | null;
+    billingEmail?: string | null;
+    billingAddress?: string | null;
+  },
+  business: {
+    billingName?: string | null;
+    billingEmail?: string | null;
+    billingAddress?: string | null;
+    name?: string;
+  } | null,
+  authUser: AuthUserForInvoice
+) {
+  return {
+    businessName:
+      payment.billingName ??
+      business?.billingName ??
+      business?.name ??
+      authUser.fullName ??
+      "Customer",
+    businessEmail: payment.billingEmail ?? business?.billingEmail ?? authUser.email,
+    billingAddress: payment.billingAddress ?? business?.billingAddress ?? null
+  };
+}
 
 function invoiceNumberForPayment(paymentId: string) {
   return `INV-${paymentId.slice(-8).toUpperCase()}`;
@@ -38,6 +128,123 @@ function setupUrlForListing(listingId?: string | null) {
   return listingId
     ? `${base}/business/agents/setup?listingId=${encodeURIComponent(listingId)}`
     : `${base}/business/agents/setup`;
+}
+
+type AuthUserForInvoice = {
+  id: string;
+  email: string;
+  fullName: string | null;
+};
+
+type PaymentForInvoice = PaymentWithListing & {
+  stripeCustomerId?: string | null;
+  stripePaymentId?: string | null;
+  billingName?: string | null;
+  billingEmail?: string | null;
+  billingAddress?: string | null;
+};
+
+async function resolvePaymentMethodLabel(payment: PaymentForInvoice): Promise<string | null> {
+  const stripe = getStripeClient();
+
+  if (!stripe || !isStripeConfigured()) return null;
+
+  try {
+    let paymentMethodId: string | null = payment.stripePaymentId ?? null;
+
+    if (payment.stripeCustomerId) {
+      const customer = await stripe.customers.retrieve(payment.stripeCustomerId);
+
+      if (typeof customer !== "string" && !customer.deleted) {
+        const defaultMethod = customer.invoice_settings?.default_payment_method;
+        paymentMethodId =
+          typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id ?? paymentMethodId;
+      }
+    }
+
+    if (!paymentMethodId) return null;
+
+    const method = await stripe.paymentMethods.retrieve(paymentMethodId);
+
+    if (!method.card) return null;
+
+    const brand = method.card.brand.charAt(0).toUpperCase() + method.card.brand.slice(1);
+    return `${brand} ending in ${method.card.last4}`;
+  } catch {
+    return null;
+  }
+}
+
+async function buildInvoiceData(
+  payment: PaymentForInvoice,
+  authUser: AuthUserForInvoice,
+  options: { syntheticTrial?: boolean } = {}
+): Promise<InvoiceData> {
+  const syntheticTrial = options.syntheticTrial ?? false;
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      name: true,
+      billingName: true,
+      billingEmail: true,
+      billingAddress: true
+    }
+  });
+
+  const paymentMethod = await resolvePaymentMethodLabel(payment);
+  const agentName = payment.listing?.name || "Agent purchase";
+  const trialDescription = `7-day trial for ${agentName}`;
+  const billTo = resolveInvoiceBillTo(payment, business, authUser);
+
+  if (syntheticTrial) {
+    return {
+      invoiceNumber: invoiceNumberForPayment(`${payment.id}-trial`),
+      date: payment.createdAt,
+      businessName: billTo.businessName,
+      businessEmail: billTo.businessEmail,
+      agentName,
+      description: trialDescription,
+      amountCents: 0,
+      listPriceCents: payment.amountCents,
+      currency: payment.currency,
+      status: PaymentStatus.TRIALING,
+      billingAddress: billTo.billingAddress,
+      paymentMethod,
+      transactionId: `${payment.id}-trial`
+    };
+  }
+
+  return {
+    invoiceNumber: invoiceNumberForPayment(payment.id),
+    date: invoiceDateForPayment(payment),
+    businessName: billTo.businessName,
+    businessEmail: billTo.businessEmail,
+    agentName,
+    description: payment.description || agentName,
+    amountCents: invoiceDisplayAmountCents(payment),
+    listPriceCents: payment.amountCents,
+    currency: payment.currency,
+    status: payment.status,
+    billingAddress: billTo.billingAddress,
+    paymentMethod,
+    transactionId: payment.id
+  };
+}
+
+async function loadOwnedPaymentForInvoice(authUser: AuthUserForInvoice, paymentId: string) {
+  const { basePaymentId, syntheticTrial } = resolveInvoicePaymentId(paymentId);
+
+  const payment = await prisma.payment.findFirst({
+    where: { id: basePaymentId, userId: authUser.id },
+    include: { listing: { select: { id: true, name: true } } }
+  });
+
+  if (!payment) return null;
+
+  const invoice = await buildInvoiceData(payment, authUser, { syntheticTrial });
+  return { payment, invoice, syntheticTrial };
 }
 
 paymentRoutes.get("/config", (c) => {
@@ -107,21 +314,19 @@ paymentRoutes.get("/billing", async (c) => {
 
   const hasActivePlan = payments.some((payment) => activeStatuses.includes(payment.status));
 
-  const invoices = payments.map((payment) => ({
-    id: payment.id,
-    createdAt: payment.createdAt,
-    description: payment.description ?? (payment.listing ? payment.listing.name : "Payment"),
-    amountCents: payment.amountCents,
-    currency: payment.currency,
-    status: payment.status
-  }));
+  const invoices = buildBillingInvoices(payments);
 
   // Resolve the business name and billing address from the owner's business
   // profile so the billing/invoice UI shows real details instead of "NA".
   const business = await prisma.business.findFirst({
     where: { ownerId: authUser.id },
     orderBy: { createdAt: "asc" },
-    include: { profile: { select: { serviceArea: true } } }
+    select: {
+      name: true,
+      billingName: true,
+      billingEmail: true,
+      billingAddress: true
+    }
   });
 
   // Best-effort fetch of the default card from Stripe. Any failure -> null (UI shows NA).
@@ -184,8 +389,9 @@ paymentRoutes.get("/billing", async (c) => {
       usage: null,
       invoices,
       paymentMethod,
-      businessName: business?.name ?? authUser.fullName ?? null,
-      billingAddress: business?.profile?.serviceArea ?? null
+      businessName: business?.billingName ?? business?.name ?? authUser.fullName ?? null,
+      billingEmail: business?.billingEmail ?? authUser.email ?? null,
+      billingAddress: business?.billingAddress ?? null
     }
   });
 });
@@ -224,20 +430,31 @@ paymentRoutes.get("/my-agents", async (c) => {
     }
   });
 
-  // Dedupe by listing — a business owns each agent once even with several
-  // payment rows (e.g. trial then renewal).
-  const seen = new Set<string>();
-  const agents = [];
+  // Dedupe by listing — prefer the current active payment (paid over trial).
+  const paymentsByListing = new Map<string, typeof payments>();
 
   for (const payment of payments) {
     const listing = payment.listing;
-    if (!listing || seen.has(listing.id)) continue;
-    seen.add(listing.id);
+    if (!listing) continue;
+
+    const existing = paymentsByListing.get(listing.id) ?? [];
+    existing.push(payment);
+    paymentsByListing.set(listing.id, existing);
+  }
+
+  const agents = [];
+
+  for (const listingPayments of paymentsByListing.values()) {
+    const listing = listingPayments[0]?.listing;
+    if (!listing) continue;
+
+    const activePayment = resolveActivePayment(listingPayments);
+    if (!activePayment) continue;
 
     agents.push({
-      purchaseId: payment.id,
-      purchasedAt: payment.createdAt,
-      purchaseStatus: payment.status,
+      purchaseId: activePayment.id,
+      purchasedAt: activePayment.createdAt,
+      purchaseStatus: activePayment.status,
       listing: {
         id: listing.id,
         name: listing.name,
@@ -259,44 +476,86 @@ paymentRoutes.get("/my-agents", async (c) => {
   return successResponse(c, { agents });
 });
 
+paymentRoutes.get("/listing-access/:listingId", async (c) => {
+  const authUser = c.get("authUser");
+  const listingId = c.req.param("listingId");
+
+  const listing = await prisma.agentListing.findFirst({
+    where: {
+      id: listingId,
+      status: { in: ["APPROVED", "PENDING_REVIEW"] }
+    },
+    select: {
+      id: true,
+      name: true,
+      priceCents: true
+    }
+  });
+
+  if (!listing) {
+    return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
+  }
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      userId: authUser.id,
+      listingId
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  const activePayment = resolveActivePayment(payments);
+  const anyPayment = payments.length > 0;
+  const purchaseStatus = activePayment?.status ?? payments[0]?.status ?? null;
+  const isTrialing = purchaseStatus === PaymentStatus.TRIALING;
+  const canPayNow =
+    (anyPayment && !activePayment) ||
+    isTrialing;
+
+  return successResponse(c, {
+    listingId: listing.id,
+    listingName: listing.name,
+    amountCents: listing.priceCents,
+    canStartTrial: !anyPayment,
+    hasActiveAccess: Boolean(activePayment),
+    trialUsed: anyPayment,
+    canPayNow,
+    purchaseStatus
+  });
+});
+
+// GET /payments/invoice/:id/html — same invoice card layout as the billing detail page.
+paymentRoutes.get("/invoice/:id/html", async (c) => {
+  const authUser = c.get("authUser");
+  const paymentId = c.req.param("id");
+  const loaded = await loadOwnedPaymentForInvoice(authUser, paymentId);
+
+  if (!loaded) {
+    return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+
+  const html = buildInvoiceDocumentHtml(loaded.invoice);
+
+  c.header("Content-Type", "text/html; charset=utf-8");
+  return c.body(html);
+});
+
 // GET /payments/invoice/:id/pdf — branded PDF for a single payment/invoice.
 paymentRoutes.get("/invoice/:id/pdf", async (c) => {
   const authUser = c.get("authUser");
   const paymentId = c.req.param("id");
+  const loaded = await loadOwnedPaymentForInvoice(authUser, paymentId);
 
-  const payment = await prisma.payment.findFirst({
-    where: { id: paymentId, userId: authUser.id },
-    include: { listing: { select: { id: true, name: true } } }
-  });
-
-  if (!payment) {
+  if (!loaded) {
     return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
   }
 
-  const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
-    select: { name: true }
-  });
-
-  const invoice: InvoiceData = {
-    invoiceNumber: invoiceNumberForPayment(payment.id),
-    date: payment.createdAt,
-    businessName: business?.name || authUser.fullName || "Customer",
-    businessEmail: authUser.email,
-    agentName: payment.listing?.name || "Agent purchase",
-    description: payment.description || payment.listing?.name || "Agent purchase",
-    amountCents: payment.amountCents,
-    currency: payment.currency,
-    status: payment.status
-  };
-
-  const pdf = await buildInvoicePdfBuffer(invoice);
+  const pdf = await buildInvoicePdfBuffer(loaded.invoice);
 
   c.header("Content-Type", "application/pdf");
   c.header(
     "Content-Disposition",
-    `attachment; filename="invoice-${invoice.invoiceNumber}.pdf"`
+    `attachment; filename="invoice-${loaded.invoice.invoiceNumber}.pdf"`
   );
 
   return c.body(new Uint8Array(pdf));
@@ -317,7 +576,10 @@ paymentRoutes.post("/start-trial", async (c) => {
   }
 
   const authUser = c.get("authUser");
-  const { listingId, paymentMethodId } = parsed.data;
+  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress } = parsed.data;
+  const billingDetails: CheckoutBillingDetails = { billingName, billingEmail, billingAddress };
+
+  await persistCheckoutBilling(authUser.id, billingDetails);
 
   const listing = await prisma.agentListing.findFirst({
     where: {
@@ -330,19 +592,32 @@ paymentRoutes.post("/start-trial", async (c) => {
     return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
   }
 
-  const existingPayment = await prisma.payment.findFirst({
+  const existingPayments = await prisma.payment.findMany({
     where: {
       userId: authUser.id,
-      listingId,
-      status: { in: ["TRIALING", "SUCCEEDED", "PENDING"] }
-    }
+      listingId
+    },
+    orderBy: { createdAt: "desc" }
   });
 
-  if (existingPayment) {
+  const activePayment = existingPayments.find((payment) =>
+    OWNED_PAYMENT_STATUSES.includes(payment.status)
+  );
+
+  if (activePayment) {
     return successResponse(c, {
-      payment: existingPayment,
+      payment: activePayment,
       alreadyActive: true
     });
+  }
+
+  if (existingPayments.length > 0) {
+    return errorResponse(
+      c,
+      "Free trial already used for this agent",
+      409,
+      "TRIAL_ALREADY_USED"
+    );
   }
 
   const previousPayment = await prisma.payment.findFirst({
@@ -378,6 +653,8 @@ paymentRoutes.post("/start-trial", async (c) => {
   const attachedPaymentMethodId = attachedPaymentMethod.id;
 
   await stripe.customers.update(customerId, {
+    name: billingName,
+    email: billingEmail,
     invoice_settings: {
       default_payment_method: attachedPaymentMethodId
     }
@@ -420,7 +697,8 @@ paymentRoutes.post("/start-trial", async (c) => {
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscription.id,
       stripePaymentId: attachedPaymentMethodId,
-      description: `7-day trial for ${listing.name}`
+      description: `7-day trial for ${listing.name}`,
+      ...paymentBillingData(billingDetails)
     },
     include: {
       listing: {
@@ -435,27 +713,13 @@ paymentRoutes.post("/start-trial", async (c) => {
   // Send a purchase-confirmation email with the invoice attached. Best-effort:
   // a mail failure must never break the purchase.
   try {
-    const business = await prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
-      select: { name: true }
-    });
+    const invoice = await buildInvoiceData(payment, authUser);
 
     await sendPaymentSuccessEmail({
       to: authUser.email,
-      name: business?.name || authUser.fullName,
+      name: invoice.businessName,
       setupUrl: setupUrlForListing(listing.id),
-      invoice: {
-        invoiceNumber: invoiceNumberForPayment(payment.id),
-        date: payment.createdAt,
-        businessName: business?.name || authUser.fullName || "Customer",
-        businessEmail: authUser.email,
-        agentName: listing.name,
-        description: `7-day trial for ${listing.name}`,
-        amountCents: listing.priceCents,
-        currency: "usd",
-        status: "TRIALING"
-      }
+      invoice
     });
   } catch (error) {
     console.error("Payment success email failed (non-fatal)", error);
@@ -471,6 +735,229 @@ paymentRoutes.post("/start-trial", async (c) => {
         : null
     },
     "Trial started",
+    201
+  );
+});
+
+paymentRoutes.post("/purchase", async (c) => {
+  const stripe = getStripeClient();
+
+  if (!stripe || !isStripeConfigured()) {
+    return errorResponse(c, "Stripe is not configured", 500, "STRIPE_NOT_CONFIGURED");
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = purchaseSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return errorResponse(c, "Invalid payment payload", 422, "VALIDATION_ERROR");
+  }
+
+  const authUser = c.get("authUser");
+  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress } = parsed.data;
+  const billingDetails: CheckoutBillingDetails = { billingName, billingEmail, billingAddress };
+
+  await persistCheckoutBilling(authUser.id, billingDetails);
+
+  const listing = await prisma.agentListing.findFirst({
+    where: {
+      id: listingId,
+      status: { in: ["APPROVED", "PENDING_REVIEW"] }
+    }
+  });
+
+  if (!listing) {
+    return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
+  }
+
+  const existingPayments = await prisma.payment.findMany({
+    where: {
+      userId: authUser.id,
+      listingId
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  const activePayment = existingPayments.find((payment) =>
+    OWNED_PAYMENT_STATUSES.includes(payment.status)
+  );
+
+  if (activePayment?.status === "SUCCEEDED") {
+    return successResponse(c, {
+      payment: activePayment,
+      alreadyActive: true
+    });
+  }
+
+  const previousPayment = await prisma.payment.findFirst({
+    where: {
+      userId: authUser.id,
+      stripeCustomerId: { not: null }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  let customerId: string;
+
+  if (activePayment?.stripeCustomerId) {
+    customerId = activePayment.stripeCustomerId;
+  } else if (previousPayment?.stripeCustomerId) {
+    customerId = previousPayment.stripeCustomerId;
+  } else {
+    const customer = await stripe.customers.create({
+      email: authUser.email,
+      name: authUser.fullName ?? undefined,
+      metadata: {
+        userId: authUser.id
+      }
+    });
+
+    customerId = customer.id;
+  }
+
+  const attachedPaymentMethod = await stripe.paymentMethods.attach(paymentMethodId, {
+    customer: customerId
+  });
+
+  const attachedPaymentMethodId = attachedPaymentMethod.id;
+
+  await stripe.customers.update(customerId, {
+    name: billingName,
+    email: billingEmail,
+    invoice_settings: {
+      default_payment_method: attachedPaymentMethodId
+    }
+  });
+
+  if (activePayment?.status === "TRIALING" && activePayment.stripeSubscriptionId) {
+    await stripe.subscriptions.update(activePayment.stripeSubscriptionId, {
+      trial_end: "now",
+      default_payment_method: attachedPaymentMethodId
+    });
+
+    const payment = await prisma.payment.create({
+      data: {
+        userId: authUser.id,
+        listingId: listing.id,
+        amountCents: listing.priceCents,
+        currency: "usd",
+        status: "SUCCEEDED",
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: activePayment.stripeSubscriptionId,
+        stripePaymentId: attachedPaymentMethodId,
+        description: `Purchase of ${listing.name}`,
+        ...paymentBillingData(billingDetails)
+      },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    try {
+      const invoice = await buildInvoiceData(payment, authUser);
+
+      await sendPaymentSuccessEmail({
+        to: authUser.email,
+        name: invoice.businessName,
+        setupUrl: setupUrlForListing(listing.id),
+        invoice
+      });
+    } catch (error) {
+      console.error("Payment success email failed (non-fatal)", error);
+    }
+
+    return successResponse(
+      c,
+      {
+        payment,
+        subscriptionId: activePayment.stripeSubscriptionId
+      },
+      "Purchase completed",
+      201
+    );
+  }
+
+  if (activePayment?.status === "PENDING") {
+    return successResponse(c, {
+      payment: activePayment,
+      alreadyActive: true
+    });
+  }
+
+  const product = await stripe.products.create({
+    name: listing.name,
+    metadata: {
+      listingId: listing.id
+    }
+  });
+
+  const subscription = await stripe.subscriptions.create({
+    customer: customerId,
+    items: [
+      {
+        price_data: {
+          currency: "usd",
+          unit_amount: listing.priceCents,
+          recurring: { interval: "month" },
+          product: product.id
+        }
+      }
+    ],
+    default_payment_method: attachedPaymentMethodId,
+    metadata: {
+      userId: authUser.id,
+      listingId: listing.id
+    }
+  });
+
+  const payment = await prisma.payment.create({
+    data: {
+      userId: authUser.id,
+      listingId: listing.id,
+      amountCents: listing.priceCents,
+      currency: "usd",
+      status: "SUCCEEDED",
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: subscription.id,
+      stripePaymentId: attachedPaymentMethodId,
+      description: `Purchase of ${listing.name}`,
+      ...paymentBillingData(billingDetails)
+    },
+    include: {
+      listing: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  try {
+    const invoice = await buildInvoiceData(payment, authUser);
+
+    await sendPaymentSuccessEmail({
+      to: authUser.email,
+      name: invoice.businessName,
+      setupUrl: setupUrlForListing(listing.id),
+      invoice
+    });
+  } catch (error) {
+    console.error("Payment success email failed (non-fatal)", error);
+  }
+
+  return successResponse(
+    c,
+    {
+      payment,
+      subscriptionId: subscription.id
+    },
+    "Purchase completed",
     201
   );
 });

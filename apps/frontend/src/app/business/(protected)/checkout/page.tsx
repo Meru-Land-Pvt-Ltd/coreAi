@@ -57,6 +57,20 @@ type StartTrialResponse = {
     alreadyActive?: boolean;
 };
 
+type PurchaseResponse = {
+    payment?: { id: string; status: string };
+    alreadyActive?: boolean;
+};
+
+type ListingAccess = {
+    canStartTrial: boolean;
+    hasActiveAccess: boolean;
+    trialUsed: boolean;
+    canPayNow?: boolean;
+    amountCents: number;
+    purchaseStatus: string | null;
+};
+
 function testPaymentMethodForBrand(brand: CardBrand) {
     if (brand === "mastercard") return "pm_card_mastercard";
     if (brand === "amex") return "pm_card_amex";
@@ -504,6 +518,16 @@ function isZipValid(country: string, value: string) {
     return clean.length >= 3;
 }
 
+function formatBillingAddress(addressLine: string, zip: string, country: string) {
+    const parts = [addressLine.trim(), zip.trim()];
+
+    if (country === "US") {
+        parts.push("United States");
+    }
+
+    return parts.filter(Boolean).join(", ");
+}
+
 export default function BusinessCheckoutPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -540,6 +564,7 @@ export default function BusinessCheckoutPage() {
     const [attemptedSubmit, setAttemptedSubmit] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [checkoutError, setCheckoutError] = useState("");
+    const [listingAccess, setListingAccess] = useState<ListingAccess | null>(null);
     const [confirmation, setConfirmation] = useState(false);
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
 
@@ -559,6 +584,19 @@ export default function BusinessCheckoutPage() {
     };
 
     const futureAmount = basePrice;
+    const canPayNow = listingAccess?.canPayNow ?? (
+        listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false
+    );
+    const isPurchaseMode = canPayNow;
+    const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
+    const checkoutBlocked = hasActiveAccess && !canPayNow;
+    const dueTodayAmount = isPurchaseMode ? basePrice : 0;
+    const checkoutButtonLabel = isPurchaseMode
+        ? `Pay $${basePrice}`
+        : "Start 7-day free trial";
+    const mobileCheckoutButtonLabel = isPurchaseMode
+        ? `Pay $${basePrice}`
+        : "Start free trial";
 
     const formReady =
         authReady &&
@@ -619,6 +657,32 @@ export default function BusinessCheckoutPage() {
         };
     }, [authReady, listingId]);
 
+    useEffect(() => {
+        if (!authReady || !listingId) return;
+
+        let mounted = true;
+
+        async function loadListingAccess() {
+            try {
+                const response = await apiGet<ListingAccess>(`/payments/listing-access/${listingId}`);
+
+                if (!mounted) return;
+
+                if (response.success && response.data) {
+                    setListingAccess(response.data);
+                }
+            } catch {
+                if (mounted) setListingAccess(null);
+            }
+        }
+
+        loadListingAccess();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady, listingId]);
+
     function fieldState(isValid: boolean, shouldShowError: boolean) {
         if (isValid) return "is-valid";
         if (shouldShowError) return "is-error";
@@ -662,39 +726,23 @@ export default function BusinessCheckoutPage() {
         }, 4200);
     }
 
-    function openResultTab(tab: Window | null, url: string) {
-        if (tab) {
-            tab.location.href = url;
-        } else {
-            window.open(url, "_blank", "noopener,noreferrer");
+    // Best-effort payment-failed notification. Never blocks or throws into the
+    // checkout flow — the redirect happens regardless of the mail result.
+    async function notifyPaymentFailed(reason?: string) {
+        try {
+            await apiPost("/mail/send-payment-failed", {
+                to: email,
+                agentName: listingName,
+                cardLast4: cardDigits.slice(-4),
+                failureReason: reason ?? "Payment was declined",
+                listingId: listingId ?? undefined
+            });
+        } catch {
+            // ignore — the failure page is still shown to the user
         }
     }
 
-    function goToSuccess(tab: Window | null) {
-        openResultTab(
-            tab,
-            businessPaymentSuccessPath({
-                listingId: listingId ?? undefined,
-                agent: listingName,
-                amount: basePrice,
-                email
-            })
-        );
-    }
-
-    function goToFailure(tab: Window | null, message?: string) {
-        if (message) setTrialError(message);
-        openResultTab(
-            tab,
-            businessPaymentFailedPath({
-                listingId: listingId ?? undefined,
-                agent: listingName,
-                amount: basePrice
-            })
-        );
-    }
-
-    async function handleStartTrial() {
+    async function handleCheckout() {
         setAttemptedSubmit(true);
         setTrialError("");
 
@@ -702,34 +750,70 @@ export default function BusinessCheckoutPage() {
 
         setProcessing(true);
 
-        // Open the result tab synchronously inside the click handler so the
-        // browser doesn't block it as a popup; we set its URL once we know
-        // the payment outcome.
-        const resultTab = window.open("about:blank", "_blank");
-
-        // Without a listing id there is nothing to charge against, so treat it
-        // as a successful trial start for the demo flow.
         if (!listingId) {
-            window.setTimeout(() => {
-                setProcessing(false);
-                goToSuccess(resultTab);
-            }, 1200);
+            router.push(
+                businessPaymentSuccessPath({
+                    agent: listingName,
+                    amount: basePrice,
+                    email,
+                    mode: isPurchaseMode ? "purchase" : "trial"
+                })
+            );
             return;
         }
 
-        const response = await apiPost<StartTrialResponse>("/payments/start-trial", {
-            listingId,
-            paymentMethodId: testPaymentMethodForBrand(brand)
-        });
-
-        setProcessing(false);
-
-        if (!response.success) {
-            goToFailure(resultTab, response.error ?? "We couldn't start your trial. Please try again.");
+        if (checkoutBlocked) {
+            router.push(businessSetupPath(listingId));
             return;
         }
 
-        goToSuccess(resultTab);
+        const endpoint = isPurchaseMode ? "/payments/purchase" : "/payments/start-trial";
+
+        try {
+            const response = await apiPost<StartTrialResponse | PurchaseResponse>(endpoint, {
+                listingId,
+                paymentMethodId: testPaymentMethodForBrand(brand),
+                billingName: cardName.trim(),
+                billingEmail: email.trim(),
+                billingAddress: formatBillingAddress(addressLine, zip, country)
+            });
+
+            if (!response.success) {
+                const reason = response.error ?? (isPurchaseMode
+                    ? "We couldn't complete your purchase. Please try again."
+                    : "We couldn't start your trial. Please try again.");
+                await notifyPaymentFailed(reason);
+                router.push(
+                    businessPaymentFailedPath({
+                        listingId,
+                        agent: listingName,
+                        amount: basePrice,
+                        mode: isPurchaseMode ? "purchase" : "trial"
+                    })
+                );
+                return;
+            }
+
+            router.push(
+                businessPaymentSuccessPath({
+                    listingId,
+                    agent: listingName,
+                    amount: basePrice,
+                    email,
+                    mode: isPurchaseMode ? "purchase" : "trial"
+                })
+            );
+        } catch {
+            await notifyPaymentFailed("We couldn't reach the payment service. Please try again.");
+            router.push(
+                businessPaymentFailedPath({
+                    listingId,
+                    agent: listingName,
+                    amount: basePrice,
+                    mode: isPurchaseMode ? "purchase" : "trial"
+                })
+            );
+        }
     }
 
     if (!authReady) {
@@ -767,7 +851,9 @@ export default function BusinessCheckoutPage() {
                                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
                                     <h2 className="text-xl font-bold tracking-tight" data-testid="business-protected-checkout-payment-method-heading">Payment method</h2>
                                     <p className="mb-6 mt-1 text-sm text-slate-500" data-testid="business-protected-checkout-you-won-apos-t-be-charged-until-text">
-                                        You won&apos;t be charged until your 7-day trial ends.
+                                        {isPurchaseMode
+                                            ? "Your card will be charged today for this agent."
+                                            : "You won&apos;t be charged until your 7-day trial ends."}
                                     </p>
 
                                     <div className="flex overflow-x-auto" role="tablist" aria-label="Payment options">
@@ -976,13 +1062,27 @@ export default function BusinessCheckoutPage() {
                                             {checkoutError}
                                         </p>
                                     ) : null}
+                                    {checkoutBlocked ? (
+                                        <p
+                                            data-testid="checkout-already-active"
+                                            className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-semibold text-green-700"
+                                        >
+                                            You already have access to this agent.{" "}
+                                            <Link
+                                                href={businessSetupPath(listingId ?? undefined)}
+                                                className="underline hover:text-green-800"
+                                            >
+                                                Continue setup
+                                            </Link>
+                                        </p>
+                                    ) : null}
                                     <button
                                         type="button"
-                                        onClick={handleStartTrial}
-                                        data-testid="checkout-start-trial"
+                                        onClick={handleCheckout}
+                                        data-testid={isPurchaseMode ? "checkout-pay-now" : "checkout-start-trial"}
                                         className="cta hidden lg:inline-flex"
-                                        disabled={!formReady || processing}
-                                        aria-disabled={!formReady || processing}
+                                        disabled={!formReady || processing || checkoutBlocked}
+                                        aria-disabled={!formReady || processing || checkoutBlocked}
                                     >
                                         {processing ? (
                                             <>
@@ -991,7 +1091,7 @@ export default function BusinessCheckoutPage() {
                                             </>
                                         ) : (
                                             <>
-                                                Start 7-day free trial
+                                                {checkoutButtonLabel}
                                                 <ArrowIcon />
                                             </>
                                         )}
@@ -1003,11 +1103,18 @@ export default function BusinessCheckoutPage() {
                                         </p>
                                     ) : null}
 
+                                    {!isPurchaseMode ? (
                                     <p className="mt-3 text-center text-xs text-slate-400">
                                         You&apos;ll be charged{" "}
                                         <span className="font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-text">${futureAmount}</span> on{" "}
                                         <span className="font-medium text-slate-500" data-testid="business-protected-checkout-trial-date-text">{trialDate}</span> unless you cancel.
                                     </p>
+                                    ) : (
+                                    <p className="mt-3 text-center text-xs text-slate-400">
+                                        You&apos;ll be charged{" "}
+                                        <span className="font-medium text-slate-500" data-testid="business-protected-checkout-purchase-amount-text">${dueTodayAmount.toFixed(2)}</span> today.
+                                    </p>
+                                    )}
 
                                     <p className="mt-1.5 text-center text-xs text-slate-400" data-testid="business-protected-checkout-by-proceeding-you-agree-to-our-terms-text">
                                         By proceeding, you agree to our{" "}
@@ -1031,6 +1138,8 @@ export default function BusinessCheckoutPage() {
                                     agentName={listingName}
                                     agentAuthor={listingAuthor}
                                     price={basePrice}
+                                    isPurchaseMode={isPurchaseMode}
+                                    dueTodayAmount={dueTodayAmount}
                                 />
                             </aside>
                         </div>
@@ -1042,17 +1151,17 @@ export default function BusinessCheckoutPage() {
                     >
                         <div className="shrink-0 leading-tight">
                             <p className="text-[0.7rem] text-slate-400" data-testid="business-protected-checkout-due-today-text">Due today</p>
-                            <p className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text">$0.00</p>
+                            <p className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text">${dueTodayAmount.toFixed(2)}</p>
                         </div>
 
                         <button
                             type="button"
-                            onClick={handleStartTrial}
-                            data-testid="checkout-start-trial-mobile"
+                            onClick={handleCheckout}
+                            data-testid={isPurchaseMode ? "checkout-pay-now-mobile" : "checkout-start-trial-mobile"}
                             className="cta flex-1"
                             style={{ paddingTop: ".85rem", paddingBottom: ".85rem", fontSize: "1rem" }}
-                            disabled={!formReady || processing}
-                            aria-disabled={!formReady || processing}
+                            disabled={!formReady || processing || checkoutBlocked}
+                            aria-disabled={!formReady || processing || checkoutBlocked}
                         >
                             {processing ? (
                                 <>
@@ -1061,7 +1170,7 @@ export default function BusinessCheckoutPage() {
                                 </>
                             ) : (
                                 <>
-                                    Start free trial
+                                    {mobileCheckoutButtonLabel}
                                     <ArrowIcon />
                                 </>
                             )}
@@ -1220,7 +1329,9 @@ function OrderSummary({
     futureAmount,
     agentName,
     agentAuthor,
-    price
+    price,
+    isPurchaseMode = false,
+    dueTodayAmount = 0
 }: {
     trialDate: string;
     includedItems: string[];
@@ -1228,8 +1339,11 @@ function OrderSummary({
     agentName: string;
     agentAuthor: string;
     price: number;
+    isPurchaseMode?: boolean;
+    dueTodayAmount?: number;
 }) {
     const priceLabel = price.toFixed(2);
+    const dueTodayLabel = dueTodayAmount.toFixed(2);
 
     return (
         <div className="lg:sticky lg:top-28">
@@ -1246,12 +1360,6 @@ function OrderSummary({
                     <div className="min-w-0">
                         <p className="font-bold leading-tight text-slate-900">{agentName}</p>
                         <p className="mt-0.5 text-sm text-slate-500">by {agentAuthor}</p>
-                        <p className="mt-1 flex items-center gap-1 text-sm text-amber-500">
-                            <span>★★★★★</span>
-                            <span className="text-slate-500" data-testid="business-protected-checkout-agent-rating-text">
-                                <span className="font-semibold text-amber-600" data-testid="business-protected-checkout-agent-rating-text-2">{agent.rating}</span> ({agent.reviews} reviews)
-                            </span>
-                        </p>
                     </div>
                 </div>
 
@@ -1273,7 +1381,9 @@ function OrderSummary({
                 <div className="px-6 py-5">
                     <div className="space-y-3">
                         <PriceRow label="Agent price" value={`$${priceLabel}`} />
-                        <PriceRow label="7-day free trial" value={`−$${priceLabel}`} green />
+                        {isPurchaseMode ? null : (
+                            <PriceRow label="7-day free trial" value={`−$${priceLabel}`} green />
+                        )}
                         <PriceRow label="Execution fees" value="Pay as you go" muted />
                     </div>
 
@@ -1282,18 +1392,28 @@ function OrderSummary({
                     <div className="flex items-baseline justify-between">
                         <div>
                             <span className="text-lg font-bold text-slate-900" data-testid="business-protected-checkout-due-today-text-2">Due today</span>
-                            <span className="block text-xs font-normal text-slate-400" data-testid="business-protected-checkout-free-for-7-days-text">Free for 7 days</span>
+                            {!isPurchaseMode ? (
+                                <span className="block text-xs font-normal text-slate-400" data-testid="business-protected-checkout-free-for-7-days-text">Free for 7 days</span>
+                            ) : null}
                         </div>
 
-                        <span className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text-2">$0.00</span>
+                        <span className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text-2">${dueTodayLabel}</span>
                     </div>
 
+                    {isPurchaseMode ? (
+                        <div className="mt-2 flex justify-between text-sm">
+                            <span className="text-slate-500">Charged today</span>
+                            <span className="tnum font-medium text-slate-500">${dueTodayLabel}</span>
+                        </div>
+                    ) : (
                     <div className="mt-2 flex justify-between text-sm">
                         <span className="text-slate-500">Due {trialDate}</span>
                         <span className="tnum font-medium text-slate-500">${futureAmount.toFixed(2)}</span>
                     </div>
+                    )}
                 </div>
 
+                {isPurchaseMode ? null : (
                 <div className="mx-6 mb-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
                     <p className="flex items-center gap-2 text-sm font-semibold text-amber-800" data-testid="business-protected-checkout-your-7-day-trial-includes-text">
                         ⏱ Your 7-day trial includes:
@@ -1305,6 +1425,7 @@ function OrderSummary({
                         <li data-testid="business-protected-checkout-cancel-anytime-no-charge-item">• Cancel anytime — no charge</li>
                     </ul>
                 </div>
+                )}
 
                 <div className="mx-6 mb-6 flex items-start gap-3 rounded-xl border border-green-100 bg-green-50 p-4">
                     <span className="mt-0.5 shrink-0 text-green-600">

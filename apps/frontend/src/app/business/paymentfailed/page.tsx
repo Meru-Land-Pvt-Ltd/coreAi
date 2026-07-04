@@ -57,12 +57,24 @@ function PaymentFailedFallback() {
     );
 }
 
+function resolvePaymentMode(searchParams: URLSearchParams) {
+    const mode = searchParams.get("mode");
+    if (mode === "trial" || mode === "purchase") return mode;
+    const amountParam = Number(searchParams.get("amount"));
+    if (Number.isFinite(amountParam) && amountParam > 0) return "purchase";
+    return "trial";
+}
+
 function BusinessPaymentFailedContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
     const listingId = searchParams.get("listingId");
     const agentName = searchParams.get("agent") || "your agent";
+    const amountParam = Number(searchParams.get("amount"));
+    const amount = Number.isFinite(amountParam) && amountParam > 0 ? amountParam : null;
+    const paymentMode = resolvePaymentMode(searchParams);
+    const isTrial = paymentMode === "trial";
 
     const [reserveSeconds, setReserveSeconds] = useState(1800);
 
@@ -94,7 +106,7 @@ function BusinessPaymentFailedContent() {
                             className="h-8 w-8 object-contain"
                         />
                         <span className="text-lg font-extrabold tracking-tight text-amber-500">
-                            Triven
+                            Triven.ai
                         </span>
                     </span>
                 </div>
@@ -123,17 +135,44 @@ function BusinessPaymentFailedContent() {
                 </div>
 
                 <header className="pf-fade-up text-center" style={{ animationDelay: ".05s" }}>
-                    <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
-                        Payment couldn&apos;t be processed
+                    <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl" data-testid="payment-failed-title">
+                        {isTrial ? "Trial couldn't be started" : "Payment couldn't be processed"}
                     </h1>
-                    <p className="mt-2 text-slate-600">
-                        Your payment was declined. This is usually a quick fix.
+                    <p className="mt-2 text-slate-600" data-testid="payment-failed-subtitle">
+                        {isTrial
+                            ? "We couldn't start your 7-day free trial. This is usually a quick fix."
+                            : amount
+                                ? `Your payment of $${amount.toFixed(2)} was declined. This is usually a quick fix.`
+                                : "Your payment was declined. This is usually a quick fix."}
                     </p>
                 </header>
 
                 <section
                     className="pf-fade-up mt-8 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white p-5 shadow-md"
                     style={{ animationDelay: ".1s" }}
+                    data-testid="payment-failed-summary"
+                >
+                    <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="text-slate-500">{agentName}</span>
+                        <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isTrial ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}
+                            data-testid="payment-failed-status-badge"
+                        >
+                            {isTrial ? "Trial not started" : "Payment failed"}
+                        </span>
+                    </div>
+                    {amount ? (
+                        <p className="mt-3 text-sm text-slate-600" data-testid="payment-failed-amount-note">
+                            {isTrial
+                                ? `$${amount.toFixed(2)}/month after your trial — nothing was charged today.`
+                                : `$${amount.toFixed(2)} was not charged. You can retry when ready.`}
+                        </p>
+                    ) : null}
+                </section>
+
+                <section
+                    className="pf-fade-up mt-6 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white p-5 shadow-md"
+                    style={{ animationDelay: ".12s" }}
                 >
                     <h2 className="text-sm font-semibold">Possible reasons</h2>
                     <ul className="mt-3 space-y-2.5 text-sm text-slate-600">
@@ -152,7 +191,7 @@ function BusinessPaymentFailedContent() {
                         data-testid="payment-failed-retry"
                         className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 font-semibold text-slate-900 shadow-sm transition-transform duration-150 hover:scale-[1.02] hover:bg-amber-400 hover:shadow-md"
                     >
-                        Try again
+                        {isTrial ? "Try starting trial again" : "Try payment again"}
                     </button>
 
                     <button
@@ -180,7 +219,7 @@ function BusinessPaymentFailedContent() {
                             <rect x="3" y="11" width="18" height="11" rx="2" />
                             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                         </svg>
-                        Your cart is saved. Nothing has been lost.
+                        Your {isTrial ? "trial setup" : "checkout"} is saved. Nothing has been lost.
                     </p>
 
                     <p className="mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
@@ -197,7 +236,7 @@ function BusinessPaymentFailedContent() {
                             <circle cx="12" cy="12" r="9" />
                             <path d="M12 7v5l3 2" />
                         </svg>
-                        {agentName} is reserved ·{" "}
+                        {agentName} is reserved{isTrial ? " for trial" : ""} ·{" "}
                         <span className="tnum">{formatClock(reserveSeconds)}</span>
                     </p>
 

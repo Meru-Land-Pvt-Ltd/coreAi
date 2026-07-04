@@ -50,7 +50,7 @@ const faqItems = [
   {
     question: "Is there a monthly subscription?",
     answer:
-      "No. Buy the agent once, then pay per execution only — there’s no recurring subscription."
+      "No. Buy the agent once, then pay per execution only as there’s no recurring subscription."
   },
   {
     question: "What counts as one execution?",
@@ -60,27 +60,27 @@ const faqItems = [
   {
     question: "What if my agent doesn’t run?",
     answer:
-      "You pay $0. There are zero minimum fees — you’re only charged for actions the agent actually performs."
+      "You pay $0. There are zero minimum fees, you’re only charged for actions the agent actually performs."
   },
-  {
-    question: "Can I set a spending cap?",
-    answer:
-      "Yes. Set a maximum monthly budget and the agent automatically pauses when it’s reached."
-  },
+  // {
+  //   question: "Can I set a spending cap?",
+  //   answer:
+  //     "Yes. Set a maximum monthly budget and the agent automatically pauses when it’s reached."
+  // },
   {
     question: "Do I own the agent forever?",
     answer:
-      "Yes — lifetime access. The only ongoing charges are execution fees when it works for you."
+      "Yes, lifetime access. The only ongoing charges are execution fees when it works for you."
   },
-  {
-    question: "What about agent updates?",
-    answer:
-      "Free forever. Architects push improvements automatically — you always run the latest version."
-  },
+  // {
+  //   question: "What about agent updates?",
+  //   answer:
+  //     "Free forever. Architects push improvements automatically — you always run the latest version."
+  // },
   {
     question: "What’s your refund policy?",
     answer:
-      "30-day money-back guarantee on all agent purchases — no questions asked."
+      "30-day money-back guarantee on all agent purchases, no questions asked."
   }
 ];
 
@@ -497,7 +497,7 @@ export default function PricingPage() {
                   href={"#free-trial" as Route}
                   className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)] transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
                 >
-                  Start free — first 50 executions on us
+                  Start free, first 50 executions on us
                   <ArrowIcon />
                 </Link>
               </div>
@@ -518,7 +518,7 @@ export default function PricingPage() {
                 className="mt-3 text-lg text-slate-600"
                 data-testid="pricing-same-job-a-fraction-of-the-cost-text"
               >
-                Same job. A fraction of the cost — and it never clocks out.
+                Same job. A fraction of the cost and it never clocks out.
               </p>
             </div>
 
@@ -644,7 +644,7 @@ export default function PricingPage() {
                 {[
                   "First 50 executions completely free",
                   "No credit card required",
-                  "Full functionality — zero feature limits"
+                  "Full functionality, zero feature limits"
                 ].map((item) => (
                   <li
                     key={item}

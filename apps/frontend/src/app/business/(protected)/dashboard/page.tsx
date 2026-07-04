@@ -30,6 +30,18 @@ type DashboardOverview = {
     counts: { leads: number; conversations: number; appointments: number };
     recentMissedCalls: { id: string; phoneNumber: string; name: string | null; status: string }[];
     calendarConnected: boolean;
+    totalSpendCents?: number;
+    activities?: DashboardActivityApi[];
+};
+
+type DashboardActivityApi = {
+    id: string;
+    type: string;
+    text: string;
+    badge: string;
+    tone: "green" | "amber" | "slate";
+    check?: boolean;
+    createdAt: string;
 };
 
 type MetricCard = {
@@ -169,9 +181,8 @@ const metrics: MetricCard[] = [
     },
     {
         label: "Total Spend",
-        value: "$0",
-        subtitle: "execution fees this month",
-        badge: "ROI 0%",
+        value: "$0.00",
+        subtitle: "All time",
         icon: "receipt"
     }
 ];
@@ -197,59 +208,28 @@ const notifications = [
     }
 ];
 
-const initialActivities: Activity[] = [
-    {
-        time: "2 min ago",
-        text: "Missed Call Text-Back sent an SMS to (555) 012-3456",
-        badge: "Reply received",
-        tone: "green",
-        check: true
-    },
-    {
-        time: "8 min ago",
-        text: "Appointment reminder delivered to Jordan P.",
-        badge: "Confirmed",
-        tone: "green",
-        check: true
-    },
-    {
-        time: "15 min ago",
-        text: "Review request sent to Maria L.",
-        badge: "5★ review posted",
-        tone: "green"
-    },
-    {
-        time: "32 min ago",
-        text: "Missed call detected — text-back initiated",
-        badge: "In progress",
-        tone: "amber"
-    },
-    {
-        time: "1 hr ago",
-        text: "New patient booked a cleaning via AI chat",
-        badge: "Booked",
-        tone: "green",
-        check: true
-    },
-    {
-        time: "2 hr ago",
-        text: "Follow-up sequence started for a new lead",
-        badge: "Sent",
-        tone: "slate"
-    },
-    {
-        time: "3 hr ago",
-        text: "Review request sent to Daniel R.",
-        badge: "Pending",
-        tone: "slate"
-    },
-    {
-        time: "5 hr ago",
-        text: "Missed Call Text-Back sent an SMS to (555) 660-1192",
-        badge: "No reply yet",
-        tone: "slate"
-    }
-];
+function formatCurrencyCents(cents: number) {
+    return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatRelativeTime(iso: string) {
+    const timestamp = new Date(iso).getTime();
+    if (Number.isNaN(timestamp)) return "Recently";
+
+    const diffMs = Date.now() - timestamp;
+    const minutes = Math.floor(diffMs / 60000);
+
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes} min ago`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hr ago`;
+
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+
+    return formatPurchasedDate(iso);
+}
 
 const chartData: Record<ChartMetric, number[]> = {
     executions: [6, 8, 7, 9, 4, 3, 7, 5, 2, 6, 8, 5, 4, 9, 6, 3, 8, 10, 6, 5, 11, 9, 12, 10, 13, 7, 6, 14, 11, 15],
@@ -319,6 +299,33 @@ export default function BusinessDashboardPage() {
     const avgValue = currentData.reduce((sum, value) => sum + value, 0) / currentData.length;
 
     const yAxis = useMemo(() => getYAxis(maxValue, chartMetric), [maxValue, chartMetric]);
+
+    const dashboardMetrics = useMemo(() => {
+        const totalSpendCents = overview?.totalSpendCents ?? 0;
+
+        return metrics.map((metric) =>
+            metric.label === "Total Spend"
+                ? {
+                      ...metric,
+                      value: formatCurrencyCents(totalSpendCents)
+                  }
+                : metric
+        );
+    }, [overview?.totalSpendCents]);
+
+    const liveActivities = useMemo(
+        () =>
+            (overview?.activities ?? []).map((activity) => ({
+                id: activity.id,
+                time: formatRelativeTime(activity.createdAt),
+                text: activity.text,
+                badge: activity.badge,
+                tone: activity.tone,
+                check: activity.check
+            })),
+        [overview?.activities]
+    );
+
     useEffect(() => {
         setCurrentUser(readCoreAiUser());
         setFullDate(getFullDate());
@@ -414,7 +421,7 @@ export default function BusinessDashboardPage() {
             </div>
 
             <section aria-label="Key metrics" className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
-                {metrics.map((metric) => (
+                {dashboardMetrics.map((metric) => (
                     <MetricCard key={metric.label} metric={metric} />
                 ))}
             </section>
@@ -485,7 +492,7 @@ export default function BusinessDashboardPage() {
                         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                             <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agent-activity-last-30-days-heading">
                                 Agent Activity{" "}
-                                <span className="font-medium text-slate-400" data-testid="business-protected-dashboard-last-30-days-text">— Last 30 days</span>
+                                <span className="font-medium text-slate-400" data-testid="business-protected-dashboard-last-30-days-text">Last 30 days</span>
                             </h2>
 
                             <div className="flex gap-1 rounded-xl bg-gray-50 p-1" role="tablist" aria-label="Chart metric">
@@ -581,11 +588,32 @@ export default function BusinessDashboardPage() {
                             </span>
                         </div>
 
-                        <div className="flex h-96 items-center justify-center overflow-y-auto px-5 text-center">
-                            <p className="text-sm font-medium text-slate-400" data-testid="business-protected-dashboard-no-activity-text">
-                                No Activity Found
-                            </p>
-                        </div>
+                        {overviewState === "loading" ? (
+                            <div className="max-h-96 divide-y divide-gray-100 overflow-y-auto" data-testid="dashboard-activity-loading">
+                                {Array.from({ length: 4 }).map((_, index) => (
+                                    <div key={index} className="animate-pulse space-y-2 px-5 py-4">
+                                        <div className="h-3 w-16 rounded bg-gray-100" />
+                                        <div className="h-4 w-full rounded bg-gray-100" />
+                                        <div className="h-5 w-24 rounded-full bg-gray-100" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : liveActivities.length === 0 ? (
+                            <div className="flex h-96 items-center justify-center overflow-y-auto px-5 text-center">
+                                <p className="text-sm font-medium text-slate-400" data-testid="business-protected-dashboard-no-activity-text">
+                                    No Activity Found
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="max-h-96 divide-y divide-gray-100 overflow-y-auto" data-testid="dashboard-activity-list">
+                                {liveActivities.map((activity) => (
+                                    <ActivityItem
+                                        key={activity.id}
+                                        activity={activity}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </section>
 
                     <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -690,13 +718,13 @@ function AgentRow({
 
             <div className="flex items-center gap-8">
                 <div className="text-right">
-                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-runs-text">{agent.runs}</p>
+                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-runs-text">{agent.runs} runs</p>
                     <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-this-month-text">this month</p>
                 </div>
 
                 <div className="text-right">
-                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">{agent.cost}</p>
-                    <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">plan</p>
+                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">$ 0</p>
+                    <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">cost</p>
                 </div>
             </div>
 
@@ -716,6 +744,7 @@ function AgentRow({
                 {open ? (
                     <div className="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
                         <AgentMenuButton icon="pause" label="Pause agent" />
+                        <AgentMenuButton icon="settings" label="Configure" />
                     </div>
                 ) : null}
             </div>

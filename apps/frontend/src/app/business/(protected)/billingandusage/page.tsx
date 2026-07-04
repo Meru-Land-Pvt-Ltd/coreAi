@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { apiClient, apiGet } from "@/lib/api";
-import { businessInvoicePath } from "@/lib/routes";
+import { useRouter } from "next/navigation";
+import { apiGet } from "@/lib/api";
+import { downloadInvoicePdf } from "@/lib/invoice-print";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -17,9 +17,26 @@ type BillingInvoice = {
     createdAt: string;
     description: string;
     amountCents: number;
+    displayAmountCents?: number;
     currency: string;
     status: string;
+    billingName?: string | null;
+    billingEmail?: string | null;
+    billingAddress?: string | null;
 };
+
+function invoiceNumberFor(id: string) {
+    return `INV-${id.slice(-8).toUpperCase()}`;
+}
+
+function invoiceDisplayAmount(invoice: BillingInvoice) {
+    if (typeof invoice.displayAmountCents === "number") {
+        return invoice.displayAmountCents;
+    }
+    if (invoice.status.toUpperCase() === "TRIALING") return 0;
+    if (invoice.status.toUpperCase() === "SUCCEEDED") return invoice.amountCents;
+    return 0;
+}
 
 type BillingAgent = {
     id: string;
@@ -39,12 +56,13 @@ type Billing = {
     invoices: BillingInvoice[];
     paymentMethod: BillingPaymentMethod | null;
     businessName: string | null;
+    billingEmail: string | null;
     billingAddress: string | null;
 };
 
 type BillingResponse = { billing: Billing };
 
-const NA = "NA";
+const NA = "0";
 
 const ACCENTS = [
     { dot: "bg-amber-400", chip: "bg-amber-50 text-amber-600", fill: "bg-amber-400" },
@@ -90,6 +108,7 @@ const DOWNLOAD_STYLES = `
 
 export default function BusinessBillingUsagePage() {
     const router = useRouter();
+
     const [billing, setBilling] = useState<Billing | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [apiError, setApiError] = useState("");
@@ -130,6 +149,10 @@ export default function BusinessBillingUsagePage() {
         };
     }, []);
 
+    function openInvoice(invoiceId: string) {
+        router.push(`/business/billingandusage/billing?invoiceId=${encodeURIComponent(invoiceId)}`);
+    }
+
     function showToast(message: string) {
         setToast(message);
         window.setTimeout(() => setToast(""), 2800);
@@ -139,28 +162,7 @@ export default function BusinessBillingUsagePage() {
         showToast(`Preparing ${invoice.description || "invoice"} PDF…`);
 
         try {
-            const token =
-                localStorage.getItem("coreai-token") || localStorage.getItem("coreai_token");
-            const base = apiClient.defaults.baseURL ?? "";
-
-            const response = await fetch(`${base}/payments/invoice/${invoice.id}/pdf`, {
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined
-            });
-
-            if (!response.ok) {
-                throw new Error("Download failed");
-            }
-
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `invoice-${invoice.id}.pdf`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(url);
-
+            await downloadInvoicePdf(invoice.id, `invoice-${invoiceNumberFor(invoice.id)}.pdf`);
             showToast(`Downloaded ${invoice.description || "invoice"}`);
         } catch {
             showToast("Could not download invoice PDF");
@@ -192,7 +194,7 @@ export default function BusinessBillingUsagePage() {
 
     if (isLoading) {
         return (
-            <div className="billing-root mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="billing-root w-full px-4 py-8 sm:px-6 lg:px-8">
                 <div className="h-7 w-48 animate-pulse rounded bg-gray-200" />
                 <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
                     <div className="h-64 animate-pulse rounded-2xl bg-gray-100 lg:col-span-2" />
@@ -204,7 +206,7 @@ export default function BusinessBillingUsagePage() {
 
     if (apiError) {
         return (
-            <div className="billing-root mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="billing-root w-full px-4 py-8 sm:px-6 lg:px-8">
                 <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
                 <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-6 text-sm font-medium text-red-700">
                     {apiError}
@@ -217,7 +219,7 @@ export default function BusinessBillingUsagePage() {
         <div className="billing-root bg-gray-50 text-slate-900">
             <style dangerouslySetInnerHTML={{ __html: DOWNLOAD_STYLES }} />
 
-            <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+            <div className="w-full space-y-6 px-4 py-8 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between gap-3">
                     <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
                     <button
@@ -377,10 +379,22 @@ export default function BusinessBillingUsagePage() {
                                 </thead>
                                 <tbody>
                                     {invoices.map((invoice) => (
-                                        <tr key={invoice.id} className="border-b border-gray-50 transition last:border-0 hover:bg-amber-50/30">
+                                        <tr
+                                            key={invoice.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => openInvoice(invoice.id)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    openInvoice(invoice.id);
+                                                }
+                                            }}
+                                            className="cursor-pointer border-b border-gray-50 transition last:border-0 hover:bg-amber-50/30 focus-visible:bg-amber-50/40 focus-visible:outline-none"
+                                        >
                                             <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">{formatDate(invoice.createdAt)}</td>
                                             <td className="px-6 py-4 text-sm text-slate-700">{invoice.description || NA}</td>
-                                            <td className="px-6 py-4 font-mono text-sm font-semibold tabular-nums text-slate-800">{formatCurrencyCents(invoice.amountCents)}</td>
+                                            <td className="px-6 py-4 font-mono text-sm font-semibold tabular-nums text-slate-800">{formatCurrencyCents(invoiceDisplayAmount(invoice))}</td>
                                             <td className="px-6 py-4">
                                                 <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(invoice.status)}`}>
                                                     {statusLabel(invoice.status)}
@@ -389,9 +403,12 @@ export default function BusinessBillingUsagePage() {
                                             <td className="px-6 py-4 text-right">
                                                 <button
                                                     type="button"
-                                                    onClick={() => router.push(businessInvoicePath(invoice.id))}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void downloadInvoice(invoice);
+                                                    }}
                                                     data-testid="billing-invoice-download"
-                                                    aria-label={`View ${invoice.description || "invoice"} details`}
+                                                    aria-label={`Download ${invoice.description || "invoice"} PDF`}
                                                     className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
                                                 >
                                                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinejoin="round" d="M7 3h7l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /><path strokeLinejoin="round" d="M14 3v4h4" /></svg>
@@ -440,13 +457,16 @@ export default function BusinessBillingUsagePage() {
                         </div>
                     )}
 
-                    {(billing?.businessName || billing?.billingAddress) ? (
+                    {(billing?.businessName || billing?.billingAddress || billing?.billingEmail) ? (
                         <div className="mt-4 border-t border-gray-50 pt-4">
                             {billing?.businessName ? (
-                                <div className="text-sm font-medium text-slate-800">{billing.businessName}</div>
+                                <div className="text-sm font-medium text-slate-800" data-testid="billing-saved-name">{billing.businessName}</div>
                             ) : null}
                             {billing?.billingAddress ? (
-                                <div className="text-sm text-slate-500">{billing.billingAddress}</div>
+                                <div className="text-sm text-slate-500" data-testid="billing-saved-address">{billing.billingAddress}</div>
+                            ) : null}
+                            {billing?.billingEmail ? (
+                                <div className="text-sm text-slate-500" data-testid="billing-saved-email">{billing.billingEmail}</div>
                             ) : null}
                         </div>
                     ) : null}

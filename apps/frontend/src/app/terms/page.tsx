@@ -122,7 +122,6 @@ const termsSections = [
           info@triven.ai
         </a>
         <br />
-        Mail: Triven AI Agent Platform, 123 Market Street, Suite 400, San Francisco, CA 94103
       </>
     )
   }

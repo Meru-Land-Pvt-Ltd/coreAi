@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
-import { BUSINESS_MARKETPLACE_PATH, businessCheckoutPath } from "@/lib/routes";
+import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+
+const TRIAL_DAYS = 7;
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -124,6 +126,34 @@ type ApiListing = {
 type ListingApiResponse = {
   listing?: ApiListing;
 };
+
+type ApiPurchasedAgent = {
+  purchaseId: string;
+  purchasedAt: string;
+  purchaseStatus: string;
+  listing: ApiListing;
+};
+
+type MyAgentsResponse = {
+  agents?: ApiPurchasedAgent[];
+};
+
+type OwnedAgentInfo = {
+  purchaseId: string;
+  purchasedAt: string;
+  purchaseStatus: string;
+};
+
+function getTrialInfo(purchasedAt: string, status: string) {
+  const isTrial = status.toUpperCase() === "TRIALING";
+  const start = new Date(purchasedAt).getTime();
+  const elapsedDays = Number.isFinite(start)
+    ? Math.floor((Date.now() - start) / (1000 * 60 * 60 * 24))
+    : 0;
+  const daysLeft = Math.max(0, TRIAL_DAYS - elapsedDays);
+  const trialEnded = isTrial && daysLeft <= 0;
+  return { isTrial, daysLeft, trialEnded };
+}
 
 function formatLabel(value: string) {
   return value
@@ -314,6 +344,7 @@ export default function BusinessAgentDetailPage() {
   const agentId = params.agentId;
 
   const [listing, setListing] = useState<ApiListing | null>(null);
+  const [ownedAgent, setOwnedAgent] = useState<OwnedAgentInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
   const [techOpen, setTechOpen] = useState(false);
@@ -358,6 +389,42 @@ export default function BusinessAgentDetailPage() {
     }
 
     loadListing();
+
+    return () => {
+      mounted = false;
+    };
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!agentId) return;
+
+    let mounted = true;
+
+    async function loadOwnedAgent() {
+      try {
+        const response = await apiGet<MyAgentsResponse>("/payments/my-agents");
+
+        if (!mounted) return;
+
+        const entry = (response.data?.agents ?? []).find(
+          (agent) => agent.listing.id === agentId
+        );
+
+        if (response.success && entry) {
+          setOwnedAgent({
+            purchaseId: entry.purchaseId,
+            purchasedAt: entry.purchasedAt,
+            purchaseStatus: entry.purchaseStatus
+          });
+        } else {
+          setOwnedAgent(null);
+        }
+      } catch {
+        if (mounted) setOwnedAgent(null);
+      }
+    }
+
+    loadOwnedAgent();
 
     return () => {
       mounted = false;
@@ -419,6 +486,18 @@ export default function BusinessAgentDetailPage() {
     "";
 
   const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
+  const setupPath = listing ? businessSetupPath(listing.id) : BUSINESS_AGENTS_PATH;
+
+  const trialInfo = ownedAgent
+    ? getTrialInfo(ownedAgent.purchasedAt, ownedAgent.purchaseStatus)
+    : null;
+  const purchaseStatus = ownedAgent?.purchaseStatus.toUpperCase() ?? "";
+  const isPaid = purchaseStatus === "SUCCEEDED";
+  const showPayButton = Boolean(
+    ownedAgent &&
+      (trialInfo?.isTrial || trialInfo?.trialEnded || purchaseStatus === "TRIALING")
+  );
+  const showSetupButton = Boolean(ownedAgent && isPaid);
 
   function scrollToDemo() {
     setDemoOpen(false);
@@ -432,7 +511,7 @@ export default function BusinessAgentDetailPage() {
     return (
       <div className="agent-detail-root min-h-screen bg-white px-6 py-16">
         <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-        <div className="mx-auto max-w-6xl animate-pulse space-y-6">
+        <div className="mx-auto w-full max-w-none animate-pulse space-y-6">
           <div className="h-8 w-48 rounded-lg bg-gray-100" />
           <div className="h-12 w-2/3 rounded-xl bg-gray-100" />
           <div className="h-40 rounded-2xl bg-gray-100" />
@@ -445,7 +524,7 @@ export default function BusinessAgentDetailPage() {
     return (
       <div className="agent-detail-root min-h-screen bg-white px-6 py-16">
         <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-        <div className="mx-auto max-w-xl rounded-2xl border border-red-100 bg-white p-8 text-center shadow-sm">
+        <div className="mx-auto w-full max-w-none rounded-2xl border border-red-100 bg-white p-8 text-center shadow-sm">
           <h1 className="text-xl font-bold text-slate-900">Could not load agent</h1>
           <p className="mt-2 text-sm text-slate-600">{apiError || "Agent not found."}</p>
           <Link
@@ -464,11 +543,11 @@ export default function BusinessAgentDetailPage() {
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
       <div className="border-b border-gray-100 bg-white">
-        <nav className="mx-auto max-w-6xl px-6 py-3 text-sm" aria-label="Breadcrumb">
+        <nav className="mx-auto w-full max-w-none px-6 py-3 text-sm" aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-2 text-slate-500">
-            <li data-testid="business-protected-agents-marketplace-item">
-              <Link data-testid="agent-detail-marketplace-link-2" href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
-                Marketplace
+            <li data-testid="business-protected-agents-my-agents-item">
+              <Link data-testid="agent-detail-my-agents-link" href={BUSINESS_AGENTS_PATH} className="transition hover:text-amber-600">
+                My Agents
               </Link>
             </li>
             <li className="text-slate-300">›</li>
@@ -485,7 +564,7 @@ export default function BusinessAgentDetailPage() {
         <section className="relative px-6 pb-16 pt-12">
           <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(245,158,11,0.08),rgba(255,255,255,0)_72%)]" />
 
-          <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-5 lg:items-start">
+          <div className="mx-auto grid w-full max-w-none gap-12 lg:grid-cols-5 lg:items-start">
             <div className="order-2 lg:order-1 lg:col-span-3">
               <div className="relative inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500 shadow-glow">
                 <PhoneIcon className="h-8 w-8 text-slate-950" />
@@ -520,14 +599,64 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
-                  ⚡ $0 for the first 7 days
-                </span>
+                {trialInfo?.isTrial && !trialInfo.trialEnded ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-owned-agent-trial-days-left">
+                    ⏱ {trialInfo.daysLeft} {trialInfo.daysLeft === 1 ? "day" : "days"} left in trial
+                  </span>
+                ) : trialInfo?.trialEnded ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-red-700" data-testid="business-owned-agent-trial-ended">
+                    Trial ended
+                  </span>
+                ) : isPaid ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-green-700" data-testid="business-owned-agent-active">
+                    Active
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
+                    ⚡ $0 for the first 7 days
+                  </span>
+                )}
 
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
                   <span className="text-lg font-medium text-slate-500">/month</span>
-                </div>       
+                </div>
+
+                {ownedAgent ? (
+                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                    {showPayButton ? (
+                      <Link
+                        ref={heroCtaRef}
+                        href={checkoutPath}
+                        data-testid="owned-agent-detail-pay-now"
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
+                      >
+                        Pay ${price}
+                        <ArrowIcon />
+                      </Link>
+                    ) : null}
+
+                    {showSetupButton ? (
+                      <Link
+                        ref={showPayButton ? undefined : heroCtaRef}
+                        href={setupPath}
+                        data-testid="owned-agent-detail-setup"
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
+                      >
+                        Setup agent
+                        <ArrowIcon />
+                      </Link>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {showPayButton ? (
+                  <p className="mt-3 text-xs text-slate-500" data-testid="owned-agent-detail-pay-note">
+                    {trialInfo?.trialEnded
+                      ? `Your trial has ended. Pay $${price} to keep using this agent.`
+                      : `Pay $${price} now to continue after your trial ends.`}
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -538,7 +667,7 @@ export default function BusinessAgentDetailPage() {
         </section>
 
         <section className="bg-gray-50 px-6 py-16 sm:py-20">
-          <div className="mx-auto max-w-6xl">
+          <div className="mx-auto w-full max-w-none">
             <SectionHeader
               title="Everything this agent does"
               description="Built to automate your workflow and keep customer conversations moving."
@@ -561,7 +690,7 @@ export default function BusinessAgentDetailPage() {
         </section>
 
         <section className="px-6 pt-16 pb-4 sm:pt-20 sm:pb-4">
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto w-full max-w-none">
             <SectionHeader title="What's included" description="One flat price. No usage caps on anything that matters." />
 
             <div className="mt-10 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -578,7 +707,7 @@ export default function BusinessAgentDetailPage() {
         </section>
 
         <section className="px-6 pt-4 pb-16 sm:pt-4 sm:pb-20">
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto w-full max-w-none">
             <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
               <button
                 type="button"
@@ -643,7 +772,7 @@ export default function BusinessAgentDetailPage() {
           pointerEvents: stickyShown ? "auto" : "none"
         }}
       >
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+        <div className="mx-auto flex w-full max-w-none items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-900">{listing.name}</p>
             <p className="truncate text-xs text-slate-500">
@@ -714,7 +843,7 @@ export default function BusinessAgentDetailPage() {
 
 function SectionHeader({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="mx-auto max-w-2xl text-center">
+    <div className="mx-auto w-full max-w-none text-center">
       <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl" data-testid="business-protected-agents-title-heading-2">{title}</h2>
       {description ? <p className="mt-3 text-lg text-slate-600" data-testid="business-protected-agents-description-text">{description}</p> : null}
     </div>

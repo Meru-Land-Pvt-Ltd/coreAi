@@ -85,6 +85,7 @@ type PaymentResultParams = {
   agent?: string;
   amount?: number;
   email?: string;
+  mode?: "trial" | "purchase";
 };
 
 function buildPaymentResultPath(base: string, params?: PaymentResultParams): Route {
@@ -96,6 +97,7 @@ function buildPaymentResultPath(base: string, params?: PaymentResultParams): Rou
   if (params.agent) query.set("agent", params.agent);
   if (typeof params.amount === "number") query.set("amount", String(params.amount));
   if (params.email) query.set("email", params.email);
+  if (params.mode) query.set("mode", params.mode);
 
   const queryString = query.toString();
 

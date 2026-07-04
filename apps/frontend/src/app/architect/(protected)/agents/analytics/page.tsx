@@ -1,1127 +1,894 @@
-// // @ts-nocheck
-// "use client";
+"use client";
 
-import { ReactFlowProvider } from "@xyflow/react";
-import { DANGEROUSLY_runPendingImmediatesAfterCurrentTask } from "next/dist/server/node-environment-extensions/fast-set-immediate.external";
+import { useEffect, useRef } from "react";
 
-// import { useEffect } from "react";
-
-// const dashboardHtml = String.raw`<!-- ===================== SIDEBAR ===================== -->
-// <aside id="sidebar" class="hidden lg:flex fixed inset-y-0 left-0 z-40 w-[260px] flex-col bg-white border-r border-gray-100 shadow-sm">
-//   <!-- Logo -->
-//   <div class="px-6 py-6 flex items-center gap-3">
-//     <div class="h-9 w-9 rounded-xl bg-gold-gradient shadow-pop flex items-center justify-center">
-//       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a1206" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
-//     </div>
-//     <div class="leading-tight">
-//       <div class="text-[15px] font-extrabold tracking-tight">TRIVEN<span class="text-gold-600">.AI</span></div>
-//       <div class="text-[11px] font-medium text-slate-400">Agent Analytics</div>
-//     </div>
-//   </div>
-//   <div class="mx-6 border-t border-gray-100"></div>
-
-//   <!-- Nav -->
-//   <nav class="flex-1 overflow-y-auto scroll-thin px-3 py-4" aria-label="Primary">
-//     <p class="px-3 mb-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400">Main</p>
-//     <ul class="space-y-0.5">
-//       <li><button type="button" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</button></li>
-//       <li><button type="button" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/><circle cx="12" cy="12" r="2.5"/></svg>My Agents</button></li>
-//       <li><button type="button" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 6H15M6 8.5v7a2.5 2.5 0 0 0 2.5 2.5H15"/></svg>Workflow Builder</button></li>
-//       <li><button type="button" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M4 9h16v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9z"/><path d="M9 13h6"/></svg>Marketplace</button></li>
-//     </ul>
-
-//     <p class="px-3 mb-2 mt-5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400">Business</p>
-//     <ul class="space-y-0.5">
-//       <li><button type="button" class="nav-item is-active w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-semibold bg-amber-50 text-amber-700" aria-current="page"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Analytics</button></li>
-//       <li><button type="button" class="nav-item w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="flex items-center gap-3"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2h2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><circle cx="17" cy="13" r="1.4"/></svg>Earnings &amp; Payouts</span><span class="pulse-dot text-emerald-500"><span class="block h-2 w-2 rounded-full bg-emerald-500"></span></span></button></li>
-//       <li><button type="button" class="nav-item w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="flex items-center gap-3"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.3l-5.4 3 1-6L3 10l6-.9L12 3.5 15 9.1l6 .9-4.6 4.3 1 6z"/></svg>Reviews</span><span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">3 new</span></button></li>
-//     </ul>
-
-//     <p class="px-3 mb-2 mt-5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400">Account</p>
-//     <ul class="space-y-0.5">
-//       <li><button type="button" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6h.1A1.7 1.7 0 0 0 10 3.1V3a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 17 4.6l.1-.1A2 2 0 1 1 19.8 7l-.1.1A1.7 1.7 0 0 0 19.4 9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button></li>
-//       <li><button type="button" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-900"><span class="marker"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.8 2.8 0 0 1 5.4 1c0 1.8-2.6 2-2.6 4"/><path d="M12 17.5h.01"/></svg>Help &amp; Docs</button></li>
-//     </ul>
-//   </nav>
-
-//   <!-- Profile -->
-//   <div class="mx-3 mb-3 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 flex items-center gap-3">
-//     <div class="h-9 w-9 rounded-lg bg-gold-gradient flex items-center justify-center text-[13px] font-bold text-[#1a1206]">MT</div>
-//     <div class="min-w-0 flex-1 leading-tight">
-//       <div class="text-[13px] font-semibold text-slate-800 truncate">Marcus T.</div>
-//       <div class="flex items-center gap-1 text-[11px] text-amber-600 font-semibold"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16l-2-9 5 4 4-7 4 7 5-4-2 9z"/></svg>Gold Architect</div>
-//     </div>
-//     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-//   </div>
-// </aside>
-
-// <!-- ===================== MAIN WRAPPER ===================== -->
-// <div class="lg:pl-[260px]">
-
-//   <!-- ===== TOP BAR ===== -->
-//   <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
-//     <div class="flex items-center gap-4 px-4 sm:px-6 lg:px-8 h-16">
-//       <!-- mobile logo (sidebar hidden on mobile) -->
-//       <div class="lg:hidden flex items-center gap-2">
-//         <div class="h-8 w-8 rounded-lg bg-gold-gradient flex items-center justify-center">
-//           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a1206" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
-//         </div>
-//       </div>
-//       <h1 class="text-lg sm:text-2xl font-bold tracking-tight whitespace-nowrap">Agent Analytics</h1>
-
-//       <!-- Search (center) -->
-//       <div class="hidden md:flex flex-1 justify-center">
-//         <div class="relative w-full max-w-md">
-//           <svg class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
-//           <input id="search-input" type="text" placeholder="Search agents, metrics…" aria-label="Search agents and metrics"
-//             class="w-full rounded-xl bg-gray-50 border border-transparent focus:border-amber-300 focus:bg-white pl-10 pr-16 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 transition" />
-//           <kbd class="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[10.5px] font-medium text-slate-400 font-mono">⌘K</kbd>
-//         </div>
-//       </div>
-
-//       <div class="ml-auto md:ml-0 flex items-center gap-2 sm:gap-3">
-//         <!-- Notifications -->
-//         <div class="relative">
-//           <button id="bell-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Notifications"
-//             class="relative grid h-10 w-10 place-items-center rounded-xl border border-gray-100 bg-white text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition shadow-sm">
-//             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-//             <span class="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white"></span>
-//           </button>
-//           <!-- dropdown -->
-//           <div id="bell-menu" class="hidden absolute right-0 mt-2 w-80 rounded-2xl border border-gray-100 bg-white shadow-cardhover overflow-hidden z-50">
-//             <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-//               <span class="text-sm font-bold">Notifications</span>
-//               <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">3 new</span>
-//             </div>
-//             <ul class="max-h-72 overflow-y-auto scroll-thin divide-y divide-gray-50">
-//               <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2h2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800">Payout ready: <span class="font-semibold">$4,820</span> available</p><p class="text-[11.5px] text-slate-400 mt-0.5">8 minutes ago</p></div></li>
-//               <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-5.4 3 1-6L3 10l6-.9L12 3.5 15 9.1l6 .9-4.6 4.3 1 6z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800">New 5-star review on <span class="font-semibold">Missed Call Text-Back</span></p><p class="text-[11.5px] text-slate-400 mt-0.5">41 minutes ago</p></div></li>
-//               <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800"><span class="font-semibold">Appointment Reminder</span> success rate dipped below 96.5%</p><p class="text-[11.5px] text-slate-400 mt-0.5">2 hours ago</p></div></li>
-//             </ul>
-//             <button type="button" class="w-full px-4 py-2.5 text-[12.5px] font-semibold text-amber-700 hover:bg-amber-50 transition">View all notifications</button>
-//           </div>
-//         </div>
-
-//         <!-- Export -->
-//         <button id="export-btn" type="button" class="inline-flex items-center gap-2 rounded-xl bg-gold-gradient px-3.5 sm:px-4 py-2.5 text-[13px] font-semibold text-[#1a1206] shadow-pop hover:brightness-[1.04] active:scale-[0.98] transition">
-//           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
-//           <span class="hidden sm:inline">Export Report</span>
-//         </button>
-//       </div>
-//     </div>
-//   </header>
-
-//   <!-- ===== CONTENT ===== -->
-//   <main class="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 pb-28 lg:pb-8">
-
-//     <!-- Header row: greeting + time range -->
-//     <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
-//       <div>
-//         <p class="text-[13px] text-slate-500">Welcome back, <span class="font-semibold text-slate-700">Marcus</span> — here's how your fleet is performing.</p>
-//         <div class="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-600">
-//           <span class="pulse-dot text-emerald-500"><span class="block h-2 w-2 rounded-full bg-emerald-500"></span></span>
-//           <span id="range-label-live">All 3 agents online</span>
-//         </div>
-//       </div>
-//       <!-- Time range pills -->
-//       <div id="range-pills" role="tablist" aria-label="Time range" class="inline-flex items-center gap-1 rounded-xl border border-gray-100 bg-white p-1 shadow-sm self-start sm:self-auto">
-//         <button role="tab" data-range="7D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">7D</button>
-//         <button role="tab" data-range="30D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">30D</button>
-//         <button role="tab" data-range="90D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">90D</button>
-//         <button role="tab" data-range="6M" aria-selected="true" class="pill rounded-lg bg-amber-500 px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm">6M</button>
-//         <button role="tab" data-range="1Y" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">1Y</button>
-//         <button role="tab" data-range="Custom" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">Custom</button>
-//       </div>
-//     </div>
-
-//     <!-- ===== B. KEY METRIC CARDS ===== -->
-//     <section aria-label="Key metrics" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
-
-//       <!-- Card 1: Executions -->
-//       <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
-//         <div class="flex items-start justify-between">
-//           <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg></span>
-//           <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"><span class="pulse-dot text-emerald-500"><span class="block h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>LIVE</span>
-//         </div>
-//         <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Total Executions</p>
-//         <div class="mt-1 flex items-end justify-between gap-2">
-//           <span id="m-exec" class="metric-value nums text-3xl font-black text-slate-900">0</span>
-//           <svg id="m-exec-spark" class="mb-1.5" width="74" height="30" viewBox="0 0 74 30" preserveAspectRatio="none" aria-hidden="true"></svg>
-//         </div>
-//         <p id="m-exec-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
-//       </div>
-
-//       <!-- Card 2: Success rate -->
-//       <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
-//         <div class="flex items-start justify-between">
-//           <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
-//           <!-- circular progress ring -->
-//           <svg width="46" height="46" viewBox="0 0 46 46" class="-mt-0.5" aria-hidden="true">
-//             <circle cx="23" cy="23" r="18" fill="none" stroke="#f1f5f9" stroke-width="5"/>
-//             <circle id="ring-progress" cx="23" cy="23" r="18" fill="none" stroke="url(#ringGrad)" stroke-width="5" stroke-linecap="round" stroke-dasharray="113.1" stroke-dashoffset="113.1" transform="rotate(-90 23 23)"/>
-//             <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD700"/><stop offset="1" stop-color="#DAA520"/></linearGradient></defs>
-//           </svg>
-//         </div>
-//         <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Success Rate</p>
-//         <div class="mt-1 flex items-end gap-1">
-//           <span id="m-success" class="metric-value nums text-3xl font-black text-slate-900">0</span>
-//           <span class="mb-1 text-xl font-black text-slate-300">%</span>
-//         </div>
-//         <p id="m-success-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
-//       </div>
-
-//       <!-- Card 3: Avg execution time -->
-//       <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
-//         <div class="flex items-start justify-between">
-//           <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
-//           <svg id="m-avg-spark" class="mt-1.5" width="74" height="30" viewBox="0 0 74 30" preserveAspectRatio="none" aria-hidden="true"></svg>
-//         </div>
-//         <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Avg Execution Time</p>
-//         <div class="mt-1 flex items-end gap-1">
-//           <span id="m-avg" class="metric-value nums text-3xl font-black text-slate-900">0</span>
-//           <span class="mb-1 text-xl font-black text-slate-300">s</span>
-//         </div>
-//         <p id="m-avg-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
-//       </div>
-
-//       <!-- Card 4: Revenue -->
-//       <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
-//         <div class="flex items-start justify-between">
-//           <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5.5C17 3.6 14.8 3 12 3S7 3.6 7 5.8 9.2 8.5 12 9s5 .9 5 3.2S14.8 15 12 15s-5-.7-5-2.7"/></svg></span>
-//           <svg id="m-rev-spark" class="mb-1.5" width="74" height="30" viewBox="0 0 74 30" preserveAspectRatio="none" aria-hidden="true"></svg>
-//         </div>
-//         <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Revenue Generated</p>
-//         <div class="mt-1 flex items-end gap-1">
-//           <span class="mb-1 text-xl font-black text-slate-300">$</span>
-//           <span id="m-rev" class="metric-value nums text-3xl font-black text-slate-900">0</span>
-//         </div>
-//         <p id="m-rev-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
-//       </div>
-//     </section>
-
-//     <!-- ===== C. EXECUTIONS OVER TIME ===== -->
-//     <section class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card mb-6">
-//       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-//         <div>
-//           <h2 class="text-base font-bold">Executions</h2>
-//           <p class="text-[12px] text-slate-400 mt-0.5">Successful vs failed runs over the selected period</p>
-//         </div>
-//         <div class="flex items-center gap-4 text-[12px] font-medium">
-//           <span class="inline-flex items-center gap-1.5 text-slate-600"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>Successful</span>
-//           <span class="inline-flex items-center gap-1.5 text-slate-600"><span class="h-2.5 w-2.5 rounded-full bg-rose-400"></span>Failed</span>
-//         </div>
-//       </div>
-//       <div id="exec-wrap" class="relative" style="height:300px">
-//         <div id="exec-chart" class="h-full w-full"></div>
-//         <div id="exec-tip" class="chart-tip"></div>
-//       </div>
-//     </section>
-
-//     <!-- ===== D. REVENUE OVER TIME ===== -->
-//     <section class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card mb-6">
-//       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-//         <div>
-//           <h2 class="text-base font-bold">Revenue</h2>
-//           <p class="text-[12px] text-slate-400 mt-0.5">Gross revenue generated across all your agents</p>
-//         </div>
-//         <span class="inline-flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-bold text-amber-700">
-//           Total <span id="rev-total" class="nums">$0</span>
-//         </span>
-//       </div>
-//       <div id="rev-wrap" class="relative" style="height:240px">
-//         <div id="rev-chart" class="h-full w-full"></div>
-//         <div id="rev-tip" class="chart-tip"></div>
-//       </div>
-//       <div class="mt-3 flex items-center gap-2 text-[12.5px]">
-//         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M17 7h4v4"/></svg>
-//         <span class="text-slate-500">Projected next period:</span>
-//         <span id="rev-proj" class="font-bold text-amber-600">$0</span>
-//       </div>
-//     </section>
-
-//     <!-- ===== E. TWO-COLUMN: FAILURES + RETENTION ===== -->
-//     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-
-//       <!-- Failure breakdown donut -->
-//       <div class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card">
-//         <div class="flex items-center justify-between mb-4">
-//           <div>
-//             <h2 class="text-base font-bold">Failure Breakdown</h2>
-//             <p class="text-[12px] text-slate-400 mt-0.5">Why runs didn't complete</p>
-//           </div>
-//           <span id="fail-count-badge" class="rounded-lg bg-rose-50 px-2.5 py-1 text-[12px] font-bold text-rose-600">0 failures</span>
-//         </div>
-//         <div class="flex flex-col sm:flex-row items-center gap-6">
-//           <div class="relative shrink-0" style="width:172px;height:172px">
-//             <svg id="donut-chart" width="172" height="172" viewBox="0 0 172 172"></svg>
-//             <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-//               <span id="donut-total" class="nums text-2xl font-black text-slate-900">0</span>
-//               <span class="text-[11px] font-medium text-slate-400">failures</span>
-//             </div>
-//           </div>
-//           <ul id="donut-legend" class="flex-1 w-full space-y-2.5"></ul>
-//         </div>
-//       </div>
-
-//       <!-- Client retention cohort -->
-//       <div class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card">
-//         <div class="flex items-center justify-between mb-4">
-//           <div>
-//             <h2 class="text-base font-bold">Client Retention</h2>
-//             <p class="text-[12px] text-slate-400 mt-0.5">Cohort analysis</p>
-//           </div>
-//           <span class="rounded-lg bg-amber-50 px-2.5 py-1 text-[12px] font-bold text-amber-700">By signup week</span>
-//         </div>
-//         <div class="overflow-x-auto -mx-1 px-1">
-//           <table class="w-full border-separate" style="border-spacing:4px">
-//             <thead>
-//               <tr class="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
-//                 <th class="text-left font-semibold pb-1 pr-2">Cohort</th>
-//                 <th class="font-semibold pb-1">At hire</th>
-//                 <th class="font-semibold pb-1">1 wk</th>
-//                 <th class="font-semibold pb-1">2 wks</th>
-//                 <th class="font-semibold pb-1">4 wks</th>
-//               </tr>
-//             </thead>
-//             <tbody id="cohort-grid"></tbody>
-//           </table>
-//         </div>
-//         <div class="mt-4 flex items-center justify-between rounded-xl bg-amber-50/70 px-4 py-3">
-//           <span class="text-[12.5px] font-medium text-slate-600">Average 4-week retention</span>
-//           <span id="cohort-avg" class="nums text-lg font-black text-amber-700">0%</span>
-//         </div>
-//       </div>
-//     </section>
-
-//     <!-- ===== F. AGENT PERFORMANCE TABLE ===== -->
-//     <section class="rounded-2xl border border-gray-100 bg-white shadow-card mb-6 overflow-hidden">
-//       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 sm:p-6 pb-4 border-b border-gray-100">
-//         <div>
-//           <h2 class="text-base font-bold">Agent Performance</h2>
-//           <p class="text-[12px] text-slate-400 mt-0.5">Lifetime metrics per published agent</p>
-//         </div>
-//         <div id="agent-filter" class="inline-flex items-center gap-1 rounded-xl border border-gray-100 bg-gray-50 p-1 self-start">
-//           <button data-filter="all" class="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 shadow-sm">All</button>
-//           <button data-filter="top" class="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:text-slate-800 transition">Top Performers</button>
-//           <button data-filter="attention" class="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:text-slate-800 transition">Needs Attention</button>
-//         </div>
-//       </div>
-//       <!-- column header (desktop) -->
-//       <div class="hidden md:grid grid-cols-[1.6fr_1fr_1fr_0.8fr_1fr_1.1fr] gap-4 px-6 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-slate-400 bg-gray-50/60">
-//         <span>Agent</span><span class="text-right">Executions</span><span class="text-right">Success</span><span class="text-right">Avg Time</span><span class="text-right">Revenue</span><span class="text-right pr-7">Status</span>
-//       </div>
-//       <div id="agent-tbody" class="divide-y divide-gray-50"></div>
-//     </section>
-
-//     <!-- ===== G. LIVE ACTIVITY FEED ===== -->
-//     <section class="rounded-2xl border border-gray-100 bg-white shadow-card overflow-hidden">
-//       <div class="flex items-center justify-between p-5 sm:p-6 pb-4 border-b border-gray-100">
-//         <div class="flex items-center gap-2.5">
-//           <h2 class="text-base font-bold">Live Executions</h2>
-//           <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600"><span class="pulse-dot text-emerald-500"><span class="block h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>Real-time</span>
-//         </div>
-//         <button id="feed-pause" type="button" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition">
-//           <svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-//           <span id="feed-pause-label">Pause</span>
-//         </button>
-//       </div>
-//       <ul id="feed-list" class="divide-y divide-gray-50 overflow-y-auto scroll-thin" style="max-height:300px" aria-live="polite" aria-label="Live execution feed"></ul>
-//     </section>
-
-//   </main>
-// </div>
-
-// <!-- ===================== MOBILE BOTTOM NAV ===================== -->
-// <nav class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-100 shadow-[0_-2px_12px_-4px_rgba(15,23,42,0.08)]" aria-label="Primary mobile">
-//   <div class="grid grid-cols-5">
-//     <button class="flex flex-col items-center gap-0.5 py-2.5 text-slate-400"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="text-[10px] font-medium">Home</span></button>
-//     <button class="flex flex-col items-center gap-0.5 py-2.5 text-slate-400"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="3"/><circle cx="12" cy="12" r="2.5"/></svg><span class="text-[10px] font-medium">Agents</span></button>
-//     <button class="flex flex-col items-center gap-0.5 py-2.5 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="text-[10px] font-semibold">Analytics</span></button>
-//     <button class="flex flex-col items-center gap-0.5 py-2.5 text-slate-400"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2h2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="text-[10px] font-medium">Earnings</span></button>
-//     <button class="flex flex-col items-center gap-0.5 py-2.5 text-slate-400"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2 2 2 0 1 1-2.8-2.8A1.7 1.7 0 0 0 4.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-2.9 2 2 0 1 1 2.8-2.8A1.7 1.7 0 0 0 12 4.6a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.5 2 2 0 1 1 2.8 2.8A1.7 1.7 0 0 0 19.4 11a2 2 0 1 1 0 4z"/></svg><span class="text-[10px] font-medium">Settings</span></button>
-//   </div>
-// </nav>
-
-// <!-- Toast region -->
-// <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 hidden">
-//   <div class="flex items-center gap-2.5 rounded-xl bg-slate-900 px-4 py-3 text-[13px] font-medium text-white shadow-cardhover">
-//     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-//     <span id="toast-msg">Done</span>
-//   </div>
-// </div>`;
-
-// const dashboardStyles = String.raw`
-// @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap");
-
-// html { scroll-behavior: smooth; }
-// .agent-analytics-page { font-family: 'Inter', system-ui, sans-serif; }
-// .text-gold-600 { color: #DAA520; }
-// .shadow-card { box-shadow: 0 1px 2px 0 rgba(15,23,42,0.04), 0 1px 3px 0 rgba(15,23,42,0.06); }
-// .shadow-cardhover { box-shadow: 0 10px 28px -8px rgba(15,23,42,0.16), 0 4px 10px -4px rgba(15,23,42,0.08); }
-// .shadow-pop { box-shadow: 0 12px 32px -8px rgba(218,165,32,0.30); }
-// .hover\:shadow-cardhover:hover { box-shadow: 0 10px 28px -8px rgba(15,23,42,0.16), 0 4px 10px -4px rgba(15,23,42,0.08); }
-
-// :root {
-//     --gold-a: #DAA520;
-//     --gold-b: #FFD700;
-//   }
-//   html, body { font-family: 'Inter', system-ui, sans-serif; }
-//   body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-
-//   /* Gold gradient helpers */
-//   .text-gold-gradient {
-//     background: linear-gradient(135deg, var(--gold-a) 0%, var(--gold-b) 100%);
-//     -webkit-background-clip: text; background-clip: text;
-//     -webkit-text-fill-color: transparent; color: transparent;
-//   }
-//   .bg-gold-gradient { background: linear-gradient(135deg, var(--gold-a) 0%, var(--gold-b) 100%); }
-//   .bg-gold-soft { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); }
-
-//   /* Tabular figures so animated counters don't jitter width */
-//   .nums { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
-
-//   /* Live pulse dot */
-//   .pulse-dot { position: relative; }
-//   .pulse-dot::before {
-//     content: ""; position: absolute; inset: -4px; border-radius: 9999px;
-//     background: currentColor; opacity: 0.45; animation: pulsering 1.8s ease-out infinite;
-//   }
-//   @keyframes pulsering {
-//     0% { transform: scale(0.6); opacity: 0.5; }
-//     70% { transform: scale(2.2); opacity: 0; }
-//     100% { opacity: 0; }
-//   }
-
-//   /* Feed item entrance */
-//   .feed-enter { animation: feedIn 420ms cubic-bezier(0.22, 1, 0.36, 1); }
-//   @keyframes feedIn {
-//     from { opacity: 0; transform: translateY(-10px); }
-//     to { opacity: 1; transform: translateY(0); }
-//   }
-
-//   /* Custom scrollbar for the live feed */
-//   .scroll-thin { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
-//   .scroll-thin::-webkit-scrollbar { width: 8px; }
-//   .scroll-thin::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 9999px; }
-//   .scroll-thin::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
-//   .scroll-thin::-webkit-scrollbar-track { background: transparent; }
-
-//   /* Chart tooltip */
-//   .chart-tip {
-//     position: absolute; pointer-events: none; z-index: 30; opacity: 0;
-//     transform: translate(-50%, -112%); transition: opacity 140ms ease;
-//     background: #0f172a; color: #fff; border-radius: 10px; padding: 8px 11px;
-//     font-size: 12px; line-height: 1.35; white-space: nowrap;
-//     box-shadow: 0 10px 24px -6px rgba(15,23,42,0.45); border: 1px solid rgba(255,255,255,0.06);
-//   }
-//   .chart-tip.show { opacity: 1; }
-//   .chart-tip::after {
-//     content: ""; position: absolute; left: 50%; bottom: -5px; width: 10px; height: 10px;
-//     background: #0f172a; transform: translateX(-50%) rotate(45deg);
-//     border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06);
-//   }
-
-//   /* Donut + bar hover crispness */
-//   .seg { transition: stroke-width 180ms ease, opacity 180ms ease; cursor: pointer; }
-//   .bar-rect { transition: opacity 160ms ease, transform 160ms ease; transform-box: fill-box; transform-origin: bottom; }
-//   .bar-rect:hover { opacity: 0.88; }
-
-//   /* Sidebar nav active marker */
-//   .nav-item { position: relative; transition: background-color 180ms ease, color 180ms ease; }
-//   .nav-item .marker {
-//     position: absolute; left: 0; top: 50%; transform: translateY(-50%) scaleY(0);
-//     height: 22px; width: 3px; border-radius: 9999px; background: linear-gradient(180deg, var(--gold-b), var(--gold-a));
-//     transition: transform 200ms cubic-bezier(0.22,1,0.36,1);
-//   }
-//   .nav-item.is-active .marker { transform: translateY(-50%) scaleY(1); }
-
-//   /* Focus visibility (accessibility) */
-//   :focus-visible { outline: 2px solid #f59e0b; outline-offset: 2px; border-radius: 8px; }
-
-//   /* Agent detail expansion */
-//   .agent-detail { max-height: 0; overflow: hidden; transition: max-height 320ms cubic-bezier(0.4,0,0.2,1); }
-//   .agent-row.open + .agent-detail { max-height: 220px; }
-//   .agent-row .chev { transition: transform 220ms ease; }
-//   .agent-row.open .chev { transform: rotate(180deg); }
-
-//   /* Counting-in shimmer on metric value (subtle) */
-//   .metric-value { letter-spacing: -0.02em; }
-
-//   /* Time pill group */
-//   .pill { transition: all 180ms ease; }
-
-//   /* Reduced motion: calm everything down */
-//   @media (prefers-reduced-motion: reduce) {
-//     *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
-//     .pulse-dot::before { display: none; }
-//   }
-// `;
-
-// function runTrivenAnalyticsDashboard() {
-// "use strict";
-// /* ============================================================
-//    TRIVEN.AI — Agent Analytics
-//    All data is mock/sample, generated deterministically so charts
-//    stay stable across reloads. No external libraries, no API calls.
-//    ============================================================ */
-
-// const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-// /* ---------- tiny utilities ---------- */
-// function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
-// function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
-// const $ = (s,r)=> (r||document).querySelector(s);
-// const $$ = (s,r)=> Array.from((r||document).querySelectorAll(s));
-// const clamp = (v,a,b)=> Math.max(a,Math.min(b,v));
-// const fmtInt = n => Math.round(n).toLocaleString('en-US');
-// const fmtMoney = n => '$' + Math.round(n).toLocaleString('en-US');
-// const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-// /* ---------- date label helpers ---------- */
-// const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-// const MONTHS6  = ['Jan','Feb','Mar','Apr','May','Jun'];
-// const MONTHS12 = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
-// function lastNDayLabels(n){
-//   const out=[]; const now=new Date();
-//   for(let i=n-1;i>=0;i--){ const d=new Date(now); d.setDate(now.getDate()-i);
-//     out.push(n<=7 ? WEEKDAYS[d.getDay()] : (d.getMonth()+1)+'/'+d.getDate()); }
-//   return out;
-// }
-// const last3Months = () => MONTHS6.slice(-3);
-
-// /* ---------- per-range targets ----------
-//    exec=total executions, sr=success %, avg=avg time (s), rev=architect earnings ($)
-//    Gross revenue on the bar chart = earnings * 2.246 (Marcus's blended take rate),
-//    which makes the 6M gross resolve to the brief's $2,100..$7,240 bars exactly. */
-// const RANGES = {
-//   '7D':  { exec:3310,  sr:97.6, avg:1.1, rev:1180,  dExec:'+420',    dSr:'+0.3%', dAvg:'-60ms',  dRev:'+$210',   proj:'$1,260',  execN:7,  revKind:'day'     },
-//   '30D': { exec:14180, sr:97.4, avg:1.2, rev:4860,  dExec:'+2,310',  dSr:'+0.3%', dAvg:'-110ms', dRev:'+$880',   proj:'$5,400',  execN:30, revKind:'week4'   },
-//   '90D': { exec:41920, sr:97.2, avg:1.2, rev:10240, dExec:'+6,180',  dSr:'+0.5%', dAvg:'-150ms', dRev:'+$2,140', proj:'$11,800', execN:13, revKind:'month3'  },
-//   '6M':  { exec:84291, sr:97.3, avg:1.2, rev:12840, dExec:'+12,847', dSr:'+0.4%', dAvg:'-180ms', dRev:'+$3,240', proj:'$8,900',  execN:6,  revKind:'month6'  },
-//   '1Y':  { exec:90640, sr:97.1, avg:1.3, rev:13560, dExec:'+18,400', dSr:'+0.6%', dAvg:'-210ms', dRev:'+$3,560', proj:'$9,400',  execN:12, revKind:'month12' },
-// };
-// RANGES['Custom'] = Object.assign({}, RANGES['30D'], { custom:true });
-
-// /* ---------- generators ---------- */
-// function execLabels(key,n){
-//   if(key==='6M') return MONTHS6.slice();
-//   if(key==='1Y') return MONTHS12.slice();
-//   if(key==='90D') return Array.from({length:n},(_,i)=>'W'+(i+1));
-//   return lastNDayLabels(n);
-// }
-// function genExecSeries(key){
-//   const r = RANGES[key], n = r.execN;
-//   const rnd = mulberry32(hash(key)+11);
-//   const successTotal = Math.round(r.exec * r.sr/100);
-//   const failTotal = r.exec - successTotal;
-//   let w=[];
-//   for(let i=0;i<n;i++){
-//     let t = n>1 ? i/(n-1) : 1;
-//     let base = 0.55 + 0.75*t + Math.sin(i*0.9)*0.06 + (rnd()-0.5)*0.14;
-//     if(key==='1Y' && i<5) base *= (0.10 + 0.16*i);
-//     w.push(Math.max(0.04, base));
-//   }
-//   if(n>=6){ w[Math.floor(n*0.66)] *= 1.28; }
-//   const sumW = w.reduce((a,b)=>a+b,0);
-//   let success = w.map(x=>Math.round(x/sumW*successTotal));
-//   success[n-1] += successTotal - success.reduce((a,b)=>a+b,0);
-//   const fr = mulberry32(hash(key)+5);
-//   let fw = success.map(s => s*(0.8 + fr()*0.5));
-//   const sumFw = fw.reduce((a,b)=>a+b,0) || 1;
-//   let fail = fw.map(x => Math.max(0, Math.round(x/sumFw*failTotal)));
-//   fail[n-1] += failTotal - fail.reduce((a,b)=>a+b,0);
-//   if(fail[n-1] < 0) fail[n-1] = 0;
-//   return { labels: execLabels(key,n), success, fail, successTotal, failTotal };
-// }
-// function splitAgents(vals,key){
-//   const rnd = mulberry32(hash(key)+31);
-//   return vals.map(v=>{
-//     let p=[0.50,0.32,0.18].map(x=>x*(0.9+rnd()*0.2));
-//     const ps=p.reduce((a,b)=>a+b,0); p=p.map(x=>x/ps);
-//     let a=Math.round(v*p[0]), b=Math.round(v*p[1]); let c=v-a-b; if(c<0)c=0;
-//     return {a,b,c};
-//   });
-// }
-// function genRevSeries(key){
-//   const r = RANGES[key];
-//   if(key==='6M'){ const vals=[2100,3400,4200,5800,6100,7240]; return {labels:MONTHS6.slice(), vals, agents:splitAgents(vals,key)}; }
-//   const kind = r.revKind;
-//   let n, labels;
-//   if(kind==='day'){ n=7; labels=lastNDayLabels(7); }
-//   else if(kind==='week4'){ n=4; labels=['Wk 1','Wk 2','Wk 3','Wk 4']; }
-//   else if(kind==='month3'){ n=3; labels=last3Months(); }
-//   else { n=12; labels=MONTHS12.slice(); }
-//   const gross = Math.round(r.rev*2.246);
-//   const rnd = mulberry32(hash(key)+23);
-//   let w=[];
-//   for(let i=0;i<n;i++){
-//     let t = n>1 ? i/(n-1) : 1;
-//     let base = 0.6 + 0.7*t + (rnd()-0.5)*0.12;
-//     if(kind==='month12' && i<6) base *= (0.06 + 0.10*i);
-//     w.push(Math.max(0.03, base));
-//   }
-//   const sumW = w.reduce((a,b)=>a+b,0);
-//   let vals = w.map(x=>Math.round(x/sumW*gross));
-//   vals[n-1] += gross - vals.reduce((a,b)=>a+b,0);
-//   return { labels, vals, agents: splitAgents(vals,key) };
-// }
-// function genSpark(key,type){
-//   const seed = type==='exec'?7 : type==='avg'?17 : 27;
-//   const rnd = mulberry32(hash(key)+seed);
-//   const n=12, out=[];
-//   for(let i=0;i<n;i++){
-//     let t=i/(n-1);
-//     let v = type==='avg' ? (1 - 0.5*t) : (0.5 + 0.6*t);
-//     v += (rnd()-0.5)*0.18; out.push(Math.max(0.05, v));
-//   }
-//   return out;
-// }
-
-// /* ---------- static datasets ---------- */
-// const FAILURES = [
-//   {label:'LLM Timeout',            pct:38, color:'#f59e0b'},
-//   {label:'Connector Auth Expired', pct:24, color:'#fbbf24'},
-//   {label:'Invalid AI Output',      pct:21, color:'#fcd34d'},
-//   {label:'Rate Limited',           pct:11, color:'#fde68a'},
-//   {label:'Other',                  pct:6,  color:'#d1d5db'},
-// ];
-// const COHORTS = [
-//   {name:'Week 1', vals:[100,92,84,76]},
-//   {name:'Week 2', vals:[100,90,80,73]},
-//   {name:'Week 3', vals:[100,88,77,69]},
-//   {name:'Week 4', vals:[100,86,75,66]},
-// ];
-// function agentSpark(seed){
-//   const rnd=mulberry32(seed); const out=[];
-//   for(let i=0;i<16;i++){ let t=i/15; out.push(Math.max(0.1, 0.5+0.5*t+(rnd()-0.5)*0.22)); }
-//   return out;
-// }
-// const AGENTS = [
-//   {name:'Missed Call Text-Back',   ver:'v2.4', exec:42180, sr:98.1, time:0.9, rev:6420, status:'Healthy',   spark:agentSpark(101)},
-//   {name:'Lead Follow-Up Sequence', ver:'v1.8', exec:28400, sr:96.8, time:1.4, rev:4180, status:'Healthy',   spark:agentSpark(202)},
-//   {name:'Appointment Reminder',    ver:'v3.1', exec:13711, sr:96.2, time:1.6, rev:2240, status:'Attention', spark:agentSpark(303)},
-// ];
-// const FEED_AGENTS  = ['Missed Call Text-Back','Lead Follow-Up','Appointment Reminder'];
-// const FEED_CLIENTS = ['Rodriguez HVAC','Luxe Med Spa','Bright Dental','Elite Plumbing','Summit Roofing','Apex Auto Repair','Coastal Dental','Vertex Legal','Harbor Eye Care','Pinnacle Realty','Crest Orthodontics','Ironclad Security'];
-// const FAIL_REASONS = ['LLM Timeout','Connector Auth Expired','Invalid AI Output','Rate Limited'];
-
-// /* ---------- animated counters ---------- */
-// function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
-// function animateValue(el, to, opts){
-//   opts = opts || {};
-//   const decimals = opts.decimals||0, money = !!opts.money, dur = REDUCED?0:(opts.dur||1100);
-//   const from = parseFloat((el.dataset.cur!=null?el.dataset.cur:'0')) || 0;
-//   const start = performance.now();
-//   function frame(now){
-//     const p = dur===0 ? 1 : clamp((now-start)/dur,0,1);
-//     const v = from + (to-from)*easeOutCubic(p);
-//     el.textContent = money ? Math.round(v).toLocaleString('en-US')
-//                            : (decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US'));
-//     if(p<1) requestAnimationFrame(frame); else el.dataset.cur = to;
-//   }
-//   requestAnimationFrame(frame);
-// }
-
-// /* ============================================================
-//    CHART RENDERERS (inline SVG, no libraries)
-//    ============================================================ */
-// function niceCeil(v){ if(v<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(v))); const n=v/p; let m; if(n<=1)m=1;else if(n<=2)m=2;else if(n<=5)m=5;else m=10; return m*p; }
-// function kfmt(v){ if(v>=1000) return (v/1000).toFixed(v%1000===0?0:1)+'k'; return ''+Math.round(v); }
-// function smoothPath(pts){
-//   if(pts.length<2) return pts.length? 'M'+pts[0][0]+' '+pts[0][1] : '';
-//   let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
-//   for(let i=0;i<pts.length-1;i++){
-//     const p0=pts[i-1]||pts[i], p1=pts[i], p2=pts[i+1], p3=pts[i+2]||p2;
-//     const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
-//     const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
-//     d+=' C'+c1x.toFixed(1)+' '+c1y.toFixed(1)+' '+c2x.toFixed(1)+' '+c2y.toFixed(1)+' '+p2[0].toFixed(1)+' '+p2[1].toFixed(1);
-//   }
-//   return d;
-// }
-// function roundedTopRect(x,y,w,h,r){
-//   r=Math.min(r,w/2,Math.max(0,h)); if(h<=0) return 'M'+x+' '+y;
-//   return 'M'+x+' '+(y+h)+' L'+x+' '+(y+r)+' Q'+x+' '+y+' '+(x+r)+' '+y+' L'+(x+w-r)+' '+y+' Q'+(x+w)+' '+y+' '+(x+w)+' '+(y+r)+' L'+(x+w)+' '+(y+h)+' Z';
-// }
-
-// /* ---- sparklines ---- */
-// function renderSpark(svg, data, color, fillId){
-//   const W=74,H=30,n=data.length,pad=2;
-//   const max=Math.max.apply(null,data), min=Math.min.apply(null,data), rng=(max-min)||1;
-//   const xs=i=> pad + i*(W-2*pad)/(n-1);
-//   const ys=v=> H-pad - ((v-min)/rng)*(H-2*pad-3);
-//   let d=''; data.forEach((v,i)=>{ d+=(i?'L':'M')+xs(i).toFixed(1)+' '+ys(v).toFixed(1)+' '; });
-//   const area=d+'L'+xs(n-1).toFixed(1)+' '+H+' L'+xs(0).toFixed(1)+' '+H+' Z';
-//   svg.innerHTML='<defs><linearGradient id="'+fillId+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+color+'" stop-opacity="0.30"/><stop offset="1" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>'+
-//     '<path d="'+area+'" fill="url(#'+fillId+')"/>'+
-//     '<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
-// }
-
-// /* ---- executions: dual-line smooth area chart ---- */
-// let execData=null;
-// function renderExecChart(){
-//   const wrap=$('#exec-chart'), tip=$('#exec-tip');
-//   const W=Math.max(280, wrap.clientWidth||640), H=300;
-//   const d=execData, n=d.success.length;
-//   const padL=46, padR=16, padT=16, padB=30, baseY=H-padB;
-//   const ax=i=> padL + (n===1?(W-padL-padR)/2 : i*(W-padL-padR)/(n-1));
-//   const niceMax=niceCeil(Math.max.apply(null,d.success.concat(d.fail,[1])));
-//   const ay=v=> padT + (1 - v/niceMax)*(H-padT-padB);
-//   const sucPts=d.success.map((v,i)=>[ax(i),ay(v)]);
-//   const faiPts=d.fail.map((v,i)=>[ax(i),ay(v)]);
-//   const sucLine=smoothPath(sucPts), faiLine=smoothPath(faiPts);
-//   const sucArea=sucLine+' L'+ax(n-1).toFixed(1)+' '+baseY+' L'+ax(0).toFixed(1)+' '+baseY+' Z';
-//   const faiArea=faiLine+' L'+ax(n-1).toFixed(1)+' '+baseY+' L'+ax(0).toFixed(1)+' '+baseY+' Z';
-//   let grid=''; const T=4;
-//   for(let t=0;t<=T;t++){ const val=niceMax*t/T, y=ay(val);
-//     grid+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3 4"/>';
-//     grid+='<text x="'+(padL-8)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="10.5" fill="#94a3b8">'+kfmt(val)+'</text>'; }
-//   let xl=''; const step=n>14?Math.ceil(n/6):1;
-//   d.labels.forEach((lb,i)=>{ if(i%step!==0 && i!==n-1) return;
-//     xl+='<text x="'+ax(i).toFixed(1)+'" y="'+(H-9)+'" text-anchor="middle" font-size="10.5" fill="#94a3b8">'+esc(lb)+'</text>'; });
-//   wrap.innerHTML=
-//   '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="display:block">'+
-//     '<defs>'+
-//       '<linearGradient id="sucFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59e0b" stop-opacity="0.22"/><stop offset="0.92" stop-color="#f59e0b" stop-opacity="0.02"/></linearGradient>'+
-//       '<linearGradient id="faiFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fb7185" stop-opacity="0.16"/><stop offset="1" stop-color="#fb7185" stop-opacity="0"/></linearGradient>'+
-//       '<linearGradient id="sucStroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#DAA520"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>'+
-//     '</defs>'+grid+xl+
-//     '<path d="'+faiArea+'" fill="url(#faiFill)"/>'+
-//     '<path d="'+sucArea+'" fill="url(#sucFill)"/>'+
-//     '<path d="'+faiLine+'" fill="none" stroke="#fb7185" stroke-width="1.6" stroke-dasharray="4 4" stroke-linecap="round" stroke-linejoin="round"/>'+
-//     '<path class="exec-anim" d="'+sucLine+'" fill="none" stroke="url(#sucStroke)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'+
-//     '<line id="exec-guide" x1="0" y1="'+padT+'" x2="0" y2="'+baseY+'" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>'+
-//     '<circle id="exec-dot-f" r="3.5" fill="#fb7185" stroke="#fff" stroke-width="2" opacity="0"/>'+
-//     '<circle id="exec-dot-s" r="4.5" fill="#f59e0b" stroke="#fff" stroke-width="2" opacity="0"/>'+
-//     '<rect id="exec-hit" x="'+padL+'" y="'+padT+'" width="'+(W-padL-padR)+'" height="'+(H-padT-padB)+'" fill="transparent" style="cursor:crosshair"/>'+
-//   '</svg>';
-//   if(!REDUCED){ const p=$('.exec-anim'); const len=p.getTotalLength(); p.style.strokeDasharray=len; p.style.strokeDashoffset=len; p.getBoundingClientRect(); p.style.transition='stroke-dashoffset 900ms ease'; requestAnimationFrame(()=>{p.style.strokeDashoffset=0;}); }
-//   const hit=$('#exec-hit'), guide=$('#exec-guide'), dotS=$('#exec-dot-s'), dotF=$('#exec-dot-f');
-//   function move(ev){
-//     const rect=hit.getBoundingClientRect();
-//     const cx=((ev.touches?ev.touches[0].clientX:ev.clientX)-rect.left)*(W-padL-padR)/rect.width;
-//     let i=Math.round(cx/((W-padL-padR)/(n-1||1))); i=clamp(i,0,n-1);
-//     const x=ax(i), ys=ay(d.success[i]), yf=ay(d.fail[i]);
-//     [guide,dotS,dotF].forEach(e=>e.setAttribute('opacity','1'));
-//     guide.setAttribute('x1',x); guide.setAttribute('x2',x);
-//     dotS.setAttribute('cx',x); dotS.setAttribute('cy',ys);
-//     dotF.setAttribute('cx',x); dotF.setAttribute('cy',yf);
-//     tip.innerHTML='<div style="font-weight:700;margin-bottom:3px">'+esc(d.labels[i])+'</div>'+
-//       '<div style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:9px;background:#f59e0b;display:inline-block"></span>'+fmtInt(d.success[i])+' successful</div>'+
-//       '<div style="display:flex;align-items:center;gap:6px;margin-top:2px"><span style="width:7px;height:7px;border-radius:9px;background:#fb7185;display:inline-block"></span>'+fmtInt(d.fail[i])+' failed</div>';
-//     tip.style.left=x+'px'; tip.style.top=Math.min(ys,yf)+'px'; tip.classList.add('show');
-//   }
-//   function leave(){ [guide,dotS,dotF].forEach(e=>e.setAttribute('opacity','0')); tip.classList.remove('show'); }
-//   hit.addEventListener('mousemove',move); hit.addEventListener('mouseleave',leave);
-//   hit.addEventListener('touchstart',move,{passive:true}); hit.addEventListener('touchmove',move,{passive:true}); hit.addEventListener('touchend',leave);
-// }
-
-// /* ---- revenue: bar chart ---- */
-// let revData=null;
-// function renderRevChart(){
-//   const wrap=$('#rev-chart'), tip=$('#rev-tip');
-//   const W=Math.max(280, wrap.clientWidth||640), H=240;
-//   const d=revData, n=d.vals.length;
-//   const padL=46, padR=16, padT=14, padB=30, baseY=H-padB;
-//   const maxV=niceCeil(Math.max.apply(null,d.vals.concat([1])));
-//   const ay=v=> padT + (1 - v/maxV)*(H-padT-padB);
-//   const slot=(W-padL-padR)/n, bw=Math.min(48, slot*0.56);
-//   let grid=''; const T=4;
-//   for(let t=0;t<=T;t++){ const val=maxV*t/T, y=ay(val);
-//     grid+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3 4"/>';
-//     grid+='<text x="'+(padL-8)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="10.5" fill="#94a3b8">$'+kfmt(val)+'</text>'; }
-//   let bars='', xl='';
-//   d.vals.forEach((v,i)=>{ const x=padL+slot*i+slot/2-bw/2, y=ay(v), h=baseY-y;
-//     bars+='<path class="bar-rect" data-i="'+i+'" d="'+roundedTopRect(x,y,bw,h,Math.min(7,bw/2))+'" fill="url(#barGrad)"/>';
-//     xl+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(H-9)+'" text-anchor="middle" font-size="10.5" fill="#94a3b8">'+esc(d.labels[i])+'</text>'; });
-//   wrap.innerHTML=
-//   '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="display:block">'+
-//     '<defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD700"/><stop offset="1" stop-color="#DAA520"/></linearGradient></defs>'+
-//     grid+xl+bars+'</svg>';
-//   $$('.bar-rect',wrap).forEach(bar=>{
-//     bar.addEventListener('mouseenter',()=>{ const i=+bar.dataset.i, ag=d.agents[i];
-//       tip.innerHTML='<div style="font-weight:700;margin-bottom:4px">'+esc(d.labels[i])+' · '+fmtMoney(d.vals[i])+'</div>'+
-//         '<div style="opacity:.85;font-size:11px;line-height:1.55">Missed Call · '+fmtMoney(ag.a)+'<br>Lead Follow-Up · '+fmtMoney(ag.b)+'<br>Appt Reminder · '+fmtMoney(ag.c)+'</div>';
-//       const bb=bar.getBBox(); tip.style.left=(bb.x+bb.width/2)+'px'; tip.style.top=bb.y+'px'; tip.classList.add('show'); });
-//     bar.addEventListener('mouseleave',()=>tip.classList.remove('show'));
-//   });
-//   if(!REDUCED){ $$('.bar-rect',wrap).forEach((bar,i)=>{ bar.style.transformOrigin='center bottom'; bar.style.transform='scaleY(0)'; bar.style.transition='transform 620ms cubic-bezier(.22,1,.36,1)'; bar.style.transitionDelay=(i*55)+'ms'; requestAnimationFrame(()=>{bar.style.transform='scaleY(1)';}); }); }
-// }
-
-// /* ---- donut: failure breakdown ---- */
-// function renderDonut(failCount){
-//   const svg=$('#donut-chart'); const cx=86, cy=86, r=62, sw=22, C=2*Math.PI*r;
-//   let off=0, segs='';
-//   FAILURES.forEach((f,idx)=>{ const len=(f.pct/100)*C, gap=C-len;
-//     segs+='<circle class="seg" data-i="'+idx+'" cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+f.color+'" stroke-width="'+sw+'" stroke-dasharray="'+len.toFixed(2)+' '+gap.toFixed(2)+'" stroke-dashoffset="'+(-off).toFixed(2)+'" stroke-linecap="butt" transform="rotate(-90 '+cx+' '+cy+')"/>';
-//     off+=len; });
-//   svg.innerHTML='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#f8fafc" stroke-width="'+sw+'"/>'+segs;
-//   const legend=$('#donut-legend');
-//   legend.innerHTML=FAILURES.map((f,idx)=>(
-//     '<li class="seg-leg flex items-center justify-between px-2 py-1 -mx-2 rounded-lg text-[12.5px] transition" data-i="'+idx+'">'+
-//       '<span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:'+f.color+'"></span><span class="text-slate-600 font-medium">'+esc(f.label)+'</span></span>'+
-//       '<span class="flex items-center gap-2"><span class="text-slate-400 nums">'+Math.round(failCount*f.pct/100)+'</span><span class="font-bold text-slate-700 w-9 text-right nums">'+f.pct+'%</span></span>'+
-//     '</li>'
-//   )).join('');
-//   $$('.seg',svg).forEach(seg=>{
-//     const i=+seg.dataset.i, li=legend.querySelector('.seg-leg[data-i="'+i+'"]');
-//     const enter=()=>{ seg.setAttribute('stroke-width',sw+4); $$('.seg',svg).forEach(s=>{ if(s!==seg) s.style.opacity='0.4'; }); if(li) li.classList.add('bg-gray-50'); };
-//     const leave=()=>{ seg.setAttribute('stroke-width',sw); $$('.seg',svg).forEach(s=>s.style.opacity='1'); if(li) li.classList.remove('bg-gray-50'); };
-//     seg.addEventListener('mouseenter',enter); seg.addEventListener('mouseleave',leave);
-//     if(li){ li.addEventListener('mouseenter',enter); li.addEventListener('mouseleave',leave); }
-//   });
-//   if(!REDUCED){ $$('.seg',svg).forEach((s,idx)=>{ s.style.opacity='0'; s.style.transition='opacity 480ms ease '+(idx*90)+'ms'; requestAnimationFrame(()=>{s.style.opacity='1';}); }); }
-// }
-
-// /* ---- cohort retention heatmap ---- */
-// function renderCohort(){
-//   const tb=$('#cohort-grid');
-//   tb.innerHTML=COHORTS.map(c=>{
-//     const cells=c.vals.map(v=>{
-//       const op=(0.12+(v/100)*0.80).toFixed(2);
-//       const txt = v>=72 ? '#fff' : '#92400e';
-//       return '<td class="text-center"><div class="rounded-lg py-2 text-[12.5px] font-bold nums" style="background:rgba(217,119,6,'+op+');color:'+txt+'" title="'+esc(c.name)+' cohort · '+v+'% retained">'+v+'%</div></td>';
-//     }).join('');
-//     return '<tr><td class="text-left text-[12px] font-semibold text-slate-600 pr-2 whitespace-nowrap">'+esc(c.name)+'</td>'+cells+'</tr>';
-//   }).join('');
-//   const last=COHORTS.map(c=>c.vals[3]); const avg=Math.round(last.reduce((a,b)=>a+b,0)/last.length);
-//   $('#cohort-avg').textContent=avg+'%';
-// }
-
-// /* ============================================================
-//    AGENT TABLE
-//    ============================================================ */
-// function drawAgentSpark(svg,data){
-//   const W=320,H=56,n=data.length,pad=3;
-//   const max=Math.max.apply(null,data),min=Math.min.apply(null,data),rng=(max-min)||1;
-//   const xs=i=>pad+i*(W-2*pad)/(n-1), ys=v=>H-pad-((v-min)/rng)*(H-2*pad);
-//   const pts=data.map((v,i)=>[xs(i),ys(v)]);
-//   const line=smoothPath(pts), area=line+' L'+xs(n-1).toFixed(1)+' '+H+' L'+xs(0).toFixed(1)+' '+H+' Z';
-//   const gid='ag'+Math.floor(Math.random()*1e6);
-//   svg.innerHTML='<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59e0b" stop-opacity="0.25"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/></linearGradient></defs>'+
-//     '<path d="'+area+'" fill="url(#'+gid+')"/>'+
-//     '<path d="'+line+'" fill="none" stroke="#DAA520" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-// }
-// function statusPillHTML(healthy){
-//   return healthy
-//     ? '<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Healthy</span>'
-//     : '<span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11.5px] font-semibold text-amber-600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>Attention</span>';
-// }
-// function renderAgents(filter){
-//   filter=filter||'all';
-//   const host=$('#agent-tbody');
-//   const list=AGENTS.filter(a=> filter==='all' ? true : filter==='top' ? a.status==='Healthy' : a.status==='Attention');
-//   if(list.length===0){ host.innerHTML='<div class="px-6 py-10 text-center text-[13px] text-slate-400">No agents match this filter.</div>'; return; }
-//   host.innerHTML=list.map((a,idx)=>{
-//     const healthy=a.status==='Healthy';
-//     const initials=a.name.split(' ').slice(0,2).map(w=>w[0]).join('');
-//     const border=healthy?'':'border-l-2 border-amber-400';
-//     const pill=statusPillHTML(healthy);
-//     return '<div class="agent-block" data-name="'+esc(a.name.toLowerCase())+'">'+
-//       '<button type="button" class="agent-row '+border+' w-full text-left px-5 sm:px-6 py-4 hover:bg-gray-50/70 transition" data-i="'+idx+'" aria-expanded="false">'+
-//         '<div class="md:grid md:grid-cols-[1.6fr_1fr_1fr_0.8fr_1fr_1.1fr] md:gap-4 md:items-center">'+
-//           '<div class="flex items-center gap-3 min-w-0">'+
-//             '<span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gold-soft text-amber-700 text-[12px] font-bold">'+esc(initials)+'</span>'+
-//             '<span class="min-w-0"><span class="block text-[13.5px] font-semibold text-slate-800 truncate">'+esc(a.name)+'</span>'+
-//               '<span class="inline-block mt-0.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-500 font-mono">'+esc(a.ver)+'</span></span></div>'+
-//           '<div class="hidden md:block text-right nums text-[13.5px] font-semibold text-slate-700">'+fmtInt(a.exec)+'</div>'+
-//           '<div class="hidden md:block text-right nums text-[13.5px] font-semibold '+(a.sr>=97?'text-slate-700':'text-amber-600')+'">'+a.sr.toFixed(1)+'%</div>'+
-//           '<div class="hidden md:block text-right nums text-[13.5px] text-slate-600">'+a.time.toFixed(1)+'s</div>'+
-//           '<div class="hidden md:block text-right nums text-[13.5px] font-bold text-slate-800">'+fmtMoney(a.rev)+'</div>'+
-//           '<div class="hidden md:flex justify-end items-center gap-2">'+pill+'<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>'+
-//           '<div class="md:hidden mt-3 grid grid-cols-4 gap-2 text-center">'+
-//             '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Runs</div><div class="nums text-[12.5px] font-bold text-slate-700">'+fmtInt(a.exec)+'</div></div>'+
-//             '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Success</div><div class="nums text-[12.5px] font-bold text-slate-700">'+a.sr.toFixed(1)+'%</div></div>'+
-//             '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Time</div><div class="nums text-[12.5px] font-bold text-slate-700">'+a.time.toFixed(1)+'s</div></div>'+
-//             '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Revenue</div><div class="nums text-[12.5px] font-bold text-slate-800">'+fmtMoney(a.rev)+'</div></div></div>'+
-//           '<div class="md:hidden mt-2 flex items-center justify-between">'+pill+'<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>'+
-//         '</div></button>'+
-//       '<div class="agent-detail px-5 sm:px-6"><div class="pb-4 pt-1"><div class="rounded-xl bg-gray-50 border border-gray-100 p-4">'+
-//         '<div class="flex items-center justify-between mb-2"><span class="text-[12px] font-semibold text-slate-500">Executions trend · last 16 days</span><span class="text-[11.5px] text-amber-600 font-semibold">'+esc(a.name)+' '+esc(a.ver)+'</span></div>'+
-//         '<svg class="agent-spark w-full" height="56" viewBox="0 0 320 56" preserveAspectRatio="none" data-i="'+idx+'"></svg></div></div></div></div>';
-//   }).join('');
-//   $$('.agent-spark',host).forEach(svg=>{ drawAgentSpark(svg, list[+svg.dataset.i].spark); });
-//   $$('.agent-row',host).forEach(row=>{
-//     row.addEventListener('click',()=>{ const open=row.classList.toggle('open'); row.setAttribute('aria-expanded',open?'true':'false'); });
-//   });
-// }
-
-// /* ============================================================
-//    LIVE FEED
-//    ============================================================ */
-// let feedTimer=null, feedPaused=false;
-// function pad2(x){return String(x).padStart(2,'0');}
-// function fmtClock(d){ let h=d.getHours(); const m=pad2(d.getMinutes()), s=pad2(d.getSeconds()); const ap=h>=12?'PM':'AM'; h=h%12||12; return h+':'+m+':'+s+' '+ap; }
-// function feedItemHTML(it){
-//   const ok=it.status==='Success';
-//   const dot=ok?'bg-emerald-500':'bg-rose-500';
-//   const right=ok
-//     ? '<span class="inline-flex items-center gap-1 text-[12px] font-semibold text-emerald-600 shrink-0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'+it.time.toFixed(1)+'s</span>'
-//     : '<span class="inline-flex items-center gap-1 text-[12px] font-semibold text-rose-600 shrink-0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'+esc(it.reason)+'</span>';
-//   return '<li class="'+(REDUCED?'':'feed-enter')+' flex items-center gap-3 px-5 sm:px-6 py-3">'+
-//     '<span class="h-2 w-2 rounded-full '+dot+' shrink-0"></span>'+
-//     '<span class="font-mono text-[11.5px] text-slate-400 w-[74px] shrink-0">'+esc(it.t)+'</span>'+
-//     '<span class="min-w-0 flex-1 truncate"><span class="text-[13px] font-medium '+(ok?'text-slate-700':'text-rose-700')+'">'+esc(it.agent)+'</span><span class="text-slate-400 text-[12.5px]"> · '+esc(it.client)+'</span></span>'+
-//     right+'</li>';
-// }
-// function makeRandomFeedItem(now){
-//   const agent=FEED_AGENTS[Math.floor(Math.random()*FEED_AGENTS.length)];
-//   const client=FEED_CLIENTS[Math.floor(Math.random()*FEED_CLIENTS.length)];
-//   const fail=Math.random()<0.16;
-//   return { t:fmtClock(now), agent, client, status:fail?'Failed':'Success', time:fail?0:(0.6+Math.random()*1.1), reason:fail?FAIL_REASONS[Math.floor(Math.random()*FAIL_REASONS.length)]:'' };
-// }
-// function pushFeed(){
-//   const list=$('#feed-list');
-//   list.insertAdjacentHTML('afterbegin', feedItemHTML(makeRandomFeedItem(new Date())));
-//   while(list.children.length>22) list.removeChild(list.lastElementChild);
-// }
-// function scheduleFeed(){
-//   clearTimeout(feedTimer);
-//   feedTimer=setTimeout(function tick(){
-//     if(!feedPaused && !document.hidden) pushFeed();
-//     if(!feedPaused) feedTimer=setTimeout(tick, 3200+Math.random()*1800);
-//   }, 3200+Math.random()*1800);
-// }
-// function seedFeed(){
-//   const list=$('#feed-list'); const now=Date.now();
-//   const seeds=[
-//     {off:0,  agent:'Missed Call Text-Back', client:'Rodriguez HVAC', status:'Success', time:0.8, reason:''},
-//     {off:14, agent:'Lead Follow-Up',        client:'Luxe Med Spa',   status:'Success', time:1.2, reason:''},
-//     {off:31, agent:'Appointment Reminder',  client:'Bright Dental',  status:'Failed',  time:0,   reason:'LLM Timeout'},
-//     {off:50, agent:'Missed Call Text-Back', client:'Elite Plumbing', status:'Success', time:0.7, reason:''},
-//   ];
-//   list.innerHTML=seeds.map(s=>{ s.t=fmtClock(new Date(now-s.off*1000)); return feedItemHTML(s); }).join('');
-// }
-
-// /* ============================================================
-//    RANGE ORCHESTRATOR
-//    ============================================================ */
-// let currentRange='6M';
-// function arrowUp(){return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';}
-// function arrowDown(){return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>';}
-// function applyRange(key){
-//   currentRange=key;
-//   const r=RANGES[key];
-//   execData=genExecSeries(key);
-//   revData=genRevSeries(key);
-//   animateValue($('#m-exec'), r.exec);
-//   animateValue($('#m-success'), r.sr, {decimals:1});
-//   animateValue($('#m-avg'), r.avg, {decimals:1});
-//   animateValue($('#m-rev'), r.rev, {money:true});
-//   $('#m-exec-delta').innerHTML=arrowUp()+esc(r.dExec)+' this period';
-//   $('#m-success-delta').innerHTML=arrowUp()+esc(r.dSr)+' vs last period';
-//   $('#m-avg-delta').innerHTML=arrowDown()+esc(r.dAvg)+' improvement';
-//   $('#m-rev-delta').innerHTML=arrowUp()+esc(r.dRev)+' this period';
-//   const ringC=2*Math.PI*18, ring=$('#ring-progress');
-//   ring.style.transition=REDUCED?'none':'stroke-dashoffset 1100ms cubic-bezier(.22,1,.36,1)';
-//   ring.setAttribute('stroke-dashoffset',(ringC*(1-r.sr/100)).toFixed(2));
-//   renderSpark($('#m-exec-spark'), genSpark(key,'exec'), '#f59e0b','spkExec');
-//   renderSpark($('#m-avg-spark'),  genSpark(key,'avg'),  '#10b981','spkAvg');
-//   renderSpark($('#m-rev-spark'),  genSpark(key,'rev'),  '#DAA520','spkRev');
-//   renderExecChart(); renderRevChart();
-//   const gross=revData.vals.reduce((a,b)=>a+b,0);
-//   $('#rev-total').textContent=fmtMoney(gross);
-//   $('#rev-proj').textContent=r.proj;
-//   renderDonut(execData.failTotal);
-//   $('#donut-total').textContent=fmtInt(execData.failTotal);
-//   $('#fail-count-badge').textContent=fmtInt(execData.failTotal)+' failures';
-// }
-// function setActivePill(key){
-//   $$('#range-pills [role=tab]').forEach(b=>{
-//     const on=b.dataset.range===key;
-//     b.setAttribute('aria-selected',on?'true':'false');
-//     b.classList.toggle('bg-amber-500',on); b.classList.toggle('text-white',on); b.classList.toggle('shadow-sm',on);
-//     b.classList.toggle('text-slate-500',!on); b.classList.toggle('hover:text-slate-800',!on);
-//   });
-// }
-
-// /* ============================================================
-//    TOAST + EXPORT
-//    ============================================================ */
-// function showToast(msg){
-//   const t=$('#toast'), box=t.firstElementChild;
-//   $('#toast-msg').textContent=msg; t.classList.remove('hidden');
-//   box.style.transition='none'; box.style.opacity='0'; box.style.transform='translateY(8px)';
-//   requestAnimationFrame(()=>{ box.style.transition='all 220ms ease'; box.style.opacity='1'; box.style.transform='translateY(0)'; });
-//   clearTimeout(showToast._t); showToast._t=setTimeout(()=>{ box.style.opacity='0'; box.style.transform='translateY(8px)'; setTimeout(()=>t.classList.add('hidden'),240); },2200);
-// }
-// function exportCSV(){
-//   const r=RANGES[currentRange];
-//   const rows=[['TRIVEN.AI Agent Analytics','Range: '+currentRange],[],
-//     ['Metric','Value'],
-//     ['Total Executions', r.exec],
-//     ['Success Rate', r.sr+'%'],
-//     ['Avg Execution Time', r.avg+'s'],
-//     ['Revenue (your earnings)', '$'+r.rev],
-//     ['Failed Executions', genExecSeries(currentRange).failTotal],
-//     [],
-//     ['Agent','Version','Executions','Success Rate','Avg Time','Revenue','Status']];
-//   AGENTS.forEach(a=>rows.push([a.name,a.ver,a.exec,a.sr+'%',a.time+'s','$'+a.rev,a.status]));
-//   const csv=rows.map(row=>row.map(c=>{ const s=String(c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\n');
-//   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}), url=URL.createObjectURL(blob), a=document.createElement('a');
-//   a.href=url; a.download='triven-analytics-'+currentRange.toLowerCase()+'.csv'; document.body.appendChild(a); a.click();
-//   document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),1500);
-//   showToast('Report exported · triven-analytics-'+currentRange.toLowerCase()+'.csv');
-// }
-
-// /* ============================================================
-//    WIRE-UP + INIT
-//    ============================================================ */
-// function wire(){
-//   // Range pills
-//   const pills=$$('#range-pills [role=tab]');
-//   pills.forEach((b,i)=>{
-//     b.addEventListener('click',()=>{ setActivePill(b.dataset.range); applyRange(b.dataset.range); });
-//     b.addEventListener('keydown',e=>{
-//       if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault();
-//         const dir=e.key==='ArrowRight'?1:-1; const next=pills[(i+dir+pills.length)%pills.length];
-//         next.focus(); setActivePill(next.dataset.range); applyRange(next.dataset.range);
-//       }
-//     });
-//   });
-//   // Sidebar nav active state (visual)
-//   $$('#sidebar .nav-item').forEach(item=>{
-//     item.addEventListener('click',()=>{
-//       $$('#sidebar .nav-item').forEach(n=>{ n.classList.remove('is-active','bg-amber-50','text-amber-700','font-semibold'); n.removeAttribute('aria-current'); n.classList.add('text-slate-600'); });
-//       item.classList.add('is-active','bg-amber-50','text-amber-700','font-semibold'); item.classList.remove('text-slate-600'); item.setAttribute('aria-current','page');
-//     });
-//   });
-//   // Agent filter
-//   $$('#agent-filter [data-filter]').forEach(b=>{
-//     b.addEventListener('click',()=>{
-//       $$('#agent-filter [data-filter]').forEach(x=>{ x.classList.remove('bg-white','text-slate-700','shadow-sm'); x.classList.add('text-slate-500'); });
-//       b.classList.add('bg-white','text-slate-700','shadow-sm'); b.classList.remove('text-slate-500');
-//       renderAgents(b.dataset.filter);
-//     });
-//   });
-//   // Search: focus shortcut + live agent filter
-//   const search=$('#search-input');
-//   document.addEventListener('keydown',e=>{
-//     if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); search&&search.focus(); }
-//     if(e.key==='Escape'){ if(document.activeElement===search) search.blur(); closeBellInner(); }
-//   });
-//   if(search){ search.addEventListener('input',()=>{ const q=search.value.trim().toLowerCase();
-//     $$('#agent-tbody .agent-block').forEach(bl=>{ bl.style.display = (!q||bl.dataset.name.indexOf(q)>-1)?'':'none'; }); }); }
-//   // Notification bell
-//   const bell=$('#bell-btn'), menu=$('#bell-menu');
-//   bell.addEventListener('click',e=>{ e.stopPropagation(); const open=menu.classList.toggle('hidden'); bell.setAttribute('aria-expanded', open?'false':'true'); });
-//   document.addEventListener('click',e=>{ if(!menu.classList.contains('hidden') && !menu.contains(e.target) && !bell.contains(e.target)) closeBellInner(); });
-//   function closeBellInner(){ menu.classList.add('hidden'); bell.setAttribute('aria-expanded','false'); }
-//   window.closeBell=closeBellInner;
-//   // Export
-//   $('#export-btn').addEventListener('click',exportCSV);
-//   // Feed pause
-//   $('#feed-pause').addEventListener('click',()=>{
-//     feedPaused=!feedPaused;
-//     $('#feed-pause-label').textContent=feedPaused?'Resume':'Pause';
-//     $('#feed-pause-icon').outerHTML = feedPaused
-//       ? '<svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-//       : '<svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
-//     if(!feedPaused) scheduleFeed();
-//   });
-//   // Resize -> re-render charts (debounced)
-//   let rzT=null;
-//   window.addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ renderExecChart(); renderRevChart(); },150); });
-//   document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !feedPaused) scheduleFeed(); });
-// }
-// function init(){
-//   renderCohort();
-//   renderAgents('all');
-//   seedFeed();
-//   wire();
-//   setActivePill('6M');
-//   applyRange('6M');
-//   scheduleFeed();
-// }
-// init();
-// return () => {
-//   clearTimeout(feedTimer);
-// };
-// }
-
-// export default function Page() {
-//   useEffect(() => {
-//     document.title = "Agent Analytics · TRIVEN.AI";
-
-//     const descriptionContent =
-//       "Real-time performance intelligence for your deployed AI agents — executions, success rate, revenue, and failure breakdowns.";
-//     let description = document.querySelector('meta[name="description"]');
-//     if (!description) {
-//       description = document.createElement("meta");
-//       description.setAttribute("name", "description");
-//       document.head.appendChild(description);
-//     }
-//     description.setAttribute("content", descriptionContent);
-
-//     const cleanup = runTrivenAnalyticsDashboard();
-//     return () => {
-//       if (typeof cleanup === "function") cleanup();
-//     };
-//   }, []);
-
-//   return (
-//     <>
-//       <style dangerouslySetInnerHTML={{ __html: dashboardStyles }} />
-//       <div
-//         id="triven-analytics-page"
-//         className="agent-analytics-page min-h-screen bg-gray-50 text-slate-900 antialiased"
-//         dangerouslySetInnerHTML={{ __html: dashboardHtml }}
-//       />
-//     </>
-//   );
-// }
-export default function AnalyticsPage() {
-    return (
-      <main className="flex min-h-[calc(100vh-80px)] items-center justify-center px-6 py-16">
-        <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <path
-                d="M4 19V5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M4 19H20"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M8 16V11"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M12 16V8"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-              <path
-                d="M16 16V13"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
-  
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-            Analytics
-          </h1>
-  
-          <p className="mt-4 text-base leading-7 text-slate-600">
-            Analytics page will come soon.
-          </p>
-        </div>
-      </main>
-    );
+const ANALYTICS_STYLES = `
+  :root {
+    --gold-a: #DAA520;
+    --gold-b: #FFD700;
   }
+  .triven-analytics { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+  .text-gold-gradient {
+    background: linear-gradient(135deg, var(--gold-a) 0%, var(--gold-b) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .bg-gold-gradient { background: linear-gradient(135deg, var(--gold-a) 0%, var(--gold-b) 100%); }
+  .bg-gold-soft { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); }
+  .text-gold-600 { color: #DAA520; }
+  .shadow-pop { box-shadow: 0 12px 32px -8px rgba(218,165,32,0.30); }
+  .shadow-card { box-shadow: 0 1px 2px 0 rgba(15,23,42,0.04), 0 1px 3px 0 rgba(15,23,42,0.06); }
+  .shadow-cardhover, .hover\\:shadow-cardhover:hover { box-shadow: 0 10px 28px -8px rgba(15,23,42,0.16), 0 4px 10px -4px rgba(15,23,42,0.08); }
+
+  .nums { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  .pulse-dot { position: relative; }
+  .pulse-dot::before {
+    content: ""; position: absolute; inset: -4px; border-radius: 9999px;
+    background: currentColor; opacity: 0.45; animation: pulsering 1.8s ease-out infinite;
+  }
+  @keyframes pulsering {
+    0% { transform: scale(0.6); opacity: 0.5; }
+    70% { transform: scale(2.2); opacity: 0; }
+    100% { opacity: 0; }
+  }
+
+  .feed-enter { animation: feedIn 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes feedIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .scroll-thin { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
+  .scroll-thin::-webkit-scrollbar { width: 8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 9999px; }
+  .scroll-thin::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+  .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+  .chart-tip {
+    position: absolute; pointer-events: none; z-index: 30; opacity: 0;
+    transform: translate(-50%, -112%); transition: opacity 140ms ease;
+    background: #0f172a; color: #fff; border-radius: 10px; padding: 8px 11px;
+    font-size: 12px; line-height: 1.35; white-space: nowrap;
+    box-shadow: 0 10px 24px -6px rgba(15,23,42,0.45); border: 1px solid rgba(255,255,255,0.06);
+  }
+  .chart-tip.show { opacity: 1; }
+  .chart-tip::after {
+    content: ""; position: absolute; left: 50%; bottom: -5px; width: 10px; height: 10px;
+    background: #0f172a; transform: translateX(-50%) rotate(45deg);
+    border-right: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .seg { transition: stroke-width 180ms ease, opacity 180ms ease; cursor: pointer; }
+  .bar-rect { transition: opacity 160ms ease, transform 160ms ease; transform-box: fill-box; transform-origin: bottom; }
+  .bar-rect:hover { opacity: 0.88; }
+
+  .agent-detail { max-height: 0; overflow: hidden; transition: max-height 320ms cubic-bezier(0.4,0,0.2,1); }
+  .agent-row.open + .agent-detail { max-height: 220px; }
+  .agent-row .chev { transition: transform 220ms ease; }
+  .agent-row.open .chev { transform: rotate(180deg); }
+
+  .metric-value { letter-spacing: -0.02em; }
+  .pill { transition: all 180ms ease; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .triven-analytics *, .triven-analytics *::before, .triven-analytics *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+    .pulse-dot::before { display: none; }
+  }
+`;
+
+const ANALYTICS_MARKUP = `
+  <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
+    <div class="flex items-center gap-4 px-4 sm:px-6 lg:px-8 h-16">
+      <h1 class="text-lg sm:text-2xl font-bold tracking-tight whitespace-nowrap">Agent Analytics</h1>
+
+      <div class="hidden md:flex flex-1 justify-center">
+        <div class="relative w-full max-w-md">
+          <svg class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+          <input id="search-input" type="text" placeholder="Search agents, metrics…" aria-label="Search agents and metrics"
+            class="w-full rounded-xl bg-gray-50 border border-transparent focus:border-amber-300 focus:bg-white pl-10 pr-16 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 transition" />
+          <kbd class="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[10.5px] font-medium text-slate-400 font-mono">⌘K</kbd>
+        </div>
+      </div>
+
+      <div class="ml-auto md:ml-0 flex items-center gap-2 sm:gap-3">
+        <div class="relative">
+          <button id="bell-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Notifications"
+            class="relative grid h-10 w-10 place-items-center rounded-xl border border-gray-100 bg-white text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition shadow-sm">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span class="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white"></span>
+          </button>
+          <div id="bell-menu" class="hidden absolute right-0 mt-2 w-80 rounded-2xl border border-gray-100 bg-white shadow-cardhover overflow-hidden z-50">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span class="text-sm font-bold">Notifications</span>
+              <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">3 new</span>
+            </div>
+            <ul class="max-h-72 overflow-y-auto scroll-thin divide-y divide-gray-50">
+              <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2h2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800">Payout ready: <span class="font-semibold">$4,820</span> available</p><p class="text-[11.5px] text-slate-400 mt-0.5">8 minutes ago</p></div></li>
+              <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-5.4 3 1-6L3 10l6-.9L12 3.5 15 9.1l6 .9-4.6 4.3 1 6z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800">New 5-star review on <span class="font-semibold">Missed Call Text-Back</span></p><p class="text-[11.5px] text-slate-400 mt-0.5">41 minutes ago</p></div></li>
+              <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800"><span class="font-semibold">Appointment Reminder</span> success rate dipped below 96.5%</p><p class="text-[11.5px] text-slate-400 mt-0.5">2 hours ago</p></div></li>
+            </ul>
+            <button type="button" class="w-full px-4 py-2.5 text-[12.5px] font-semibold text-amber-700 hover:bg-amber-50 transition">View all notifications</button>
+          </div>
+        </div>
+
+        <button id="export-btn" type="button" class="inline-flex items-center gap-2 rounded-xl bg-gold-gradient px-3.5 sm:px-4 py-2.5 text-[13px] font-semibold text-[#1a1206] shadow-pop hover:brightness-[1.04] active:scale-[0.98] transition">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+          <span class="hidden sm:inline">Export Report</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+      <div>
+        <p class="text-[13px] text-slate-500">Welcome back, <span class="font-semibold text-slate-700">Marcus</span> — here's how your fleet is performing.</p>
+        <div class="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-600">
+          <span class="pulse-dot text-emerald-500"><span class="block h-2 w-2 rounded-full bg-emerald-500"></span></span>
+          <span id="range-label-live">All 3 agents online</span>
+        </div>
+      </div>
+      <div id="range-pills" role="tablist" aria-label="Time range" class="inline-flex items-center gap-1 rounded-xl border border-gray-100 bg-white p-1 shadow-sm self-start sm:self-auto">
+        <button role="tab" data-range="7D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">7D</button>
+        <button role="tab" data-range="30D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">30D</button>
+        <button role="tab" data-range="90D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">90D</button>
+        <button role="tab" data-range="6M" aria-selected="true" class="pill rounded-lg bg-amber-500 px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm">6M</button>
+        <button role="tab" data-range="1Y" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">1Y</button>
+        <button role="tab" data-range="Custom" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">Custom</button>
+      </div>
+    </div>
+
+    <section aria-label="Key metrics" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
+
+      <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
+        <div class="flex items-start justify-between">
+          <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg></span>
+          <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"><span class="pulse-dot text-emerald-500"><span class="block h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>LIVE</span>
+        </div>
+        <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Total Executions</p>
+        <div class="mt-1 flex items-end justify-between gap-2">
+          <span id="m-exec" class="metric-value nums text-3xl font-black text-slate-900">0</span>
+          <svg id="m-exec-spark" class="mb-1.5" width="74" height="30" viewBox="0 0 74 30" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+        <p id="m-exec-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
+      </div>
+
+      <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
+        <div class="flex items-start justify-between">
+          <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+          <svg width="46" height="46" viewBox="0 0 46 46" class="-mt-0.5" aria-hidden="true">
+            <circle cx="23" cy="23" r="18" fill="none" stroke="#f1f5f9" stroke-width="5"/>
+            <circle id="ring-progress" cx="23" cy="23" r="18" fill="none" stroke="url(#ringGrad)" stroke-width="5" stroke-linecap="round" stroke-dasharray="113.1" stroke-dashoffset="113.1" transform="rotate(-90 23 23)"/>
+            <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD700"/><stop offset="1" stop-color="#DAA520"/></linearGradient></defs>
+          </svg>
+        </div>
+        <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Success Rate</p>
+        <div class="mt-1 flex items-end gap-1">
+          <span id="m-success" class="metric-value nums text-3xl font-black text-slate-900">0</span>
+          <span class="mb-1 text-xl font-black text-slate-300">%</span>
+        </div>
+        <p id="m-success-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
+      </div>
+
+      <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
+        <div class="flex items-start justify-between">
+          <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <svg id="m-avg-spark" class="mt-1.5" width="74" height="30" viewBox="0 0 74 30" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+        <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Avg Execution Time</p>
+        <div class="mt-1 flex items-end gap-1">
+          <span id="m-avg" class="metric-value nums text-3xl font-black text-slate-900">0</span>
+          <span class="mb-1 text-xl font-black text-slate-300">s</span>
+        </div>
+        <p id="m-avg-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
+      </div>
+
+      <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
+        <div class="flex items-start justify-between">
+          <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5.5C17 3.6 14.8 3 12 3S7 3.6 7 5.8 9.2 8.5 12 9s5 .9 5 3.2S14.8 15 12 15s-5-.7-5-2.7"/></svg></span>
+          <svg id="m-rev-spark" class="mb-1.5" width="74" height="30" viewBox="0 0 74 30" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+        <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Revenue Generated</p>
+        <div class="mt-1 flex items-end gap-1">
+          <span class="mb-1 text-xl font-black text-slate-300">$</span>
+          <span id="m-rev" class="metric-value nums text-3xl font-black text-slate-900">0</span>
+        </div>
+        <p id="m-rev-delta" class="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600"></p>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+        <div>
+          <h2 class="text-base font-bold">Executions</h2>
+          <p class="text-[12px] text-slate-400 mt-0.5">Successful vs failed runs over the selected period</p>
+        </div>
+        <div class="flex items-center gap-4 text-[12px] font-medium">
+          <span class="inline-flex items-center gap-1.5 text-slate-600"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>Successful</span>
+          <span class="inline-flex items-center gap-1.5 text-slate-600"><span class="h-2.5 w-2.5 rounded-full bg-rose-400"></span>Failed</span>
+        </div>
+      </div>
+      <div id="exec-wrap" class="relative" style="height:300px">
+        <div id="exec-chart" class="h-full w-full"></div>
+        <div id="exec-tip" class="chart-tip"></div>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+        <div>
+          <h2 class="text-base font-bold">Revenue</h2>
+          <p class="text-[12px] text-slate-400 mt-0.5">Gross revenue generated across all your agents</p>
+        </div>
+        <span class="inline-flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-bold text-amber-700">
+          Total <span id="rev-total" class="nums">$0</span>
+        </span>
+      </div>
+      <div id="rev-wrap" class="relative" style="height:240px">
+        <div id="rev-chart" class="h-full w-full"></div>
+        <div id="rev-tip" class="chart-tip"></div>
+      </div>
+      <div class="mt-3 flex items-center gap-2 text-[12.5px]">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M17 7h4v4"/></svg>
+        <span class="text-slate-500">Projected next period:</span>
+        <span id="rev-proj" class="font-bold text-amber-600">$0</span>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-base font-bold">Failure Breakdown</h2>
+            <p class="text-[12px] text-slate-400 mt-0.5">Why runs didn't complete</p>
+          </div>
+          <span id="fail-count-badge" class="rounded-lg bg-rose-50 px-2.5 py-1 text-[12px] font-bold text-rose-600">0 failures</span>
+        </div>
+        <div class="flex flex-col sm:flex-row items-center gap-6">
+          <div class="relative shrink-0" style="width:172px;height:172px">
+            <svg id="donut-chart" width="172" height="172" viewBox="0 0 172 172"></svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span id="donut-total" class="nums text-2xl font-black text-slate-900">0</span>
+              <span class="text-[11px] font-medium text-slate-400">failures</span>
+            </div>
+          </div>
+          <ul id="donut-legend" class="flex-1 w-full space-y-2.5"></ul>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 shadow-card">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-base font-bold">Client Retention</h2>
+            <p class="text-[12px] text-slate-400 mt-0.5">Cohort analysis</p>
+          </div>
+          <span class="rounded-lg bg-amber-50 px-2.5 py-1 text-[12px] font-bold text-amber-700">By signup week</span>
+        </div>
+        <div class="overflow-x-auto -mx-1 px-1">
+          <table class="w-full border-separate" style="border-spacing:4px">
+            <thead>
+              <tr class="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                <th class="text-left font-semibold pb-1 pr-2">Cohort</th>
+                <th class="font-semibold pb-1">At hire</th>
+                <th class="font-semibold pb-1">1 wk</th>
+                <th class="font-semibold pb-1">2 wks</th>
+                <th class="font-semibold pb-1">4 wks</th>
+              </tr>
+            </thead>
+            <tbody id="cohort-grid"></tbody>
+          </table>
+        </div>
+        <div class="mt-4 flex items-center justify-between rounded-xl bg-amber-50/70 px-4 py-3">
+          <span class="text-[12.5px] font-medium text-slate-600">Average 4-week retention</span>
+          <span id="cohort-avg" class="nums text-lg font-black text-amber-700">0%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-gray-100 bg-white shadow-card mb-6 overflow-hidden">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 sm:p-6 pb-4 border-b border-gray-100">
+        <div>
+          <h2 class="text-base font-bold">Agent Performance</h2>
+          <p class="text-[12px] text-slate-400 mt-0.5">Lifetime metrics per published agent</p>
+        </div>
+        <div id="agent-filter" class="inline-flex items-center gap-1 rounded-xl border border-gray-100 bg-gray-50 p-1 self-start">
+          <button data-filter="all" class="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 shadow-sm">All</button>
+          <button data-filter="top" class="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:text-slate-800 transition">Top Performers</button>
+          <button data-filter="attention" class="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:text-slate-800 transition">Needs Attention</button>
+        </div>
+      </div>
+      <div class="hidden md:grid grid-cols-[1.6fr_1fr_1fr_0.8fr_1fr_1.1fr] gap-4 px-6 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-slate-400 bg-gray-50/60">
+        <span>Agent</span><span class="text-right">Executions</span><span class="text-right">Success</span><span class="text-right">Avg Time</span><span class="text-right">Revenue</span><span class="text-right pr-7">Status</span>
+      </div>
+      <div id="agent-tbody" class="divide-y divide-gray-50"></div>
+    </section>
+
+    <section class="rounded-2xl border border-gray-100 bg-white shadow-card overflow-hidden">
+      <div class="flex items-center justify-between p-5 sm:p-6 pb-4 border-b border-gray-100">
+        <div class="flex items-center gap-2.5">
+          <h2 class="text-base font-bold">Live Executions</h2>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600"><span class="pulse-dot text-emerald-500"><span class="block h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>Real-time</span>
+        </div>
+        <button id="feed-pause" type="button" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition">
+          <svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+          <span id="feed-pause-label">Pause</span>
+        </button>
+      </div>
+      <ul id="feed-list" class="divide-y divide-gray-50 overflow-y-auto scroll-thin" style="max-height:300px" aria-live="polite" aria-label="Live execution feed"></ul>
+    </section>
+
+  </main>
+
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 hidden">
+    <div class="flex items-center gap-2.5 rounded-xl bg-slate-900 px-4 py-3 text-[13px] font-medium text-white shadow-cardhover">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      <span id="toast-msg">Done</span>
+    </div>
+  </div>
+`;
+
+const ANALYTICS_SCRIPT = `
+"use strict";
+
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
+const $ = (s,r)=> (r||document).querySelector(s);
+const $$ = (s,r)=> Array.from((r||document).querySelectorAll(s));
+const clamp = (v,a,b)=> Math.max(a,Math.min(b,v));
+const fmtInt = n => Math.round(n).toLocaleString('en-US');
+const fmtMoney = n => '$' + Math.round(n).toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS6  = ['Jan','Feb','Mar','Apr','May','Jun'];
+const MONTHS12 = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
+function lastNDayLabels(n){
+  const out=[]; const now=new Date();
+  for(let i=n-1;i>=0;i--){ const d=new Date(now); d.setDate(now.getDate()-i);
+    out.push(n<=7 ? WEEKDAYS[d.getDay()] : (d.getMonth()+1)+'/'+d.getDate()); }
+  return out;
+}
+const last3Months = () => MONTHS6.slice(-3);
+
+const RANGES = {
+  '7D':  { exec:3310,  sr:97.6, avg:1.1, rev:1180,  dExec:'+420',    dSr:'+0.3%', dAvg:'-60ms',  dRev:'+$210',   proj:'$1,260',  execN:7,  revKind:'day'     },
+  '30D': { exec:14180, sr:97.4, avg:1.2, rev:4860,  dExec:'+2,310',  dSr:'+0.3%', dAvg:'-110ms', dRev:'+$880',   proj:'$5,400',  execN:30, revKind:'week4'   },
+  '90D': { exec:41920, sr:97.2, avg:1.2, rev:10240, dExec:'+6,180',  dSr:'+0.5%', dAvg:'-150ms', dRev:'+$2,140', proj:'$11,800', execN:13, revKind:'month3'  },
+  '6M':  { exec:84291, sr:97.3, avg:1.2, rev:12840, dExec:'+12,847', dSr:'+0.4%', dAvg:'-180ms', dRev:'+$3,240', proj:'$8,900',  execN:6,  revKind:'month6'  },
+  '1Y':  { exec:90640, sr:97.1, avg:1.3, rev:13560, dExec:'+18,400', dSr:'+0.6%', dAvg:'-210ms', dRev:'+$3,560', proj:'$9,400',  execN:12, revKind:'month12' },
+};
+RANGES['Custom'] = Object.assign({}, RANGES['30D'], { custom:true });
+
+function execLabels(key,n){
+  if(key==='6M') return MONTHS6.slice();
+  if(key==='1Y') return MONTHS12.slice();
+  if(key==='90D') return Array.from({length:n},(_,i)=>'W'+(i+1));
+  return lastNDayLabels(n);
+}
+function genExecSeries(key){
+  const r = RANGES[key], n = r.execN;
+  const rnd = mulberry32(hash(key)+11);
+  const successTotal = Math.round(r.exec * r.sr/100);
+  const failTotal = r.exec - successTotal;
+  let w=[];
+  for(let i=0;i<n;i++){
+    let t = n>1 ? i/(n-1) : 1;
+    let base = 0.55 + 0.75*t + Math.sin(i*0.9)*0.06 + (rnd()-0.5)*0.14;
+    if(key==='1Y' && i<5) base *= (0.10 + 0.16*i);
+    w.push(Math.max(0.04, base));
+  }
+  if(n>=6){ w[Math.floor(n*0.66)] *= 1.28; }
+  const sumW = w.reduce((a,b)=>a+b,0);
+  let success = w.map(x=>Math.round(x/sumW*successTotal));
+  success[n-1] += successTotal - success.reduce((a,b)=>a+b,0);
+  const fr = mulberry32(hash(key)+5);
+  let fw = success.map(s => s*(0.8 + fr()*0.5));
+  const sumFw = fw.reduce((a,b)=>a+b,0) || 1;
+  let fail = fw.map(x => Math.max(0, Math.round(x/sumFw*failTotal)));
+  fail[n-1] += failTotal - fail.reduce((a,b)=>a+b,0);
+  if(fail[n-1] < 0) fail[n-1] = 0;
+  return { labels: execLabels(key,n), success, fail, successTotal, failTotal };
+}
+function splitAgents(vals,key){
+  const rnd = mulberry32(hash(key)+31);
+  return vals.map(v=>{
+    let p=[0.50,0.32,0.18].map(x=>x*(0.9+rnd()*0.2));
+    const ps=p.reduce((a,b)=>a+b,0); p=p.map(x=>x/ps);
+    let a=Math.round(v*p[0]), b=Math.round(v*p[1]); let c=v-a-b; if(c<0)c=0;
+    return {a,b,c};
+  });
+}
+function genRevSeries(key){
+  const r = RANGES[key];
+  if(key==='6M'){ const vals=[2100,3400,4200,5800,6100,7240]; return {labels:MONTHS6.slice(), vals, agents:splitAgents(vals,key)}; }
+  const kind = r.revKind;
+  let n, labels;
+  if(kind==='day'){ n=7; labels=lastNDayLabels(7); }
+  else if(kind==='week4'){ n=4; labels=['Wk 1','Wk 2','Wk 3','Wk 4']; }
+  else if(kind==='month3'){ n=3; labels=last3Months(); }
+  else { n=12; labels=MONTHS12.slice(); }
+  const gross = Math.round(r.rev*2.246);
+  const rnd = mulberry32(hash(key)+23);
+  let w=[];
+  for(let i=0;i<n;i++){
+    let t = n>1 ? i/(n-1) : 1;
+    let base = 0.6 + 0.7*t + (rnd()-0.5)*0.12;
+    if(kind==='month12' && i<6) base *= (0.06 + 0.10*i);
+    w.push(Math.max(0.03, base));
+  }
+  const sumW = w.reduce((a,b)=>a+b,0);
+  let vals = w.map(x=>Math.round(x/sumW*gross));
+  vals[n-1] += gross - vals.reduce((a,b)=>a+b,0);
+  return { labels, vals, agents: splitAgents(vals,key) };
+}
+function genSpark(key,type){
+  const seed = type==='exec'?7 : type==='avg'?17 : 27;
+  const rnd = mulberry32(hash(key)+seed);
+  const n=12, out=[];
+  for(let i=0;i<n;i++){
+    let t=i/(n-1);
+    let v = type==='avg' ? (1 - 0.5*t) : (0.5 + 0.6*t);
+    v += (rnd()-0.5)*0.18; out.push(Math.max(0.05, v));
+  }
+  return out;
+}
+
+const FAILURES = [
+  {label:'LLM Timeout',            pct:38, color:'#f59e0b'},
+  {label:'Connector Auth Expired', pct:24, color:'#fbbf24'},
+  {label:'Invalid AI Output',      pct:21, color:'#fcd34d'},
+  {label:'Rate Limited',           pct:11, color:'#fde68a'},
+  {label:'Other',                  pct:6,  color:'#d1d5db'},
+];
+const COHORTS = [
+  {name:'Week 1', vals:[100,92,84,76]},
+  {name:'Week 2', vals:[100,90,80,73]},
+  {name:'Week 3', vals:[100,88,77,69]},
+  {name:'Week 4', vals:[100,86,75,66]},
+];
+function agentSpark(seed){
+  const rnd=mulberry32(seed); const out=[];
+  for(let i=0;i<16;i++){ let t=i/15; out.push(Math.max(0.1, 0.5+0.5*t+(rnd()-0.5)*0.22)); }
+  return out;
+}
+const AGENTS = [
+  {name:'Missed Call Text-Back',   ver:'v2.4', exec:42180, sr:98.1, time:0.9, rev:6420, status:'Healthy',   spark:agentSpark(101)},
+  {name:'Lead Follow-Up Sequence', ver:'v1.8', exec:28400, sr:96.8, time:1.4, rev:4180, status:'Healthy',   spark:agentSpark(202)},
+  {name:'Appointment Reminder',    ver:'v3.1', exec:13711, sr:96.2, time:1.6, rev:2240, status:'Attention', spark:agentSpark(303)},
+];
+const FEED_AGENTS  = ['Missed Call Text-Back','Lead Follow-Up','Appointment Reminder'];
+const FEED_CLIENTS = ['Rodriguez HVAC','Luxe Med Spa','Bright Dental','Elite Plumbing','Summit Roofing','Apex Auto Repair','Coastal Dental','Vertex Legal','Harbor Eye Care','Pinnacle Realty','Crest Orthodontics','Ironclad Security'];
+const FAIL_REASONS = ['LLM Timeout','Connector Auth Expired','Invalid AI Output','Rate Limited'];
+
+function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
+function animateValue(el, to, opts){
+  opts = opts || {};
+  const decimals = opts.decimals||0, money = !!opts.money, dur = REDUCED?0:(opts.dur||1100);
+  const from = parseFloat((el.dataset.cur!=null?el.dataset.cur:'0')) || 0;
+  const start = performance.now();
+  function frame(now){
+    const p = dur===0 ? 1 : clamp((now-start)/dur,0,1);
+    const v = from + (to-from)*easeOutCubic(p);
+    el.textContent = money ? Math.round(v).toLocaleString('en-US')
+                           : (decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US'));
+    if(p<1) requestAnimationFrame(frame); else el.dataset.cur = to;
+  }
+  requestAnimationFrame(frame);
+}
+
+function niceCeil(v){ if(v<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(v))); const n=v/p; let m; if(n<=1)m=1;else if(n<=2)m=2;else if(n<=5)m=5;else m=10; return m*p; }
+function kfmt(v){ if(v>=1000) return (v/1000).toFixed(v%1000===0?0:1)+'k'; return ''+Math.round(v); }
+function smoothPath(pts){
+  if(pts.length<2) return pts.length? 'M'+pts[0][0]+' '+pts[0][1] : '';
+  let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[i-1]||pts[i], p1=pts[i], p2=pts[i+1], p3=pts[i+2]||p2;
+    const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
+    const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
+    d+=' C'+c1x.toFixed(1)+' '+c1y.toFixed(1)+' '+c2x.toFixed(1)+' '+c2y.toFixed(1)+' '+p2[0].toFixed(1)+' '+p2[1].toFixed(1);
+  }
+  return d;
+}
+function roundedTopRect(x,y,w,h,r){
+  r=Math.min(r,w/2,Math.max(0,h)); if(h<=0) return 'M'+x+' '+y;
+  return 'M'+x+' '+(y+h)+' L'+x+' '+(y+r)+' Q'+x+' '+y+' '+(x+r)+' '+y+' L'+(x+w-r)+' '+y+' Q'+(x+w)+' '+y+' '+(x+w)+' '+(y+r)+' L'+(x+w)+' '+(y+h)+' Z';
+}
+
+function renderSpark(svg, data, color, fillId){
+  const W=74,H=30,n=data.length,pad=2;
+  const max=Math.max.apply(null,data), min=Math.min.apply(null,data), rng=(max-min)||1;
+  const xs=i=> pad + i*(W-2*pad)/(n-1);
+  const ys=v=> H-pad - ((v-min)/rng)*(H-2*pad-3);
+  let d=''; data.forEach((v,i)=>{ d+=(i?'L':'M')+xs(i).toFixed(1)+' '+ys(v).toFixed(1)+' '; });
+  const area=d+'L'+xs(n-1).toFixed(1)+' '+H+' L'+xs(0).toFixed(1)+' '+H+' Z';
+  svg.innerHTML='<defs><linearGradient id="'+fillId+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+color+'" stop-opacity="0.30"/><stop offset="1" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>'+
+    '<path d="'+area+'" fill="url(#'+fillId+')"/>'+
+    '<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+}
+
+let execData=null;
+function renderExecChart(){
+  const wrap=$('#exec-chart'), tip=$('#exec-tip');
+  if(!wrap) return;
+  const W=Math.max(280, wrap.clientWidth||640), H=300;
+  const d=execData, n=d.success.length;
+  const padL=46, padR=16, padT=16, padB=30, baseY=H-padB;
+  const ax=i=> padL + (n===1?(W-padL-padR)/2 : i*(W-padL-padR)/(n-1));
+  const niceMax=niceCeil(Math.max.apply(null,d.success.concat(d.fail,[1])));
+  const ay=v=> padT + (1 - v/niceMax)*(H-padT-padB);
+  const sucPts=d.success.map((v,i)=>[ax(i),ay(v)]);
+  const faiPts=d.fail.map((v,i)=>[ax(i),ay(v)]);
+  const sucLine=smoothPath(sucPts), faiLine=smoothPath(faiPts);
+  const sucArea=sucLine+' L'+ax(n-1).toFixed(1)+' '+baseY+' L'+ax(0).toFixed(1)+' '+baseY+' Z';
+  const faiArea=faiLine+' L'+ax(n-1).toFixed(1)+' '+baseY+' L'+ax(0).toFixed(1)+' '+baseY+' Z';
+  let grid=''; const T=4;
+  for(let t=0;t<=T;t++){ const val=niceMax*t/T, y=ay(val);
+    grid+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3 4"/>';
+    grid+='<text x="'+(padL-8)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="10.5" fill="#94a3b8">'+kfmt(val)+'</text>'; }
+  let xl=''; const step=n>14?Math.ceil(n/6):1;
+  d.labels.forEach((lb,i)=>{ if(i%step!==0 && i!==n-1) return;
+    xl+='<text x="'+ax(i).toFixed(1)+'" y="'+(H-9)+'" text-anchor="middle" font-size="10.5" fill="#94a3b8">'+esc(lb)+'</text>'; });
+  wrap.innerHTML=
+  '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="display:block">'+
+    '<defs>'+
+      '<linearGradient id="sucFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59e0b" stop-opacity="0.22"/><stop offset="0.92" stop-color="#f59e0b" stop-opacity="0.02"/></linearGradient>'+
+      '<linearGradient id="faiFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fb7185" stop-opacity="0.16"/><stop offset="1" stop-color="#fb7185" stop-opacity="0"/></linearGradient>'+
+      '<linearGradient id="sucStroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#DAA520"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>'+
+    '</defs>'+grid+xl+
+    '<path d="'+faiArea+'" fill="url(#faiFill)"/>'+
+    '<path d="'+sucArea+'" fill="url(#sucFill)"/>'+
+    '<path d="'+faiLine+'" fill="none" stroke="#fb7185" stroke-width="1.6" stroke-dasharray="4 4" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<path class="exec-anim" d="'+sucLine+'" fill="none" stroke="url(#sucStroke)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<line id="exec-guide" x1="0" y1="'+padT+'" x2="0" y2="'+baseY+'" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>'+
+    '<circle id="exec-dot-f" r="3.5" fill="#fb7185" stroke="#fff" stroke-width="2" opacity="0"/>'+
+    '<circle id="exec-dot-s" r="4.5" fill="#f59e0b" stroke="#fff" stroke-width="2" opacity="0"/>'+
+    '<rect id="exec-hit" x="'+padL+'" y="'+padT+'" width="'+(W-padL-padR)+'" height="'+(H-padT-padB)+'" fill="transparent" style="cursor:crosshair"/>'+
+  '</svg>';
+  if(!REDUCED){ const p=$('.exec-anim'); const len=p.getTotalLength(); p.style.strokeDasharray=len; p.style.strokeDashoffset=len; p.getBoundingClientRect(); p.style.transition='stroke-dashoffset 900ms ease'; requestAnimationFrame(()=>{p.style.strokeDashoffset=0;}); }
+  const hit=$('#exec-hit'), guide=$('#exec-guide'), dotS=$('#exec-dot-s'), dotF=$('#exec-dot-f');
+  function move(ev){
+    const rect=hit.getBoundingClientRect();
+    const cx=((ev.touches?ev.touches[0].clientX:ev.clientX)-rect.left)*(W-padL-padR)/rect.width;
+    let i=Math.round(cx/((W-padL-padR)/(n-1||1))); i=clamp(i,0,n-1);
+    const x=ax(i), ys=ay(d.success[i]), yf=ay(d.fail[i]);
+    [guide,dotS,dotF].forEach(e=>e.setAttribute('opacity','1'));
+    guide.setAttribute('x1',x); guide.setAttribute('x2',x);
+    dotS.setAttribute('cx',x); dotS.setAttribute('cy',ys);
+    dotF.setAttribute('cx',x); dotF.setAttribute('cy',yf);
+    tip.innerHTML='<div style="font-weight:700;margin-bottom:3px">'+esc(d.labels[i])+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:9px;background:#f59e0b;display:inline-block"></span>'+fmtInt(d.success[i])+' successful</div>'+
+      '<div style="display:flex;align-items:center;gap:6px;margin-top:2px"><span style="width:7px;height:7px;border-radius:9px;background:#fb7185;display:inline-block"></span>'+fmtInt(d.fail[i])+' failed</div>';
+    tip.style.left=x+'px'; tip.style.top=Math.min(ys,yf)+'px'; tip.classList.add('show');
+  }
+  function leave(){ [guide,dotS,dotF].forEach(e=>e.setAttribute('opacity','0')); tip.classList.remove('show'); }
+  hit.addEventListener('mousemove',move); hit.addEventListener('mouseleave',leave);
+  hit.addEventListener('touchstart',move,{passive:true}); hit.addEventListener('touchmove',move,{passive:true}); hit.addEventListener('touchend',leave);
+}
+
+let revData=null;
+function renderRevChart(){
+  const wrap=$('#rev-chart'), tip=$('#rev-tip');
+  if(!wrap) return;
+  const W=Math.max(280, wrap.clientWidth||640), H=240;
+  const d=revData, n=d.vals.length;
+  const padL=46, padR=16, padT=14, padB=30, baseY=H-padB;
+  const maxV=niceCeil(Math.max.apply(null,d.vals.concat([1])));
+  const ay=v=> padT + (1 - v/maxV)*(H-padT-padB);
+  const slot=(W-padL-padR)/n, bw=Math.min(48, slot*0.56);
+  let grid=''; const T=4;
+  for(let t=0;t<=T;t++){ const val=maxV*t/T, y=ay(val);
+    grid+='<line x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+y.toFixed(1)+'" stroke="#f1f5f9" stroke-width="1" stroke-dasharray="3 4"/>';
+    grid+='<text x="'+(padL-8)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-size="10.5" fill="#94a3b8">$'+kfmt(val)+'</text>'; }
+  let bars='', xl='';
+  d.vals.forEach((v,i)=>{ const x=padL+slot*i+slot/2-bw/2, y=ay(v), h=baseY-y;
+    bars+='<path class="bar-rect" data-i="'+i+'" d="'+roundedTopRect(x,y,bw,h,Math.min(7,bw/2))+'" fill="url(#barGrad)"/>';
+    xl+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(H-9)+'" text-anchor="middle" font-size="10.5" fill="#94a3b8">'+esc(d.labels[i])+'</text>'; });
+  wrap.innerHTML=
+  '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="display:block">'+
+    '<defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD700"/><stop offset="1" stop-color="#DAA520"/></linearGradient></defs>'+
+    grid+xl+bars+'</svg>';
+  $$('.bar-rect',wrap).forEach(bar=>{
+    bar.addEventListener('mouseenter',()=>{ const i=+bar.dataset.i, ag=d.agents[i];
+      tip.innerHTML='<div style="font-weight:700;margin-bottom:4px">'+esc(d.labels[i])+' · '+fmtMoney(d.vals[i])+'</div>'+
+        '<div style="opacity:.85;font-size:11px;line-height:1.55">Missed Call · '+fmtMoney(ag.a)+'<br>Lead Follow-Up · '+fmtMoney(ag.b)+'<br>Appt Reminder · '+fmtMoney(ag.c)+'</div>';
+      const bb=bar.getBBox(); tip.style.left=(bb.x+bb.width/2)+'px'; tip.style.top=bb.y+'px'; tip.classList.add('show'); });
+    bar.addEventListener('mouseleave',()=>tip.classList.remove('show'));
+  });
+  if(!REDUCED){ $$('.bar-rect',wrap).forEach((bar,i)=>{ bar.style.transformOrigin='center bottom'; bar.style.transform='scaleY(0)'; bar.style.transition='transform 620ms cubic-bezier(.22,1,.36,1)'; bar.style.transitionDelay=(i*55)+'ms'; requestAnimationFrame(()=>{bar.style.transform='scaleY(1)';}); }); }
+}
+
+function renderDonut(failCount){
+  const svg=$('#donut-chart'); if(!svg) return; const cx=86, cy=86, r=62, sw=22, C=2*Math.PI*r;
+  let off=0, segs='';
+  FAILURES.forEach((f,idx)=>{ const len=(f.pct/100)*C, gap=C-len;
+    segs+='<circle class="seg" data-i="'+idx+'" cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+f.color+'" stroke-width="'+sw+'" stroke-dasharray="'+len.toFixed(2)+' '+gap.toFixed(2)+'" stroke-dashoffset="'+(-off).toFixed(2)+'" stroke-linecap="butt" transform="rotate(-90 '+cx+' '+cy+')"/>';
+    off+=len; });
+  svg.innerHTML='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#f8fafc" stroke-width="'+sw+'"/>'+segs;
+  const legend=$('#donut-legend');
+  legend.innerHTML=FAILURES.map((f,idx)=>(
+    '<li class="seg-leg flex items-center justify-between px-2 py-1 -mx-2 rounded-lg text-[12.5px] transition" data-i="'+idx+'">'+
+      '<span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:'+f.color+'"></span><span class="text-slate-600 font-medium">'+esc(f.label)+'</span></span>'+
+      '<span class="flex items-center gap-2"><span class="text-slate-400 nums">'+Math.round(failCount*f.pct/100)+'</span><span class="font-bold text-slate-700 w-9 text-right nums">'+f.pct+'%</span></span>'+
+    '</li>'
+  )).join('');
+  $$('.seg',svg).forEach(seg=>{
+    const i=+seg.dataset.i, li=legend.querySelector('.seg-leg[data-i="'+i+'"]');
+    const enter=()=>{ seg.setAttribute('stroke-width',sw+4); $$('.seg',svg).forEach(s=>{ if(s!==seg) s.style.opacity='0.4'; }); if(li) li.classList.add('bg-gray-50'); };
+    const leave=()=>{ seg.setAttribute('stroke-width',sw); $$('.seg',svg).forEach(s=>s.style.opacity='1'); if(li) li.classList.remove('bg-gray-50'); };
+    seg.addEventListener('mouseenter',enter); seg.addEventListener('mouseleave',leave);
+    if(li){ li.addEventListener('mouseenter',enter); li.addEventListener('mouseleave',leave); }
+  });
+  if(!REDUCED){ $$('.seg',svg).forEach((s,idx)=>{ s.style.opacity='0'; s.style.transition='opacity 480ms ease '+(idx*90)+'ms'; requestAnimationFrame(()=>{s.style.opacity='1';}); }); }
+}
+
+function renderCohort(){
+  const tb=$('#cohort-grid'); if(!tb) return;
+  tb.innerHTML=COHORTS.map(c=>{
+    const cells=c.vals.map(v=>{
+      const op=(0.12+(v/100)*0.80).toFixed(2);
+      const txt = v>=72 ? '#fff' : '#92400e';
+      return '<td class="text-center"><div class="rounded-lg py-2 text-[12.5px] font-bold nums" style="background:rgba(217,119,6,'+op+');color:'+txt+'" title="'+esc(c.name)+' cohort · '+v+'% retained">'+v+'%</div></td>';
+    }).join('');
+    return '<tr><td class="text-left text-[12px] font-semibold text-slate-600 pr-2 whitespace-nowrap">'+esc(c.name)+'</td>'+cells+'</tr>';
+  }).join('');
+  const last=COHORTS.map(c=>c.vals[3]); const avg=Math.round(last.reduce((a,b)=>a+b,0)/last.length);
+  $('#cohort-avg').textContent=avg+'%';
+}
+
+function drawAgentSpark(svg,data){
+  const W=320,H=56,n=data.length,pad=3;
+  const max=Math.max.apply(null,data),min=Math.min.apply(null,data),rng=(max-min)||1;
+  const xs=i=>pad+i*(W-2*pad)/(n-1), ys=v=>H-pad-((v-min)/rng)*(H-2*pad);
+  const pts=data.map((v,i)=>[xs(i),ys(v)]);
+  const line=smoothPath(pts), area=line+' L'+xs(n-1).toFixed(1)+' '+H+' L'+xs(0).toFixed(1)+' '+H+' Z';
+  const gid='ag'+Math.floor(Math.random()*1e6);
+  svg.innerHTML='<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59e0b" stop-opacity="0.25"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/></linearGradient></defs>'+
+    '<path d="'+area+'" fill="url(#'+gid+')"/>'+
+    '<path d="'+line+'" fill="none" stroke="#DAA520" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+}
+function statusPillHTML(healthy){
+  return healthy
+    ? '<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Healthy</span>'
+    : '<span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11.5px] font-semibold text-amber-600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>Attention</span>';
+}
+function renderAgents(filter){
+  filter=filter||'all';
+  const host=$('#agent-tbody'); if(!host) return;
+  const list=AGENTS.filter(a=> filter==='all' ? true : filter==='top' ? a.status==='Healthy' : a.status==='Attention');
+  if(list.length===0){ host.innerHTML='<div class="px-6 py-10 text-center text-[13px] text-slate-400">No agents match this filter.</div>'; return; }
+  host.innerHTML=list.map((a,idx)=>{
+    const healthy=a.status==='Healthy';
+    const initials=a.name.split(' ').slice(0,2).map(w=>w[0]).join('');
+    const border=healthy?'':'border-l-2 border-amber-400';
+    const pill=statusPillHTML(healthy);
+    return '<div class="agent-block" data-name="'+esc(a.name.toLowerCase())+'">'+
+      '<button type="button" class="agent-row '+border+' w-full text-left px-5 sm:px-6 py-4 hover:bg-gray-50/70 transition" data-i="'+idx+'" aria-expanded="false">'+
+        '<div class="md:grid md:grid-cols-[1.6fr_1fr_1fr_0.8fr_1fr_1.1fr] md:gap-4 md:items-center">'+
+          '<div class="flex items-center gap-3 min-w-0">'+
+            '<span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gold-soft text-amber-700 text-[12px] font-bold">'+esc(initials)+'</span>'+
+            '<span class="min-w-0"><span class="block text-[13.5px] font-semibold text-slate-800 truncate">'+esc(a.name)+'</span>'+
+              '<span class="inline-block mt-0.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-500 font-mono">'+esc(a.ver)+'</span></span></div>'+
+          '<div class="hidden md:block text-right nums text-[13.5px] font-semibold text-slate-700">'+fmtInt(a.exec)+'</div>'+
+          '<div class="hidden md:block text-right nums text-[13.5px] font-semibold '+(a.sr>=97?'text-slate-700':'text-amber-600')+'">'+a.sr.toFixed(1)+'%</div>'+
+          '<div class="hidden md:block text-right nums text-[13.5px] text-slate-600">'+a.time.toFixed(1)+'s</div>'+
+          '<div class="hidden md:block text-right nums text-[13.5px] font-bold text-slate-800">'+fmtMoney(a.rev)+'</div>'+
+          '<div class="hidden md:flex justify-end items-center gap-2">'+pill+'<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>'+
+          '<div class="md:hidden mt-3 grid grid-cols-4 gap-2 text-center">'+
+            '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Runs</div><div class="nums text-[12.5px] font-bold text-slate-700">'+fmtInt(a.exec)+'</div></div>'+
+            '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Success</div><div class="nums text-[12.5px] font-bold text-slate-700">'+a.sr.toFixed(1)+'%</div></div>'+
+            '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Time</div><div class="nums text-[12.5px] font-bold text-slate-700">'+a.time.toFixed(1)+'s</div></div>'+
+            '<div><div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Revenue</div><div class="nums text-[12.5px] font-bold text-slate-800">'+fmtMoney(a.rev)+'</div></div></div>'+
+          '<div class="md:hidden mt-2 flex items-center justify-between">'+pill+'<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>'+
+        '</div></button>'+
+      '<div class="agent-detail px-5 sm:px-6"><div class="pb-4 pt-1"><div class="rounded-xl bg-gray-50 border border-gray-100 p-4">'+
+        '<div class="flex items-center justify-between mb-2"><span class="text-[12px] font-semibold text-slate-500">Executions trend · last 16 days</span><span class="text-[11.5px] text-amber-600 font-semibold">'+esc(a.name)+' '+esc(a.ver)+'</span></div>'+
+        '<svg class="agent-spark w-full" height="56" viewBox="0 0 320 56" preserveAspectRatio="none" data-i="'+idx+'"></svg></div></div></div></div>';
+  }).join('');
+  $$('.agent-spark',host).forEach(svg=>{ drawAgentSpark(svg, list[+svg.dataset.i].spark); });
+  $$('.agent-row',host).forEach(row=>{
+    row.addEventListener('click',()=>{ const open=row.classList.toggle('open'); row.setAttribute('aria-expanded',open?'true':'false'); });
+  });
+}
+
+let feedTimer=null, feedPaused=false;
+let rzT=null;
+function pad2(x){return String(x).padStart(2,'0');}
+function fmtClock(d){ let h=d.getHours(); const m=pad2(d.getMinutes()), s=pad2(d.getSeconds()); const ap=h>=12?'PM':'AM'; h=h%12||12; return h+':'+m+':'+s+' '+ap; }
+function feedItemHTML(it){
+  const ok=it.status==='Success';
+  const dot=ok?'bg-emerald-500':'bg-rose-500';
+  const right=ok
+    ? '<span class="inline-flex items-center gap-1 text-[12px] font-semibold text-emerald-600 shrink-0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'+it.time.toFixed(1)+'s</span>'
+    : '<span class="inline-flex items-center gap-1 text-[12px] font-semibold text-rose-600 shrink-0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'+esc(it.reason)+'</span>';
+  return '<li class="'+(REDUCED?'':'feed-enter')+' flex items-center gap-3 px-5 sm:px-6 py-3">'+
+    '<span class="h-2 w-2 rounded-full '+dot+' shrink-0"></span>'+
+    '<span class="font-mono text-[11.5px] text-slate-400 w-[74px] shrink-0">'+esc(it.t)+'</span>'+
+    '<span class="min-w-0 flex-1 truncate"><span class="text-[13px] font-medium '+(ok?'text-slate-700':'text-rose-700')+'">'+esc(it.agent)+'</span><span class="text-slate-400 text-[12.5px]"> · '+esc(it.client)+'</span></span>'+
+    right+'</li>';
+}
+function makeRandomFeedItem(now){
+  const agent=FEED_AGENTS[Math.floor(Math.random()*FEED_AGENTS.length)];
+  const client=FEED_CLIENTS[Math.floor(Math.random()*FEED_CLIENTS.length)];
+  const fail=Math.random()<0.16;
+  return { t:fmtClock(now), agent, client, status:fail?'Failed':'Success', time:fail?0:(0.6+Math.random()*1.1), reason:fail?FAIL_REASONS[Math.floor(Math.random()*FAIL_REASONS.length)]:'' };
+}
+function pushFeed(){
+  const list=$('#feed-list'); if(!list) return;
+  list.insertAdjacentHTML('afterbegin', feedItemHTML(makeRandomFeedItem(new Date())));
+  while(list.children.length>22) list.removeChild(list.lastElementChild);
+}
+function scheduleFeed(){
+  clearTimeout(feedTimer);
+  feedTimer=setTimeout(function tick(){
+    if(!feedPaused && !document.hidden) pushFeed();
+    if(!feedPaused) feedTimer=setTimeout(tick, 3200+Math.random()*1800);
+  }, 3200+Math.random()*1800);
+}
+function seedFeed(){
+  const list=$('#feed-list'); if(!list) return; const now=Date.now();
+  const seeds=[
+    {off:0,  agent:'Missed Call Text-Back', client:'Rodriguez HVAC', status:'Success', time:0.8, reason:''},
+    {off:14, agent:'Lead Follow-Up',        client:'Luxe Med Spa',   status:'Success', time:1.2, reason:''},
+    {off:31, agent:'Appointment Reminder',  client:'Bright Dental',  status:'Failed',  time:0,   reason:'LLM Timeout'},
+    {off:50, agent:'Missed Call Text-Back', client:'Elite Plumbing', status:'Success', time:0.7, reason:''},
+  ];
+  list.innerHTML=seeds.map(s=>{ s.t=fmtClock(new Date(now-s.off*1000)); return feedItemHTML(s); }).join('');
+}
+
+let currentRange='6M';
+function arrowUp(){return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';}
+function arrowDown(){return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>';}
+function applyRange(key){
+  currentRange=key;
+  const r=RANGES[key];
+  execData=genExecSeries(key);
+  revData=genRevSeries(key);
+  animateValue($('#m-exec'), r.exec);
+  animateValue($('#m-success'), r.sr, {decimals:1});
+  animateValue($('#m-avg'), r.avg, {decimals:1});
+  animateValue($('#m-rev'), r.rev, {money:true});
+  $('#m-exec-delta').innerHTML=arrowUp()+esc(r.dExec)+' this period';
+  $('#m-success-delta').innerHTML=arrowUp()+esc(r.dSr)+' vs last period';
+  $('#m-avg-delta').innerHTML=arrowDown()+esc(r.dAvg)+' improvement';
+  $('#m-rev-delta').innerHTML=arrowUp()+esc(r.dRev)+' this period';
+  const ringC=2*Math.PI*18, ring=$('#ring-progress');
+  ring.style.transition=REDUCED?'none':'stroke-dashoffset 1100ms cubic-bezier(.22,1,.36,1)';
+  ring.setAttribute('stroke-dashoffset',(ringC*(1-r.sr/100)).toFixed(2));
+  renderSpark($('#m-exec-spark'), genSpark(key,'exec'), '#f59e0b','spkExec');
+  renderSpark($('#m-avg-spark'),  genSpark(key,'avg'),  '#10b981','spkAvg');
+  renderSpark($('#m-rev-spark'),  genSpark(key,'rev'),  '#DAA520','spkRev');
+  renderExecChart(); renderRevChart();
+  const gross=revData.vals.reduce((a,b)=>a+b,0);
+  $('#rev-total').textContent=fmtMoney(gross);
+  $('#rev-proj').textContent=r.proj;
+  renderDonut(execData.failTotal);
+  $('#donut-total').textContent=fmtInt(execData.failTotal);
+  $('#fail-count-badge').textContent=fmtInt(execData.failTotal)+' failures';
+}
+function setActivePill(key){
+  $$('#range-pills [role=tab]').forEach(b=>{
+    const on=b.dataset.range===key;
+    b.setAttribute('aria-selected',on?'true':'false');
+    b.classList.toggle('bg-amber-500',on); b.classList.toggle('text-white',on); b.classList.toggle('shadow-sm',on);
+    b.classList.toggle('text-slate-500',!on); b.classList.toggle('hover:text-slate-800',!on);
+  });
+}
+
+function showToast(msg){
+  const t=$('#toast'), box=t.firstElementChild;
+  $('#toast-msg').textContent=msg; t.classList.remove('hidden');
+  box.style.transition='none'; box.style.opacity='0'; box.style.transform='translateY(8px)';
+  requestAnimationFrame(()=>{ box.style.transition='all 220ms ease'; box.style.opacity='1'; box.style.transform='translateY(0)'; });
+  clearTimeout(showToast._t); showToast._t=setTimeout(()=>{ box.style.opacity='0'; box.style.transform='translateY(8px)'; setTimeout(()=>t.classList.add('hidden'),240); },2200);
+}
+function exportCSV(){
+  const r=RANGES[currentRange];
+  const rows=[['TRIVEN.AI Agent Analytics','Range: '+currentRange],[],
+    ['Metric','Value'],
+    ['Total Executions', r.exec],
+    ['Success Rate', r.sr+'%'],
+    ['Avg Execution Time', r.avg+'s'],
+    ['Revenue (your earnings)', '$'+r.rev],
+    ['Failed Executions', genExecSeries(currentRange).failTotal],
+    [],
+    ['Agent','Version','Executions','Success Rate','Avg Time','Revenue','Status']];
+  AGENTS.forEach(a=>rows.push([a.name,a.ver,a.exec,a.sr+'%',a.time+'s','$'+a.rev,a.status]));
+  const csv=rows.map(row=>row.map(c=>{ const s=String(c); return /[",\\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}), url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download='triven-analytics-'+currentRange.toLowerCase()+'.csv'; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),1500);
+  showToast('Report exported · triven-analytics-'+currentRange.toLowerCase()+'.csv');
+}
+
+function wire(){
+  const pills=$$('#range-pills [role=tab]');
+  pills.forEach((b,i)=>{
+    b.addEventListener('click',()=>{ setActivePill(b.dataset.range); applyRange(b.dataset.range); },{signal});
+    b.addEventListener('keydown',e=>{
+      if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault();
+        const dir=e.key==='ArrowRight'?1:-1; const next=pills[(i+dir+pills.length)%pills.length];
+        next.focus(); setActivePill(next.dataset.range); applyRange(next.dataset.range);
+      }
+    },{signal});
+  });
+  $$('#agent-filter [data-filter]').forEach(b=>{
+    b.addEventListener('click',()=>{
+      $$('#agent-filter [data-filter]').forEach(x=>{ x.classList.remove('bg-white','text-slate-700','shadow-sm'); x.classList.add('text-slate-500'); });
+      b.classList.add('bg-white','text-slate-700','shadow-sm'); b.classList.remove('text-slate-500');
+      renderAgents(b.dataset.filter);
+    },{signal});
+  });
+  const search=$('#search-input');
+  document.addEventListener('keydown',e=>{
+    if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); search&&search.focus(); }
+    if(e.key==='Escape'){ if(document.activeElement===search) search.blur(); closeBell(); }
+  },{signal});
+  if(search){ search.addEventListener('input',()=>{ const q=search.value.trim().toLowerCase();
+    $$('#agent-tbody .agent-block').forEach(bl=>{ bl.style.display = (!q||bl.dataset.name.indexOf(q)>-1)?'':'none'; }); },{signal}); }
+  const bell=$('#bell-btn'), menu=$('#bell-menu');
+  bell.addEventListener('click',e=>{ e.stopPropagation(); const open=menu.classList.toggle('hidden'); bell.setAttribute('aria-expanded', open?'false':'true'); },{signal});
+  document.addEventListener('click',e=>{ if(!menu.classList.contains('hidden') && !menu.contains(e.target) && !bell.contains(e.target)) closeBell(); },{signal});
+  function closeBellInner(){ menu.classList.add('hidden'); bell.setAttribute('aria-expanded','false'); }
+  window.closeBell=closeBellInner;
+  $('#export-btn').addEventListener('click',exportCSV,{signal});
+  $('#feed-pause').addEventListener('click',()=>{
+    feedPaused=!feedPaused;
+    $('#feed-pause-label').textContent=feedPaused?'Resume':'Pause';
+    $('#feed-pause-icon').outerHTML = feedPaused
+      ? '<svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
+      : '<svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+    if(!feedPaused) scheduleFeed();
+  },{signal});
+  window.addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ renderExecChart(); renderRevChart(); },150); },{signal});
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !feedPaused) scheduleFeed(); },{signal});
+}
+function init(){
+  renderCohort();
+  renderAgents('all');
+  seedFeed();
+  wire();
+  setActivePill('6M');
+  applyRange('6M');
+  scheduleFeed();
+}
+init();
+return function(){ try{clearTimeout(feedTimer);}catch(e){} try{clearTimeout(rzT);}catch(e){} try{clearTimeout(showToast._t);}catch(e){} };
+`;
+
+export default function ArchitectAgentAnalyticsPage() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    let cleanup: (() => void) | undefined;
+    try {
+      // eslint-disable-next-line no-new-func
+      const run = new Function("signal", ANALYTICS_SCRIPT) as (
+        signal: AbortSignal
+      ) => (() => void) | undefined;
+      cleanup = run(ac.signal);
+    } catch {
+      /* no-op: analytics is a self-contained demo view */
+    }
+    return () => {
+      ac.abort();
+      if (typeof cleanup === "function") cleanup();
+    };
+  }, []);
+
+  return (
+    <div
+      className="triven-analytics bg-gray-50 text-slate-900 antialiased"
+      data-testid="architect-analytics-page"
+    >
+      <style dangerouslySetInnerHTML={{ __html: ANALYTICS_STYLES }} />
+      <div ref={rootRef} dangerouslySetInnerHTML={{ __html: ANALYTICS_MARKUP }} />
+    </div>
+  );
+}

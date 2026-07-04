@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
-import { BUSINESS_MARKETPLACE_PATH, businessCheckoutPath } from "@/lib/routes";
+import { BUSINESS_MARKETPLACE_PATH, BUSINESS_AGENTS_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -117,8 +117,17 @@ type ApiListing = {
   supportedLlms?: string[];
   createdAt?: string;
   updatedAt?: string;
+  installCount?: number;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
+};
+
+type ListingAccess = {
+  canStartTrial: boolean;
+  hasActiveAccess: boolean;
+  trialUsed: boolean;
+  amountCents: number;
+  purchaseStatus: string | null;
 };
 
 type ListingApiResponse = {
@@ -314,6 +323,7 @@ export default function BusinessAgentDetailPage() {
   const agentId = params.agentId;
 
   const [listing, setListing] = useState<ApiListing | null>(null);
+  const [listingAccess, setListingAccess] = useState<ListingAccess | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
   const [techOpen, setTechOpen] = useState(false);
@@ -365,6 +375,32 @@ export default function BusinessAgentDetailPage() {
   }, [agentId]);
 
   useEffect(() => {
+    if (!agentId || !listing) return;
+
+    let mounted = true;
+
+    async function loadListingAccess() {
+      try {
+        const response = await apiGet<ListingAccess>(`/payments/listing-access/${agentId}`);
+
+        if (!mounted) return;
+
+        if (response.success && response.data) {
+          setListingAccess(response.data);
+        }
+      } catch {
+        if (mounted) setListingAccess(null);
+      }
+    }
+
+    loadListingAccess();
+
+    return () => {
+      mounted = false;
+    };
+  }, [agentId, listing]);
+
+  useEffect(() => {
     const cta = heroCtaRef.current;
 
     if (!cta || !("IntersectionObserver" in window)) {
@@ -405,20 +441,38 @@ export default function BusinessAgentDetailPage() {
 
   const price = listing ? Math.round((listing.priceCents ?? 0) / 100) : 0;
   const rating = listing?.architect?.architectProfile?.rating ?? 0;
-  const installs = listing?.architect?.architectProfile?.completedJobs ?? 0;
+  const installs = listing?.installCount ?? 0;
   const author =
     listing?.architect?.fullName ||
     listing?.architect?.architectProfile?.title ||
     listing?.architect?.email ||
     "Core AI Architect";
 
+  const canStartTrial = listingAccess?.canStartTrial ?? true;
+  const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
+  const shouldPayNow = listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false;
+
+  const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
+  const managePath = listing ? businessSetupPath(listing.id) : BUSINESS_AGENTS_PATH;
+
+  const primaryCtaLabel = hasActiveAccess
+    ? "Manage agent"
+    : shouldPayNow
+      ? `Pay $${price}`
+      : "Start 7-Day Free Trial";
+
+  const primaryCtaHref = hasActiveAccess ? managePath : checkoutPath;
+  const primaryCtaTestId = hasActiveAccess
+    ? "agent-detail-manage-agent"
+    : shouldPayNow
+      ? "agent-detail-pay-now"
+      : "agent-detail-start-trial";
+
   const description =
     listing?.shortDescription ||
     listing?.description ||
     listing?.workflow?.description ||
     "";
-
-  const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
 
   function scrollToDemo() {
     setDemoOpen(false);
@@ -520,9 +574,11 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
-                  ⚡ $0 for the first 7 days
-                </span>
+                {canStartTrial ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
+                    ⚡ $0 for the first 7 days
+                  </span>
+                ) : null}
 
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
@@ -530,27 +586,34 @@ export default function BusinessAgentDetailPage() {
                 </div>
 
                 <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
-                  per business location · billed after your free trial
+                  {canStartTrial
+                    ? "per business location · billed after your free trial"
+                    : shouldPayNow
+                      ? "per business location · one-time purchase"
+                      : "per business location · active on your account"}
                 </p>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <Link
                     ref={heroCtaRef}
                     id="hero-cta"
-                    href={checkoutPath}
-                    data-testid="agent-detail-start-trial"
+                    href={primaryCtaHref}
+                    data-testid={primaryCtaTestId}
                     className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
                   >
-                    Start 7-Day Free Trial
+                    {primaryCtaLabel}
                     <ArrowIcon />
                   </Link>
                 </div>
 
-                <p className="mt-3 text-xs text-slate-500">
-                  No credit card required to start. ${price}/month after trial.
-                </p>
+                {canStartTrial ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    No credit card required to start. ${price}/month after trial.
+                  </p>
+                ) : null}
               </div>
 
+              {canStartTrial ? (
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
                 {["7-day free trial", "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
                   <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
@@ -559,6 +622,7 @@ export default function BusinessAgentDetailPage() {
                   </span>
                 ))}
               </div>
+              ) : null}
             </div>
 
             <div ref={demoRef} id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
@@ -675,17 +739,19 @@ export default function BusinessAgentDetailPage() {
             </p>
             <div className="mt-8">
               <Link
-                href={checkoutPath}
-                data-testid="agent-detail-bottom-start-trial"
+                href={primaryCtaHref}
+                data-testid={hasActiveAccess ? "agent-detail-bottom-manage-agent" : shouldPayNow ? "agent-detail-bottom-pay-now" : "agent-detail-bottom-start-trial"}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-9 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
               >
-                Start 7-Day Free Trial
+                {primaryCtaLabel}
                 <ArrowIcon className="h-5 w-5" />
               </Link>
             </div>
+            {canStartTrial ? (
             <p className="mt-5 text-sm text-slate-500">
               No credit card required. ${price}/month after trial.
             </p>
+            ) : null}
           </div>
         </section>
       </main>

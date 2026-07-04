@@ -5,6 +5,7 @@ import {
   sendBuyerRoiEmail,
   sendBuyerWelcomeEmail,
   sendFreeAssignmentEmail,
+  sendPaymentFailedEmail,
   sendPaymentSuccessEmail
 } from "../../lib/mailer";
 
@@ -120,6 +121,41 @@ mailRoutes.post("/send-payment-success", async (c) => {
   } catch (error) {
     console.error("Send payment success email error:", error);
     return c.json({ success: false, message: "Failed to send payment success email" }, 500);
+  }
+});
+
+type SendPaymentFailedMailBody = {
+  to?: string;
+  name?: string | null;
+  agentName?: string | null;
+  cardLast4?: string | null;
+  failureReason?: string | null;
+  listingId?: string | null;
+};
+
+mailRoutes.post("/send-payment-failed", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as SendPaymentFailedMailBody;
+
+    const to = body.to?.trim();
+
+    if (!to || !isValidEmail(to)) {
+      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
+    }
+
+    await sendPaymentFailedEmail({
+      to,
+      name: body.name?.trim() || null,
+      agentName: body.agentName?.trim() || null,
+      cardLast4: body.cardLast4?.trim() || null,
+      failureReason: body.failureReason?.trim() || null,
+      listingId: body.listingId?.trim() || null
+    });
+
+    return c.json({ success: true, message: "Payment failed email sent" }, 200);
+  } catch (error) {
+    console.error("Send payment failed email error:", error);
+    return c.json({ success: false, message: "Failed to send payment failed email" }, 500);
   }
 });
 

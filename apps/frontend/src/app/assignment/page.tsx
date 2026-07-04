@@ -134,7 +134,7 @@ const QUESTIONS: Question[] = [
   { id: "q3", type: "yesno", text: "When you miss a phone call, does the caller receive an instant text message?" },
   { id: "q4", type: "yesno", text: "Do you automatically collect reviews from happy customers?" },
   { id: "q5", type: "yesno", text: "Do you re-engage past customers who haven't visited in 90+ days?" },
-  { id: "q6", type: "yesno", text: "Can your business capture leads and book appointments 24/7 — even at 2 AM?" },
+  { id: "q6", type: "yesno", text: "Can your business capture leads and book appointments 24/7, even at 2 AM?" },
   { id: "q7", type: "yesno", text: "Do you have a system that qualifies leads before they reach your team?" },
   { id: "q8", type: "yesno", text: "Are your customer follow-ups personalized based on their specific needs?" },
   { id: "q9", type: "yesno", text: "Do you track exactly how many leads you lose each month and why?" },
@@ -144,10 +144,10 @@ const QUESTIONS: Question[] = [
     type: "choice",
     text: "Which best describes your business right now?",
     options: [
-      { key: "A", label: "Just getting started — less than 1 year old" },
-      { key: "B", label: "Growing — 1-3 years, building momentum" },
-      { key: "C", label: "Established — 3-10 years, looking to scale" },
-      { key: "D", label: "Mature — 10+ years, optimizing operations" }
+      { key: "A", label: "Just getting started,less than 1 year old" },
+      { key: "B", label: "Growing, 1-3 years, building momentum" },
+      { key: "C", label: "Established, 3-10 years, looking to scale" },
+      { key: "D", label: "Mature, 10+ years, optimizing operations" }
     ]
   },
   {
@@ -156,7 +156,7 @@ const QUESTIONS: Question[] = [
     text: "What's your biggest frustration right now?",
     options: [
       { key: "A", label: "Not enough new leads coming in" },
-      { key: "B", label: "Leads come in but we lose them — too slow to respond" },
+      { key: "B", label: "Leads come in but we lose them, too slow to respond" },
       { key: "C", label: "We get customers but they never come back" },
       { key: "D", label: "We're drowning in manual tasks and can't scale" }
     ]
@@ -177,10 +177,10 @@ const QUESTIONS: Question[] = [
     type: "choice",
     text: "What level of investment feels right for solving this?",
     options: [
-      { key: "A", label: "Free tools only — I'm bootstrapping" },
-      { key: "B", label: "$50-$150/month — if it clearly pays for itself" },
-      { key: "C", label: "$150-$500/month — I want premium results" },
-      { key: "D", label: "$500+/month — I need enterprise-grade automation" }
+      { key: "A", label: "Free tools only,I'm bootstrapping" },
+      { key: "B", label: "$50-$150/month, if it clearly pays for itself" },
+      { key: "C", label: "$150-$500/month, I want premium results" },
+      { key: "D", label: "$500+/month, I need enterprise-grade automation" }
     ]
   },
   { id: "q15", type: "text", optional: true, text: "Anything else we should know about your situation?", placeholder: "Tell us about your specific challenges..." }
@@ -196,8 +196,37 @@ type Tier = { color: string; cls: string; label: string };
 type Results = { score: number; tier: Tier; insights: Insight[]; rec: [string, string]; cta: [string, string] };
 
 const BUSINESS_TYPES = [
-  "Dental Practice", "HVAC", "Real Estate", "Law Firm", "Med Spa", "Gym & Fitness",
-  "Restaurant", "Auto Repair", "E-commerce", "Coaching", "Insurance", "Salon & Beauty", "Other"
+  "Dental",
+  "Medical Clinic",
+  "Dermatology",
+  "Physiotherapy",
+  "Chiropractor",
+  "Optometry",
+  "Veterinary",
+  "Med Spa",
+  "Salon",
+  "Barbershop",
+  "Spa & Wellness",
+  "Yoga Studio",
+  "Gym / Fitness",
+  "Law Firm",
+  "Plumber",
+  "HVAC",
+  "Electrician",
+  "Garage Door",
+  "Roofing",
+  "Landscaping",
+  "Pool Service",
+  "Real Estate",
+  "Auto Repair",
+  "Restaurant",
+  "Insurance",
+  "Mortgage Broker",
+  "Urgent Care",
+  "Senior Care",
+  "Property Management",
+  "E-commerce",
+  "Other"
 ];
 
 function BusinessTypeDropdown({
@@ -437,7 +466,7 @@ export default function AssignmentPage() {
 
     let cta: [string, string];
     if (a.q14 === "C" || a.q14 === "D") cta = ["Book a 1-on-1 Strategy Call", "Our team will build a custom AI agent for your exact needs. 15-minute call. No obligation."];
-    else if (a.q14 === "B") cta = ["Join Our Next Live Demo", "See CORE in action with other business owners. Free. 30 minutes."];
+    else if (a.q14 === "B") cta = ["Browse Marketplace", "See Triven.ai in action with other business owners. Free. 30 minutes."];
     else cta = ["Browse AI Agents", "Browse AI agents built for your business"];
 
     return { score, tier, insights, rec, cta };
@@ -526,7 +555,6 @@ export default function AssignmentPage() {
 
               <div className="mt-6 flex flex-wrap justify-center gap-3">
                 <span className="rounded-full border border-amber-200 px-3 py-1 text-xs text-slate-600" data-testid="assignment-get-your-score-text">📊 Get your score</span>
-                <span className="rounded-full border border-amber-200 px-3 py-1 text-xs text-slate-600" data-testid="assignment-personalized-recommendation-text">🎯 Personalized recommendation</span>
                 <span className="rounded-full border border-amber-200 px-3 py-1 text-xs text-slate-600" data-testid="assignment-instant-results-text">⚡ Instant results</span>
               </div>
             </div>

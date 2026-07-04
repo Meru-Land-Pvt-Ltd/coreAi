@@ -97,6 +97,9 @@ async function listPublicMarketplaceListings(c: Context) {
             }
           }
         }
+      },
+      _count: {
+        select: { installedAgents: true }
       }
     },
     orderBy: {
@@ -105,12 +108,17 @@ async function listPublicMarketplaceListings(c: Context) {
   });
 
   const seenWorkflowIds = new Set<string>();
-  const listings = allListings.filter((listing) => {
-    if (!listing.workflowId) return true;
-    if (seenWorkflowIds.has(listing.workflowId)) return false;
-    seenWorkflowIds.add(listing.workflowId);
-    return true;
-  });
+  const listings = allListings
+    .filter((listing) => {
+      if (!listing.workflowId) return true;
+      if (seenWorkflowIds.has(listing.workflowId)) return false;
+      seenWorkflowIds.add(listing.workflowId);
+      return true;
+    })
+    .map(({ _count, ...listing }) => ({
+      ...listing,
+      installCount: _count.installedAgents
+    }));
 
   return successResponse(c, { listings });
 }
@@ -143,6 +151,9 @@ async function getPublicMarketplaceListingById(c: Context) {
             }
           }
         }
+      },
+      _count: {
+        select: { installedAgents: true }
       }
     }
   });
@@ -151,7 +162,14 @@ async function getPublicMarketplaceListingById(c: Context) {
     return errorResponse(c, "Listing not found", 404);
   }
 
-  return successResponse(c, { listing });
+  const { _count, ...rest } = listing;
+
+  return successResponse(c, {
+    listing: {
+      ...rest,
+      installCount: _count.installedAgents
+    }
+  });
 }
 
 // Public marketplace — no auth required (buyer marketplace + public catalog).

@@ -4,7 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { apiClient, apiGet } from "@/lib/api";
+import { apiGet } from "@/lib/api";
+import { downloadInvoicePdf, openInvoiceForPrint } from "@/lib/invoice-print";
 import { getAuthToken, getAuthUser } from "@/lib/auth";
 import { BUSINESS_BILLING_PATH, BUSINESS_LOGIN_PATH } from "@/lib/routes";
 
@@ -22,14 +23,28 @@ type BillingInvoice = {
     createdAt: string;
     description: string;
     amountCents: number;
+    displayAmountCents?: number;
     currency: string;
     status: string;
+    billingName?: string | null;
+    billingEmail?: string | null;
+    billingAddress?: string | null;
 };
+
+function invoiceDisplayAmount(invoice: BillingInvoice) {
+    if (typeof invoice.displayAmountCents === "number") {
+        return invoice.displayAmountCents;
+    }
+    if (invoice.status.toUpperCase() === "TRIALING") return 0;
+    if (invoice.status.toUpperCase() === "SUCCEEDED") return invoice.amountCents;
+    return 0;
+}
 
 type Billing = {
     invoices: BillingInvoice[];
     paymentMethod: BillingPaymentMethod | null;
     businessName: string | null;
+    billingEmail: string | null;
     billingAddress: string | null;
 };
 
@@ -174,29 +189,22 @@ export default function BusinessInvoiceDetailPage() {
         showToast("Preparing invoice PDF…");
 
         try {
-            const token =
-                localStorage.getItem("coreai-token") || localStorage.getItem("coreai_token");
-            const base = apiClient.defaults.baseURL ?? "";
-
-            const response = await fetch(`${base}/payments/invoice/${invoice.id}/pdf`, {
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined
-            });
-
-            if (!response.ok) throw new Error("Download failed");
-
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `invoice-${invoiceNumberFor(invoice.id)}.pdf`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(url);
-
+            await downloadInvoicePdf(invoice.id, `invoice-${invoiceNumberFor(invoice.id)}.pdf`);
             showToast("Invoice PDF downloaded");
         } catch {
             showToast("Could not download invoice PDF");
+        }
+    }
+
+    async function printInvoice() {
+        if (!invoice) return;
+
+        showToast("Preparing invoice…");
+
+        try {
+            await openInvoiceForPrint(invoice.id);
+        } catch {
+            showToast("Could not open invoice for printing");
         }
     }
 
@@ -243,7 +251,7 @@ export default function BusinessInvoiceDetailPage() {
                         </button>
                         <button
                             type="button"
-                            onClick={() => window.print()}
+                            onClick={printInvoice}
                             data-testid="invoice-print"
                             className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold transition-colors hover:bg-slate-50"
                         >
@@ -276,8 +284,23 @@ export default function BusinessInvoiceDetailPage() {
                     <InvoiceCard
                         invoice={invoice}
                         billing={billing}
-                        businessName={billing?.businessName || authUser?.fullName || "Customer"}
-                        businessEmail={authUser?.email ?? ""}
+                        businessName={
+                            invoice.billingName ??
+                            billing?.businessName ??
+                            authUser?.fullName ??
+                            "Customer"
+                        }
+                        businessEmail={
+                            invoice.billingEmail ??
+                            billing?.billingEmail ??
+                            authUser?.email ??
+                            ""
+                        }
+                        billingAddress={
+                            invoice.billingAddress ??
+                            billing?.billingAddress ??
+                            null
+                        }
                     />
                 )}
             </main>
@@ -298,16 +321,19 @@ function InvoiceCard({
     invoice,
     billing,
     businessName,
-    businessEmail
+    businessEmail,
+    billingAddress
 }: {
     invoice: BillingInvoice;
     billing: Billing | null;
     businessName: string;
     businessEmail: string;
+    billingAddress: string | null;
 }) {
     const status = statusView(invoice.status);
-    const amount = formatCurrencyCents(invoice.amountCents);
-    const amountPaid = status.isPaid ? amount : "$0.00";
+    const displayCents = invoiceDisplayAmount(invoice);
+    const amount = formatCurrencyCents(displayCents);
+    const amountPaid = status.isPaid ? formatCurrencyCents(invoice.amountCents) : amount;
     const balanceDue = status.isPaid ? "$0.00" : amount;
 
     return (
@@ -336,7 +362,7 @@ function InvoiceCard({
                             />
                         </div>
                         <p className="text-sm font-medium text-slate-700">Triven AI Agent Platform</p>
-                        <p className="text-sm text-slate-500">billing@triven.ai</p>
+                        <p className="text-sm text-slate-500">info@triven.ai</p>
                     </div>
 
                     <div className="text-left sm:text-right">
@@ -364,11 +390,11 @@ function InvoiceCard({
                 <div className="py-8">
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Bill To</p>
                     <p className="text-sm font-semibold text-slate-900" data-testid="invoice-bill-to-name">{businessName}</p>
+                    {billingAddress ? (
+                        <p className="text-sm text-slate-600" data-testid="invoice-bill-to-address">{billingAddress}</p>
+                    ) : null}
                     {businessEmail ? (
                         <p className="text-sm text-slate-600" data-testid="invoice-bill-to-email">{businessEmail}</p>
-                    ) : null}
-                    {billing?.billingAddress ? (
-                        <p className="text-sm text-slate-600" data-testid="invoice-bill-to-address">{billing.billingAddress}</p>
                     ) : null}
                 </div>
 
@@ -460,7 +486,7 @@ function InvoiceCard({
                 {/* notes */}
                 <div className="mt-8 space-y-1 border-t border-slate-100 pt-8 text-sm text-slate-500">
                     <p>Thank you for your business!</p>
-                    <p>For questions about this invoice, contact billing@triven.ai</p>
+                    <p>For questions about this invoice, contact info@triven.ai</p>
                     <p>Payment terms: Due upon receipt</p>
                 </div>
             </div>

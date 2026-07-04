@@ -177,6 +177,10 @@ model Business {
   subscriptionPriceId  String?
   currentPeriodEnd     DateTime?
 
+  billingName    String?
+  billingEmail   String?
+  billingAddress String?
+
   appointments    Appointment[]
   owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   knowledgeBases  BusinessKnowledgeBase[]
@@ -392,6 +396,10 @@ model Payment {
   stripeSessionId      String?
   stripeSubscriptionId String?
   stripePaymentId      String?
+
+  billingName    String?
+  billingEmail   String?
+  billingAddress String?
 
   description String?
   createdAt   DateTime @default(now())

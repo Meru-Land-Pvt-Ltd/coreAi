@@ -63,6 +63,7 @@ type ApiListing = {
   supportedLlms?: string[];
   createdAt?: string;
   updatedAt?: string;
+  installCount?: number;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
 };
@@ -93,8 +94,110 @@ const baseIndustries: Omit<Industry, "count">[] = [
   { id: "legal", label: "Legal", icon: "⚖️" },
   { id: "medical", label: "Medical & Wellness", icon: "❤️" },
   { id: "automotive", label: "Automotive", icon: "🚗" },
+  { id: "ecommerce", label: "E-commerce", icon: "🛍️" },
+  { id: "spa-wellness", label: "Spa & Wellness", icon: "🌿" }
+];
+
+const filterIndustries: Omit<Industry, "count">[] = [
+  { id: "all", label: "All industries", icon: "✨" },
+  { id: "dental", label: "Dental", icon: "🦷" },
+  { id: "medical-clinic", label: "Medical Clinic", icon: "🏥" },
+  { id: "dermatology", label: "Dermatology", icon: "🧴" },
+  { id: "physiotherapy", label: "Physiotherapy", icon: "🦵" },
+  { id: "chiropractor", label: "Chiropractor", icon: "🦴" },
+  { id: "optometry", label: "Optometry", icon: "👓" },
+  { id: "veterinary", label: "Veterinary", icon: "🐾" },
+  { id: "med-spa", label: "Med Spa", icon: "💆" },
+  { id: "salon", label: "Salon", icon: "💇" },
+  { id: "barbershop", label: "Barbershop", icon: "💈" },
+  { id: "spa-wellness", label: "Spa & Wellness", icon: "🌿" },
+  { id: "yoga-studio", label: "Yoga Studio", icon: "🧘" },
+  { id: "gym-fitness", label: "Gym / Fitness", icon: "🏋️" },
+  { id: "legal", label: "Law Firm", icon: "⚖️" },
+  { id: "plumber", label: "Plumber", icon: "🚰" },
+  { id: "hvac", label: "HVAC", icon: "❄️" },
+  { id: "electrician", label: "Electrician", icon: "💡" },
+  { id: "garage-door", label: "Garage Door", icon: "🚪" },
+  { id: "roofing", label: "Roofing", icon: "🏠" },
+  { id: "landscaping", label: "Landscaping", icon: "🌳" },
+  { id: "pool-service", label: "Pool Service", icon: "🏊" },
+  { id: "realestate", label: "Real Estate", icon: "🏡" },
+  { id: "auto-repair", label: "Auto Repair", icon: "🔧" },
+  { id: "restaurant", label: "Restaurant", icon: "🍽️" },
+  { id: "insurance", label: "Insurance", icon: "🛡️" },
+  { id: "mortgage-broker", label: "Mortgage Broker", icon: "🏦" },
+  { id: "urgent-care", label: "Urgent Care", icon: "🚑" },
+  { id: "senior-care", label: "Senior Care", icon: "👵" },
+  { id: "property-management", label: "Property Management", icon: "🏢" },
   { id: "ecommerce", label: "E-commerce", icon: "🛍️" }
 ];
+
+const industryAliasByTag: Record<string, string> = {
+  dental: "dental",
+  medical: "medical-clinic",
+  "medical-clinic": "medical-clinic",
+  dermatology: "dermatology",
+  physiotherapy: "physiotherapy",
+  chiropractor: "chiropractor",
+  optometry: "optometry",
+  veterinary: "veterinary",
+  vet: "veterinary",
+  "med-spa": "med-spa",
+  "mea-spa": "med-spa",
+  salon: "salon",
+  barbershop: "barbershop",
+  "barber-shop": "barbershop",
+  "spa-wellness": "spa-wellness",
+  wellness: "spa-wellness",
+  "yoga-studio": "yoga-studio",
+  yoga: "yoga-studio",
+  "gym-fitness": "gym-fitness",
+  gym: "gym-fitness",
+  fitness: "gym-fitness",
+  "law-firm": "legal",
+  legal: "legal",
+  law: "legal",
+  plumber: "plumber",
+  plumbing: "plumber",
+  hvac: "hvac",
+  electrician: "electrician",
+  "garage-door": "garage-door",
+  roofing: "roofing",
+  landscaping: "landscaping",
+  "pool-service": "pool-service",
+  "real-estate": "realestate",
+  realestate: "realestate",
+  "auto-repair": "auto-repair",
+  automotive: "auto-repair",
+  restaurant: "restaurant",
+  insurance: "insurance",
+  "mortgage-broker": "mortgage-broker",
+  "urgent-care": "urgent-care",
+  "senior-care": "senior-care",
+  "property-management": "property-management",
+  ecommerce: "ecommerce",
+  "e-commerce": "ecommerce"
+};
+
+const broadIndustryGroups: Record<string, string[]> = {
+  dental: ["dental"],
+  hvac: ["hvac", "plumber"],
+  realestate: ["realestate", "mortgage-broker", "property-management"],
+  legal: ["legal"],
+  medical: [
+    "medical-clinic",
+    "dermatology",
+    "physiotherapy",
+    "chiropractor",
+    "optometry",
+    "veterinary",
+    "urgent-care",
+    "senior-care"
+  ],
+  automotive: ["auto-repair"],
+  ecommerce: ["ecommerce"],
+  "spa-wellness": ["spa-wellness", "med-spa", "salon", "barbershop", "yoga-studio", "gym-fitness"]
+};
 
 function normalizeFilterValue(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -106,29 +209,22 @@ function formatLabel(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function normalizeIndustryId(value: string) {
+  const normalized = normalizeFilterValue(value);
+
+  return industryAliasByTag[normalized] ?? normalized;
+}
+
 function getAgentIndustry(listing: ApiListing) {
   const tags = listing.tags ?? [];
 
   const industryTag =
     tags.find((tag) => tag.toLowerCase().startsWith("industry:")) ??
-    tags.find((tag) =>
-      [
-        "dental",
-        "hvac",
-        "plumbing",
-        "real estate",
-        "legal",
-        "medical",
-        "wellness",
-        "automotive",
-        "ecommerce",
-        "e-commerce"
-      ].includes(tag.toLowerCase())
-    );
+    tags.find((tag) => Boolean(industryAliasByTag[normalizeFilterValue(tag)]));
 
   if (!industryTag) return "all";
 
-  return normalizeFilterValue(industryTag.replace(/^industry:/i, ""));
+  return normalizeIndustryId(industryTag.replace(/^industry:/i, ""));
 }
 
 function getAgentCategory(listing: ApiListing) {
@@ -175,7 +271,7 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.workflow?.description ||
       "This AI agent is ready to help automate business workflows.",
     price: Math.round((listing.priceCents ?? 0) / 100),
-    installs: profile?.completedJobs ?? 0,
+    installs: listing.installCount ?? 0,
     rating: profile?.rating ?? 0,
     author:
       listing.architect?.fullName ||
@@ -188,16 +284,32 @@ function mapListingToAgent(listing: ApiListing): Agent {
   };
 }
 
+function industryMatchesFilter(agentIndustry: string, selectedIndustry: string) {
+  if (selectedIndustry === "all" || agentIndustry === "all") return true;
+  if (agentIndustry === selectedIndustry) return true;
+
+  return broadIndustryGroups[selectedIndustry]?.includes(agentIndustry) ?? false;
+}
+
 function getIndustryAgentCount(industryId: string, agents: Agent[]) {
   if (industryId === "all") return agents.length;
-  return agents.filter(
-    (agent) => agent.industry === industryId || agent.industry === "all"
-  ).length;
+
+  return agents.filter((agent) => industryMatchesFilter(agent.industry, industryId)).length;
 }
 
 function isIndustryAvailable(id: string, agents: Agent[]) {
   if (id === "all") return true;
   return getIndustryAgentCount(id, agents) > 0;
+}
+
+function getIndustryDisplayLabel(industryId: string) {
+  if (industryId === "all") return "All industries";
+
+  return (
+    filterIndustries.find((item) => item.id === industryId)?.label ??
+    baseIndustries.find((item) => item.id === industryId)?.label ??
+    formatLabel(industryId)
+  );
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
@@ -207,9 +319,47 @@ function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
   }));
 }
 
+function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
+  return filterIndustries.map((item) => ({
+    ...item,
+    count: getIndustryAgentCount(item.id, agents)
+  }));
+}
+
+function getAgentInitials(name: string) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
+  return initials || "AI";
+}
+
+function getAgentPreviewQuestion(agent: Agent) {
+  const industryLabel = getIndustryDisplayLabel(agent.industry).toLowerCase();
+
+  if (agent.industry === "dental") return "Do you have openings this week for a cleaning?";
+  if (agent.industry === "restaurant") return "Can I book a table for tonight?";
+  if (agent.industry === "realestate") return "Can I schedule a property viewing?";
+  if (agent.industry === "plumber" || agent.industry === "hvac" || agent.industry === "electrician") {
+    return "Can you send someone out this week?";
+  }
+
+  return `Can you help me with ${industryLabel}?`;
+}
+
+function getAgentPreviewReply(agent: Agent) {
+  const firstSentence = agent.description.split(/[.!?]/)[0]?.trim();
+
+  if (firstSentence) return `${firstSentence}.`;
+
+  return "Yes — I can help with availability, questions, and next steps.";
+}
+
 const sortOptions = [
   { value: "popular", label: "Most popular" },
-  { value: "rating", label: "Highest rated" },
   { value: "priceLow", label: "Price: low to high" },
   { value: "priceHigh", label: "Price: high to low" },
   { value: "newest", label: "Newest" }
@@ -281,6 +431,7 @@ export default function MarketplacePage() {
   }, []);
 
   const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
+  const dropdownIndustries = useMemo(() => buildFilterIndustriesWithCounts(agents), [agents]);
   const featuredAgent = agents[0] ?? null;
 
   const filteredAgents = useMemo(() => {
@@ -293,10 +444,7 @@ export default function MarketplacePage() {
           .toLowerCase()
           .includes(cleanQuery);
 
-      const matchesIndustry =
-        industry === "all" ||
-        agent.industry === industry ||
-        agent.industry === "all";
+      const matchesIndustry = industryMatchesFilter(agent.industry, industry);
 
       const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
       const matchesRating = agent.rating >= minRating;
@@ -314,7 +462,6 @@ export default function MarketplacePage() {
     });
 
     return filtered.sort((a, b) => {
-      if (sort === "rating") return b.rating - a.rating;
       if (sort === "priceLow") return a.price - b.price;
       if (sort === "priceHigh") return b.price - a.price;
       if (sort === "newest") {
@@ -329,7 +476,9 @@ export default function MarketplacePage() {
 
 
   const industryLabel =
-    industries.find((item) => item.id === industry)?.label ?? "All industries";
+    dropdownIndustries.find((item) => item.id === industry)?.label ??
+    industries.find((item) => item.id === industry)?.label ??
+    "All industries";
 
   const sortLabel =
     sortOptions.find((item) => item.value === sort)?.label ?? "Most popular";
@@ -602,90 +751,103 @@ export default function MarketplacePage() {
         </div>
 
         {featuredAgent ? (
-        <div data-testid="app-marketplace-page-div-11" className="relative mx-auto mt-12 max-w-5xl">
-          <div data-testid="app-marketplace-page-div-12" className="absolute inset-x-8 bottom-2 h-24 rounded-full bg-amber-400/30 blur-2xl" />
+          <div data-testid="app-marketplace-page-div-11" className="relative mx-auto mt-12 max-w-5xl">
+            <div data-testid="app-marketplace-page-div-12" className="absolute inset-x-8 bottom-2 h-24 rounded-full bg-amber-400/30 blur-2xl" />
 
-          <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl border border-amber-100 bg-white p-7 shadow-[0_30px_80px_-28px_rgba(245,158,11,.55)] sm:p-9 md:grid-cols-2">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white" data-testid="marketplace-featured-text">
-                  ⭐ Featured
-                </span>
-                <span data-testid="app-marketplace-page-span-6" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                  {featuredAgent.category}
-                </span>
+            <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl border border-amber-100 bg-white p-7 shadow-[0_30px_80px_-28px_rgba(245,158,11,.55)] sm:p-9 md:grid-cols-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white" data-testid="marketplace-featured-text">
+                    ⭐ Featured
+                  </span>
+                  <span data-testid="app-marketplace-page-span-6" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                    {featuredAgent.category}
+                  </span>
+                </div>
+
+                <h2 data-testid="app-marketplace-page-h2-1" className="mt-4 text-3xl font-extrabold text-slate-900">
+                  {featuredAgent.name}
+                </h2>
+
+                <p data-testid="app-marketplace-page-p-2" className="mt-3 text-slate-600">
+                  {featuredAgent.description}
+                </p>
+
+                <div data-testid="app-marketplace-page-div-16" className="mt-5 flex flex-wrap items-center gap-3">
+                  <span data-testid="app-marketplace-page-span-7" className="text-2xl font-black text-slate-900">
+                    ${featuredAgent.price}
+                  </span>
+                  <span data-testid="app-marketplace-page-span-8" className="text-sm text-slate-500">one-time</span>
+                </div>
+
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link
+                    data-testid="marketplace-start-free-trial-link"
+                    href={BUSINESS_SETUP_PATH}
+                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
+                  >
+                    Start free trial
+                  </Link>
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm font-medium text-slate-500 sm:text-base">
+                  <span className="inline-flex items-center gap-2">
+                    <span className="text-lg font-bold leading-none text-amber-500">✓</span>
+                    7-day free trial
+                  </span>
+
+                  <span className="inline-flex items-center gap-2">
+                    <span className="text-lg font-bold leading-none text-amber-500">✓</span>
+                    Cancel anytime
+                  </span>
+                </div>
               </div>
 
-              <h2 data-testid="app-marketplace-page-h2-1" className="mt-4 text-3xl font-extrabold text-slate-900">
-                {featuredAgent.name}
-              </h2>
-
-              <p data-testid="app-marketplace-page-p-2" className="mt-3 text-slate-600">
-                {featuredAgent.description}
-              </p>
-
-              <div data-testid="app-marketplace-page-div-16" className="mt-5 flex flex-wrap items-center gap-3">
-                <span data-testid="app-marketplace-page-span-7" className="text-2xl font-black text-slate-900">
-                  ${featuredAgent.price}
-                </span>
-                <span data-testid="app-marketplace-page-span-8" className="text-sm text-slate-500">one-time</span>
-              </div>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                <Link data-testid="marketplace-start-free-trial-link"
-                  href={BUSINESS_SETUP_PATH}
-                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
-                >
-                  Start free trial
-                </Link>
-              </div>
-            </div>
-
-            <div className="flex justify-center md:justify-end">
-              <div className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
-                <div className="overflow-hidden rounded-[1.7rem] bg-slate-50">
-                  <div className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
-                    <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white" data-testid="marketplace-bs-text">
-                      BS
-                    </span>
-                    <div>
-                      <p className="text-[13px] font-semibold text-slate-900" data-testid="marketplace-bright-smile-dental-text">
-                        Bright Smile Dental
-                      </p>
-                      <p className="text-[10px] text-emerald-500" data-testid="marketplace-active-now-text">
-                        ● Active now
-                      </p>
+              <div className="flex justify-center md:justify-end">
+                <div className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
+                  <div className="overflow-hidden rounded-[1.7rem] bg-slate-50">
+                    <div className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
+                      <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white" data-testid="marketplace-bs-text">
+                        {getAgentInitials(featuredAgent.name)}
+                      </span>
+                      <div>
+                        <p className="max-w-[150px] truncate text-[13px] font-semibold text-slate-900" data-testid="marketplace-bright-smile-dental-text">
+                          {featuredAgent.name}
+                        </p>
+                        <p className="text-[10px] text-emerald-500" data-testid="marketplace-active-now-text">
+                          ● Active now
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-2.5 px-3 py-4 text-[12px] leading-snug">
-                    <div className="mx-auto w-fit rounded-full bg-slate-200/70 px-3 py-1 text-[10px] text-slate-500">
-                      Missed call · 9:42 AM
+                    <div className="space-y-2.5 px-3 py-4 text-[12px] leading-snug">
+                      <div className="mx-auto w-fit rounded-full bg-slate-200/70 px-3 py-1 text-[10px] text-slate-500">
+                        Missed call · 9:42 AM
+                      </div>
+                      <Message mine>
+                        Hi! This is {featuredAgent.name}. Sorry we missed your call. How can we help?
+                      </Message>
+                      <Message>
+                        {getAgentPreviewQuestion(featuredAgent)}
+                      </Message>
+                      <Message mine>
+                        {getAgentPreviewReply(featuredAgent)}
+                      </Message>
                     </div>
-                    <Message mine>
-                      Hi! Sorry we missed your call. How can we help?
-                    </Message>
-                    <Message>
-                      Do you have openings this week for a cleaning?
-                    </Message>
-                    <Message mine>
-                      Yes! Thursday 2:00 PM or Friday 10:30 AM.
-                    </Message>
-                  </div>
 
-                  <div className="flex items-center gap-2 border-t border-gray-100 bg-white px-3 py-2.5">
-                    <div className="flex-1 rounded-full bg-gray-100 px-3 py-1.5 text-[11px] text-slate-400">
-                      Text message…
+                    <div className="flex items-center gap-2 border-t border-gray-100 bg-white px-3 py-2.5">
+                      <div className="flex-1 rounded-full bg-gray-100 px-3 py-1.5 text-[11px] text-slate-400">
+                        Text message…
+                      </div>
+                      <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-500 text-white">
+                        ➤
+                      </span>
                     </div>
-                    <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-500 text-white">
-                      ➤
-                    </span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
         ) : null}
       </section>
 
@@ -710,9 +872,9 @@ export default function MarketplacePage() {
                 {openFilter === "industry" ? (
                   <div
                     data-filter-panel="industry"
-                    className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                    className="absolute left-0 top-full z-[90] mt-2 max-h-80 w-72 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
                   >
-                    {industries.map((item) => {
+                    {dropdownIndustries.map((item) => {
                       const unlocked = isIndustryAvailable(item.id, agents);
 
                       return (
@@ -848,62 +1010,6 @@ export default function MarketplacePage() {
                         </button>
                       ))}
                     </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOpenFilter(openFilter === "rating" ? null : "rating")}
-                  data-testid="marketplace-filter-rating"
-                  data-filter-trigger="rating"
-                  className={filterPillClass(ratingActive)}
-                  aria-haspopup="true"
-                  aria-expanded={openFilter === "rating"}
-                >
-                  <span data-testid="marketplace-rating-active-min-rating-0-rating-text">{ratingActive ? `${minRating}.0+ ★` : "Rating"}</span>
-                  <ChevronIcon open={openFilter === "rating"} />
-                </button>
-
-                {openFilter === "rating" ? (
-                  <div
-                    data-filter-panel="rating"
-                    className="absolute left-0 top-full z-50 mt-2 w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
-                  >
-                    <p className="px-1 pb-2 text-sm font-semibold text-slate-700" data-testid="marketplace-minimum-rating-text">
-                      Minimum rating
-                    </p>
-
-                    <div className="flex items-center gap-1 px-1 py-1">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <button
-                          key={star}
-                          type="button"
-                          onClick={() => {
-                            setMinRating(star);
-                            setOpenFilter(null);
-                          }}
-                          data-testid={`marketplace-rating-star-${star}`}
-                          className={star <= minRating ? "text-amber-400" : "text-gray-300"}
-                          aria-label={`${star} stars and up`}
-                        >
-                          <StarIcon className="h-6 w-6" />
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMinRating(0);
-                        setOpenFilter(null);
-                      }}
-                      data-testid="marketplace-rating-any"
-                      className={popoverOptionClass(minRating === 0)}
-                    >
-                      Any rating
-                    </button>
                   </div>
                 ) : null}
               </div>
@@ -1212,7 +1318,7 @@ function AgentGridCard({
           </span>
 
           <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text">
-            {agent.industry === "all" ? "All industries" : agent.industry}
+            {getIndustryDisplayLabel(agent.industry)}
           </span>
         </div>
 
@@ -1226,7 +1332,7 @@ function AgentGridCard({
           {agent.installs} installs
         </span>
         <span data-testid="app-marketplace-page-span-29" className="truncate text-xs text-slate-500">
-          Triven Team
+          {agent.author}
         </span>
       </div>
 
@@ -1275,7 +1381,7 @@ function AgentListCard({
 
         <div data-testid="app-marketplace-page-div-56" className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
           <span data-testid="app-marketplace-page-span-33">{agent.installs} installs</span>
-          <span data-testid="app-marketplace-page-span-35">Triven Team</span>
+          <span data-testid="app-marketplace-page-span-35">{agent.author}</span>
         </div>
       </div>
 
@@ -1345,7 +1451,7 @@ function AgentDetailsModal({
                 </span>
 
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text-2">
-                  {agent.industry === "all" ? "All industries" : agent.industry}
+                  {getIndustryDisplayLabel(agent.industry)}
                 </span>
 
                 {agent.freeTrial ? (
@@ -1364,7 +1470,7 @@ function AgentDetailsModal({
 
                 <span className="text-slate-300">·</span>
 
-                <span className="text-slate-500">Triven Team</span>
+                <span className="text-slate-500">{agent.author}</span>
               </div>
             </div>
           </div>

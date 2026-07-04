@@ -15,8 +15,16 @@ const appUrl = env.FRONTEND_URL.replace(/\/$/, "");
 const brandName = "Triven.ai";
 const privacyLink = process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`;
 const termsLink = process.env.CORE_TERMS_URL ?? `${appUrl}/terms`;
-const helpLink = process.env.CORE_HELP_URL ?? `${appUrl}/contact`;
+const contactLink = process.env.CORE_CONTACT_URL ?? `${appUrl}/contact`;
 const marketplaceLink = `${appUrl}/business/marketplace`;
+const checkoutLink = `${appUrl}/business/checkout`;
+
+// Hosted Triven wordmark served from the frontend's /public folder. Using a
+// remote <img> (rather than a CID attachment) keeps the logo out of the
+// "attachments" list while still showing the real brand mark.
+const logoUrl =
+  process.env.TRIVEN_LOGO_URL ??
+  `${appUrl}/triven.ai%20word%20logo%20transparent%20bg.PNG`;
 
 export const mailTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -157,11 +165,12 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-// Text-based wordmark (amber dot + brand name) rendered inline in the email
-// header. Using HTML instead of an <img> avoids the "1 attachment" indicator
-// and broken-image issues in clients that block remote/inline images.
+// Real Triven wordmark rendered inline in the email header. Referenced by URL
+// (not a CID attachment) so it never shows up as an email attachment. The alt
+// text falls back to the brand name if the recipient blocks remote images.
+
 function emailLogoMarkup() {
-  return `<span style="color:#f59e0b;font-size:22px;line-height:1;vertical-align:middle;">&#9679;</span><span style="vertical-align:middle;margin-left:8px;color:#f59e0b;">${brandName}</span>`;
+  return `<img src="${logoUrl}" alt="${brandName}" height="30" style="display:inline-block;height:30px;width:auto;border:0;outline:none;text-decoration:none;" />`;
 }
 
 // Shared header (logo row + amber divider) used by all transactional emails.
@@ -188,7 +197,7 @@ function buildEmailFooterRow() {
 <div style="margin-top:8px;">
 <a href="${escapeHtml(privacyLink)}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
 &nbsp;&middot;&nbsp;
-<a href="${escapeHtml(helpLink)}" target="_blank" style="color:#d97706;text-decoration:none;">Help Center</a>
+<a href="${escapeHtml(contactLink)}" target="_blank" style="color:#d97706;text-decoration:none;">Help Center</a>
 </div>
 </div>
 </td>
@@ -207,9 +216,244 @@ export type InvoiceData = {
   agentName: string;
   description: string;
   amountCents: number;
+  listPriceCents?: number;
   currency: string;
   status: string;
+  billingAddress?: string | null;
+  paymentMethod?: string | null;
+  transactionId?: string;
 };
+
+type InvoiceStatusView = {
+  label: string;
+  badgeBg: string;
+  badgeText: string;
+  balanceColor: string;
+  isPaid: boolean;
+};
+
+function invoiceStatusView(status: string): InvoiceStatusView {
+  const value = (status || "").toUpperCase();
+  if (value === "SUCCEEDED" || value === "PAID") {
+    return {
+      label: "PAID",
+      badgeBg: "#dcfce7",
+      badgeText: "#15803d",
+      balanceColor: "#16a34a",
+      isPaid: true
+    };
+  }
+  if (value === "TRIALING") {
+    return {
+      label: "TRIAL",
+      badgeBg: "#fef3c7",
+      badgeText: "#b45309",
+      balanceColor: "#d97706",
+      isPaid: false
+    };
+  }
+  if (value === "PENDING") {
+    return {
+      label: "PENDING",
+      badgeBg: "#dbeafe",
+      badgeText: "#1d4ed8",
+      balanceColor: "#d97706",
+      isPaid: false
+    };
+  }
+  if (value === "FAILED") {
+    return {
+      label: "FAILED",
+      badgeBg: "#fee2e2",
+      badgeText: "#b91c1c",
+      balanceColor: "#dc2626",
+      isPaid: false
+    };
+  }
+  return {
+    label: value || "—",
+    badgeBg: "#f1f5f9",
+    badgeText: "#475569",
+    balanceColor: "#475569",
+    isPaid: false
+  };
+}
+
+function formatInvoiceFullDate(date: Date) {
+  return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function invoiceAmounts(invoice: InvoiceData) {
+  const status = invoiceStatusView(invoice.status);
+  const displayAmount = formatMoney(invoice.amountCents, invoice.currency);
+  const listPriceCents = invoice.listPriceCents ?? invoice.amountCents;
+  const amountPaid = status.isPaid
+    ? formatMoney(listPriceCents, invoice.currency)
+    : displayAmount;
+  const balanceDue = status.isPaid ? "$0.00" : displayAmount;
+
+  return { status, displayAmount, amountPaid, balanceDue };
+}
+
+/** Matches the billing invoice detail page card — used in emails, HTML, and PDF. */
+export function buildInvoiceCardHtml(
+  invoice: InvoiceData,
+  options?: { logoSrc?: string; fullPage?: boolean }
+) {
+  const { status, displayAmount, amountPaid, balanceDue } = invoiceAmounts(invoice);
+  const logoSrc = escapeHtml(options?.logoSrc ?? logoUrl);
+  const fullPage = options?.fullPage ?? false;
+  const description = escapeHtml(invoice.description || invoice.agentName || "Agent purchase");
+  const invoiceNumber = escapeHtml(invoice.invoiceNumber);
+  const dateIssued = escapeHtml(formatInvoiceFullDate(invoice.date));
+  const businessName = escapeHtml(invoice.businessName || "Customer");
+  const businessEmail = escapeHtml(invoice.businessEmail || "");
+  const billingAddress = invoice.billingAddress?.trim()
+    ? escapeHtml(invoice.billingAddress.trim())
+    : "";
+  const paymentMethod = invoice.paymentMethod?.trim()
+    ? escapeHtml(invoice.paymentMethod.trim())
+    : "—";
+  const transactionId = escapeHtml(invoice.transactionId || "—");
+
+  const paymentInfoPaid = status.isPaid
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;">
+<tr>
+<td width="50%" valign="top" style="padding:0 8px 12px 0;color:#64748b;">Payment method<br><span style="color:#1e293b;font-weight:600;">${paymentMethod}</span></td>
+<td width="50%" valign="top" style="padding:0 0 12px 8px;color:#64748b;">Transaction ID<br><span style="color:#1e293b;font-weight:600;font-family:ui-monospace,monospace;">${transactionId}</span></td>
+</tr>
+<tr>
+<td width="50%" valign="top" style="padding:0 8px 0 0;color:#64748b;">Payment date<br><span style="color:#1e293b;font-weight:600;">${dateIssued}</span></td>
+<td width="50%" valign="top" style="padding:0 0 0 8px;color:#64748b;">Status<br><span style="color:#16a34a;font-weight:600;">✓ Successful</span></td>
+</tr>
+</table>`
+    : `<p style="margin:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#64748b;">Awaiting payment. No transaction has been recorded for this invoice yet.</p>`;
+
+  const cardStyle = fullPage
+    ? "position:relative;width:100%;max-width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(15,23,42,0.08);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;"
+    : "position:relative;max-width:800px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(15,23,42,0.08);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;";
+
+  return `<div id="invoice-card" style="${cardStyle}">
+<div style="position:absolute;top:40px;right:32px;font-size:88px;font-weight:800;line-height:1;color:#f1f5f9;pointer-events:none;user-select:none;">INVOICE</div>
+<div style="position:relative;padding:48px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid #f1f5f9;padding-bottom:32px;margin-bottom:32px;">
+<tr>
+<td valign="top" style="padding-bottom:16px;">
+<img src="${logoSrc}" alt="Triven" width="130" height="38" style="display:block;height:36px;width:auto;max-width:130px;margin-bottom:12px;" />
+<p style="margin:0 0 4px 0;font-size:14px;font-weight:500;color:#334155;">Triven AI Agent Platform</p>
+<p style="margin:0;font-size:14px;color:#64748b;">info@triven.ai</p>
+</td>
+<td valign="top" align="right" style="padding-bottom:16px;">
+<p style="margin:0;font-size:24px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;">Invoice</p>
+<p style="margin:8px 0 0 0;font-size:14px;color:#334155;font-family:ui-monospace,monospace;">#${invoiceNumber}</p>
+<p style="margin:8px 0 0 0;font-size:14px;color:#64748b;">Date issued: <span style="color:#334155;font-weight:500;">${dateIssued}</span></p>
+<span style="display:inline-block;margin-top:12px;padding:4px 12px;border-radius:9999px;font-size:14px;font-weight:500;background:${status.badgeBg};color:${status.badgeText};">${status.label}</span>
+</td>
+</tr>
+</table>
+
+<div style="margin-bottom:32px;">
+<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;">Bill To</p>
+<p style="margin:0 0 4px 0;font-size:14px;font-weight:600;color:#0f172a;">${businessName}</p>
+${billingAddress ? `<p style="margin:0 0 4px 0;font-size:14px;color:#475569;">${billingAddress}</p>` : ""}
+${businessEmail ? `<p style="margin:0;font-size:14px;color:#475569;">${businessEmail}</p>` : ""}
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;border-collapse:collapse;margin-bottom:24px;">
+<thead>
+<tr style="background:#f8fafc;color:#475569;">
+<th align="left" style="padding:10px 12px;font-weight:600;width:40px;">#</th>
+<th align="left" style="padding:10px 12px;font-weight:600;">Description</th>
+<th align="right" style="padding:10px 12px;font-weight:600;width:48px;">Qty</th>
+<th align="right" style="padding:10px 12px;font-weight:600;width:96px;">Unit Price</th>
+<th align="right" style="padding:10px 12px;font-weight:600;width:96px;">Amount</th>
+</tr>
+</thead>
+<tbody>
+<tr style="border-bottom:1px solid #f1f5f9;">
+<td style="padding:12px;color:#64748b;">1</td>
+<td style="padding:12px;color:#0f172a;">${description}</td>
+<td align="right" style="padding:12px;color:#0f172a;">1</td>
+<td align="right" style="padding:12px;color:#0f172a;">${displayAmount}</td>
+<td align="right" style="padding:12px;font-weight:600;color:#0f172a;">${displayAmount}</td>
+</tr>
+</tbody>
+</table>
+
+<table role="presentation" align="right" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:288px;font-size:14px;margin-bottom:32px;">
+<tr><td style="padding:4px 0;color:#64748b;">Subtotal</td><td align="right" style="padding:4px 0;color:#334155;">${displayAmount}</td></tr>
+<tr><td style="padding:8px 0 4px 0;font-size:16px;font-weight:700;color:#0f172a;border-top:1px solid #e2e8f0;">Total</td><td align="right" style="padding:8px 0 4px 0;font-size:16px;font-weight:700;color:#0f172a;border-top:1px solid #e2e8f0;">${displayAmount}</td></tr>
+<tr><td style="padding:4px 0;color:#64748b;">Amount Paid</td><td align="right" style="padding:4px 0;color:#334155;">${amountPaid}</td></tr>
+<tr><td style="padding:4px 0;font-weight:700;color:#0f172a;">Balance Due</td><td align="right" style="padding:4px 0;font-weight:700;color:${status.balanceColor};">${balanceDue}</td></tr>
+</table>
+
+<div style="clear:both;border-top:1px solid #f1f5f9;padding-top:32px;margin-bottom:32px;">
+<p style="margin:0 0 12px 0;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;">Payment Information</p>
+${paymentInfoPaid}
+</div>
+
+<div style="border-top:1px solid #f1f5f9;padding-top:32px;font-size:14px;color:#64748b;line-height:1.6;">
+<p style="margin:0;">Thank you for your business!</p>
+<p style="margin:0;">For questions about this invoice, contact info@triven.ai</p>
+<p style="margin:0;">Payment terms: Due upon receipt</p>
+</div>
+</div>
+<div style="display:flex;justify-content:space-between;gap:8px;border-top:1px solid #f1f5f9;background:#f8fafc;padding:16px 48px;font-size:12px;color:#94a3b8;">
+<span>Triven AI Agent Platform — Empowering businesses with intelligent automation</span>
+<span>Page 1 of 1</span>
+</div>
+</div>`;
+}
+
+export function getLogoDataUri(): string | null {
+  const buffer = getLogoBuffer();
+  if (!buffer) return null;
+  return `data:image/png;base64,${buffer.toString("base64")}`;
+}
+
+export function buildInvoiceDocumentHtml(invoice: InvoiceData, options?: { logoSrc?: string }) {
+  const logoSrc = options?.logoSrc ?? getLogoDataUri() ?? logoUrl;
+  const card = buildInvoiceCardHtml(invoice, { logoSrc, fullPage: true });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice #${escapeHtml(invoice.invoiceNumber)}</title>
+<style>
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 794px;
+  min-height: 1123px;
+  background: #f1f5f9;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.invoice-page {
+  width: 794px;
+  min-height: 1123px;
+  padding: 45px;
+  background: #f1f5f9;
+}
+@media print {
+  html, body { background: #f1f5f9; }
+  .invoice-page { padding: 45px; }
+  @page { size: A4 portrait; margin: 0; }
+  #invoice-card { box-shadow: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="invoice-page">
+${card}
+</div>
+</body>
+</html>`;
+}
 
 const LOGO_FILE_NAME = "triven.ai word logo transparent bg.PNG";
 
@@ -272,152 +516,188 @@ function prettyStatus(status: string) {
 }
 
 /**
- * Render a branded PDF invoice to a Buffer. Used both for the billing-page
- * download endpoint and as the attachment on the payment-success email.
+ * Render the same invoice card layout as the billing detail page to PDF.
  */
 export function buildInvoicePdfBuffer(invoice: InvoiceData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: "A4", margin: 50 });
+      const doc = new PDFDocument({ size: "A4", margin: 36 });
       const chunks: Buffer[] = [];
+      const { status, displayAmount, amountPaid, balanceDue } = invoiceAmounts(invoice);
 
       doc.on("data", (chunk: Buffer) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
 
-      const amber = "#f59e0b";
-      const slate = "#0f172a";
-      const muted = "#64748b";
-      const pageLeft = doc.page.margins.left;
-      const pageRight = doc.page.width - doc.page.margins.right;
-      const contentWidth = pageRight - pageLeft;
+      const pageWidth = doc.page.width;
+      const margin = doc.page.margins.left;
+      const cardWidth = pageWidth - margin * 2;
+      const cardLeft = margin;
+      let y = margin;
 
-      // Header band.
-      doc.rect(pageLeft, 50, contentWidth, 6).fill(amber);
+      // Card container
+      doc.roundedRect(cardLeft, y, cardWidth, 720, 12).lineWidth(1).strokeColor("#e2e8f0").stroke();
 
-      // Brand block (logo + wordmark + tagline) sharing a single left edge,
-      // vertically centered against the logo on the left.
-      const brandNameY = 70;
-      const taglineY = 96;
-      const logoSize = 36;
-      // Center the logo on the two-line text block (brand name + tagline).
-      const logoY = Math.round((brandNameY + taglineY + 12) / 2 - logoSize / 2);
+      // Watermark
+      doc
+        .fillColor("#f1f5f9")
+        .font("Helvetica-Bold")
+        .fontSize(72)
+        .text("INVOICE", cardLeft + cardWidth - 210, y + 24, { width: 200, align: "right" });
 
+      const innerX = cardLeft + 40;
+      const innerRight = cardLeft + cardWidth - 40;
+      y += 36;
+
+      // Logo + seller
       const logoBuffer = getLogoBuffer();
-      let brandTextX = pageLeft;
-
       if (logoBuffer) {
         try {
-          doc.image(logoBuffer, pageLeft, logoY, { fit: [logoSize, logoSize] });
-          brandTextX = pageLeft + logoSize + 12;
+          doc.image(logoBuffer, innerX, y, { fit: [110, 32] });
         } catch {
-          brandTextX = pageLeft;
+          // ignore logo render errors
         }
       }
 
       doc
-        .fillColor(amber)
-        .font("Helvetica-Bold")
-        .fontSize(22)
-        .text(brandName, brandTextX, brandNameY);
-
-      doc
-        .fillColor(muted)
-        .font("Helvetica")
-        .fontSize(10)
-        .text("AI Agent Platform — Your AI Workforce", brandTextX, taglineY);
-
-      doc
-        .fillColor(slate)
-        .font("Helvetica-Bold")
-        .fontSize(26)
-        .text("INVOICE", pageLeft, 72, { align: "right", width: contentWidth });
-
-      doc
-        .fillColor(muted)
-        .font("Helvetica")
-        .fontSize(10)
-        .text(`Invoice #: ${invoice.invoiceNumber}`, pageLeft, 104, { align: "right", width: contentWidth })
-        .text(`Date: ${formatInvoiceDate(invoice.date)}`, pageLeft, 118, { align: "right", width: contentWidth })
-        .text(`Status: ${prettyStatus(invoice.status)}`, pageLeft, 132, { align: "right", width: contentWidth });
-
-      // Bill-to.
-      const billY = 168;
-      doc
-        .fillColor(muted)
-        .font("Helvetica-Bold")
-        .fontSize(9)
-        .text("BILLED TO", pageLeft, billY);
-
-      doc
-        .fillColor(slate)
-        .font("Helvetica-Bold")
-        .fontSize(12)
-        .text(invoice.businessName || "Customer", pageLeft, billY + 14);
-
-      doc
-        .fillColor(muted)
-        .font("Helvetica")
-        .fontSize(10)
-        .text(invoice.businessEmail || "", pageLeft, billY + 30);
-
-      // Line-item table.
-      const tableTop = billY + 70;
-      const descX = pageLeft + 14;
-      const amountColWidth = 120;
-      const amountX = pageRight - amountColWidth - 14;
-
-      doc.rect(pageLeft, tableTop, contentWidth, 26).fill("#f8fafc");
-      doc
-        .fillColor(muted)
-        .font("Helvetica-Bold")
-        .fontSize(9)
-        .text("DESCRIPTION", descX, tableTop + 9)
-        .text("AMOUNT", amountX, tableTop + 9, { width: amountColWidth, align: "right" });
-
-      const rowY = tableTop + 26 + 12;
-      doc
-        .fillColor(slate)
+        .fillColor("#334155")
         .font("Helvetica")
         .fontSize(11)
-        .text(invoice.description || invoice.agentName, descX, rowY, { width: amountX - descX - 10 })
-        .text(formatMoney(invoice.amountCents, invoice.currency), amountX, rowY, {
-          width: amountColWidth,
-          align: "right"
-        });
+        .text("Triven AI Agent Platform", innerX, y + 40)
+        .fillColor("#64748b")
+        .text("info@triven.ai", innerX, y + 56);
 
-      const dividerY = rowY + 34;
-      doc.moveTo(pageLeft, dividerY).lineTo(pageRight, dividerY).strokeColor("#e2e8f0").stroke();
-
-      // Total.
-      const totalY = dividerY + 16;
+      // Invoice meta (right)
       doc
-        .fillColor(muted)
+        .fillColor("#94a3b8")
         .font("Helvetica-Bold")
-        .fontSize(11)
-        .text("Total", amountX - 120, totalY, { width: 120, align: "right" });
-      doc
-        .fillColor(slate)
-        .font("Helvetica-Bold")
-        .fontSize(13)
-        .text(formatMoney(invoice.amountCents, invoice.currency), amountX, totalY - 1, {
-          width: amountColWidth,
-          align: "right"
-        });
+        .fontSize(20)
+        .text("INVOICE", innerX, y, { width: cardWidth - 80, align: "right" });
 
-      // Footer.
-      const footerY = doc.page.height - 90;
-      doc.moveTo(pageLeft, footerY).lineTo(pageRight, footerY).strokeColor("#e2e8f0").stroke();
       doc
-        .fillColor(muted)
+        .fillColor("#334155")
         .font("Helvetica")
-        .fontSize(9)
+        .fontSize(10)
+        .text(`#${invoice.invoiceNumber}`, innerX, y + 28, { width: cardWidth - 80, align: "right" })
+        .fillColor("#64748b")
         .text(
-          `Thank you for your business. This invoice was generated by ${brandName}.`,
-          pageLeft,
-          footerY + 12,
-          { width: contentWidth, align: "center" }
-        );
+          `Date issued: ${formatInvoiceFullDate(invoice.date)}`,
+          innerX,
+          y + 44,
+          { width: cardWidth - 80, align: "right" }
+        )
+        .fillColor(status.badgeText)
+        .font("Helvetica-Bold")
+        .text(status.label, innerX, y + 62, { width: cardWidth - 80, align: "right" });
+
+      y += 110;
+      doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
+      y += 24;
+
+      // Bill to
+      doc.fillColor("#94a3b8").font("Helvetica-Bold").fontSize(9).text("BILL TO", innerX, y);
+      doc
+        .fillColor("#0f172a")
+        .font("Helvetica-Bold")
+        .fontSize(11)
+        .text(invoice.businessName || "Customer", innerX, y + 16);
+      let billY = y + 32;
+      if (invoice.billingAddress?.trim()) {
+        doc.fillColor("#475569").font("Helvetica").fontSize(10).text(invoice.billingAddress.trim(), innerX, billY);
+        billY += 14;
+      }
+      if (invoice.businessEmail) {
+        doc.text(invoice.businessEmail, innerX, billY);
+        billY += 14;
+      }
+
+      y = billY + 20;
+
+      // Table header
+      doc.rect(innerX, y, innerRight - innerX, 22).fill("#f8fafc");
+      doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
+      doc.text("#", innerX + 8, y + 7, { width: 20 });
+      doc.text("Description", innerX + 32, y + 7, { width: 220 });
+      doc.text("Qty", innerX + 280, y + 7, { width: 30, align: "right" });
+      doc.text("Unit Price", innerX + 320, y + 7, { width: 70, align: "right" });
+      doc.text("Amount", innerX + 400, y + 7, { width: innerRight - innerX - 408, align: "right" });
+
+      y += 22;
+      const description = invoice.description || invoice.agentName || "Agent purchase";
+      doc.fillColor("#64748b").font("Helvetica").fontSize(10).text("1", innerX + 8, y + 10, { width: 20 });
+      doc.fillColor("#0f172a").text(description, innerX + 32, y + 10, { width: 220 });
+      doc.text("1", innerX + 280, y + 10, { width: 30, align: "right" });
+      doc.text(displayAmount, innerX + 320, y + 10, { width: 70, align: "right" });
+      doc.font("Helvetica-Bold").text(displayAmount, innerX + 400, y + 10, {
+        width: innerRight - innerX - 408,
+        align: "right"
+      });
+
+      y += 36;
+      doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
+      y += 18;
+
+      // Totals
+      const totalsX = innerRight - 180;
+      doc.fillColor("#64748b").font("Helvetica").fontSize(10);
+      doc.text("Subtotal", totalsX, y, { width: 90 });
+      doc.fillColor("#334155").text(displayAmount, totalsX + 90, y, { width: 90, align: "right" });
+      y += 16;
+      doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11);
+      doc.text("Total", totalsX, y, { width: 90 });
+      doc.text(displayAmount, totalsX + 90, y, { width: 90, align: "right" });
+      y += 16;
+      doc.fillColor("#64748b").font("Helvetica").fontSize(10);
+      doc.text("Amount Paid", totalsX, y, { width: 90 });
+      doc.fillColor("#334155").text(amountPaid, totalsX + 90, y, { width: 90, align: "right" });
+      y += 16;
+      doc.fillColor("#0f172a").font("Helvetica-Bold").text("Balance Due", totalsX, y, { width: 90 });
+      doc.fillColor(status.balanceColor).text(balanceDue, totalsX + 90, y, { width: 90, align: "right" });
+
+      y += 32;
+      doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
+      y += 18;
+
+      doc.fillColor("#94a3b8").font("Helvetica-Bold").fontSize(9).text("PAYMENT INFORMATION", innerX, y);
+      y += 16;
+
+      if (status.isPaid) {
+        doc.fillColor("#64748b").font("Helvetica").fontSize(10);
+        doc.text("Payment method", innerX, y);
+        doc.fillColor("#1e293b").font("Helvetica-Bold").text(invoice.paymentMethod || "—", innerX, y + 12);
+        doc.fillColor("#64748b").font("Helvetica").text("Transaction ID", innerX + 240, y);
+        doc
+          .fillColor("#1e293b")
+          .font("Helvetica-Bold")
+          .text(invoice.transactionId || "—", innerX + 240, y + 12, { width: innerRight - innerX - 240 });
+        y += 34;
+        doc.fillColor("#64748b").font("Helvetica").text("Payment date", innerX, y);
+        doc
+          .fillColor("#1e293b")
+          .font("Helvetica-Bold")
+          .text(formatInvoiceFullDate(invoice.date), innerX, y + 12);
+        doc.fillColor("#64748b").font("Helvetica").text("Status", innerX + 240, y);
+        doc.fillColor("#16a34a").font("Helvetica-Bold").text("Successful", innerX + 240, y + 12);
+      } else {
+        doc
+          .fillColor("#64748b")
+          .font("Helvetica")
+          .fontSize(10)
+          .text("Awaiting payment. No transaction has been recorded for this invoice yet.", innerX, y, {
+            width: innerRight - innerX
+          });
+      }
+
+      y += 48;
+      doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
+      y += 16;
+      doc
+        .fillColor("#64748b")
+        .font("Helvetica")
+        .fontSize(10)
+        .text("Thank you for your business!", innerX, y)
+        .text("For questions about this invoice, contact info@triven.ai", innerX, y + 14)
+        .text("Payment terms: Due upon receipt", innerX, y + 28);
 
       doc.end();
     } catch (error) {
@@ -468,14 +748,8 @@ function buildPaymentSuccessEmailHtml({
 }) {
   const safeName = escapeHtml(name?.trim() || invoice.businessName?.trim() || "there");
   const safeAgentName = escapeHtml(invoice.agentName);
-  const safeDescription = escapeHtml(invoice.description || invoice.agentName);
-  const safeAmount = escapeHtml(formatMoney(invoice.amountCents, invoice.currency));
-  const safeInvoiceNumber = escapeHtml(invoice.invoiceNumber);
-  const safeDate = escapeHtml(formatInvoiceDate(invoice.date));
-  const safeStatus = escapeHtml(prettyStatus(invoice.status));
-  const safePrivacyLink = escapeHtml(privacyLink);
-  const safeTermsLink = escapeHtml(termsLink);
   const safeSetupUrl = setupUrl ? escapeHtml(setupUrl) : null;
+  const invoiceCard = buildInvoiceCardHtml(invoice);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -514,38 +788,12 @@ Hi ${safeName}, your purchase is confirmed 🎉
 </p>
 
 <p style="margin:0 0 16px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;color:#334155;">
-<strong>${safeAgentName}</strong> has been added to your ${brandName} account. Your invoice is attached to this email as a PDF.
+<strong>${safeAgentName}</strong> has been added to your ${brandName} account. Your invoice is below and attached to this email as a PDF.
 </p>
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
-<tr>
-<td style="padding:14px 16px;background-color:#f8fafc;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;color:#64748b;">
-Invoice #${safeInvoiceNumber}
-</td>
-<td align="right" style="padding:14px 16px;background-color:#f8fafc;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;color:#64748b;">
-${safeDate}
-</td>
-</tr>
-<tr>
-<td style="padding:14px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#334155;">
-${safeDescription}
-</td>
-<td align="right" style="padding:14px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#111827;">
-${safeAmount}
-</td>
-</tr>
-<tr>
-<td colspan="2" style="padding:0 16px;"><div style="border-top:1px solid #e2e8f0;height:1px;line-height:1px;font-size:0;">&nbsp;</div></td>
-</tr>
-<tr>
-<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#111827;">
-Total &middot; ${safeStatus}
-</td>
-<td align="right" style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:800;color:#f59e0b;">
-${safeAmount}
-</td>
-</tr>
-</table>
+<div style="margin:4px 0 18px 0;">
+${invoiceCard}
+</div>
 
 ${safeSetupUrl ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 18px 0;">
 <tr>
@@ -559,19 +807,7 @@ Set up your agent
 </td>
 </tr>
 
-<tr>
-<td style="padding:10px 32px 30px 32px;">
-<div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
-<div style="font-weight:600;color:#64748b;">${brandName} &mdash; AI Agent Platform</div>
-<div>Your AI Workforce</div>
-<div style="margin-top:8px;">
-<a href="${safePrivacyLink}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>
-&nbsp;&middot;&nbsp;
-<a href="${safeTermsLink}" target="_blank" style="color:#d97706;text-decoration:none;">Terms</a>
-</div>
-</div>
-</td>
-</tr>
+${buildEmailFooterRow()}
 
 </table>
 </td>
@@ -579,6 +815,92 @@ Set up your agent
 </table>
 </body>
 </html>`;
+}
+
+// --- Payment failed email --------------------------------------------------
+
+type SendPaymentFailedEmailInput = {
+  to: string;
+  name?: string | null;
+  agentName?: string | null;
+  cardLast4?: string | null;
+  failureReason?: string | null;
+  listingId?: string | null;
+  updateUrl?: string | null;
+  retryUrl?: string | null;
+};
+
+export async function sendPaymentFailedEmail({
+  to,
+  name,
+  agentName,
+  cardLast4,
+  failureReason,
+  listingId,
+  updateUrl,
+  retryUrl
+}: SendPaymentFailedEmailInput) {
+  const checkoutUrl = listingId
+    ? `${checkoutLink}?listingId=${encodeURIComponent(listingId)}`
+    : checkoutLink;
+  const update = updateUrl?.trim() || checkoutUrl;
+  const retry = retryUrl?.trim() || checkoutUrl;
+  const reason = failureReason?.trim() || "Payment was declined";
+
+  await mailTransporter.sendMail({
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+    to,
+    subject: `Payment failed — please update your payment method`,
+    text: `We couldn't process your most recent payment${
+      agentName ? ` for ${agentName}` : ""
+    }. Reason: ${reason}. Update your payment method to keep access: ${update}`,
+    html: buildPaymentFailedEmailHtml({
+      name,
+      cardLast4,
+      failureReason: reason,
+      updateUrl: update,
+      retryUrl: retry
+    })
+  });
+}
+
+function buildPaymentFailedEmailHtml({
+  name,
+  cardLast4,
+  failureReason,
+  updateUrl,
+  retryUrl
+}: {
+  name?: string | null;
+  cardLast4?: string | null;
+  failureReason: string;
+  updateUrl: string;
+  retryUrl: string;
+}) {
+  const safeName = escapeHtml(name?.trim() || "there");
+  const safeCard = escapeHtml((cardLast4 || "").replace(/\D/g, "").slice(-4) || "••••");
+  const safeReason = escapeHtml(failureReason);
+  const safeUpdate = escapeHtml(updateUrl);
+  const safeRetry = escapeHtml(retryUrl);
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, we couldn't process your most recent payment.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+<tr><td style="padding:10px 14px;background-color:#f8fafc;${emailBodyStyle}font-size:13px;color:#64748b;white-space:nowrap;">Card</td><td align="right" style="padding:10px 14px;${emailBodyStyle}font-size:14px;color:#111827;font-weight:500;">&bull;&bull;&bull;&bull; ${safeCard}</td></tr>
+<tr><td style="padding:10px 14px;background-color:#f8fafc;${emailBodyStyle}font-size:13px;color:#64748b;white-space:nowrap;border-top:1px solid #e2e8f0;">Reason</td><td align="right" style="padding:10px 14px;${emailBodyStyle}font-size:14px;color:#111827;font-weight:500;border-top:1px solid #e2e8f0;">${safeReason}</td></tr>
+</table>
+${primaryButton(safeUpdate, "Update payment method")}
+${secondaryButton(safeRetry, "Retry payment")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">To avoid losing access, please update your details within a few days.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    "We couldn't process your latest payment.",
+    "Payment failed — please update your payment method",
+    inner
+  );
 }
 
 
@@ -908,7 +1230,7 @@ export async function sendBuyerRoiEmail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to,
     subject: `See the ROI: ${name}, here's what other ${industryLabel} teams achieve`,
-    text: `Hi ${name}, a week in is a good time to look at what's possible. Teams in ${industryLabel} are seeing measurable results with ${brandName} agents. Explore your dashboard or schedule a demo: ${demoLink?.trim() || helpLink}`,
+    text: `Hi ${name}, a week in is a good time to look at what's possible. Teams in ${industryLabel} are seeing measurable results with ${brandName} agents. Explore your dashboard or schedule a demo: ${demoLink?.trim() || contactLink}`,
     html: buildBuyerRoiEmailHtml({ buyerName: name, industry: industryLabel, caseStudies, demoLink })
   });
 }
@@ -929,7 +1251,7 @@ function buildBuyerRoiEmailHtml({
   const safeCaseStudies = escapeHtml(
     caseStudies?.trim() || "how teams like yours automate follow-ups and win back missed calls"
   );
-  const safeDemo = escapeHtml(demoLink?.trim() || helpLink);
+  const safeDemo = escapeHtml(demoLink?.trim() || contactLink);
 
   const statCell = (value: string, label: string) =>
     `<td align="center" valign="top" width="33%" style="padding:14px 8px;background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;"><div style="${emailBodyStyle}font-size:21px;font-weight:700;color:#b45309;line-height:1.2;">${value}</div><div style="${emailBodyStyle}font-size:12px;color:#92400e;margin-top:4px;line-height:1.3;">${label}</div></td>`;

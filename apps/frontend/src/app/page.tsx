@@ -495,7 +495,7 @@ export default function HomePage() {
               <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
               <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500/70" />
-              <span className="ml-3 font-mono text-xs text-slate-500" data-testid="home-agent-builder-core-text-4">agent-builder.core</span>
+              <span className="ml-3 font-mono text-xs text-slate-500" data-testid="home-agent-builder-core-text-4">agent-builder</span>
             </div>
 
             <svg viewBox="0 0 820 340" className="h-auto w-full" role="img" aria-label="Drag-and-drop workflow builder: a missed call triggers the AI Brain, which sends an SMS and books an appointment.">

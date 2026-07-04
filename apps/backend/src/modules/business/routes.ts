@@ -24,8 +24,34 @@ import { ensureBusinessVapiAssistant } from "../architect/vapi-connector";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import { isBillingEnabled } from "../../lib/stripe";
+import {
+  buildDashboardActivities,
+  sumInvoiceTotalCents
+} from "../../lib/billing-invoices";
 
 export const businessRoutes = new Hono();
+
+/** Phone columns that exist before phone_number_inventory_metadata migration. */
+const businessPhoneNumberLegacySelect = {
+  id: true,
+  businessId: true,
+  installedAgentId: true,
+  phoneNumber: true,
+  twilioPhoneNumberSid: true,
+  forwardToPhone: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true
+} as const;
+
+function includeActivePhoneNumbers(options?: { take?: number }) {
+  return {
+    where: { isActive: true as const },
+    orderBy: { createdAt: "desc" as const },
+    select: businessPhoneNumberLegacySelect,
+    ...(options?.take ? { take: options.take } : {})
+  };
+}
 
 businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
@@ -38,16 +64,32 @@ businessRoutes.get("/billing/status", getBillingStatus);
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");
 
-  const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
-    include: {
-      installedAgents: { orderBy: { createdAt: "desc" }, take: 1 },
-      phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" }, take: 1 }
-    }
-  });
+  const [business, payments] = await Promise.all([
+    prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      include: {
+        installedAgents: { orderBy: { createdAt: "desc" } },
+        phoneNumbers: includeActivePhoneNumbers({ take: 1 })
+      }
+    }),
+    prisma.payment.findMany({
+      where: { userId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    })
+  ]);
 
   const calendar = await getGmailConnectionStatus(authUser.id);
+  const totalSpendCents = sumInvoiceTotalCents(payments);
+  const activities = buildDashboardActivities(payments, business?.installedAgents ?? []);
 
   if (!business) {
     return successResponse(c, {
@@ -59,7 +101,9 @@ businessRoutes.get("/dashboard", async (c) => {
       recentLeads: [],
       recentAppointments: [],
       recentMissedCalls: [],
-      calendarConnected: calendar.connected
+      calendarConnected: calendar.connected,
+      totalSpendCents,
+      activities
     });
   }
 
@@ -109,7 +153,9 @@ businessRoutes.get("/dashboard", async (c) => {
     recentLeads,
     recentAppointments,
     recentMissedCalls,
-    calendarConnected: calendar.connected
+    calendarConnected: calendar.connected,
+    totalSpendCents,
+    activities
   });
 });
 
@@ -254,7 +300,7 @@ async function loadBusinessForOwner(ownerId: string) {
     include: {
       profile: true,
       knowledgeBases: { orderBy: { createdAt: "asc" } },
-      phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
+      phoneNumbers: includeActivePhoneNumbers(),
       installedAgents: { orderBy: { createdAt: "desc" }, include: { workflow: true } }
     }
   });
@@ -322,7 +368,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       orderBy: { createdAt: "desc" },
       include: {
         profile: true,
-        phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
+        phoneNumbers: includeActivePhoneNumbers(),
         installedAgents: { orderBy: { createdAt: "desc" }, take: 1 }
       }
     }),
@@ -429,7 +475,15 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 
   const [platformForNumber, businessPhoneForNumber, diagnostics] = await Promise.all([
     prisma.platformPhoneNumber.findUnique({ where: { phoneNumber: number } }),
-    prisma.businessPhoneNumber.findUnique({ where: { phoneNumber: number }, include: { installedAgent: true } }),
+    prisma.businessPhoneNumber.findUnique({
+      where: { phoneNumber: number },
+      select: {
+        ...businessPhoneNumberLegacySelect,
+        installedAgent: {
+          select: { id: true, name: true, status: true, workflowId: true }
+        }
+      }
+    }),
     getCallRoutingDiagnostics(number)
   ]);
 
@@ -671,7 +725,7 @@ businessRoutes.post("/setup", async (c) => {
       where: { ownerId: authUser.id },
       orderBy: { createdAt: "desc" },
       include: {
-        phoneNumbers: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
+        phoneNumbers: includeActivePhoneNumbers(),
         installedAgents: { orderBy: { createdAt: "desc" } }
       }
     });
@@ -814,7 +868,10 @@ businessRoutes.post("/setup", async (c) => {
       const targetNumber = normalizePhoneNumber(targetPlatform.phoneNumber);
 
       // Guard against a stale mapping owned by another business.
-      const conflicting = await prisma.businessPhoneNumber.findUnique({ where: { phoneNumber: targetNumber } });
+      const conflicting = await prisma.businessPhoneNumber.findUnique({
+        where: { phoneNumber: targetNumber },
+        select: { id: true, businessId: true, phoneNumber: true }
+      });
       if (conflicting && conflicting.businessId !== business.id) {
         return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
       }

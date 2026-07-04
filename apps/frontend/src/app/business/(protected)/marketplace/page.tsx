@@ -6,9 +6,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+    BUSINESS_AGENTS_PATH,
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
-    businessAgentPath
+    businessAgentPath,
+    businessCheckoutPath
 } from "@/lib/routes";
 
 type Agent = {
@@ -26,6 +28,7 @@ type Agent = {
     tags: string[];
     requiredConnectors: string[];
     supportedLlms: string[];
+    whatYouGet: string[];
     createdAt?: string;
 };
 
@@ -46,6 +49,13 @@ type ApiArchitect = {
     architectProfile?: ApiArchitectProfile | null;
 };
 
+type ApiWorkflowNode = {
+    data?: {
+        label?: string;
+        title?: string;
+    };
+};
+
 type ApiWorkflow = {
     id?: string;
     name?: string;
@@ -53,6 +63,9 @@ type ApiWorkflow = {
     isTemplate?: boolean;
     createdAt?: string;
     updatedAt?: string;
+    workflowJson?: {
+        nodes?: ApiWorkflowNode[];
+    } | null;
 };
 
 type ApiListing = {
@@ -69,6 +82,7 @@ type ApiListing = {
     supportedLlms?: string[];
     createdAt?: string;
     updatedAt?: string;
+    installCount?: number;
     architect?: ApiArchitect | null;
     workflow?: ApiWorkflow | null;
 };
@@ -82,6 +96,14 @@ type ListingsApiResponse = {
     listings?: ApiListing[];
 };
 
+type MyAgentsResponse = {
+    agents?: Array<{
+        listing: {
+            id: string;
+        };
+    }>;
+};
+
 type Industry = {
     id: string;
     label: string;
@@ -93,7 +115,6 @@ const LISTINGS_API_PATH = "/architect/listings/public";
 
 const sortOptions = [
     { value: "popular", label: "Most popular" },
-    { value: "rating", label: "Highest rated" },
     { value: "priceLow", label: "Price: low to high" },
     { value: "priceHigh", label: "Price: high to low" },
     { value: "newest", label: "Newest" }
@@ -110,6 +131,41 @@ const baseIndustries: Omit<Industry, "count">[] = [
     { id: "legal", label: "Legal", icon: "⚖️" },
     { id: "medical", label: "Medical & Wellness", icon: "❤️" },
     { id: "automotive", label: "Automotive", icon: "🚗" },
+    { id: "ecommerce", label: "E-commerce", icon: "🛍️" },
+    { id: "spa-wellness", label: "Spa & Wellness", icon: "🌿" }
+];
+
+const filterIndustries: Omit<Industry, "count">[] = [
+    { id: "all", label: "All industries", icon: "✨" },
+    { id: "dental", label: "Dental", icon: "🦷" },
+    { id: "medical-clinic", label: "Medical Clinic", icon: "🏥" },
+    { id: "dermatology", label: "Dermatology", icon: "🧴" },
+    { id: "physiotherapy", label: "Physiotherapy", icon: "🦵" },
+    { id: "chiropractor", label: "Chiropractor", icon: "🦴" },
+    { id: "optometry", label: "Optometry", icon: "👓" },
+    { id: "veterinary", label: "Veterinary", icon: "🐾" },
+    { id: "med-spa", label: "Med Spa", icon: "💆" },
+    { id: "salon", label: "Salon", icon: "💇" },
+    { id: "barbershop", label: "Barbershop", icon: "💈" },
+    { id: "spa-wellness", label: "Spa & Wellness", icon: "🌿" },
+    { id: "yoga-studio", label: "Yoga Studio", icon: "🧘" },
+    { id: "gym-fitness", label: "Gym / Fitness", icon: "🏋️" },
+    { id: "legal", label: "Law Firm", icon: "⚖️" },
+    { id: "plumber", label: "Plumber", icon: "🚰" },
+    { id: "hvac", label: "HVAC", icon: "❄️" },
+    { id: "electrician", label: "Electrician", icon: "💡" },
+    { id: "garage-door", label: "Garage Door", icon: "🚪" },
+    { id: "roofing", label: "Roofing", icon: "🏠" },
+    { id: "landscaping", label: "Landscaping", icon: "🌳" },
+    { id: "pool-service", label: "Pool Service", icon: "🏊" },
+    { id: "realestate", label: "Real Estate", icon: "🏡" },
+    { id: "auto-repair", label: "Auto Repair", icon: "🔧" },
+    { id: "restaurant", label: "Restaurant", icon: "🍽️" },
+    { id: "insurance", label: "Insurance", icon: "🛡️" },
+    { id: "mortgage-broker", label: "Mortgage Broker", icon: "🏦" },
+    { id: "urgent-care", label: "Urgent Care", icon: "🚑" },
+    { id: "senior-care", label: "Senior Care", icon: "👵" },
+    { id: "property-management", label: "Property Management", icon: "🏢" },
     { id: "ecommerce", label: "E-commerce", icon: "🛍️" }
 ];
 
@@ -312,6 +368,35 @@ function isRecentlyCreated(createdAt?: string) {
     return Date.now() - createdTime <= thirtyDays;
 }
 
+function getWhatYouGetItems(listing: ApiListing): string[] {
+    const nodes = listing.workflow?.workflowJson?.nodes ?? [];
+
+    const fromNodes = nodes
+        .map((node) => node.data?.label || node.data?.title)
+        .filter((value): value is string => Boolean(value?.trim()));
+
+    const fromConnectors = (listing.requiredConnectors ?? []).map(
+        (connector) => `${connector} integration`
+    );
+    const fromLlms = (listing.supportedLlms ?? []).map((llm) => `${llm} support`);
+
+    const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
+
+    if (items.length) return items;
+
+    const connectors = listing.requiredConnectors ?? [];
+    if (connectors.length) {
+        return connectors.map((connector) => `Integrates with ${connector}`);
+    }
+
+    return [
+        listing.shortDescription ||
+        listing.description ||
+        listing.workflow?.description ||
+        "Automates business workflows with AI."
+    ];
+}
+
 function mapListingToAgent(listing: ApiListing): Agent {
     const profile = listing.architect?.architectProfile;
 
@@ -326,7 +411,7 @@ function mapListingToAgent(listing: ApiListing): Agent {
             listing.workflow?.description ||
             "This AI agent is ready to help automate business workflows.",
         price: Math.round((listing.priceCents ?? 0) / 100),
-        installs: profile?.completedJobs ?? 0,
+        installs: listing.installCount ?? 0,
         rating: profile?.rating ?? 0,
         author:
             listing.architect?.fullName ||
@@ -338,12 +423,19 @@ function mapListingToAgent(listing: ApiListing): Agent {
         tags: listing.tags ?? [],
         requiredConnectors: listing.requiredConnectors ?? [],
         supportedLlms: listing.supportedLlms ?? [],
+        whatYouGet: getWhatYouGetItems(listing),
         createdAt: listing.createdAt
     };
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
     return baseIndustries.map((item) => ({
+        ...item,
+        count: getIndustryAgentCount(item.id, agents)
+    }));
+}
+function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
+    return filterIndustries.map((item) => ({
         ...item,
         count: getIndustryAgentCount(item.id, agents)
     }));
@@ -366,6 +458,8 @@ export default function MarketplacePage() {
     const [priceMin, setPriceMin] = useState(0);
     const [priceMax, setPriceMax] = useState(200);
     const [minRating, setMinRating] = useState(0);
+    const [detailsAgent, setDetailsAgent] = useState<Agent | null>(null);
+    const [ownedListingIds, setOwnedListingIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
         const token =
@@ -440,6 +534,38 @@ export default function MarketplacePage() {
     }, [authReady]);
 
     useEffect(() => {
+        if (!authReady) return;
+
+        let mounted = true;
+
+        async function loadOwnedAgents() {
+            try {
+                const response = await apiGet<MyAgentsResponse>("/payments/my-agents");
+
+                if (!mounted || !response.success) return;
+
+                const ownedIds = new Set(
+                    (response.data?.agents ?? []).map((entry) => entry.listing.id)
+                );
+
+                setOwnedListingIds(ownedIds);
+            } catch {
+                if (mounted) setOwnedListingIds(new Set());
+            }
+        }
+
+        loadOwnedAgents();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady]);
+
+    function isOwnedAgent(listingId: string) {
+        return ownedListingIds.has(listingId);
+    }
+
+    useEffect(() => {
         if (!openFilter) return;
 
         function handleClickOutside(event: MouseEvent) {
@@ -470,14 +596,21 @@ export default function MarketplacePage() {
     }
 
     function openDetailsModal(agent: Agent) {
-        router.push(businessAgentPath(agent.id));
+        setDetailsAgent(agent);
+    }
+
+    function closeDetailsModal() {
+        setDetailsAgent(null);
     }
 
     const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
+    const filterIndustryOptions = useMemo(() => buildFilterIndustriesWithCounts(agents), [agents]);
     const featuredAgent = agents[0] ?? null;
 
     const industryLabel =
-        industries.find((item) => item.id === industry)?.label ?? "All industries";
+        filterIndustryOptions.find((item) => item.id === industry)?.label ??
+        industries.find((item) => item.id === industry)?.label ??
+        "All industries";
 
     const sortLabel =
         sortOptions.find((item) => item.value === sort)?.label ?? "Most popular";
@@ -563,7 +696,6 @@ export default function MarketplacePage() {
         });
 
         return filtered.sort((a, b) => {
-            if (sort === "rating") return b.rating - a.rating;
             if (sort === "priceLow") return a.price - b.price;
             if (sort === "priceHigh") return b.price - a.price;
             if (sort === "newest") {
@@ -722,14 +854,24 @@ export default function MarketplacePage() {
                                     </div>
 
                                     <div className="mt-6 flex flex-wrap items-center gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => openAgentPage(featuredAgent)}
-                                            data-testid="business-marketplace-featured-open"
-                                            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
-                                        >
-                                            Open agent
-                                        </button>
+                                        {isOwnedAgent(featuredAgent.id) ? (
+                                            <Link
+                                                href={BUSINESS_AGENTS_PATH}
+                                                data-testid="business-marketplace-featured-manage-agent"
+                                                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
+                                            >
+                                                Manage agent
+                                            </Link>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => openAgentPage(featuredAgent)}
+                                                data-testid="business-marketplace-featured-open"
+                                                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
+                                            >
+                                                Start 7 days free trial
+                                            </button>
+                                        )}
 
                                         <button
                                             type="button"
@@ -811,9 +953,9 @@ export default function MarketplacePage() {
                                 {openFilter === "industry" ? (
                                     <div
                                         data-filter-panel="industry"
-                                        className="absolute left-0 top-full z-[90] mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                                        className="absolute left-0 top-full z-[90] mt-2 max-h-80 w-72 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
                                     >
-                                        {industries.map((item) => {
+                                        {filterIndustryOptions.map((item) => {
                                             const unlocked = isIndustryAvailable(item.id, agents);
 
                                             return (
@@ -949,62 +1091,6 @@ export default function MarketplacePage() {
                                                 </button>
                                             ))}
                                         </div>
-                                    </div>
-                                ) : null}
-                            </div>
-
-                            <div className="relative">
-                                <button
-                                    type="button"
-                                    onClick={() => setOpenFilter(openFilter === "rating" ? null : "rating")}
-                                    data-testid="marketplace-filter-rating"
-                                    data-filter-trigger="rating"
-                                    className={filterPillClass(ratingActive)}
-                                    aria-haspopup="true"
-                                    aria-expanded={openFilter === "rating"}
-                                >
-                                    <span>{ratingActive ? `${minRating}.0+ ★` : "Rating"}</span>
-                                    <ChevronIcon open={openFilter === "rating"} />
-                                </button>
-
-                                {openFilter === "rating" ? (
-                                    <div
-                                        data-filter-panel="rating"
-                                        className="absolute left-0 top-full z-50 mt-2 w-60 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
-                                    >
-                                        <p className="px-1 pb-2 text-sm font-semibold text-slate-700">
-                                            Minimum rating
-                                        </p>
-
-                                        <div className="flex items-center gap-1 px-1 py-1">
-                                            {[1, 2, 3, 4, 5].map((star) => (
-                                                <button
-                                                    key={star}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setMinRating(star);
-                                                        setOpenFilter(null);
-                                                    }}
-                                                    data-testid={`marketplace-rating-star-${star}`}
-                                                    className={star <= minRating ? "text-amber-400" : "text-gray-300"}
-                                                    aria-label={`${star} stars and up`}
-                                                >
-                                                    <StarIcon className="h-6 w-6" />
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setMinRating(0);
-                                                setOpenFilter(null);
-                                            }}
-                                            data-testid="marketplace-rating-any"
-                                            className={popoverOptionClass(minRating === 0)}
-                                        >
-                                            Any rating
-                                        </button>
                                     </div>
                                 ) : null}
                             </div>
@@ -1192,27 +1278,6 @@ export default function MarketplacePage() {
                 </div>
             </section>
 
-            <section className="border-t border-gray-100 bg-white py-16">
-                <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
-                    <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
-                        ✨
-                    </div>
-                    <h2 className="text-3xl font-bold text-slate-900" data-testid="business-protected-marketplace-not-sure-which-agent-is-right-heading">
-                        Not sure which agent is right?
-                    </h2>
-                    <p className="mx-auto mt-3 max-w-xl text-slate-600" data-testid="business-protected-marketplace-take-a-free-2-minute-assessment-and-text">
-                        Take a free 2-minute assessment and get a personalized
-                        recommendation built around your business.
-                    </p>
-                    <Link data-testid="business-marketplace-ai-score-link"
-                        href={"/assignment" as Route}
-                        className="mx-auto mt-7 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
-                    >
-                        Get your free AI score →
-                    </Link>
-                </div>
-            </section>
-
             <section className="bg-slate-900 py-8">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6">
                     <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-sm text-white/80">
@@ -1224,6 +1289,14 @@ export default function MarketplacePage() {
                     </div>
                 </div>
             </section>
+
+            {detailsAgent ? (
+                <AgentDetailsModal
+                    agent={detailsAgent}
+                    isOwned={isOwnedAgent(detailsAgent.id)}
+                    onClose={closeDetailsModal}
+                />
+            ) : null}
         </main>
     );
 }
@@ -1252,6 +1325,149 @@ function Message({
                 }`}
         >
             {children}
+        </div>
+    );
+}
+
+function AgentDetailsModal({
+    agent,
+    isOwned,
+    onClose
+}: {
+    agent: Agent;
+    isOwned: boolean;
+    onClose: () => void;
+}) {
+    useEffect(() => {
+        function onKeyDown(event: KeyboardEvent) {
+            if (event.key === "Escape") onClose();
+        }
+
+        document.body.style.overflow = "hidden";
+        document.addEventListener("keydown", onKeyDown);
+
+        return () => {
+            document.body.style.overflow = "";
+            document.removeEventListener("keydown", onKeyDown);
+        };
+    }, [onClose]);
+
+    const industryLabel =
+        agent.industry === "all" ? "All industries" : formatLabel(agent.industry);
+
+    return (
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
+            data-testid="business-marketplace-agent-details-modal"
+            onClick={onClose}
+        >
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="marketplace-agent-modal-title"
+                className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <button
+                    type="button"
+                    onClick={onClose}
+                    data-testid="business-marketplace-agent-details-modal-close"
+                    className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
+                    aria-label="Close"
+                >
+                    ✕
+                </button>
+
+                <div className="p-6 sm:p-8">
+                    <div className="flex items-start gap-4">
+                        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
+                            🤖
+                        </span>
+
+                        <div className="min-w-0 pr-8">
+                            <div className="flex flex-wrap gap-2">
+                                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600">
+                                    {agent.category}
+                                </span>
+                                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                                    {industryLabel}
+                                </span>
+                            </div>
+
+                            <h2
+                                id="marketplace-agent-modal-title"
+                                className="mt-3 text-2xl font-extrabold text-slate-900"
+                                data-testid="business-marketplace-agent-details-modal-title"
+                            >
+                                {agent.name}
+                            </h2>
+
+                            <p
+                                className="mt-1 text-sm text-slate-500"
+                                data-testid="business-marketplace-agent-details-modal-meta"
+                            >
+                                {agent.installs} installs · {agent.author}
+                            </p>
+                        </div>
+                    </div>
+
+                    <p
+                        className="mt-5 text-sm leading-relaxed text-slate-600"
+                        data-testid="business-marketplace-agent-details-modal-description"
+                    >
+                        {agent.description}
+                    </p>
+
+                    <div className="mt-6">
+                        <p className="text-xs font-bold uppercase tracking-wide text-indigo-500">
+                            What you get
+                        </p>
+
+                        <ul className="mt-3 space-y-2.5">
+                            {agent.whatYouGet.map((item) => (
+                                <li
+                                    key={item}
+                                    className="flex items-start gap-2.5 text-sm text-slate-700"
+                                    data-testid={`business-marketplace-agent-details-modal-bullet-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                                >
+                                    <span className="mt-0.5 text-amber-500">✓</span>
+                                    {item}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50/60 px-6 py-5 sm:px-8">
+                    <div>
+                        <span
+                            className="text-3xl font-extrabold text-slate-900"
+                            data-testid="business-marketplace-agent-details-modal-price"
+                        >
+                            ${agent.price}
+                        </span>
+                        <span className="ml-2 text-sm text-slate-500">one-time</span>
+                    </div>
+
+                    {isOwned ? (
+                        <Link
+                            href={BUSINESS_AGENTS_PATH}
+                            data-testid="business-marketplace-agent-details-modal-manage-agent"
+                            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
+                        >
+                            Manage agent
+                        </Link>
+                    ) : (
+                        <Link
+                            href={businessCheckoutPath(agent.id)}
+                            data-testid="business-marketplace-agent-details-modal-start-trial"
+                            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
+                        >
+                            Start free trial
+                        </Link>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
@@ -1316,7 +1532,7 @@ function AgentGridCard({
 
             <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
                 <span className="text-xs text-slate-500">{agent.installs} installs</span>
-                <span className="truncate text-xs text-slate-500">Triven Team</span>
+                <span className="truncate text-xs text-slate-500">{agent.author}</span>
             </div>
 
             <div className="px-6 pb-6 pt-4">
@@ -1384,7 +1600,7 @@ function AgentListCard({
 
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span>{agent.installs} installs</span>
-                    <span>Triven Team</span>
+                    <span>{agent.author}</span>
                 </div>
             </div>
 
