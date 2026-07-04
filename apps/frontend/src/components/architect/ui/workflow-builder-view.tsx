@@ -27,6 +27,7 @@ import {
   useArchitectTemplate
 } from "@/components/architect/features/api";
 import type { ArchitectWorkflow, WorkflowRunLog } from "@/components/architect/features/types";
+import { getAuthUser } from "@/lib/auth";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
@@ -77,6 +78,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [publishError, setPublishError] = useState("");
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [importingSlug, setImportingSlug] = useState<string | null>(null);
+  const architectName = useMemo(() => {
+    const user = getAuthUser();
+    return user?.fullName?.trim() || user?.email || "Architect";
+  }, []);
 
   // The builder may open UNSAVED (workflowId === "") — no draft exists until the
   // architect makes a meaningful edit. `currentWorkflowId` becomes the real id
@@ -760,6 +765,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             agentName={agentName}
             tagline={tagline}
             price={price}
+            authorName={architectName}
             saving={saving}
             statusMessage={message}
             errorMessage={publishError}

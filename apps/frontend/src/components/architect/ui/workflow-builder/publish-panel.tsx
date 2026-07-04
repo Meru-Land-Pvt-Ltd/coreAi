@@ -7,6 +7,7 @@ export function PublishPanel({
   agentName,
   tagline,
   price,
+  authorName,
   saving,
   statusMessage = "",
   errorMessage = "",
@@ -19,6 +20,7 @@ export function PublishPanel({
   agentName: string;
   tagline: string;
   price: string;
+  authorName: string;
   saving: boolean;
   statusMessage?: string;
   errorMessage?: string;
@@ -55,19 +57,19 @@ export function PublishPanel({
                     New
                   </span>
                   <span className="text-slate-400">-</span>
-                  <span className="text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-by-marcus-thompson-text">by <span className="font-medium text-slate-700" data-testid="architect-ui-workflow-builder-publish-panel-marcus-thompson-text">Marcus Thompson</span></span>
+                  <span className="text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-by-architect-text">by <span className="font-medium text-slate-700" data-testid="architect-ui-workflow-builder-publish-panel-architect-name-text">{authorName}</span></span>
                 </div>
                 <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
                   <div>
                     <span className="text-2xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-price-text">${price}</span>
                     <span className="text-sm text-slate-400" data-testid="architect-ui-workflow-builder-publish-panel-month-text">/month</span>
                   </div>
-                  <Link data-testid="publish-panel-install-agent-link"
-                    href={`/architect/agents/publish?workflowId=${workflowId}` as Route}
-                    className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  <span
+                    data-testid="publish-panel-install-agent-link"
+                    className="cursor-default select-none rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white"
                   >
                     Install agent
-                  </Link>
+                  </span>
                 </div>
               </div>
             </div>
