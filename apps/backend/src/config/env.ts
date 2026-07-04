@@ -48,6 +48,7 @@ const envSchema = z.object({
   VAPI_DEFAULT_VOICE_PROVIDER: z.string().default("11labs"),
 
   ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
   ELEVENLABS_VOICE_SARAH_ID: z.string().optional(),
   ELEVENLABS_VOICE_ARIA_ID: z.string().optional(),
   ELEVENLABS_VOICE_RACHEL_ID: z.string().optional(),

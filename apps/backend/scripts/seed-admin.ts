@@ -5,10 +5,10 @@ import { hashPassword } from "../src/lib/password";
 async function main() {
   const [emailRaw, password, ...nameParts] = process.argv.slice(2);
   const email = (emailRaw ?? "").trim().toLowerCase();
-  const fullName = nameParts.join(" ").trim() || "Core Admin";
+  const fullName = nameParts.join(" ").trim() || "Triven Admin";
 
   if (!email || !password) {
-    console.error('Usage: npm run seed:admin --workspace=@coreai/backend -- "admin@example.com" "Password" "Name"');
+    console.error('Usage: npm run seed:admin --workspace=@coreai/backend -- "admin@triven.ai" "Password" "Name"');
     process.exitCode = 1;
     return;
   }

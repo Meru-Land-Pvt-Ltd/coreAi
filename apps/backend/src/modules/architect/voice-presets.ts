@@ -1,14 +1,6 @@
 import { VOICE_PRESETS, type AgentVoicePreset } from "@coreai/shared";
 import { env } from "../../config/env";
 
-/**
- * Backend voice resolution + preview. Vapi is the live voice platform; ElevenLabs
- * is the voice provider inside Vapi. The platform owns this integration — buyers
- * never connect ElevenLabs. Architects pick a friendly preset (no raw ids); this
- * module resolves the actual ElevenLabs voice id (with optional env overrides).
- */
-
-/** Per-preset env override of the ElevenLabs voice id (e.g. ELEVENLABS_VOICE_SARAH_ID). */
 const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
   sarah: env.ELEVENLABS_VOICE_SARAH_ID,
   aria: env.ELEVENLABS_VOICE_ARIA_ID,
@@ -19,7 +11,6 @@ const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
 
 type ErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 422 | 500 | 503;
 
-/** Error that carries an HTTP status so the route + frontend can show the real cause. */
 export class VoicePreviewError extends Error {
   status: ErrorStatus;
   constructor(message: string, status: ErrorStatus = 503) {
@@ -29,13 +20,11 @@ export class VoicePreviewError extends Error {
   }
 }
 
-/** Last 4 chars of an id for safe logging — never log the full id or the API key. */
 function last4(value: string): string {
   const v = (value ?? "").trim();
   return v.length >= 4 ? v.slice(-4) : v || "—";
 }
 
-/** Map an ElevenLabs HTTP status onto an allowed API error status. */
 function toApiStatus(status: number): ErrorStatus {
   return status === 401 || status === 402 || status === 403 || status === 404 || status === 422
     ? status
@@ -63,17 +52,22 @@ export function isVoicePreviewConfigured(): boolean {
   return Boolean(key && !key.includes("your_") && !key.includes("xxx"));
 }
 
-/**
- * Resolve a preset id to an ElevenLabs voice id:
- *   env override → shared preset default → VAPI_DEFAULT_VOICE_ID → "".
- */
+export const FALLBACK_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
+
+export function defaultElevenLabsVoiceId(): string {
+  return (
+    (env.ELEVENLABS_DEFAULT_VOICE_ID ?? "").trim() ||
+    (env.VAPI_DEFAULT_VOICE_ID ?? "").trim() ||
+    FALLBACK_ELEVENLABS_VOICE_ID
+  );
+}
+
+
 export function resolvePresetVoiceId(presetId?: string | null): string {
   const id = (presetId ?? "").trim().toLowerCase();
   const override = (ENV_VOICE_OVERRIDES[id] ?? "").trim();
   if (override) return override;
-  const preset = VOICE_PRESETS.find((item) => item.id === id);
-  if (preset?.voiceId) return preset.voiceId;
-  return (env.VAPI_DEFAULT_VOICE_ID ?? "").trim();
+  return defaultElevenLabsVoiceId();
 }
 
 export type VoicePresetView = AgentVoicePreset & {
@@ -100,29 +94,31 @@ export function listVoicePresets(): { voices: VoicePresetView[]; previewConfigur
 /** Safe, secret-free diagnostics for GET /architect/voices/debug. No full ids, no key. */
 export function voicePreviewDiagnostics() {
   const previewConfigured = isVoicePreviewConfigured();
-  const defaultVoiceConfigured = Boolean((env.VAPI_DEFAULT_VOICE_ID ?? "").trim());
+  const defaultVoiceConfigured = Boolean(
+    (env.ELEVENLABS_DEFAULT_VOICE_ID ?? "").trim() || (env.VAPI_DEFAULT_VOICE_ID ?? "").trim()
+  );
   const presets = VOICE_PRESETS.map((preset) => {
     const override = (ENV_VOICE_OVERRIDES[preset.id] ?? "").trim();
     const resolved = resolvePresetVoiceId(preset.id);
     return {
       id: preset.id,
       name: preset.name,
-      hasVoiceId: Boolean(preset.voiceId) || Boolean(override),
+      hasVoiceId: Boolean(resolved),
+      hasEnvOverride: Boolean(override),
       resolvedLast4: resolved ? last4(resolved) : null,
       previewAvailable: previewConfigured && Boolean(resolved)
     };
   });
-  return { previewConfigured, defaultVoiceConfigured, presets };
+  return {
+    previewConfigured,
+    defaultVoiceConfigured,
+    defaultVoiceLast4: last4(defaultElevenLabsVoiceId()),
+    presets
+  };
 }
 
 const PREVIEW_TEXT_MAX = 300;
 
-/**
- * Generate a short TTS preview via ElevenLabs. Resolves the voice id from an
- * explicit custom id or a preset id, then returns base64 audio (never the key).
- * On any failure it throws a VoicePreviewError that carries the real status +
- * ElevenLabs message so the UI can show the actual cause (e.g. 402 paid plan).
- */
 export async function generateVoicePreview(input: {
   presetId?: string | null;
   voiceId?: string | null;
