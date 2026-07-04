@@ -105,7 +105,7 @@ export function ComponentLibrary({
         <ComingSoonSection query={query} />
       </div>
 
-      <div className="mt-4 border-t border-gray-100 px-4 py-4">
+      {/* <div className="mt-4 border-t border-gray-100 px-4 py-4">
         <p className="flex items-center gap-1.5 text-xs italic text-slate-400" data-testid="architect-ui-workflow-builder-component-library-drag-components-onto-the-canvas-text">
           Drag components onto the canvas
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -113,7 +113,7 @@ export function ComponentLibrary({
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </p>
-      </div>
+      </div> */}
     </div>
   );
 }

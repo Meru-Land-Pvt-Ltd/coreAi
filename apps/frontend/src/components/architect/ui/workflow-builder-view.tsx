@@ -521,30 +521,30 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     const payload = hasSmsFlow
       ? {
-          input: {
-            callerNumber: normalizedCallerNumber,
-            callerName: callerName.trim(),
-            businessName: normalizedBusinessName,
-            businessType: "Service Business",
-            businessPhoneNumber: "",
-            calendarId: "primary",
-            timeZone: "America/New_York",
-            services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-            faqs: [
-              "Pricing depends on the service and business policy.",
-              "Urgent calls should be escalated to the team."
-            ],
-            knowledge: [
-              "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-            ],
-            bookingUrl: "https://example.com/book",
-            teamPhone: "",
-            callStatus: "no-answer",
-            callTimestamp: new Date().toISOString(),
-            missedCallReason: "No one picked up the customer call.",
-            appointmentService: "Consultation"
-          }
+        input: {
+          callerNumber: normalizedCallerNumber,
+          callerName: callerName.trim(),
+          businessName: normalizedBusinessName,
+          businessType: "Service Business",
+          businessPhoneNumber: "",
+          calendarId: "primary",
+          timeZone: "America/New_York",
+          services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
+          faqs: [
+            "Pricing depends on the service and business policy.",
+            "Urgent calls should be escalated to the team."
+          ],
+          knowledge: [
+            "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
+          ],
+          bookingUrl: "https://example.com/book",
+          teamPhone: "",
+          callStatus: "no-answer",
+          callTimestamp: new Date().toISOString(),
+          missedCallReason: "No one picked up the customer call.",
+          appointmentService: "Consultation"
         }
+      }
       : {};
 
     const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
@@ -677,7 +677,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      <main className="fixed bottom-10 left-0 right-0 top-[72px] overflow-hidden">
+      <main className="fixed bottom-10 left-0 right-0 top-12 overflow-hidden">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex">
             <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin">
