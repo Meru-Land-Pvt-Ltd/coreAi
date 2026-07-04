@@ -173,7 +173,7 @@ model Business {
   // Stripe billing (AI Receptionist subscription).
   stripeCustomerId     String?
   stripeSubscriptionId String?
-  subscriptionStatus   String?   @default("inactive")
+  subscriptionStatus   String?   @default("active")
   subscriptionPriceId  String?
   currentPeriodEnd     DateTime?
 

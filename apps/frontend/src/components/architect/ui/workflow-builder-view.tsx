@@ -15,18 +15,27 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
+import { VOICE_NODE_TYPES } from "@coreai/shared";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectListing,
   createArchitectWorkflow,
+  disconnectGmailConnector,
+  getArchitectTestDeployment,
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
   runArchitectWorkflowTest,
+  startArchitectTestDeployment,
+  stopArchitectTestDeployment,
   updateArchitectWorkflow,
   useArchitectTemplate
 } from "@/components/architect/features/api";
-import type { ArchitectWorkflow, WorkflowRunLog } from "@/components/architect/features/types";
+import type {
+  ArchitectTestDeploymentStatus,
+  ArchitectWorkflow,
+  WorkflowRunLog
+} from "@/components/architect/features/types";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
@@ -62,13 +71,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [runContext, setRunContext] = useState<Record<string, unknown>>({});
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
+  const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
   const [price, setPrice] = useState("149");
   const [businessName, setBusinessName] = useState("");
+  const [businessType, setBusinessType] = useState("");
+  const [calendarId, setCalendarId] = useState("");
+  const [timeZone, setTimeZone] = useState("");
+  const [appointmentService, setAppointmentService] = useState("");
   const [callerNumber, setCallerNumber] = useState("");
   const [callerName, setCallerName] = useState("");
+  const [testDeployment, setTestDeployment] = useState<ArchitectTestDeploymentStatus | null>(null);
+  const [startingLive, setStartingLive] = useState(false);
+  const [stoppingLive, setStoppingLive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -137,6 +154,33 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       ),
     [nodes]
   );
+
+  // Voice workflow = uses the generic voice-booking nodes (phone trigger / AI
+  // voice conversation). The Dental AI Receptionist template is one of these.
+  const isVoiceWorkflow = useMemo(() => {
+    const voiceTypes = new Set<string>([
+      VOICE_NODE_TYPES.phoneCallTrigger,
+      VOICE_NODE_TYPES.voiceConversation
+    ]);
+    return nodes.some((node) => voiceTypes.has(String(node.data.type ?? "")));
+  }, [nodes]);
+
+  const isDentalWorkflow = useMemo(() => {
+    const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
+    return isVoiceWorkflow && name.includes("dental");
+  }, [agentName, workflow?.name, isVoiceWorkflow]);
+
+  // Default test values for voice-booking workflows (dental template defaults).
+  // Test-tab-only prefills — they never change the workflow nodes themselves.
+  useEffect(() => {
+    if (!isVoiceWorkflow) return;
+    setBusinessName((value) => value || "Triven Dental Care");
+    setBusinessType((value) => value || "Dental Clinic");
+    setCallerName((value) => value || "Test Patient");
+    setCalendarId((value) => value || "primary");
+    setTimeZone((value) => value || "America/Los_Angeles");
+    setAppointmentService((value) => value || "Cleaning");
+  }, [isVoiceWorkflow]);
 
   const meaningfulForSave = useCallback(
     (snap: { nodes: BuilderNode[]; agentName: string }) =>
@@ -269,12 +313,23 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     if (result.success && result.data) {
       setGmailConnected(result.data.connected);
       setGmailEmail(result.data.email);
+      setCalendarConnected(Boolean(result.data.calendarConnected));
+    }
+  }
+
+  async function loadTestDeployment() {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+
+    const result = await getArchitectTestDeployment(id);
+    if (result.success && result.data) {
+      setTestDeployment(result.data.testDeployment);
     }
   }
 
   async function connectGmail() {
     setConnectingGmail(true);
-    setMessage("Connecting Gmail...");
+    setMessage("Connecting Google...");
 
     const result = await getGmailOAuthUrl();
 
@@ -283,13 +338,87 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
-    setMessage(result.error ?? "Could not connect Gmail");
+    setMessage(result.error ?? "Could not connect Google");
     setConnectingGmail(false);
+  }
+
+  async function disconnectGoogle() {
+    const result = await disconnectGmailConnector();
+    setMessage(result.success ? "Google disconnected" : result.error ?? "Could not disconnect Google");
+    await loadGmailStatus();
+    await loadTestDeployment();
+  }
+
+  async function refreshConnections() {
+    setMessage("Refreshing connection status...");
+    await Promise.all([loadGmailStatus(), loadTestDeployment()]);
+    setMessage("Connection status refreshed");
+  }
+
+  async function startLiveTest() {
+    if (blockIfUnderReview()) return;
+
+    const confirmed = window.confirm(
+      "Start a live sandbox test? This creates/updates a Vapi assistant, reserves a Triven test phone number, and live calls will book real events in YOUR connected Google Calendar. It does not publish the agent or touch buyer installs."
+    );
+    if (!confirmed) return;
+
+    setStartingLive(true);
+    setMessage("Starting live sandbox...");
+
+    const saved = await saveAgent(false);
+    if (!saved || !currentWorkflowIdRef.current) {
+      setStartingLive(false);
+      setMessage("Save the agent before starting a live sandbox test.");
+      return;
+    }
+
+    const result = await startArchitectTestDeployment(currentWorkflowIdRef.current, {
+      businessName: businessName.trim() || undefined,
+      businessType: businessType.trim() || undefined,
+      calendarId: calendarId.trim() || undefined,
+      timeZone: timeZone.trim() || undefined
+    });
+
+    setStartingLive(false);
+
+    if (!result.success || !result.data) {
+      setMessage(result.error ?? "Could not start the live sandbox test");
+      return;
+    }
+
+    setTestDeployment(result.data.testDeployment);
+    setActiveTab("test");
+    setMessage(
+      result.data.testDeployment.assignedPhoneNumber
+        ? `Live sandbox ready — call ${result.data.testDeployment.assignedPhoneNumber}`
+        : "Live sandbox ready"
+    );
+  }
+
+  async function stopLiveTest() {
+    if (!currentWorkflowIdRef.current) return;
+
+    setStoppingLive(true);
+    setMessage("Stopping sandbox test...");
+
+    const result = await stopArchitectTestDeployment(currentWorkflowIdRef.current);
+
+    setStoppingLive(false);
+
+    if (!result.success || !result.data) {
+      setMessage(result.error ?? "Could not stop the sandbox test");
+      return;
+    }
+
+    setTestDeployment(result.data.testDeployment);
+    setMessage("Sandbox test stopped — test number released");
   }
 
   useEffect(() => {
     void loadWorkflow();
     void loadGmailStatus();
+    void loadTestDeployment();
   }, [workflowId]);
 
   function addNodeFromLibrary(nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) {
@@ -519,33 +648,48 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
-    const payload = hasSmsFlow
+    const payload = isVoiceWorkflow
       ? {
         input: {
           callerNumber: normalizedCallerNumber,
           callerName: callerName.trim(),
-          businessName: normalizedBusinessName,
-          businessType: "Service Business",
+          businessName: normalizedBusinessName || "Triven Dental Care",
+          businessType: businessType.trim() || "Dental Clinic",
           businessPhoneNumber: "",
-          calendarId: "primary",
-          timeZone: "America/New_York",
-          services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-          faqs: [
-            "Pricing depends on the service and business policy.",
-            "Urgent calls should be escalated to the team."
-          ],
-          knowledge: [
-            "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-          ],
-          bookingUrl: "https://example.com/book",
-          teamPhone: "",
+          calendarId: calendarId.trim() || "primary",
+          timeZone: timeZone.trim() || "America/Los_Angeles",
           callStatus: "no-answer",
           callTimestamp: new Date().toISOString(),
-          missedCallReason: "No one picked up the customer call.",
-          appointmentService: "Consultation"
+          appointmentService: appointmentService.trim() || "Cleaning"
         }
       }
-      : {};
+      : hasSmsFlow
+        ? {
+          input: {
+            callerNumber: normalizedCallerNumber,
+            callerName: callerName.trim(),
+            businessName: normalizedBusinessName,
+            businessType: "Service Business",
+            businessPhoneNumber: "",
+            calendarId: "primary",
+            timeZone: "America/New_York",
+            services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
+            faqs: [
+              "Pricing depends on the service and business policy.",
+              "Urgent calls should be escalated to the team."
+            ],
+            knowledge: [
+              "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
+            ],
+            bookingUrl: "https://example.com/book",
+            teamPhone: "",
+            callStatus: "no-answer",
+            callTimestamp: new Date().toISOString(),
+            missedCallReason: "No one picked up the customer call.",
+            appointmentService: "Consultation"
+          }
+        }
+        : {};
 
     const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
 
@@ -734,20 +878,38 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         {activeTab === "test" ? (
           <TestPanel
             hasGmailFlow={hasGmailFlow}
+            isVoiceWorkflow={isVoiceWorkflow}
+            isDentalWorkflow={isDentalWorkflow}
             gmailConnected={gmailConnected}
             gmailEmail={gmailEmail}
+            calendarConnected={calendarConnected}
             connectingGmail={connectingGmail}
             running={running}
+            startingLive={startingLive}
+            stoppingLive={stoppingLive}
             callerNumber={callerNumber}
             callerName={callerName}
             businessName={businessName}
+            businessType={businessType}
+            calendarId={calendarId}
+            timeZone={timeZone}
+            appointmentService={appointmentService}
+            testDeployment={testDeployment}
             runLogs={runLogs}
             runContext={runContext}
             onConnectGmail={connectGmail}
+            onDisconnectGoogle={() => void disconnectGoogle()}
+            onRefreshConnections={() => void refreshConnections()}
             onRunTest={() => void runAgent()}
+            onStartLiveTest={() => void startLiveTest()}
+            onStopLiveTest={() => void stopLiveTest()}
             onCallerNumberChange={setCallerNumber}
             onCallerNameChange={setCallerName}
             onBusinessNameChange={setBusinessName}
+            onBusinessTypeChange={setBusinessType}
+            onCalendarIdChange={setCalendarId}
+            onTimeZoneChange={setTimeZone}
+            onAppointmentServiceChange={setAppointmentService}
           />
         ) : null}
 

@@ -30,6 +30,7 @@ const STEP_STORAGE_KEY = "biz-setup-step";
 const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 const TRIVEN_VOICE_NAME = "Triven Voice";
 const DEFAULT_VOICE_PROVIDER = "11labs";
+const PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
 
 const STEPS = [
   { id: 1, title: "Business Details" },
@@ -118,6 +119,23 @@ const SECTION = "mt-8 border-t border-gray-100 pt-8";
 const SECTION_TITLE = "text-sm font-bold text-slate-900";
 const PROVIDER_BADGE = "rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600";
 
+type ChecklistRow = {
+  key: string;
+  label: string;
+  required: boolean;
+  complete: boolean;
+  blocker?: string;
+};
+
+type PersistResult = {
+  ok: boolean;
+  number: string;
+  vapiAssistantId: string | null;
+  installedAgentId: string | null;
+};
+
+type UnknownRecord = Record<string, unknown>;
+
 function defaultTimeZone(): string {
   try {
     return normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -143,7 +161,43 @@ function normalizeVoiceChoice(value?: string | null): string {
   return voice;
 }
 
-type ChecklistRow = { key: string; label: string; required: boolean; complete: boolean; blocker?: string };
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function objectOrNull(value: unknown): UnknownRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as UnknownRecord) : null;
+}
+
+function readLiveVapiAssistantId(data: unknown): string | null {
+  const root = objectOrNull(data);
+  if (!root) return null;
+
+  const direct = stringOrNull(root.vapiAssistantId);
+  if (direct) return direct;
+
+  const installedAgent = objectOrNull(root.installedAgent);
+  const configJson = objectOrNull(installedAgent?.configJson);
+  const fromConfig = stringOrNull(configJson?.vapiAssistantId);
+  if (fromConfig) return fromConfig;
+
+  const profile = objectOrNull(root.profile);
+  const fromProfile = stringOrNull(profile?.vapiAssistantId);
+  if (fromProfile) return fromProfile;
+
+  return null;
+}
+
+function readInstalledAgentId(data: unknown): string | null {
+  const root = objectOrNull(data);
+  if (!root) return null;
+
+  const direct = stringOrNull(root.installedAgentId);
+  if (direct) return direct;
+
+  const installedAgent = objectOrNull(root.installedAgent);
+  return stringOrNull(installedAgent?.id);
+}
 
 export default function BusinessAgentSetupPage() {
   return (
@@ -173,6 +227,8 @@ function SetupWizard() {
   const [error, setError] = useState("");
   const [deployed, setDeployed] = useState(false);
   const [successNumber, setSuccessNumber] = useState<string | null>(null);
+  const [liveVapiAssistantId, setLiveVapiAssistantId] = useState<string | null>(null);
+  const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
@@ -218,6 +274,12 @@ function SetupWizard() {
 
     if (res.success && res.data) {
       const data = res.data;
+
+      const existingVapiAssistantId = readLiveVapiAssistantId(data);
+      const existingInstalledAgentId = readInstalledAgentId(data);
+
+      setLiveVapiAssistantId(existingVapiAssistantId);
+      setLiveInstalledAgentId(existingInstalledAgentId);
 
       if (data.business) {
         setBusinessName(data.business.name);
@@ -272,12 +334,15 @@ function SetupWizard() {
       const savedVoiceId = (selection?.voiceId ?? "").trim();
       const savedVoiceName = normalizeVoiceChoice(selection?.name);
 
-      if (savedVoiceId) {
+      if (savedVoiceName === "custom" && savedVoiceId) {
         setVoiceChoice("custom");
         setCustomVoiceId(savedVoiceId);
       } else if (PRESET_VOICE_IDS.has(savedVoiceName)) {
         setVoiceChoice(savedVoiceName);
         setCustomVoiceId("");
+      } else if (savedVoiceId) {
+        setVoiceChoice("custom");
+        setCustomVoiceId(savedVoiceId);
       } else {
         setVoiceChoice(PLATFORM_DEFAULT_VOICE_ID);
         setCustomVoiceId("");
@@ -324,27 +389,46 @@ function SetupWizard() {
       };
     }
 
-    if (PRESET_VOICE_IDS.has(normalizedVoice)) {
+    if (normalizedVoice === PLATFORM_DEFAULT_VOICE_ID) {
+      return {
+        voice: PLATFORM_DEFAULT_VOICE_ID,
+        voiceProvider: DEFAULT_VOICE_PROVIDER,
+        voiceId: PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID
+      };
+    }
+
+    const preset = VOICE_PRESETS.find((item) => item.id === normalizedVoice);
+
+    if (preset) {
       return {
         voice: normalizedVoice,
         voiceProvider: DEFAULT_VOICE_PROVIDER,
-        voiceId: ""
+        voiceId: preset.voiceId?.trim() || ""
       };
     }
 
     return {
       voice: PLATFORM_DEFAULT_VOICE_ID,
       voiceProvider: DEFAULT_VOICE_PROVIDER,
-      voiceId: ""
+      voiceId: PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID
     };
   }
 
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
-  async function persistSetup(
-    deploy: boolean
-  ): Promise<{ ok: boolean; number: string; vapiAssistantId: string | null; installedAgentId: string | null }> {
+  async function persistSetup(deploy: boolean): Promise<PersistResult> {
     const voiceFields = buildVoiceFields();
+
+    if (!deploy && liveVapiAssistantId) {
+      setStatusMsg("Live agent is already deployed. Click Deploy live agent to apply new changes.");
+
+      return {
+        ok: true,
+        number: assignedNumber ?? "",
+        vapiAssistantId: liveVapiAssistantId,
+        installedAgentId: liveInstalledAgentId
+      };
+    }
 
     const res = await saveBusinessSetup({
       deploy,
@@ -386,6 +470,12 @@ function SetupWizard() {
     const data = res.data;
     const number = data.assignedPhoneNumber ?? data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
 
+    const nextVapiAssistantId = data.vapiAssistantId ?? readLiveVapiAssistantId(data) ?? liveVapiAssistantId ?? null;
+    const nextInstalledAgentId = data.installedAgentId ?? readInstalledAgentId(data) ?? liveInstalledAgentId ?? null;
+
+    setLiveVapiAssistantId(nextVapiAssistantId);
+    setLiveInstalledAgentId(nextInstalledAgentId);
+
     if (number) {
       setAssignedNumber(number);
     }
@@ -407,8 +497,8 @@ function SetupWizard() {
     return {
       ok: true,
       number,
-      vapiAssistantId: data.vapiAssistantId ?? null,
-      installedAgentId: data.installedAgentId ?? data.installedAgent?.id ?? null
+      vapiAssistantId: nextVapiAssistantId,
+      installedAgentId: nextInstalledAgentId
     };
   }
 
@@ -496,7 +586,7 @@ function SetupWizard() {
       return;
     }
 
-    if (forwardToPhone.trim().length < 5) {
+    if (answeringMode !== "AI_FIRST" && forwardToPhone.trim().length < 5) {
       setStep(2);
       setError("Add the phone number that should receive forwarded/live calls.");
       return;
@@ -551,7 +641,8 @@ function SetupWizard() {
   const needs = new Set(requiredKeys);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
-  const phoneComplete = phoneSelected && forwardToPhone.trim().length >= 5;
+  const forwardRequired = answeringMode !== "AI_FIRST";
+  const phoneComplete = phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5);
   const voiceComplete = voiceChoice !== "custom" || customVoiceId.trim().length > 0;
   const needsCalendar = needs.has("google_calendar");
   const needsGmail = needs.has("gmail");
@@ -600,7 +691,9 @@ function SetupWizard() {
               ? undefined
               : !phoneSelected
                 ? "Select a Triven phone number."
-                : "Add the phone number that should receive forwarded/live calls."
+                : answeringMode === "AI_FIRST"
+                  ? undefined
+                  : "Add the phone number that should receive forwarded/live calls."
           }
         ]
       : []),
@@ -1087,6 +1180,7 @@ function StepPhoneCalendar({
   onTimeZone: (v: string) => void;
 }) {
   const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
+  const forwardRequired = answeringMode !== "AI_FIRST";
 
   return (
     <div className={CARD}>
@@ -1179,7 +1273,7 @@ function StepPhoneCalendar({
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <div>
             <label className={LABEL} htmlFor="forward-phone">
-              Forwarding / public business phone
+              Forwarding / public business phone {forwardRequired ? "" : "optional"}
             </label>
 
             <input
@@ -1192,7 +1286,11 @@ function StepPhoneCalendar({
               className={FIELD}
             />
 
-            <p className="mt-1 text-xs text-slate-400">Calls the AI can’t handle are forwarded here, or your team is reached here.</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {forwardRequired
+                ? "Required for this answering mode so missed or fallback calls can reach your team."
+                : "Optional for AI-first mode. Add this only if calls the AI cannot handle should forward to your team."}
+            </p>
           </div>
 
           <div>

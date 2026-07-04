@@ -245,6 +245,8 @@ export async function handleGmailOAuthCallback({
   };
 }
 
+export const GOOGLE_CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
 export async function getGmailConnectionStatus(userId: string) {
   const credential = await prisma.connectorCredential.findUnique({
     where: {
@@ -255,12 +257,18 @@ export async function getGmailConnectionStatus(userId: string) {
     }
   });
 
+  const connected = Boolean(credential?.refreshTokenEnc || credential?.accessTokenEnc);
+  const scopes = credential?.scope?.split(" ").filter(Boolean) ?? [];
+
   return {
-    connected: Boolean(credential?.refreshTokenEnc || credential?.accessTokenEnc),
+    connected,
     email: credential?.externalAccountEmail ?? null,
     provider: "GMAIL",
     expiresAt: credential?.expiresAt?.toISOString() ?? null,
-    scopes: credential?.scope?.split(" ") ?? []
+    scopes,
+    // One Google connect powers Gmail + Calendar; calendar works only when the
+    // granted scopes include calendar.events (older connects may lack it).
+    calendarConnected: connected && scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE)
   };
 }
 
