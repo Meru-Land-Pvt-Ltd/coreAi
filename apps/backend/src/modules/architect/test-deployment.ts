@@ -259,7 +259,7 @@ export async function startArchitectTestDeployment(
   }
 
   // ---- Test business context (defaults suit the Dental AI Receptionist template) ----
-  const businessName = (input.businessName ?? "").trim() || str(ai, "practiceName", "Triven Dental Care");
+  const businessName = (input.businessName ?? "").trim() || str(ai, "practiceName", "the business");
   const businessType = (input.businessType ?? "").trim() || "Dental Clinic";
   const calendarId = (input.calendarId ?? "").trim() || "primary";
   const timeZone = normalizeTimeZone((input.timeZone ?? "").trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
@@ -303,7 +303,7 @@ export async function startArchitectTestDeployment(
   });
 
   // ---- Compose + deploy the per-workflow Vapi assistant ----
-  const assistantName = str(ai, "assistantName", "Sarah");
+  const assistantName = str(ai, "assistantName", "AI receptionist");
   const tokens: Record<string, string> = {
     assistantName,
     business_name: businessName,
@@ -318,7 +318,7 @@ export async function startArchitectTestDeployment(
   };
   const systemPrompt = fillTokens(str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE), tokens);
   const firstMessage = fillTokens(
-    str(ai, "firstMessage", `Thanks for calling ${businessName}. This is ${assistantName}, how can I help you?`),
+    str(ai, "firstMessage", `Hello, this is the AI receptionist for ${businessName}. How can I help you today?`),
     tokens
   );
 

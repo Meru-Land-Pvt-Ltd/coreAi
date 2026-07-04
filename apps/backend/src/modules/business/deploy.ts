@@ -114,7 +114,7 @@ export async function deployInstalledAgentVoiceAssistant(
   if (!ai) return null; // SMS-only agent — no voice assistant to build.
 
   const businessName = business.name || "the business";
-  const assistantName = str(ai, "assistantName", "Sarah");
+  const assistantName = str(ai, "assistantName", "AI receptionist");
   const model = str(ai, "model", "gpt-4o");
 
   const buyer = readBuyerConfig(installedAgent.configJson);
@@ -144,7 +144,7 @@ export async function deployInstalledAgentVoiceAssistant(
   const promptTemplate = str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE);
   const systemPrompt = fillTokens(promptTemplate, tokens);
   const firstMessage = fillTokens(
-    str(ai, "firstMessage", `Thanks for calling ${businessName}. This is ${assistantName}, how can I help you?`),
+    str(ai, "firstMessage", `Hello, this is the AI receptionist for ${businessName}. How can I help you today?`),
     tokens
   );
 
@@ -160,9 +160,14 @@ export async function deployInstalledAgentVoiceAssistant(
     firstMessage,
     systemPrompt,
     model,
-    voice: override.voice ?? str(ai, "voice", "sarah"),
+    voice: override.voice ?? str(ai, "voice", "triven-default"),
     voiceProvider: override.provider ?? str(ai, "voiceProvider", ""),
-    voiceId: override.voiceId ?? str(ai, "voiceId", ""),
+    voiceId:
+      override.voiceId ||
+      str(ai, "voiceId", "") ||
+      process.env.ELEVENLABS_DEFAULT_VOICE_ID ||
+      process.env.VAPI_DEFAULT_VOICE_ID ||
+      "FD17pMswbbEnsVYS0L7P",
     serverUrl: webhookUrl,
     existingAssistantId
   });

@@ -290,8 +290,12 @@ export async function createVapiInboundTwiml({
 
   if (isRealId(resolvedPhoneNumberId)) {
     payload.phoneNumberId = resolvedPhoneNumberId;
-  } else if (resolvedPhoneNumber) {
-    payload.phoneNumber = resolvedPhoneNumber;
+  } else if (resolvedPhoneNumber && env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
+    payload.phoneNumber = {
+      twilioPhoneNumber: resolvedPhoneNumber,
+      twilioAccountSid: env.TWILIO_ACCOUNT_SID,
+      twilioAuthToken: env.TWILIO_AUTH_TOKEN
+    };
   }
 
   let response: Response;
