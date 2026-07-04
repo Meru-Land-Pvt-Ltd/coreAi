@@ -3,7 +3,12 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CUSTOM_INSTRUCTION_SUGGESTIONS, DEFAULT_SILENCE, normalizeTimeZone, VOICE_PRESETS } from "@coreai/shared";
+import {
+  CUSTOM_INSTRUCTION_SUGGESTIONS,
+  DEFAULT_SILENCE,
+  normalizeTimeZone,
+  VOICE_PRESETS
+} from "@coreai/shared";
 import { VoicePicker } from "@/components/common/voice-picker";
 import {
   disconnectBusinessCalendar,
@@ -21,6 +26,10 @@ import {
 
 const DASHBOARD_ROUTE = "/business/dashboard" as Route;
 const STEP_STORAGE_KEY = "biz-setup-step";
+
+const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
+const TRIVEN_VOICE_NAME = "Triven Voice";
+const DEFAULT_VOICE_PROVIDER = "11labs";
 
 const STEPS = [
   { id: 1, title: "Business Details" },
@@ -74,13 +83,14 @@ const TIMEZONE_GROUPS: { label: string; zones: string[] }[] = [
   },
   { label: "Other", zones: ["UTC"] }
 ];
+
 const ALL_ZONES = TIMEZONE_GROUPS.flatMap((group) => group.zones);
 
-const PRESET_VOICE_IDS = new Set(VOICE_PRESETS.map((preset) => preset.id));
+const PRESET_VOICE_IDS = new Set([
+  PLATFORM_DEFAULT_VOICE_ID,
+  ...VOICE_PRESETS.map((preset) => preset.id)
+]);
 
-// Uploaded wizard visual language: amber focus ring, lifting buttons, amber
-// "pick" selection cards, and a soft slide-up panel animation. Scoped to
-// `.setup-root` so it never leaks into the rest of the buyer app.
 const WIZARD_STYLES = `
 .setup-root { --ease: cubic-bezier(.16, 1, .3, 1); }
 .setup-root .field { transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background-color .2s var(--ease); }
@@ -110,7 +120,6 @@ const PROVIDER_BADGE = "rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-b
 
 function defaultTimeZone(): string {
   try {
-    // The browser may report a legacy alias (e.g. Asia/Calcutta) — canonicalize it.
     return normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
   } catch {
     return "Asia/Kolkata";
@@ -122,6 +131,16 @@ function parseLines(value: string): string[] {
     .split(/[\n,]/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function normalizeVoiceChoice(value?: string | null): string {
+  const voice = (value ?? "").trim().toLowerCase();
+
+  if (!voice || voice === "default" || voice === "agent-default" || voice === "use-agent-default") {
+    return PLATFORM_DEFAULT_VOICE_ID;
+  }
+
+  return voice;
 }
 
 type ChecklistRow = { key: string; label: string; required: boolean; complete: boolean; blocker?: string };
@@ -155,11 +174,9 @@ function SetupWizard() {
   const [deployed, setDeployed] = useState(false);
   const [successNumber, setSuccessNumber] = useState<string | null>(null);
 
-  // Step 4 — "Test call routing" checker result (runs the live Twilio resolver).
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
 
-  // Step 1 — business (services/faqs editable; hours/knowledge/bookingUrl/tone preserved)
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
   const [contactName, setContactName] = useState("");
@@ -170,14 +187,11 @@ function SetupWizard() {
   const [hours, setHours] = useState<BusinessHoursItem[]>([]);
   const [knowledge, setKnowledge] = useState<BusinessKnowledgeItem[]>([]);
 
-  // Step 2 — phone + calendar
   const [phoneNumbers, setPhoneNumbers] = useState<PlatformPhoneOption[]>([]);
   const [selectedPhoneId, setSelectedPhoneId] = useState("");
   const [assignedNumber, setAssignedNumber] = useState<string | null>(null);
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
-  // AI_FIRST is the default for the forwarding flow: once a call reaches the CoreAI
-  // number, the AI answers immediately (carrier forwarding handles "missed" calls).
   const [answeringMode, setAnsweringMode] = useState("AI_FIRST");
   const [calendar, setCalendar] = useState<{ connected: boolean; email: string | null }>({
     connected: false,
@@ -187,8 +201,7 @@ function SetupWizard() {
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
-  // Step 3 — voice + instructions + silence
-  const [voiceChoice, setVoiceChoice] = useState("default");
+  const [voiceChoice, setVoiceChoice] = useState(PLATFORM_DEFAULT_VOICE_ID);
   const [customVoiceId, setCustomVoiceId] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [silenceRepromptCount, setSilenceRepromptCount] = useState<number>(DEFAULT_SILENCE.repromptCount);
@@ -200,14 +213,17 @@ function SetupWizard() {
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
+
     const res = await getBusinessSetup();
 
     if (res.success && res.data) {
       const data = res.data;
+
       if (data.business) {
         setBusinessName(data.business.name);
         setBusinessType(data.business.type);
       }
+
       if (data.profile) {
         setBookingUrl(data.profile.bookingUrl ?? "");
         setTeamPhone(data.profile.teamPhone ?? "");
@@ -215,15 +231,28 @@ function SetupWizard() {
         setTone(data.profile.tone ?? "friendly");
         setServicesText((data.profile.services ?? []).join("\n"));
         setCalendarId(data.profile.calendarId ?? "primary");
-        if (Array.isArray(data.profile.faqs) && data.profile.faqs.length > 0) setFaqs(data.profile.faqs);
-        if (Array.isArray(data.profile.hours)) setHours(data.profile.hours);
+
+        if (Array.isArray(data.profile.faqs) && data.profile.faqs.length > 0) {
+          setFaqs(data.profile.faqs);
+        }
+
+        if (Array.isArray(data.profile.hours)) {
+          setHours(data.profile.hours);
+        }
       }
-      if (Array.isArray(data.knowledge)) setKnowledge(data.knowledge);
+
+      if (Array.isArray(data.knowledge)) {
+        setKnowledge(data.knowledge);
+      }
 
       setContactName(data.contactName ?? "");
       setCustomInstructions(data.customInstructions ?? "");
+
       if (data.silence) {
-        if (typeof data.silence.repromptCount === "number") setSilenceRepromptCount(data.silence.repromptCount);
+        if (typeof data.silence.repromptCount === "number") {
+          setSilenceRepromptCount(data.silence.repromptCount);
+        }
+
         setSilenceMessage1(data.silence.reprompt1 ?? "");
         setSilenceMessage2(data.silence.reprompt2 ?? "");
         setGoodbyeMessage(data.silence.goodbye ?? "");
@@ -233,36 +262,50 @@ function SetupWizard() {
         setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
         setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
       }
+
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId ?? "");
-
       setCalendar(data.calendar ?? { connected: false, email: null });
       setAnsweringMode(data.answeringMode || "AI_FIRST");
 
       const selection = data.voiceSelection ?? null;
-      if (selection?.voiceId) {
+      const savedVoiceId = (selection?.voiceId ?? "").trim();
+      const savedVoiceName = normalizeVoiceChoice(selection?.name);
+
+      if (savedVoiceId) {
         setVoiceChoice("custom");
-        setCustomVoiceId(selection.voiceId);
-      } else if (selection?.name && PRESET_VOICE_IDS.has(selection.name)) {
-        setVoiceChoice(selection.name);
+        setCustomVoiceId(savedVoiceId);
+      } else if (PRESET_VOICE_IDS.has(savedVoiceName)) {
+        setVoiceChoice(savedVoiceName);
+        setCustomVoiceId("");
+      } else {
+        setVoiceChoice(PLATFORM_DEFAULT_VOICE_ID);
+        setCustomVoiceId("");
       }
 
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
+
       if (listingId && !data.installedAgent) {
         const listingRes = await getMarketplaceListing(listingId);
+
         if (listingRes.success && listingRes.data?.listing) {
           keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
         }
       }
+
       setRequiredKeys(keys);
     }
 
-    // Restore the step the buyer was on before a Google OAuth redirect.
     if (typeof window !== "undefined") {
       const savedStep = Number(window.sessionStorage.getItem(STEP_STORAGE_KEY) || "");
-      if (savedStep >= 1 && savedStep <= STEPS.length) setStep(savedStep);
+
+      if (savedStep >= 1 && savedStep <= STEPS.length) {
+        setStep(savedStep);
+      }
+
       window.sessionStorage.removeItem(STEP_STORAGE_KEY);
     }
+
     setLoading(false);
   }, [listingId]);
 
@@ -271,19 +314,38 @@ function SetupWizard() {
   }, [loadSetup]);
 
   function buildVoiceFields(): { voice: string; voiceProvider: string; voiceId: string } {
-    if (voiceChoice === "custom") return { voice: "", voiceProvider: "11labs", voiceId: customVoiceId.trim() };
-    if (PRESET_VOICE_IDS.has(voiceChoice)) return { voice: voiceChoice, voiceProvider: "11labs", voiceId: "" };
-    return { voice: "", voiceProvider: "", voiceId: "" };
+    const normalizedVoice = normalizeVoiceChoice(voiceChoice);
+
+    if (normalizedVoice === "custom") {
+      return {
+        voice: "custom",
+        voiceProvider: DEFAULT_VOICE_PROVIDER,
+        voiceId: customVoiceId.trim()
+      };
+    }
+
+    if (PRESET_VOICE_IDS.has(normalizedVoice)) {
+      return {
+        voice: normalizedVoice,
+        voiceProvider: DEFAULT_VOICE_PROVIDER,
+        voiceId: ""
+      };
+    }
+
+    return {
+      voice: PLATFORM_DEFAULT_VOICE_ID,
+      voiceProvider: DEFAULT_VOICE_PROVIDER,
+      voiceId: ""
+    };
   }
 
-  // Enough to persist progress incrementally (a CoreAI number + forwarding are
-  // required only to DEPLOY, enforced by the checklist blockers below).
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
   async function persistSetup(
     deploy: boolean
   ): Promise<{ ok: boolean; number: string; vapiAssistantId: string | null; installedAgentId: string | null }> {
     const voiceFields = buildVoiceFields();
+
     const res = await saveBusinessSetup({
       deploy,
       businessName: businessName.trim(),
@@ -320,13 +382,28 @@ function SetupWizard() {
       setError(res.error ?? "Could not save your setup. Please try again.");
       return { ok: false, number: "", vapiAssistantId: null, installedAgentId: null };
     }
+
     const data = res.data;
     const number = data.assignedPhoneNumber ?? data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
-    if (number) setAssignedNumber(number);
-    if (data.requiredConnectors) setRequiredKeys(data.requiredConnectors.map((req) => req.connector));
-    if (data.availablePhoneNumbers) setPhoneNumbers(data.availablePhoneNumbers);
-    if (typeof data.selectedPlatformPhoneNumberId === "string") setSelectedPhoneId(data.selectedPlatformPhoneNumberId);
+
+    if (number) {
+      setAssignedNumber(number);
+    }
+
+    if (data.requiredConnectors) {
+      setRequiredKeys(data.requiredConnectors.map((req) => req.connector));
+    }
+
+    if (data.availablePhoneNumbers) {
+      setPhoneNumbers(data.availablePhoneNumbers);
+    }
+
+    if (typeof data.selectedPlatformPhoneNumberId === "string") {
+      setSelectedPhoneId(data.selectedPlatformPhoneNumberId);
+    }
+
     setCalendar(data.calendar ?? calendar);
+
     return {
       ok: true,
       number,
@@ -337,21 +414,29 @@ function SetupWizard() {
 
   async function handleConnectCalendar() {
     setError("");
-    if (typeof window !== "undefined") window.sessionStorage.setItem(STEP_STORAGE_KEY, String(step));
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(STEP_STORAGE_KEY, String(step));
+    }
+
     setCalendarBusy(true);
-    // Persist first so the buyer's input (incl. number selection) survives the redirect.
+
     if (canPersist) {
       const saved = await persistSetup(false);
+
       if (!saved.ok) {
         setCalendarBusy(false);
         return;
       }
     }
+
     const res = await getBusinessCalendarOAuthUrl();
+
     if (res.success && res.data?.url) {
       window.location.href = res.data.url;
       return;
     }
+
     setError(res.error ?? "Could not start Google Calendar connection.");
     setCalendarBusy(false);
   }
@@ -365,60 +450,72 @@ function SetupWizard() {
 
   async function goNext() {
     setError("");
+
     if (step < STEPS.length && canPersist) {
       setSaving(true);
       const saved = await persistSetup(false);
       setSaving(false);
-      if (saved.ok) setStatusMsg("Progress saved");
+
+      if (saved.ok) {
+        setStatusMsg("Progress saved");
+      }
     }
+
     setStep((current) => Math.min(current + 1, STEPS.length));
   }
 
   async function handleSaveProgress() {
     setError("");
+
     if (!canPersist) {
       setError("Add your business name and type to save.");
       return;
     }
+
     setSaving(true);
     const saved = await persistSetup(false);
     setSaving(false);
-    if (saved.ok) setStatusMsg("Progress saved");
+
+    if (saved.ok) {
+      setStatusMsg("Progress saved");
+    }
   }
 
   async function handleDeploy() {
     setError("");
+
     if (businessName.trim().length < 2 || businessType.trim().length < 2) {
       setStep(1);
       setError("Add your business name and type.");
       return;
     }
+
     if (!(selectedPhoneId || assignedNumber)) {
       setStep(2);
-      setError("Select a CoreAI phone number.");
+      setError("Select a Triven phone number.");
       return;
     }
+
     if (forwardToPhone.trim().length < 5) {
       setStep(2);
       setError("Add the phone number that should receive forwarded/live calls.");
       return;
     }
+
     setSaving(true);
     const result = await persistSetup(true);
     setSaving(false);
+
     if (!result.ok) return;
 
-    // Never show a live "success" without a real voice assistant when the agent
-    // needs one. The backend returns vapiAssistantId=null if the Vapi build failed
-    // or Vapi isn't configured.
     const requiresVoice = new Set(requiredKeys).has("vapi");
+
     if (requiresVoice && !result.vapiAssistantId) {
       setStep(4);
       setError("Live voice assistant was not created. Check Vapi configuration.");
       return;
     }
 
-    // A live deploy must have produced an installed agent and an assigned number.
     if (!result.installedAgentId || !(result.number || assignedNumber)) {
       setStep(4);
       setError("Deploy did not complete — the agent or phone number was not saved. Please try again.");
@@ -427,17 +524,23 @@ function SetupWizard() {
 
     setDeployed(true);
     setSuccessNumber(result.number || assignedNumber || "");
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
 
   async function handleTestCallRouting() {
     setError("");
     setTesting(true);
+
     const res = await testCallRouting({
       phoneNumber: assignedNumber ?? undefined,
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined
     });
+
     setTesting(false);
+
     if (res.success && res.data) {
       setTestResult(res.data);
     } else {
@@ -445,7 +548,6 @@ function SetupWizard() {
     }
   }
 
-  // ---- client readiness (mirrors backend; drives the deploy gate) ----
   const needs = new Set(requiredKeys);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
@@ -491,13 +593,13 @@ function SetupWizard() {
       ? [
           {
             key: "phone_routing",
-            label: "CoreAI number & routing",
+            label: "Triven number & routing",
             required: true,
             complete: phoneComplete,
             blocker: phoneComplete
               ? undefined
               : !phoneSelected
-                ? "Select a CoreAI phone number."
+                ? "Select a Triven phone number."
                 : "Add the phone number that should receive forwarded/live calls."
           }
         ]
@@ -509,7 +611,7 @@ function SetupWizard() {
             label: "SMS sender",
             required: true,
             complete: phoneSelected,
-            blocker: phoneSelected ? undefined : "Select a CoreAI phone number for SMS notifications."
+            blocker: phoneSelected ? undefined : "Select a Triven phone number for SMS notifications."
           }
         ]
       : []),
@@ -525,6 +627,7 @@ function SetupWizard() {
         ]
       : [])
   ];
+
   const readyToDeploy = checklist.every((row) => !row.required || row.complete);
   const blockers = checklist
     .filter((row) => row.required && !row.complete && row.blocker)
@@ -547,25 +650,31 @@ function SetupWizard() {
     return (
       <div className="setup-root">
         <style>{WIZARD_STYLES}</style>
+
         <div className="mx-auto max-w-2xl px-4 py-8">
           <div data-testid="business-setup-success" className={CARD}>
             <div className="pop-in grid h-14 w-14 place-items-center rounded-full bg-green-100 text-2xl text-green-600">
               ✓
             </div>
+
             <span
               data-testid="business-setup-success-badge"
               className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700"
             >
               Agent deployed
             </span>
+
             <h2 className="mt-3 text-2xl font-bold text-slate-900" data-testid="business-setup-success-title">
               Your AI agent is live
             </h2>
+
             <p className="mt-2 text-sm text-slate-500">
-              Your business owns this live setup. Architects only designed the agent template.
+              Your business owns this live setup. Architects only designed the reusable template.
             </p>
+
             <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 p-5" data-testid="business-setup-assigned-number">
-              <p className="text-sm text-slate-500">Your CoreAI phone number</p>
+              <p className="text-sm text-slate-500">Your Triven phone number</p>
+
               <p
                 className="mt-1 font-mono text-3xl font-bold tracking-tight text-slate-900"
                 data-testid="business-setup-assigned-number-value"
@@ -573,6 +682,7 @@ function SetupWizard() {
                 {successNumber || assignedNumber || "Pending"}
               </p>
             </div>
+
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 data-testid="business-setup-go-dashboard"
@@ -582,6 +692,7 @@ function SetupWizard() {
               >
                 Go to Dashboard
               </button>
+
               <button
                 type="button"
                 onClick={() => setDeployed(false)}
@@ -600,17 +711,18 @@ function SetupWizard() {
     <div className="setup-root" data-testid="business-setup-wizard">
       <style>{WIZARD_STYLES}</style>
 
-      {/* Sticky progress header */}
       <div className="sticky top-0 z-20 border-b border-gray-100 bg-gray-50/90 px-4 py-3.5 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-amber-500">
               Step {step} of {STEPS.length}
             </p>
+
             <h1 className="text-base font-black text-slate-900" data-testid="business-setup-step-title">
               {STEPS[step - 1].title}
             </h1>
           </div>
+
           <div className="flex items-center gap-1.5" data-testid="business-setup-progress-dots">
             {STEPS.map((entry) => (
               <button
@@ -705,7 +817,6 @@ function SetupWizard() {
           </p>
         ) : null}
 
-        {/* Footer nav */}
         <div className="mt-6 flex items-center justify-between gap-3">
           <button
             type="button"
@@ -762,6 +873,7 @@ function ChecklistSummary({ checklist }: { checklist: ChecklistRow[] }) {
   return (
     <div data-testid="business-setup-checklist">
       <h3 className={SECTION_TITLE}>Setup progress</h3>
+
       <ul className="mt-3 space-y-2">
         {checklist.map((row) => (
           <li key={row.key} data-testid={`business-setup-checklist-${row.key}`} className="flex items-center gap-2.5 text-sm">
@@ -772,7 +884,9 @@ function ChecklistSummary({ checklist }: { checklist: ChecklistRow[] }) {
             >
               {row.complete ? "✓" : "•"}
             </span>
+
             <span className="font-semibold text-slate-800">{row.label}</span>
+
             <span className={`ml-auto text-xs font-semibold ${row.complete ? "text-green-600" : "text-slate-400"}`}>
               {row.complete ? "Done" : row.required ? "Required" : "Optional"}
             </span>
@@ -817,40 +931,104 @@ function StepBusiness({
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div>
-          <label className={LABEL} htmlFor="business-name">Business name</label>
-          <input data-testid="business-setup-input-name" id="business-name" value={businessName} onChange={(e) => onBusinessName(e.target.value)} placeholder="Bright Smile Dental" className={FIELD} />
+          <label className={LABEL} htmlFor="business-name">
+            Business name
+          </label>
+          <input
+            data-testid="business-setup-input-name"
+            id="business-name"
+            value={businessName}
+            onChange={(e) => onBusinessName(e.target.value)}
+            placeholder="Bright Smile Dental, Prime HVAC, Nova Salon…"
+            className={FIELD}
+          />
         </div>
+
         <div>
-          <label className={LABEL} htmlFor="business-type">Business type / industry</label>
-          <input data-testid="business-setup-input-type" id="business-type" value={businessType} onChange={(e) => onBusinessType(e.target.value)} placeholder="Dental practice, HVAC, salon…" className={FIELD} />
+          <label className={LABEL} htmlFor="business-type">
+            Business type / industry
+          </label>
+          <input
+            data-testid="business-setup-input-type"
+            id="business-type"
+            value={businessType}
+            onChange={(e) => onBusinessType(e.target.value)}
+            placeholder="Dental practice, HVAC, salon…"
+            className={FIELD}
+          />
         </div>
+
         <div>
-          <label className={LABEL} htmlFor="contact-name">Contact / owner name (optional)</label>
-          <input data-testid="business-setup-input-contact" id="contact-name" value={contactName} onChange={(e) => onContactName(e.target.value)} placeholder="Dr. Lee, Priya, the front desk…" className={FIELD} />
+          <label className={LABEL} htmlFor="contact-name">
+            Contact / owner name optional
+          </label>
+          <input
+            data-testid="business-setup-input-contact"
+            id="contact-name"
+            value={contactName}
+            onChange={(e) => onContactName(e.target.value)}
+            placeholder="Dr. Lee, Priya, front desk…"
+            className={FIELD}
+          />
         </div>
+
         <div>
-          <label className={LABEL} htmlFor="services">Services (one per line)</label>
-          <textarea data-testid="business-setup-input-services" id="services" value={servicesText} onChange={(e) => onServices(e.target.value)} rows={3} placeholder={"Teeth cleaning\nEmergency visits\nWhitening"} className={FIELD} />
+          <label className={LABEL} htmlFor="services">
+            Services one per line
+          </label>
+          <textarea
+            data-testid="business-setup-input-services"
+            id="services"
+            value={servicesText}
+            onChange={(e) => onServices(e.target.value)}
+            rows={3}
+            placeholder={"Consultation\nEmergency service\nNew appointment"}
+            className={FIELD}
+          />
         </div>
       </div>
 
       <div className={SECTION} data-testid="business-setup-faqs">
         <div className="flex items-center justify-between">
-          <h3 className={SECTION_TITLE}>FAQs / knowledge (optional)</h3>
-          <button type="button" data-testid="business-setup-faq-add" onClick={() => onFaqs([...faqs, { question: "", answer: "" }])} className="btn rounded-full border border-gray-200 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:border-amber-300">
+          <h3 className={SECTION_TITLE}>FAQs / knowledge optional</h3>
+
+          <button
+            type="button"
+            data-testid="business-setup-faq-add"
+            onClick={() => onFaqs([...faqs, { question: "", answer: "" }])}
+            className="btn rounded-full border border-gray-200 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:border-amber-300"
+          >
             + Add FAQ
           </button>
         </div>
+
         {faqs.length === 0 ? (
           <p className="mt-2 text-sm text-slate-400">Add common questions so the agent answers accurately.</p>
         ) : (
           <div className="mt-3 space-y-3">
             {faqs.map((faq, index) => (
               <div key={index} className="rounded-xl border border-gray-100 bg-gray-50 p-3" data-testid="business-setup-faq-row">
-                <input value={faq.question} onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))} placeholder="Question" className={FIELD} />
-                <textarea value={faq.answer} onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))} rows={2} placeholder="Answer" className={`${FIELD} mt-2`} />
+                <input
+                  value={faq.question}
+                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))}
+                  placeholder="Question"
+                  className={FIELD}
+                />
+
+                <textarea
+                  value={faq.answer}
+                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))}
+                  rows={2}
+                  placeholder="Answer"
+                  className={`${FIELD} mt-2`}
+                />
+
                 <div className="mt-2 flex justify-end">
-                  <button type="button" onClick={() => onFaqs(faqs.filter((_, i) => i !== index))} className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-500 hover:border-gray-300">
+                  <button
+                    type="button"
+                    onClick={() => onFaqs(faqs.filter((_, i) => i !== index))}
+                    className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-500 hover:border-gray-300"
+                  >
                     Remove
                   </button>
                 </div>
@@ -909,29 +1087,32 @@ function StepPhoneCalendar({
   onTimeZone: (v: string) => void;
 }) {
   const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
+
   return (
     <div className={CARD}>
       <h2 className={H2}>Phone &amp; Calendar</h2>
+
       <p className={SUB}>
         Architects design the agent. Your business connects the accounts, phone routing, calendar, and voice used when the agent runs live.
       </p>
 
-      {/* Select your CoreAI number */}
       <div className="mt-6">
-        <h3 className={SECTION_TITLE}>Select your CoreAI number</h3>
+        <h3 className={SECTION_TITLE}>Select your Triven number</h3>
         <p className="mt-0.5 text-sm text-slate-500">Choose the number customers will call or forward missed calls to.</p>
+
         <div className="mt-3 space-y-2.5" data-testid="business-setup-phone-list">
           {phoneNumbers.length === 0 ? (
             <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 text-sm text-slate-600" data-testid="business-setup-phone-empty">
-              <p className="font-semibold text-slate-700">No CoreAI numbers are available yet.</p>
-              <p className="mt-0.5 text-slate-500">Add a platform number before deploying this agent.</p>
+              <p className="font-semibold text-slate-700">No Triven numbers are available yet.</p>
+              <p className="mt-0.5 text-slate-500">Add a platform phone number before deploying this agent.</p>
+
               {process.env.NODE_ENV !== "production" ? (
                 <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-empty-dev-hint">
                   Run{" "}
                   <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px] text-amber-700 ring-1 ring-gray-200">
                     npm run seed:platform-phone-numbers --workspace=@coreai/backend
                   </code>{" "}
-                  to add the demo number.
+                  to add a demo number.
                 </p>
               ) : null}
             </div>
@@ -944,10 +1125,13 @@ function StepPhoneCalendar({
                 : selected
                   ? "bg-amber-100 text-amber-700"
                   : "bg-gray-100 text-gray-500";
+
               const location = [number.locality, number.region, number.country].filter(Boolean).join(", ");
+
               const capabilities = number.capabilities
                 ? (["voice", "sms", "mms"] as const).filter((cap) => number.capabilities?.[cap])
                 : [];
+
               return (
                 <button
                   key={number.id}
@@ -964,20 +1148,21 @@ function StepPhoneCalendar({
                   >
                     {selected ? "✓" : ""}
                   </span>
+
                   <span className="min-w-0">
                     <span className="block font-mono text-lg font-bold text-slate-900">{number.phoneNumber}</span>
+
                     {location || capabilities.length > 0 ? (
-                      <span
-                        className="block text-xs text-slate-400"
-                        data-testid={`business-setup-phone-meta-${number.id}`}
-                      >
+                      <span className="block text-xs text-slate-400" data-testid={`business-setup-phone-meta-${number.id}`}>
                         {location}
                         {location && capabilities.length > 0 ? " · " : ""}
                         {capabilities.map((cap) => cap.toUpperCase()).join(" / ")}
                       </span>
                     ) : null}
                   </span>
+
                   <span className={PROVIDER_BADGE}>{number.provider === "TWILIO" ? "Twilio" : number.provider}</span>
+
                   <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>
                     {statusLabel}
                   </span>
@@ -988,69 +1173,144 @@ function StepPhoneCalendar({
         </div>
       </div>
 
-      {/* Call handling */}
       <div className={SECTION}>
         <h3 className={SECTION_TITLE}>Call handling</h3>
+
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <div>
-            <label className={LABEL} htmlFor="forward-phone">Forwarding / public business phone</label>
-            <input data-testid="business-setup-input-forward" id="forward-phone" type="tel" value={forwardToPhone} onChange={(e) => onForward(e.target.value)} placeholder="+1 555 123 4567" className={FIELD} />
-            <p className="mt-1 text-xs text-slate-400">Calls the AI can’t handle are forwarded here (or your team is reached here).</p>
+            <label className={LABEL} htmlFor="forward-phone">
+              Forwarding / public business phone
+            </label>
+
+            <input
+              data-testid="business-setup-input-forward"
+              id="forward-phone"
+              type="tel"
+              value={forwardToPhone}
+              onChange={(e) => onForward(e.target.value)}
+              placeholder="+1 555 123 4567"
+              className={FIELD}
+            />
+
+            <p className="mt-1 text-xs text-slate-400">Calls the AI can’t handle are forwarded here, or your team is reached here.</p>
           </div>
+
           <div>
-            <label className={LABEL} htmlFor="team-phone">Team phone (optional)</label>
-            <input data-testid="business-setup-input-team" id="team-phone" type="tel" value={teamPhone} onChange={(e) => onTeamPhone(e.target.value)} placeholder="+1 555 765 4321" className={FIELD} />
+            <label className={LABEL} htmlFor="team-phone">
+              Team phone optional
+            </label>
+
+            <input
+              data-testid="business-setup-input-team"
+              id="team-phone"
+              type="tel"
+              value={teamPhone}
+              onChange={(e) => onTeamPhone(e.target.value)}
+              placeholder="+1 555 765 4321"
+              className={FIELD}
+            />
           </div>
+
           <div className="sm:col-span-2">
-            <label className={LABEL} htmlFor="answering-mode">Answering mode</label>
-            <select data-testid="business-setup-input-answering-mode" id="answering-mode" value={answeringMode} onChange={(e) => onAnsweringMode(e.target.value)} className={FIELD}>
+            <label className={LABEL} htmlFor="answering-mode">
+              Answering mode
+            </label>
+
+            <select
+              data-testid="business-setup-input-answering-mode"
+              id="answering-mode"
+              value={answeringMode}
+              onChange={(e) => onAnsweringMode(e.target.value)}
+              className={FIELD}
+            >
               {ANSWERING_MODES.map((mode) => (
-                <option key={mode.value} value={mode.value}>{mode.label}</option>
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
               ))}
             </select>
           </div>
+
           {assignedNumber ? (
             <p className="text-xs text-slate-400 sm:col-span-2" data-testid="business-setup-assigned-forwarding">
-              Assigned CoreAI number: <span className="font-mono font-bold text-slate-600">{assignedNumber}</span>. Publish it directly or forward your existing number to it.
+              Assigned Triven number: <span className="font-mono font-bold text-slate-600">{assignedNumber}</span>. Publish it directly or forward your existing number to it.
             </p>
           ) : null}
         </div>
       </div>
 
-      {/* Google Calendar */}
       <div className={SECTION} data-testid="business-setup-calendar">
         <h3 className={SECTION_TITLE}>Google Calendar</h3>
+
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
           <p className="text-sm text-slate-600" data-testid="business-setup-calendar-status">
             {calendar.connected ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}` : "Not connected. Connect so the agent can book appointments."}
           </p>
+
           {calendar.connected ? (
-            <button type="button" data-testid="business-setup-calendar-disconnect" disabled={calendarBusy} onClick={onDisconnectCalendar} className="btn rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-gray-300">
+            <button
+              type="button"
+              data-testid="business-setup-calendar-disconnect"
+              disabled={calendarBusy}
+              onClick={onDisconnectCalendar}
+              className="btn rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-gray-300"
+            >
               Disconnect
             </button>
           ) : (
-            <button type="button" data-testid="business-setup-calendar-connect" disabled={calendarBusy} onClick={onConnectCalendar} className="btn rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600">
+            <button
+              type="button"
+              data-testid="business-setup-calendar-connect"
+              disabled={calendarBusy}
+              onClick={onConnectCalendar}
+              className="btn rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+            >
               {calendarBusy ? "Connecting…" : "Connect Google Calendar"}
             </button>
           )}
         </div>
+
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
-            <label className={LABEL} htmlFor="calendar-id">Calendar ID</label>
-            <input data-testid="business-setup-input-calendar-id" id="calendar-id" value={calendarId} onChange={(e) => onCalendarId(e.target.value)} placeholder="primary" className={FIELD} />
+            <label className={LABEL} htmlFor="calendar-id">
+              Calendar ID
+            </label>
+
+            <input
+              data-testid="business-setup-input-calendar-id"
+              id="calendar-id"
+              value={calendarId}
+              onChange={(e) => onCalendarId(e.target.value)}
+              placeholder="primary"
+              className={FIELD}
+            />
           </div>
+
           <div>
-            <label className={LABEL} htmlFor="timezone">Calendar timezone</label>
-            <select data-testid="business-setup-input-timezone" id="timezone" value={timeZone} onChange={(e) => onTimeZone(e.target.value)} className={FIELD}>
+            <label className={LABEL} htmlFor="timezone">
+              Calendar timezone
+            </label>
+
+            <select
+              data-testid="business-setup-input-timezone"
+              id="timezone"
+              value={timeZone}
+              onChange={(e) => onTimeZone(e.target.value)}
+              className={FIELD}
+            >
               {timezoneMissing ? <option value={timeZone}>{timeZone}</option> : null}
+
               {TIMEZONE_GROUPS.map((group) => (
                 <optgroup key={group.label} label={group.label}>
                   {group.zones.map((zone) => (
-                    <option key={zone} value={zone}>{zone}</option>
+                    <option key={zone} value={zone}>
+                      {zone}
+                    </option>
                   ))}
                 </optgroup>
               ))}
             </select>
+
             <p className="mt-1 text-xs text-slate-400">All availability, bookings, and “today/tomorrow” use this timezone.</p>
           </div>
         </div>
@@ -1099,32 +1359,40 @@ function StepVoice({
 
       <div className="mt-6" data-testid="business-setup-voice">
         <h3 className={SECTION_TITLE}>Voice</h3>
+
         <div className="mt-3">
           <VoicePicker
             accent="orange"
             testIdPrefix="business-voice-picker"
-            selectedVoice={voiceChoice}
+            selectedVoice={voiceChoice || PLATFORM_DEFAULT_VOICE_ID}
             customVoiceId={customVoiceId}
             subtitle="Architect suggested this voice. Your business can use it or choose another voice before deployment."
             onSelectDefault={() => {
-              onVoiceChoice("default");
+              onVoiceChoice(PLATFORM_DEFAULT_VOICE_ID);
               onCustomVoiceId("");
             }}
             onSelectPreset={(preset) => {
-              onVoiceChoice(preset.id);
+              onVoiceChoice(normalizeVoiceChoice(preset.id));
               onCustomVoiceId("");
             }}
             onCustomVoiceIdChange={(value) => {
-              onVoiceChoice("custom");
+              const nextValue = value.trim();
+
               onCustomVoiceId(value);
+              onVoiceChoice(nextValue ? "custom" : PLATFORM_DEFAULT_VOICE_ID);
             }}
           />
         </div>
+
+        <p className="mt-2 text-xs text-slate-400">
+          If you do not enter a custom ID, Triven uses {TRIVEN_VOICE_NAME} from ELEVENLABS_DEFAULT_VOICE_ID.
+        </p>
       </div>
 
       <div className={SECTION} data-testid="business-setup-instructions">
         <h3 className={SECTION_TITLE}>Custom instructions</h3>
         <p className="mt-0.5 text-sm text-slate-500">Tell the AI how to handle calls. Merged into the agent’s system prompt at deploy.</p>
+
         <div className="mt-3 flex flex-wrap gap-2" data-testid="business-setup-instruction-chips">
           {CUSTOM_INSTRUCTION_SUGGESTIONS.map((suggestion) => (
             <button
@@ -1133,7 +1401,9 @@ function StepVoice({
               data-testid={`business-setup-instruction-chip-${suggestion.toLowerCase().replace(/[^a-z]+/g, "-")}`}
               onClick={() => {
                 if (customInstructions.includes(suggestion)) return;
+
                 const trimmed = customInstructions.trim();
+
                 onCustomInstructions(trimmed ? `${trimmed}\n- ${suggestion}` : `- ${suggestion}`);
               }}
               className="btn rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-amber-300 hover:bg-amber-50"
@@ -1142,33 +1412,84 @@ function StepVoice({
             </button>
           ))}
         </div>
-        <textarea data-testid="business-setup-input-instructions" value={customInstructions} onChange={(e) => onCustomInstructions(e.target.value)} rows={6} placeholder="e.g. Always greet by business name. Confirm date and time before booking." className={`${FIELD} mt-3`} />
+
+        <textarea
+          data-testid="business-setup-input-instructions"
+          value={customInstructions}
+          onChange={(e) => onCustomInstructions(e.target.value)}
+          rows={6}
+          placeholder="e.g. Always greet by business name. Confirm date and time before booking."
+          className={`${FIELD} mt-3`}
+        />
       </div>
 
       <div className={SECTION} data-testid="business-setup-silence">
         <h3 className={SECTION_TITLE}>Silence &amp; no-answer handling</h3>
         <p className="mt-0.5 text-sm text-slate-500">If the caller goes quiet, the AI re-prompts warmly, then ends the call politely.</p>
+
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <div>
-            <label className={LABEL} htmlFor="silence-count">Re-prompt attempts</label>
-            <select data-testid="business-setup-input-silence-count" id="silence-count" value={String(silenceRepromptCount)} onChange={(e) => onSilenceCount(Number(e.target.value))} className={FIELD}>
+            <label className={LABEL} htmlFor="silence-count">
+              Re-prompt attempts
+            </label>
+
+            <select
+              data-testid="business-setup-input-silence-count"
+              id="silence-count"
+              value={String(silenceRepromptCount)}
+              onChange={(e) => onSilenceCount(Number(e.target.value))}
+              className={FIELD}
+            >
               <option value="1">1</option>
               <option value="2">2</option>
               <option value="3">3</option>
             </select>
           </div>
         </div>
+
         <div className="mt-4">
-          <label className={LABEL} htmlFor="silence-1">1st silence re-prompt</label>
-          <input data-testid="business-setup-input-silence1" id="silence-1" value={silenceMessage1} onChange={(e) => onSilence1(e.target.value)} placeholder={DEFAULT_SILENCE.reprompt1} className={FIELD} />
+          <label className={LABEL} htmlFor="silence-1">
+            1st silence re-prompt
+          </label>
+
+          <input
+            data-testid="business-setup-input-silence1"
+            id="silence-1"
+            value={silenceMessage1}
+            onChange={(e) => onSilence1(e.target.value)}
+            placeholder={DEFAULT_SILENCE.reprompt1}
+            className={FIELD}
+          />
         </div>
+
         <div className="mt-4">
-          <label className={LABEL} htmlFor="silence-2">2nd silence re-prompt</label>
-          <input data-testid="business-setup-input-silence2" id="silence-2" value={silenceMessage2} onChange={(e) => onSilence2(e.target.value)} placeholder={DEFAULT_SILENCE.reprompt2} className={FIELD} />
+          <label className={LABEL} htmlFor="silence-2">
+            2nd silence re-prompt
+          </label>
+
+          <input
+            data-testid="business-setup-input-silence2"
+            id="silence-2"
+            value={silenceMessage2}
+            onChange={(e) => onSilence2(e.target.value)}
+            placeholder={DEFAULT_SILENCE.reprompt2}
+            className={FIELD}
+          />
         </div>
+
         <div className="mt-4">
-          <label className={LABEL} htmlFor="goodbye">Goodbye message</label>
-          <input data-testid="business-setup-input-goodbye" id="goodbye" value={goodbyeMessage} onChange={(e) => onGoodbye(e.target.value)} placeholder={DEFAULT_SILENCE.goodbye} className={FIELD} />
+          <label className={LABEL} htmlFor="goodbye">
+            Goodbye message
+          </label>
+
+          <input
+            data-testid="business-setup-input-goodbye"
+            id="goodbye"
+            value={goodbyeMessage}
+            onChange={(e) => onGoodbye(e.target.value)}
+            placeholder={DEFAULT_SILENCE.goodbye}
+            className={FIELD}
+          />
         </div>
       </div>
     </div>
@@ -1197,8 +1518,9 @@ function StepDeploy({
   return (
     <div className={CARD}>
       <h2 className={H2}>Test &amp; go live</h2>
+
       <p className={SUB}>
-        Deploy builds your live assistant with your voice, timezone, and instructions, and routes your CoreAI number
+        Deploy builds your live assistant with your voice, timezone, and instructions, and routes your Triven number
         {assignedNumber ? <span className="font-mono font-bold text-slate-700"> {assignedNumber}</span> : null} to it.
       </p>
 
@@ -1206,15 +1528,15 @@ function StepDeploy({
         <ChecklistSummary checklist={checklist} />
       </div>
 
-      {/* Test call routing — runs the same resolver the live Twilio webhook uses. */}
       <div className={SECTION} data-testid="business-setup-test-routing">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className={SECTION_TITLE}>Test call routing</h3>
             <p className="mt-0.5 text-sm text-slate-500">
-              Confirm an inbound call to your CoreAI number will reach this deployed agent.
+              Confirm an inbound call to your Triven number will reach this deployed agent.
             </p>
           </div>
+
           <button
             type="button"
             data-testid="business-setup-test-routing-run"
@@ -1235,9 +1557,10 @@ function StepDeploy({
               data-testid="business-setup-test-routing-summary"
             >
               {testResult.readyForCall
-                ? `Ready — a call to ${testResult.number ?? "your CoreAI number"} will reach your agent.`
+                ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
                 : "Not ready yet — resolve the failing checks below, then re-test."}
             </div>
+
             <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
               {testResult.checks.map((check) => (
                 <li
@@ -1252,12 +1575,15 @@ function StepDeploy({
                   >
                     {check.ok ? "✓" : "✕"}
                   </span>
+
                   <span className="min-w-0">
                     <span className="block font-semibold text-slate-800">{check.label}</span>
+
                     {check.message ? (
                       <span className="block break-all text-xs text-slate-400">{check.message}</span>
                     ) : null}
                   </span>
+
                   <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
                     {check.ok ? "Pass" : "Fail"}
                   </span>
@@ -1272,9 +1598,12 @@ function StepDeploy({
         {blockers.length > 0 ? (
           <div data-testid="business-setup-blockers" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <p className="font-semibold">Complete these before you can deploy live:</p>
+
             <ul className="mt-1 list-disc pl-5">
               {blockers.map((blocker) => (
-                <li key={blocker} data-testid="business-setup-blocker">{blocker}</li>
+                <li key={blocker} data-testid="business-setup-blocker">
+                  {blocker}
+                </li>
               ))}
             </ul>
           </div>
@@ -1286,7 +1615,7 @@ function StepDeploy({
 
         {readyToDeploy ? (
           <p className="mt-3 text-xs text-slate-400">
-            After deploy, call your CoreAI number to test the live agent. Calendar booking uses your connected Google Calendar and timezone.
+            After deploy, call your Triven number to test the live agent. Calendar booking uses your connected Google Calendar and timezone.
           </p>
         ) : null}
       </div>

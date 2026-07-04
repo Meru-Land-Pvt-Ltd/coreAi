@@ -39,8 +39,6 @@ import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./wo
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import { PreviewModal } from "./workflow-builder/preview-modal";
 import { PublishPanel } from "./workflow-builder/publish-panel";
-import { TemplateGallery } from "./workflow-builder/template-gallery";
-import { TemplatePreviewModal } from "./workflow-builder/template-preview-modal";
 import { TestPanel } from "./workflow-builder/test-panel";
 import { isMeaningfulWorkflow, useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
@@ -51,6 +49,7 @@ const LIVE_PUBLISH_LOCK_MESSAGE = "Agent is live — publishing is locked";
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
   const router = useRouter();
+
   const [workflow, setWorkflow] = useState<ArchitectWorkflow | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -78,12 +77,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [importingSlug, setImportingSlug] = useState<string | null>(null);
 
-  // The builder may open UNSAVED (workflowId === "") — no draft exists until the
-  // architect makes a meaningful edit. `currentWorkflowId` becomes the real id
-  // once the first save creates the draft.
   const [currentWorkflowId, setCurrentWorkflowId] = useState(workflowId);
   const currentWorkflowIdRef = useRef(workflowId);
   const creatingDraftRef = useRef(false);
+
   useEffect(() => {
     currentWorkflowIdRef.current = currentWorkflowId;
   }, [currentWorkflowId]);
@@ -98,19 +95,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes, selectedNodeId]
   );
 
-  // An agent submitted for review is locked: the architect can look but not edit
-  // until an admin approves/rejects it.
   const listingStatus = workflow?.listings?.[0]?.status;
   const isUnderReview = listingStatus === "PENDING_REVIEW";
   const isLive = listingStatus === "APPROVED";
   const isPublishLocked = isUnderReview || isLive;
 
-  // Returns true and surfaces a notice when editing is blocked by review lock.
   const blockIfUnderReview = useCallback(() => {
     if (isUnderReview) {
       setMessage(REVIEW_LOCK_MESSAGE);
       return true;
     }
+
     return false;
   }, [isUnderReview]);
 
@@ -120,11 +115,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       setMessage(LIVE_PUBLISH_LOCK_MESSAGE);
       return true;
     }
+
     if (isUnderReview) {
       setPublishError("This agent is under review. Publishing is locked until the review completes.");
       setMessage(REVIEW_LOCK_MESSAGE);
       return true;
     }
+
     return false;
   }, [isLive, isUnderReview]);
 
@@ -140,46 +137,51 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       ),
     [nodes]
   );
-  
-  // A new draft is worth creating only with real content; an existing draft is
-  // always saveable (even if edited down to empty).
+
   const meaningfulForSave = useCallback(
     (snap: { nodes: BuilderNode[]; agentName: string }) =>
       Boolean(currentWorkflowIdRef.current) || isMeaningfulWorkflow(snap),
     []
   );
 
-  // Persist a snapshot: CREATE the draft the first time (no id yet), else UPDATE.
-  // A create-in-flight guard prevents duplicate drafts. Never creates for empty.
   const saveDraft = useCallback(
     async (snap: { nodes: BuilderNode[]; edges: Edge[]; agentName: string; tagline: string }): Promise<boolean> => {
       const id = currentWorkflowIdRef.current;
+
       if (!id) {
         if (creatingDraftRef.current) return false;
+
         creatingDraftRef.current = true;
+
         const res = await createArchitectWorkflow({
           name: snap.agentName,
           description: snap.tagline,
           isTemplate: false,
           workflowJson: { nodes: snap.nodes, edges: snap.edges }
         });
+
         creatingDraftRef.current = false;
+
         if (!res.success || !res.data) return false;
+
         const newId = res.data.workflow.id;
+
         currentWorkflowIdRef.current = newId;
         setCurrentWorkflowId(newId);
-        // Reflect the saved draft in the URL WITHOUT a Next navigation/remount
-        // (keeps the builder mounted so undo history survives the first save).
+
         if (typeof window !== "undefined") {
           window.history.replaceState(null, "", `/architect/workflows/${newId}/builder`);
         }
+
         return true;
       }
+
       const res = await updateArchitectWorkflow(id, {
         name: snap.agentName,
         description: snap.tagline,
         workflowJson: { nodes: snap.nodes, edges: snap.edges }
       });
+
       return res.success;
     },
     []
@@ -225,7 +227,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   async function loadWorkflow() {
     if (!currentWorkflowIdRef.current) {
-      // Unsaved builder — blank canvas, NO draft created until a meaningful edit.
       setWorkflow({
         id: "",
         name: defaultAgentName,
@@ -234,6 +235,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         isTemplate: false,
         createdAt: ""
       });
+
       setSelectedNodeId(null);
       setMessage("New agent");
       setLoading(false);
@@ -241,6 +243,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
 
     setLoading(true);
+
     const result = await getArchitectWorkflow(currentWorkflowIdRef.current);
 
     if (result.success && result.data) {
@@ -291,7 +294,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   function addNodeFromLibrary(nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) {
     if (blockIfUnderReview()) return;
+
     const id = `${nodeKind}-${Date.now()}`;
+
     const newNode: BuilderNode = {
       id,
       type: "coreNode",
@@ -308,9 +313,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setMessage("Unsaved changes");
   }
 
-  // Import a template by slug: the backend clones its workflowJson into this
-  // workflow and returns it; we parse it exactly like a loaded/saved workflow so
-  // every node behaves like a manually dragged node (no template-only state).
   async function importTemplate(slug: string) {
     if (nodes.length > 0 && !window.confirm("Replace the current canvas with this template?")) return;
 
@@ -319,6 +321,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setMessage("Importing template...");
 
     const result = await useArchitectTemplate(slug, { workflowId: currentWorkflowIdRef.current || undefined });
+
     setImportingSlug(null);
 
     if (!result.success || !result.data) {
@@ -327,15 +330,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
 
     const imported = result.data;
-    // Importing a template is a meaningful user action: it creates exactly ONE
-    // draft (backend clones into the current workflow, or creates one if unsaved).
+
     if (imported.workflowId && imported.workflowId !== currentWorkflowIdRef.current) {
       currentWorkflowIdRef.current = imported.workflowId;
       setCurrentWorkflowId(imported.workflowId);
+
       if (typeof window !== "undefined") {
         window.history.replaceState(null, "", `/architect/workflows/${imported.workflowId}/builder`);
       }
     }
+
     const importedWorkflow: ArchitectWorkflow = {
       id: imported.workflowId,
       name: imported.name,
@@ -344,6 +348,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       isTemplate: false,
       createdAt: workflow?.createdAt ?? ""
     };
+
     const parsedNodes = parseNodes(importedWorkflow);
     const parsedEdges = parseEdges(importedWorkflow);
 
@@ -370,6 +375,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
         if (node.id !== selectedNodeId) return node;
+
         return {
           ...node,
           data: {
@@ -380,12 +386,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         };
       })
     );
+
     setMessage("Unsaved changes");
   }
 
   function deleteSelectedNode() {
     if (blockIfUnderReview()) return;
     if (!selectedNodeId) return;
+
     setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNodeId));
     setEdges((currentEdges) =>
       currentEdges.filter((edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId)
@@ -397,59 +405,59 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   async function saveAgent(showMessage = true) {
     if (blockIfUnderReview()) return false;
+
     setSaving(true);
     const result = await saveNow();
     setSaving(false);
 
     if (result === "empty") {
-      // Never create an empty draft from a manual Save on a fresh builder.
       setMessage("Add a node before saving this draft.");
       return false;
     }
+
     if (result === "failed") {
       setMessage("Could not save agent");
       return false;
     }
 
     if (showMessage) setMessage("Saved just now");
+
     return true;
   }
 
-  // Publish the current builder workflow as a marketplace AgentListing.
-  // Saves the workflow first, then creates the listing (status PENDING_REVIEW
-  // server-side) and routes to My Agents. Surfaces validation/API errors instead
-  // of failing silently.
   async function publishAgent() {
     if (blockIfPublishLocked()) return;
+
     const name = agentName.trim();
     const shortDescription = tagline.trim();
 
-    // Validation errors stay visible on the Publish tab (no silent tab switch).
     setPublishError("");
 
     if (name.length < 2 || shortDescription.length < 10) {
       setPublishError(
-        "Please add an Agent name and a tagline (at least 10 characters) in Configure before publishing."
+        "Please add an Agent name and a tagline at least 10 characters in Configure before publishing."
       );
       return;
     }
 
     setMessage("Submitting for review...");
 
-    // Saving here creates the draft if it doesn't exist yet (never on empty).
     const saved = await saveAgent(false);
+
     if (!saved) {
       setPublishError("Add a node and save this agent before publishing.");
       return;
     }
 
     const publishId = currentWorkflowIdRef.current;
+
     if (!publishId) {
       setPublishError("Could not save the workflow before publishing. Please try again.");
       return;
     }
 
     setSaving(true);
+
     const result = await createArchitectListing({
       workflowId: publishId,
       name,
@@ -460,6 +468,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       requiredConnectors: [],
       supportedLlms: []
     });
+
     setSaving(false);
 
     if (!result.success) {
@@ -472,10 +481,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     router.push("/architect/agents" as Route);
   }
 
-  // Architect test is ALWAYS a dry-run/mock — no live Twilio/Vapi/Calendar calls.
-  // Going live is the buyer's job during install.
   async function runAgent() {
     if (blockIfUnderReview()) return;
+
     const normalizedCallerNumber = callerNumber.trim();
     const normalizedBusinessName = businessName.trim();
 
@@ -505,6 +513,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setRunContext({});
 
     const saved = await saveAgent(false);
+
     if (!saved) {
       setRunning(false);
       return;
@@ -516,24 +525,24 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             callerNumber: normalizedCallerNumber,
             callerName: callerName.trim(),
             businessName: normalizedBusinessName,
-            businessType: "Dental Clinic",
+            businessType: "Service Business",
             businessPhoneNumber: "",
             calendarId: "primary",
             timeZone: "America/New_York",
-            services: ["Dental cleaning", "Emergency tooth pain", "Whitening", "New patient exam"],
+            services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
             faqs: [
-              "Dental cleaning pricing depends on insurance and exam needs.",
-              "For severe pain or swelling, the team should call the patient urgently."
+              "Pricing depends on the service and business policy.",
+              "Urgent calls should be escalated to the team."
             ],
             knowledge: [
-              "The AI receptionist should offer booking first, answer basic service questions, and route emergencies to the team."
+              "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
             ],
             bookingUrl: "https://example.com/book",
             teamPhone: "",
             callStatus: "no-answer",
             callTimestamp: new Date().toISOString(),
             missedCallReason: "No one picked up the customer call.",
-            appointmentService: "Dental consultation"
+            appointmentService: "Consultation"
           }
         }
       : {};
@@ -631,12 +640,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               <path d="M20 6 9 17l-5-5" />
             </svg>
           </span>
+
           <div>
             <p className="text-sm font-black text-green-800" data-testid="builder-live-lock-title">
               Agent is live
             </p>
+
             <p className="mt-1 text-sm leading-6 text-green-700" data-testid="builder-live-lock-text">
-              This agent is published on the marketplace. 
+              This agent is published on the marketplace.
             </p>
           </div>
         </div>
@@ -653,12 +664,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               <path d="M8 11V7a4 4 0 0 1 8 0v4" />
             </svg>
           </span>
+
           <div>
             <p className="text-sm font-black text-amber-800" data-testid="builder-review-lock-title">
               Agent is under review
             </p>
+
             <p className="mt-1 text-sm leading-6 text-amber-700" data-testid="builder-review-lock-text">
-              Editing is locked while this agent is in review. It will be live in 24–48 hrs after review.
+              Editing is locked while this agent is in review. It will be live in 24-48 hrs after review.
             </p>
           </div>
         </div>
@@ -672,10 +685,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             </aside>
 
             <div className="canvas-grid relative flex-1 overflow-hidden">
-              {/* {nodes.length === 0 ? (
-                <TemplateGallery busySlug={importingSlug} onUse={importTemplate} onPreview={setPreviewSlug} />
-              ) : null} */}
-
               <ReactFlow<BuilderNode, Edge>
                 nodes={nodes}
                 edges={edges}
@@ -705,9 +714,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-scroll-zoom-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Scroll</kbd> zoom
                 </span>
+
                 <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-space-pan-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Space</kbd> pan
                 </span>
+
                 <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-del-remove-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Del</kbd> remove
                 </span>
@@ -788,8 +799,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onClose={() => setPreviewOpen(false)}
         businessName={businessName.trim() || "Your business"}
       />
-
-      {/* <TemplatePreviewModal slug={previewSlug} onClose={() => setPreviewSlug(null)} onUse={importTemplate} /> */}
 
       <MobileSheet panel={mobilePanel} onClose={() => setMobilePanel(null)}>
         {mobilePanel === "library" ? library : inspector}
