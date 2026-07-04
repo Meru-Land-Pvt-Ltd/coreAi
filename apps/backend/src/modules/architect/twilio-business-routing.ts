@@ -768,7 +768,6 @@ async function runMissedCallAgent({
   agent,
   callerNumber,
   callerName,
-  calledNumber,
   reason
 }: {
   agent: ResolvedAgent;
