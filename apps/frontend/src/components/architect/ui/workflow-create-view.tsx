@@ -48,7 +48,7 @@ export function ArchitectWorkflowCreateView() {
           Start with an empty canvas.
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg" data-testid="architect-ui-workflow-create-view-every-new-agent-opens-as-a-blank-text">
-          Every new agent opens as a blank builder. The first CORE template available inside the builder is Missed Call Text-Back.
+          Every new agent opens as a blank builder. You can start from scratch or choose a reusable template inside the builder.
         </p>
 
         {message ? (
@@ -62,7 +62,7 @@ export function ArchitectWorkflowCreateView() {
             Agent Name
             <input data-testid="workflow-create-name-input"
               name="name"
-              placeholder="Missed Call Text-Back"
+              placeholder="Untitled Agent"
               required
               minLength={2}
               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
@@ -95,7 +95,7 @@ export function ArchitectWorkflowCreateView() {
 
       <aside className="rounded-[2rem] border border-amber-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm sm:p-7">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-700" data-testid="architect-ui-workflow-create-view-first-agent-template-text">First agent template</p>
-        <h2 className="mt-3 text-2xl font-black text-slate-950" data-testid="architect-ui-workflow-create-view-missed-call-back-heading">Missed Call Text-Back</h2>
+        <h2 className="mt-3 text-2xl font-black text-slate-950" data-testid="architect-ui-workflow-create-view-missed-call-back-heading">Untitled Agent</h2>
         <div className="mt-6 grid gap-3">
           {[
             ["1", "Customer Calls", "Twilio detects when a business call is missed."],

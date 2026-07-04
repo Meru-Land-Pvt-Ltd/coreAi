@@ -63,14 +63,6 @@ export type CoreConnectorAction =
 /** Hard cap on workflow-to-workflow chaining depth to prevent infinite loops. */
 export const MAX_WORKFLOW_CHAIN_DEPTH = 3;
 
-/**
- * Generic voice-booking capability nodes — Phone Call Trigger → AI Voice
- * Conversation → Calendar Availability → Book Calendar Appointment → Send SMS →
- * End Flow. These are normal reusable platform nodes (draggable by anyone); the
- * Dental AI Receptionist is just a TEMPLATE that imports them with dental values
- * in node.data. Deploy builds the Vapi assistant + tools from these by capability;
- * they are not executed by the SMS workflow-runner for live calls.
- */
 export const VOICE_NODE_TYPES = {
   phoneCallTrigger: "trigger.phone_call",
   voiceConversation: "ai.voice_conversation",
@@ -89,87 +81,76 @@ export const VOICE_TOOL_NAMES = {
 
 export const DEFAULT_VOICE_PROVIDER = "11labs";
 
+export const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
+
 export type AgentVoicePreset = {
   id: string;
   name: string;
   provider: "11labs";
   voiceId: string;
-  gender?: "female" | "male";
-  accent?: string;
- /** Short badge label, e.g. "Warm", "Professional", "Calm" , "Male", "Indian English". */
   style: string;
   bestFor: string;
   description: string;
   previewText: string;
-  /** Optional static preview clip; when set the UI plays it instead of calling the TTS endpoint. */
-  previewAudioUrl?: string;
+  isDefault?: boolean;
 };
 
 export const VOICE_PRESETS: AgentVoicePreset[] = [
   {
-    id: "sarah",
-    name: "Sarah",
+    id: PLATFORM_DEFAULT_VOICE_ID,
+    name: "Triven Default Voice",
     provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "EXAVITQu4vr4xnSDxMaL",
-    gender: "female",
-    accent: "American",
-    style: "Warm",
-    bestFor: "Healthcare, salon, appointment booking",
+    voiceId: "",
+    style: "Platform default",
+    bestFor: "All agent templates",
+    description: "Uses ELEVENLABS_DEFAULT_VOICE_ID / VAPI_DEFAULT_VOICE_ID from production env.",
+    previewText: "Hello, this is your Triven AI agent. How can I help you today?",
+    isDefault: true
+  },
+  {
+    id: "ruby",
+    name: "Ruby",
+    provider: DEFAULT_VOICE_PROVIDER,
+    voiceId: "",
+    style: "Warm receptionist",
+    bestFor: "Healthcare, salons, appointment booking",
     description: "Warm, friendly receptionist voice.",
-    previewText: "Good morning, this is Sarah. How can I help you today?"
+    previewText: "Good morning, this is Ruby. How can I help you today?"
   },
   {
     id: "aria",
     name: "Aria",
     provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "9BWtsMINqrJLrRacOk9x",
-    gender: "female",
-    accent: "American",
-    style: "Professional",
-    bestFor: "Clinics, law firms, professional services",
-    description: "Polished, professional assistant voice.",
-    previewText: "Thank you for calling. This is Aria — how may I assist you?"
-  },
-  {
-    id: "rachel",
-    name: "Rachel",
-    provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "21m00Tcm4TlvDq8ikWAM",
-    gender: "female",
-    accent: "American",
-    style: "Calm",
-    bestFor: "Support lines, wellness, dental",
-    description: "Calm, reassuring support voice.",
-    previewText: "Hi, this is Rachel. I'm here to help — what can I do for you?"
+    voiceId: "",
+    style: "Professional assistant",
+    bestFor: "Clinics, agencies, business calls",
+    description: "Professional and polished assistant voice.",
+    previewText: "Thank you for calling. This is Aria. How may I assist you?"
   },
   {
     id: "adam",
     name: "Adam",
     provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "pNInz6obpgDQGcFmaJgB",
-    gender: "male",
-    accent: "American",
-    style: "Male",
+    voiceId: "",
+    style: "Male business voice",
     bestFor: "Home services, automotive, B2B",
     description: "Confident male business voice.",
-    previewText: "Hello, this is Adam. Thanks for calling — how can I help?"
+    previewText: "Hello, this is Adam. Thanks for calling. How can I help?"
   },
   {
     id: "priya",
     name: "Priya",
     provider: DEFAULT_VOICE_PROVIDER,
     voiceId: "",
-    gender: "female",
-    accent: "Indian English",
     style: "Indian English",
     bestFor: "India-based businesses, clinics, salons",
     description: "Friendly Indian-English receptionist voice.",
-    previewText: "Hello, this is Priya. How may I help you today?"
+    previewText: "Namaste, this is Priya from Triven. How may I help you today?"
   }
 ];
 
 export function getVoicePreset(id: string): AgentVoicePreset | undefined {
-  const key = (id ?? "").trim().toLowerCase();
+  const key = (id || PLATFORM_DEFAULT_VOICE_ID).trim().toLowerCase();
   return VOICE_PRESETS.find((preset) => preset.id === key);
 }
 
@@ -508,14 +489,14 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     comingSoon: false,
     runtime: { nodeKind: "ai", connector: "Vapi" },
     defaultConfig: {
-      voice: "sarah",
+      voice: PLATFORM_DEFAULT_VOICE_ID,
+      voiceName: "Triven Default Voice",
       voiceProvider: DEFAULT_VOICE_PROVIDER,
       voiceId: "",
-      voiceName: "Sarah",
-      assistantName: "Sarah",
+      assistantName: "Ruby",
       language: "en-US",
       speakingSpeed: "1.0",
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       firstMessage: "Thanks for calling. This is your AI receptionist — how can I help you today?",
       practiceName: "",
       doctorName: "",
@@ -795,7 +776,7 @@ export function isVoiceNodeType(type: string): boolean {
 /** Builder presentation (icon/accent/kind) per voice node so template nodes look like dragged nodes. */
 export const VOICE_NODE_PRESENTATION: Record<string, { kind: string; icon: string; accent: string }> = {
   [VOICE_NODE_TYPES.phoneCallTrigger]: { kind: "TWILIO", icon: "phone", accent: "amber" },
-  [VOICE_NODE_TYPES.voiceConversation]: { kind: "VAPI · GPT-4o", icon: "sparkles", accent: "violet" },
+  [VOICE_NODE_TYPES.voiceConversation]: { kind: "VAPI · GPT-4o Mini", icon: "sparkles", accent: "violet" },
   [VOICE_NODE_TYPES.calendarAvailability]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.bookAppointment]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.sendSms]: { kind: "TWILIO SMS", icon: "message", accent: "green" },

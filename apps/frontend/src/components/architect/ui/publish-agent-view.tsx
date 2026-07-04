@@ -118,7 +118,7 @@ export function PublishAgentView() {
             </label>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <ArchitectField name="name" label="Agent Name" placeholder="Missed Call Text-Back" required minLength={2} />
+              <ArchitectField name="name" label="Agent Name" placeholder="Untitled Agent" required minLength={2} />
               <ArchitectField name="priceRupees" label="Price in INR" type="number" placeholder="999" defaultValue="0" min={0} />
             </div>
 

@@ -1,82 +1,72 @@
-import { CORE_CONNECTOR, CORE_CONNECTOR_ACTIONS } from "@coreai/shared";
+import { buildVoiceBookingWorkflow, VOICE_NODE_TYPES } from "@coreai/shared";
 
-export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist – Missed Call Text-Back";
+export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist Template";
 export const RECEPTIONIST_WORKFLOW_DESCRIPTION =
-  "Detects missed calls, saves the lead, texts the caller back with per-business context, and stores the conversation.";
+  "Answers inbound calls, uses buyer-provided business context, checks calendar availability, books appointments, sends SMS follow-up, and ends the call cleanly.";
 
+/**
+ * Default buyer-install workflow.
+ *
+ * Important: this workflow is only STRUCTURE. Live identity is never taken from
+ * these template defaults. apps/backend/src/modules/business/deploy.ts builds
+ * the Vapi assistant from buyer setup: businessName, businessType,
+ * assistantName, services, timezone, customInstructions and voice.
+ */
 export function buildReceptionistWorkflowJson() {
+  const base = buildVoiceBookingWorkflow();
+
+  const overrides: Record<string, Record<string, unknown>> = {
+    [VOICE_NODE_TYPES.phoneCallTrigger]: {
+      callHandlingMode: "AI_ANSWERS",
+      answerAfterRings: "1",
+      forwardingSchedule: "always"
+    },
+    [VOICE_NODE_TYPES.voiceConversation]: {
+      assistantName: "{{assistant_name}}",
+      firstMessage: "Hello, this is {{assistant_name}} from {{business_name}}. How can I help you today?",
+      model: "gpt-4o-mini",
+      voice: "triven-default",
+      voiceName: "Triven Voice",
+      voiceProvider: "11labs",
+      voiceId: "",
+      practiceName: "",
+      doctorName: "",
+      practiceHours: "",
+      services: "",
+      fallbackResponse: "Let me take a message and have the team call you back shortly.",
+      customInstructions: ""
+    },
+    [VOICE_NODE_TYPES.calendarAvailability]: {
+      bufferMinutes: "10",
+      maxAdvanceDays: "30",
+      slotsToOffer: "3"
+    },
+    [VOICE_NODE_TYPES.bookAppointment]: {
+      eventTitleFormat: "[Service] - [Customer Name]",
+      confirmationMessage: "Perfect, you are all set for [Service] on [Date] at [Time]."
+    },
+    [VOICE_NODE_TYPES.sendSms]: {
+      sendToCustomer: "true",
+      customerTemplate: "Confirmed: [Service] on [Date] at [Time]. Reply if you need to change it.",
+      teamTemplate: "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]"
+    },
+    [VOICE_NODE_TYPES.endFlow]: {
+      closingMessage: "Thank you for calling. Have a great day.",
+      callRecording: "true"
+    }
+  };
+
   return {
-    nodes: [
-      {
-        id: "trigger-missed-call",
-        position: { x: 0, y: 0 },
+    nodes: base.nodes.map((node) => {
+      const nodeType = String(node.data.type ?? "");
+      return {
+        ...node,
         data: {
-          nodeKind: "trigger",
-          label: "Missed Call",
-          description: "Twilio missed-call event"
+          ...node.data,
+          ...(overrides[nodeType] ?? {})
         }
-      },
-      {
-        id: "save-lead",
-        position: { x: 240, y: 0 },
-        data: {
-          nodeKind: "connector",
-          label: "Save Lead",
-          connector: CORE_CONNECTOR,
-          connectorAction: CORE_CONNECTOR_ACTIONS.saveLead,
-          leadSource: "TWILIO_MISSED_CALL",
-          leadStatus: "CAPTURED"
-        }
-      },
-      {
-        id: "ai-draft-reply",
-        position: { x: 480, y: 0 },
-        data: {
-          nodeKind: "ai",
-          label: "AI Context Reply",
-          prompt: "Write a friendly, on-brand missed-call text-back for this business."
-        }
-      },
-      {
-        id: "send-sms",
-        position: { x: 720, y: 0 },
-        data: {
-          nodeKind: "connector",
-          label: "Send SMS",
-          connector: "SMS",
-          connectorAction: "send_sms",
-          smsTo: "{{caller_number}}",
-          smsBody: "{{ai.output}}"
-        }
-      },
-      {
-        id: "save-conversation",
-        position: { x: 960, y: 0 },
-        data: {
-          nodeKind: "connector",
-          label: "Save Conversation",
-          connector: CORE_CONNECTOR,
-          connectorAction: CORE_CONNECTOR_ACTIONS.saveConversationMessage,
-          conversationDirection: "OUTBOUND",
-          conversationBody: "{{sentSms.body}}"
-        }
-      },
-      {
-        id: "output-result",
-        position: { x: 1200, y: 0 },
-        data: {
-          nodeKind: "output",
-          label: "Result",
-          outputKey: "missedCallTextBackResult"
-        }
-      }
-    ],
-    edges: [
-      { id: "e1", source: "trigger-missed-call", target: "save-lead" },
-      { id: "e2", source: "save-lead", target: "ai-draft-reply" },
-      { id: "e3", source: "ai-draft-reply", target: "send-sms" },
-      { id: "e4", source: "send-sms", target: "save-conversation" },
-      { id: "e5", source: "save-conversation", target: "output-result" }
-    ]
+      };
+    }),
+    edges: base.edges
   };
 }

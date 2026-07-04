@@ -5,6 +5,8 @@ import type {
   ArchitectProject,
   ArchitectProposal,
   ArchitectSummary,
+  ArchitectTestDeploymentInput,
+  ArchitectTestDeploymentStatus,
   ArchitectWorkflow,
   GmailConnectorStatus,
   WorkflowRunResult
@@ -328,6 +330,30 @@ export function runArchitectWorkflowLive(
   return apiPost<{ run: WorkflowRunResult }>(
     `/architect/workflows/${workflowId}/run-live`,
     body
+  );
+}
+
+/* ---- Architect sandbox test deployment (pre-publish live phone testing) ---- */
+
+export function getArchitectTestDeployment(workflowId: string) {
+  return apiGet<{ testDeployment: ArchitectTestDeploymentStatus }>(
+    `/architect/workflows/${workflowId}/test-deployment`
+  );
+}
+
+export function startArchitectTestDeployment(
+  workflowId: string,
+  body: ArchitectTestDeploymentInput = {}
+) {
+  return apiPost<{ testDeployment: ArchitectTestDeploymentStatus }>(
+    `/architect/workflows/${workflowId}/test-deployment`,
+    body
+  );
+}
+
+export function stopArchitectTestDeployment(workflowId: string) {
+  return apiDelete<{ testDeployment: ArchitectTestDeploymentStatus }>(
+    `/architect/workflows/${workflowId}/test-deployment`
   );
 }
 

@@ -1,8 +1,7 @@
 import type { BuilderNodeData, NodeKind } from "./types";
 
-export const defaultAgentName = "Missed Call Text-Back";
-export const defaultAgentDescription =
-  "Customer calls, no one picks up, the agent texts back in 5 seconds and captures the lead.";
+export const defaultAgentName = "Untitled Agent";
+export const defaultAgentDescription = "Build a reusable AI agent template for businesses.";
 
 export function defaultNodeData(
   nodeKind: NodeKind,

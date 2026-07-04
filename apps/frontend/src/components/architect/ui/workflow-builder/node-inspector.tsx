@@ -6,6 +6,10 @@ import type { BuilderNode, BuilderNodeData } from "./types";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
+const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
+const TRIVEN_VOICE_NAME = "Triven Voice";
+const DEFAULT_VOICE_PROVIDER = "11labs";
+
 type CalendarConnection = {
   connected: boolean;
   email: string | null;
@@ -35,7 +39,7 @@ export function NodeInspector({
   onClearSelection: () => void;
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
   onDeleteNode: () => void;
-  /** Architect (design) shows requirement badges; buyer (install) shows real connect. */
+  /** Architect design shows requirement badges; buyer install shows real connect. */
   connectorOwnership?: ConnectorOwnership;
   calendarConnected?: boolean;
   calendarEmail?: string | null;
@@ -50,30 +54,43 @@ export function NodeInspector({
     connecting: connectingCalendar,
     onConnect: onConnectCalendar
   };
+
   const ownership = connectorOwnership;
   const type = String(selectedNode.data.type ?? "");
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData };
 
   let panel: ReactNode;
+
   if (type === VOICE_NODE_TYPES.phoneCallTrigger) panel = <PhoneCallTriggerProps {...base} />;
   else if (type === VOICE_NODE_TYPES.voiceConversation) panel = <AiVoiceConversationProps {...base} />;
-  else if (type === VOICE_NODE_TYPES.calendarAvailability) panel = <CalendarAvailabilityProps {...base} calendar={calendar} ownership={ownership} />;
-  else if (type === VOICE_NODE_TYPES.bookAppointment) panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
-  else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
+  else if (type === VOICE_NODE_TYPES.calendarAvailability) {
+    panel = <CalendarAvailabilityProps {...base} calendar={calendar} ownership={ownership} />;
+  } else if (type === VOICE_NODE_TYPES.bookAppointment) {
+    panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
+  } else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
-  else if (selectedNode.data.nodeKind === "connector") panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
-  else panel = <GenericProps {...base} />;
+  else if (selectedNode.data.nodeKind === "connector") {
+    panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
+  } else {
+    panel = <GenericProps {...base} />;
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-white scroll-thin">
       <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
         <div className="flex items-center gap-2">
           <BuilderIcon name={selectedNode.data.icon} className="h-4 w-4 text-amber-600" />
-          <span className="font-bold text-slate-900" data-testid="architect-ui-workflow-builder-node-inspector-node-properties-text">Node properties</span>
+          <span
+            className="font-bold text-slate-900"
+            data-testid="architect-ui-workflow-builder-node-inspector-node-properties-text"
+          >
+            Node properties
+          </span>
         </div>
+
         <button
           type="button"
           onClick={onClearSelection}
@@ -108,8 +125,18 @@ function EmptyProperties() {
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
           <BuilderIcon name="message" className="h-6 w-6" />
         </div>
-        <h3 className="font-bold text-slate-900" data-testid="architect-ui-workflow-builder-node-inspector-select-a-node-heading">Select a node</h3>
-        <p className="mx-auto mt-1 max-w-[200px] text-xs text-slate-400" data-testid="architect-ui-workflow-builder-node-inspector-select-a-node-on-the-canvas-to-text">
+
+        <h3
+          className="font-bold text-slate-900"
+          data-testid="architect-ui-workflow-builder-node-inspector-select-a-node-heading"
+        >
+          Select a node
+        </h3>
+
+        <p
+          className="mx-auto mt-1 max-w-[200px] text-xs text-slate-400"
+          data-testid="architect-ui-workflow-builder-node-inspector-select-a-node-on-the-canvas-to-text"
+        >
           Select a node on the canvas to edit it, or drag a new one from the left panel.
         </p>
       </div>
@@ -122,51 +149,99 @@ function EmptyProperties() {
 function Section({ title, children, last = false }: { title: string; children: ReactNode; last?: boolean }) {
   return (
     <div className={last ? "p-5" : "border-b border-gray-100 p-5"}>
-      {title ? <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-node-inspector-title-heading">{title}</h3> : null}
+      {title ? (
+        <h3
+          className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400"
+          data-testid="architect-ui-workflow-builder-node-inspector-title-heading"
+        >
+          {title}
+        </h3>
+      ) : null}
+
       {children}
     </div>
   );
 }
 
 function Label({ children }: { children: ReactNode }) {
-  return <span data-testid="node-inspector-field-label" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">{children}</span>;
+  return (
+    <span
+      data-testid="node-inspector-field-label"
+      className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+    >
+      {children}
+    </span>
+  );
 }
 
-function TextInput({ value, onChange, placeholder, mono = false }: { value: string; onChange: (value: string) => void; placeholder?: string; mono?: boolean }) {
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+  mono = false
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  mono?: boolean;
+}) {
   return (
-    <input data-testid="node-inspector-label-input"
+    <input
+      data-testid="node-inspector-label-input"
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className={`${mono ? "font-mono" : ""} w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
+      className={`${
+        mono ? "font-mono" : ""
+      } w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
     />
   );
 }
 
-function TextArea({ value, onChange, height = "h-20", mono = false, placeholder }: { value: string; onChange: (value: string) => void; height?: string; mono?: boolean; placeholder?: string }) {
+function TextArea({
+  value,
+  onChange,
+  height = "h-20",
+  mono = false,
+  placeholder
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  height?: string;
+  mono?: boolean;
+  placeholder?: string;
+}) {
   return (
-    <textarea data-testid="node-inspector-prompt-textarea"
+    <textarea
+      data-testid="node-inspector-prompt-textarea"
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className={`${height} ${mono ? "font-mono text-xs leading-relaxed" : ""} w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
+      className={`${height} ${
+        mono ? "font-mono text-xs leading-relaxed" : ""
+      } w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
     />
   );
 }
 
 function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: string[] }) {
   const allOptions = options.includes(value) || !value ? options : [value, ...options];
+
   return (
     <div className="relative">
-      <select data-testid="node-inspector-model-select"
+      <select
+        data-testid="node-inspector-model-select"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
       >
         {allOptions.map((option) => (
-          <option key={option} value={option}>{option}</option>
+          <option key={option} value={option}>
+            {option}
+          </option>
         ))}
       </select>
+
       <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400">
         <BuilderIcon name="chevron" className="h-4 w-4" />
       </span>
@@ -174,7 +249,21 @@ function SelectBox({ value, onChange, options }: { value: string; onChange: (val
   );
 }
 
-function NumberInput({ value, onChange, testId, min, max, step }: { value: string; onChange: (value: string) => void; testId: string; min?: string; max?: string; step?: string }) {
+function NumberInput({
+  value,
+  onChange,
+  testId,
+  min,
+  max,
+  step
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  testId: string;
+  min?: string;
+  max?: string;
+  step?: string;
+}) {
   return (
     <input
       data-testid={testId}
@@ -206,6 +295,26 @@ function ReadOnly({ value, testId }: { value: string; testId?: string }) {
   );
 }
 
+function RequirementNotice({
+  title,
+  children,
+  testId
+}: {
+  title: string;
+  children: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div data-testid={testId} className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-3">
+      <p className="flex items-center gap-1.5 text-xs font-bold text-blue-700">
+        <span className="h-2 w-2 rounded-full bg-blue-500" />
+        {title}
+      </p>
+      <p className="mt-1 text-[11px] leading-5 text-blue-700/90">{children}</p>
+    </div>
+  );
+}
+
 function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   if (calendar.connected) {
     return (
@@ -213,19 +322,24 @@ function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
         <p className="flex items-center gap-1.5 text-xs font-semibold text-green-700">
           <span className="h-2 w-2 rounded-full bg-green-500" /> Google Calendar connected
         </p>
+
         {calendar.email ? <p className="mt-1 text-[11px] text-green-700/80">{calendar.email}</p> : null}
+
         <p className="mt-1 text-[11px] text-slate-500">Live availability and booking use this calendar.</p>
       </div>
     );
   }
+
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5" data-testid="calendar-disconnected">
       <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
         <span className="h-2 w-2 rounded-full bg-amber-500" /> Not connected
       </p>
+
       <p className="mt-1 text-[11px] text-amber-700/90">
-        If Calendar is not connected, dry-run uses safe preview slots. Live booking requires a Google Calendar connection.
+        Live booking requires the buyer to connect Google Calendar during install.
       </p>
+
       <button
         type="button"
         onClick={calendar.onConnect}
@@ -240,14 +354,13 @@ function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
 }
 
 /**
- * Architect-mode connector display: REQUIREMENT BADGES derived from the node's
- * registry requirements. No OAuth and no "Connect" button — the buyer connects
- * these during install. This is what keeps the architect from connecting buyer
- * Gmail/Calendar/Twilio while designing.
+ * Architect-mode connector display: requirement badges only.
+ * No OAuth and no "Connect" button in architect template builder.
  */
 function ConnectorRequirements({ node }: { node: BuilderNode }) {
   const type = String(node.data.type ?? "");
   const requirements = getNodeDefinition(type)?.requiredConnectors ?? [];
+
   if (requirements.length === 0) {
     return (
       <p
@@ -258,25 +371,32 @@ function ConnectorRequirements({ node }: { node: BuilderNode }) {
       </p>
     );
   }
+
   return (
     <div className="space-y-2" data-testid="connector-requirements">
       {requirements.map((req) => {
         const buyerOwned = req.ownedBy === "buyer";
+
         return (
           <div
             key={`${req.connector}-${req.note}`}
             data-testid={`connector-requirement-${req.connector}`}
-            className={`rounded-xl border px-3 py-2.5 ${buyerOwned ? "border-blue-100 bg-blue-50" : "border-violet-100 bg-violet-50"}`}
+            className={`rounded-xl border px-3 py-2.5 ${
+              buyerOwned ? "border-blue-100 bg-blue-50" : "border-violet-100 bg-violet-50"
+            }`}
           >
             <p className={`flex items-center gap-1.5 text-xs font-semibold ${buyerOwned ? "text-blue-700" : "text-violet-700"}`}>
               <span className={`h-2 w-2 rounded-full ${buyerOwned ? "bg-blue-500" : "bg-violet-500"}`} />
               {req.label}
               {req.optional ? " (optional)" : ""}
+
               <span className="ml-auto rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                 {buyerOwned ? "Buyer connects" : "Platform"}
               </span>
             </p>
+
             <p className="mt-1 text-[11px] leading-5 text-slate-600">{req.note}</p>
+
             {req.scopes?.length ? (
               <p className="mt-1 break-words text-[10px] text-slate-400">Scopes: {req.scopes.join(", ")}</p>
             ) : null}
@@ -287,7 +407,6 @@ function ConnectorRequirements({ node }: { node: BuilderNode }) {
   );
 }
 
-/** Real connect (buyer install) vs. requirement badges (architect design). */
 function CalendarConnector({
   calendar,
   ownership,
@@ -308,13 +427,16 @@ function fields(selectedNode: BuilderNode, onUpdateNodeData: NodePropsPanel["onU
     const value = selectedNode.data[key];
     return typeof value === "string" ? value : fallback;
   };
+
   const flag = (key: string, fallback: boolean): boolean => {
     const value = selectedNode.data[key];
     if (typeof value === "boolean") return value;
     if (typeof value === "string") return value === "true";
     return fallback;
   };
+
   const set = (key: string) => (value: string) => onUpdateNodeData(key as keyof BuilderNodeData, value);
+
   return { str, flag, set };
 }
 
@@ -322,31 +444,31 @@ function fields(selectedNode: BuilderNode, onUpdateNodeData: NodePropsPanel["onU
 
 function PhoneCallTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const assignedNumber = str("phoneNumber") || str("assignedNumber") || str("businessPhoneNumber");
+
   return (
     <>
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
       </Section>
-      <Section title="Phone line">
-        <Label>Assigned number</Label>
-        <ReadOnly value={assignedNumber || "Assigned on deploy"} testId="phone-trigger-number" />
-        <p className="mt-2 text-[11px] text-slate-400" data-testid="phone-trigger-note">
-          The Twilio number is assigned automatically on Deploy.
-        </p>
+
+      <Section title="Buyer requirement">
+        <RequirementNotice title="Buyer phone setup" testId="phone-trigger-buyer-requirement">
+          The buyer selects or assigns the live phone number during install. Architects only define that this template starts from an inbound phone call.
+        </RequirementNotice>
       </Section>
-      <Section title="Answering" last>
-        <Label>Answer mode</Label>
-        <SelectBox value={str("callHandlingMode", "AI_ANSWERS")} onChange={set("callHandlingMode")} options={["AI_ANSWERS", "FORWARD_THEN_AI"]} />
-        <div className="mt-4">
-          <Label>Answer after (rings)</Label>
-          <SelectBox value={str("answerAfterRings", "1")} onChange={set("answerAfterRings")} options={["1", "2", "3"]} />
-        </div>
-        <div className="mt-4">
-          <Label>Forwarding schedule</Label>
-          <SelectBox value={str("forwardingSchedule", "always")} onChange={set("forwardingSchedule")} options={["always", "after-hours"]} />
-        </div>
+
+      <Section title="Template behavior" last>
+        <Label>Answer mode suggestion</Label>
+        <SelectBox
+          value={str("callHandlingMode", "AI_ANSWERS")}
+          onChange={set("callHandlingMode")}
+          options={["AI_ANSWERS", "FORWARD_THEN_AI"]}
+        />
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Final phone number, routing, timezone, and forwarding are configured by the buyer.
+        </p>
       </Section>
     </>
   );
@@ -354,83 +476,93 @@ function PhoneCallTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPane
 
 function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
       </Section>
+
       <Section title="Voice">
         <VoicePicker
           accent="violet"
-          selectedVoice={str("voice", "sarah")}
+          selectedVoice={str("voice", PLATFORM_DEFAULT_VOICE_ID)}
           customVoiceId={str("voiceId")}
-          subtitle="Choose the suggested voice for this agent. The buyer can change it during install."
+          testIdPrefix="architect-voice-picker"
+          subtitle="Choose the suggested voice for this template. The buyer can accept it or choose another voice before deployment."
+          onSelectDefault={() => {
+            onUpdateNodeData("voice", PLATFORM_DEFAULT_VOICE_ID);
+            onUpdateNodeData("voiceName", TRIVEN_VOICE_NAME);
+            onUpdateNodeData("voiceProvider", DEFAULT_VOICE_PROVIDER);
+            onUpdateNodeData("voiceId", "");
+          }}
           onSelectPreset={(preset) => {
-            onUpdateNodeData("voice", preset.id);
-            onUpdateNodeData("voiceName", preset.name);
-            onUpdateNodeData("voiceProvider", "11labs");
+            onUpdateNodeData("voice", preset.id || PLATFORM_DEFAULT_VOICE_ID);
+            onUpdateNodeData("voiceName", preset.name || TRIVEN_VOICE_NAME);
+            onUpdateNodeData("voiceProvider", DEFAULT_VOICE_PROVIDER);
             onUpdateNodeData("voiceId", "");
           }}
           onCustomVoiceIdChange={(value) => {
-            onUpdateNodeData("voice", "custom");
-            onUpdateNodeData("voiceName", "Custom ElevenLabs Voice");
-            onUpdateNodeData("voiceProvider", "11labs");
+            const cleanValue = value.trim();
+
+            onUpdateNodeData("voice", cleanValue ? "custom" : PLATFORM_DEFAULT_VOICE_ID);
+            onUpdateNodeData("voiceName", cleanValue ? "Custom ElevenLabs Voice" : TRIVEN_VOICE_NAME);
+            onUpdateNodeData("voiceProvider", DEFAULT_VOICE_PROVIDER);
             onUpdateNodeData("voiceId", value);
           }}
         />
-        <div className="mt-4">
-          <Label>Language</Label>
-          <SelectBox value={str("language", "en-US")} onChange={set("language")} options={["en-US", "en-GB", "es", "hi"]} />
-        </div>
+
+        <p className="mt-2 text-[11px] text-slate-400" data-testid="voice-suggested-note">
+          This is only the template’s suggested voice. Buyer deployment resolves the final ElevenLabs voice.
+        </p>
+      </Section>
+
+      <Section title="Conversation">
+        <Label>Language</Label>
+        <SelectBox value={str("language", "en-US")} onChange={set("language")} options={["en-US", "en-GB", "es", "hi"]} />
+
         <div className="mt-4">
           <Label>Speaking speed</Label>
           <SelectBox value={str("speakingSpeed", "1.0")} onChange={set("speakingSpeed")} options={["0.8", "0.9", "1.0", "1.1", "1.2"]} />
         </div>
+
+        <div className="mt-4">
+          <Label>First message</Label>
+          <TextInput
+            value={str("firstMessage")}
+            onChange={set("firstMessage")}
+            placeholder="e.g. Thanks for calling {{business.name}} — how can I help?"
+          />
+        </div>
       </Section>
+
       <Section title="Intelligence">
         <Label>AI model</Label>
         <SelectBox value={str("model", "gpt-4o")} onChange={set("model")} options={["gpt-4o", "gpt-4o-mini", "claude-sonnet"]} />
-        <div className="mt-4">
-          <Label>First message</Label>
-          <TextInput value={str("firstMessage")} onChange={set("firstMessage")} placeholder="e.g. Thanks for calling {{business.name}} — how can I help?" />
-        </div>
+
         <div className="mt-4">
           <Label>System prompt</Label>
           <TextArea value={str("systemPrompt")} onChange={set("systemPrompt")} height="h-44" mono />
         </div>
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Use generic placeholders like {"{{business.name}}"}, {"{{customer.name}}"}, and {"{{appointment.service}}"}.
+        </p>
       </Section>
-      <Section title="Business details">
-        <Label>Business name</Label>
-        <TextInput value={str("practiceName")} onChange={set("practiceName")} placeholder="Not configured" />
-        <div className="mt-4">
-          <Label>Contact / owner name</Label>
-          <TextInput value={str("doctorName")} onChange={set("doctorName")} placeholder="Not configured" />
-        </div>
-        <div className="mt-4">
-          <Label>Hours</Label>
-          <TextInput value={str("practiceHours")} onChange={set("practiceHours")} placeholder="Not configured" />
-        </div>
-        <div className="mt-4">
-          <Label>Services</Label>
-          <TextArea value={str("services")} onChange={set("services")} height="h-20" placeholder="Comma-separated services" />
-        </div>
-        <div className="mt-4">
-          <Label>Fallback response</Label>
-          <TextInput value={str("fallbackResponse")} onChange={set("fallbackResponse")} placeholder="Said when the assistant can't help" />
-        </div>
-      </Section>
+
       <Section title="Custom instructions" last>
-        <Label>Added to the AI system prompt</Label>
+        <Label>Template-level instructions</Label>
         <textarea
           data-testid="node-inspector-custom-instructions-textarea"
           value={str("customInstructions")}
           onChange={(event) => onUpdateNodeData("customInstructions", event.target.value)}
-          placeholder="Enter custom rules for this agent…"
+          placeholder="Enter reusable rules for this agent template…"
           className="h-48 w-full resize-y overflow-y-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/50"
         />
+
         <p className="mt-2 text-[11px] text-slate-400" data-testid="ai-custom-instructions-note">
-          This is added to the AI system prompt at Deploy.
+          Buyer-specific instructions are added during install and merged into the final prompt at deploy.
         </p>
       </Section>
     </>
@@ -439,30 +571,30 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
 
 function CalendarAvailabilityProps({ selectedNode, onUpdateNodeData, calendar, ownership }: CalendarPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
-      <Section title="Google Calendar">
+      <Section title="Buyer requirement">
         <CalendarConnector calendar={calendar} ownership={ownership} node={selectedNode} />
-        <div className="mt-4">
-          <Label>Calendar ID</Label>
-          <TextInput mono value={str("calendarId", "primary")} onChange={set("calendarId")} />
-        </div>
-        <div className="mt-4">
-          <Label>Timezone</Label>
-          <TextInput value={str("timeZone")} onChange={set("timeZone")} placeholder="e.g. Asia/Kolkata" />
-        </div>
       </Section>
-      <Section title="Availability rules" last>
+
+      <Section title="Template defaults" last>
         <Label>Buffer between appointments (min)</Label>
         <SelectBox value={str("bufferMinutes", "10")} onChange={set("bufferMinutes")} options={["0", "5", "10", "15", "30"]} />
+
         <div className="mt-4">
           <Label>Slots to offer</Label>
           <SelectBox value={str("slotsToOffer", "3")} onChange={set("slotsToOffer")} options={["2", "3", "4"]} />
         </div>
+
         <div className="mt-4">
           <Label>Maximum advance booking (days)</Label>
           <SelectBox value={str("maxAdvanceDays", "30")} onChange={set("maxAdvanceDays")} options={["7", "14", "30", "90"]} />
         </div>
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Buyer calendar ID and timezone are configured during install, not inside architect templates.
+        </p>
       </Section>
     </>
   );
@@ -470,36 +602,50 @@ function CalendarAvailabilityProps({ selectedNode, onUpdateNodeData, calendar, o
 
 function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar, ownership }: CalendarPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
-      <Section title="Google Calendar">
+      <Section title="Buyer requirement">
         <CalendarConnector calendar={calendar} ownership={ownership} node={selectedNode} />
-        <div className="mt-4">
-          <Label>Calendar ID</Label>
-          <TextInput mono value={str("calendarId", "primary")} onChange={set("calendarId")} />
-        </div>
-        <div className="mt-4">
-          <Label>Timezone</Label>
-          <TextInput value={str("timeZone")} onChange={set("timeZone")} placeholder="e.g. Asia/Kolkata" />
-        </div>
       </Section>
-      <Section title="Event">
+
+      <Section title="Event template">
         <Label>Event title format</Label>
-        <TextInput mono value={str("eventTitleFormat")} onChange={set("eventTitleFormat")} placeholder="[Service] - [Customer Name]" />
+        <TextInput
+          mono
+          value={str("eventTitleFormat", "{{appointment.service}} - {{customer.name}}")}
+          onChange={set("eventTitleFormat")}
+          placeholder="{{appointment.service}} - {{customer.name}}"
+        />
+
         <div className="mt-4">
           <Label>Event description</Label>
-          <TextArea mono height="h-20" value={str("eventDescription")} onChange={set("eventDescription")} placeholder="Phone: [Customer Phone] | Service: [Service]" />
+          <TextArea
+            mono
+            height="h-20"
+            value={str("eventDescription", "Phone: {{customer.phone}}\nService: {{appointment.service}}")}
+            onChange={set("eventDescription")}
+            placeholder="Phone: {{customer.phone}} | Service: {{appointment.service}}"
+          />
         </div>
       </Section>
+
       <Section title="Reminder & confirmation" last>
         <BoolField label="Send calendar reminder" value={flag("reminderEnabled", true)} onChange={set("reminderEnabled")} />
+
         <div className="mt-4">
           <Label>Reminder timing (minutes before)</Label>
           <SelectBox value={str("reminderTiming", "120")} onChange={set("reminderTiming")} options={["60", "120", "1440"]} />
         </div>
+
         <div className="mt-4">
           <Label>Confirmation message</Label>
-          <TextArea height="h-16" value={str("confirmationMessage")} onChange={set("confirmationMessage")} placeholder="Said after a successful booking" />
+          <TextArea
+            height="h-16"
+            value={str("confirmationMessage", "You're all set. Your appointment is booked for {{appointment.date}} at {{appointment.time}}.")}
+            onChange={set("confirmationMessage")}
+            placeholder="Said after a successful booking"
+          />
         </div>
       </Section>
     </>
@@ -508,30 +654,45 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
 
 function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
-      <Section title="Send SMS">
-        <p className="rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs leading-5 text-green-700" data-testid="sms-provider-note">
-          Sent via your connected Twilio number.
-        </p>
+      <Section title="Buyer requirement">
+        <RequirementNotice title="Buyer SMS setup" testId="sms-buyer-requirement">
+          SMS is sent using the buyer’s configured phone provider and assigned phone number during deployment.
+        </RequirementNotice>
       </Section>
-      <Section title="Customer">
-        <BoolField label="Send to customer" value={flag("sendToPatient", true)} onChange={set("sendToPatient")} />
+
+      <Section title="Customer message">
+        <BoolField label="Send to customer" value={flag("sendToCustomer", flag("sendToPatient", true))} onChange={set("sendToCustomer")} />
+
         <div className="mt-4">
           <Label>Customer message template</Label>
-          <TextArea height="h-20" value={str("patientTemplate")} onChange={set("patientTemplate")} placeholder="Confirmed: [Service] on [Date] at [Time]." />
+          <TextArea
+            height="h-20"
+            value={str("customerTemplate", str("patientTemplate", "Confirmed: {{appointment.service}} on {{appointment.date}} at {{appointment.time}}."))}
+            onChange={set("customerTemplate")}
+            placeholder="Confirmed: {{appointment.service}} on {{appointment.date}} at {{appointment.time}}."
+          />
         </div>
       </Section>
-      <Section title="Team" last>
-        <BoolField label="Send to team" value={flag("sendToDentist", false)} onChange={set("sendToDentist")} />
-        <div className="mt-4">
-          <Label>Team phone number</Label>
-          <TextInput mono value={str("dentistPhone")} onChange={set("dentistPhone")} placeholder="Not configured" />
-        </div>
+
+      <Section title="Team message" last>
+        <BoolField label="Send to team" value={flag("sendToTeam", flag("sendToDentist", false))} onChange={set("sendToTeam")} />
+
         <div className="mt-4">
           <Label>Team message template</Label>
-          <TextArea height="h-20" value={str("dentistTemplate")} onChange={set("dentistTemplate")} placeholder="New booking: [Customer Name], [Date] [Time], [Service]." />
+          <TextArea
+            height="h-20"
+            value={str("teamTemplate", str("dentistTemplate", "New booking: {{customer.name}}, {{appointment.date}} {{appointment.time}}, {{appointment.service}}."))}
+            onChange={set("teamTemplate")}
+            placeholder="New booking: {{customer.name}}, {{appointment.date}} {{appointment.time}}, {{appointment.service}}."
+          />
         </div>
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Buyer team phone number is configured during install.
+        </p>
       </Section>
     </>
   );
@@ -539,15 +700,18 @@ function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
       <Section title="End flow">
         <Label>Closing message</Label>
         <TextInput value={str("closingMessage")} onChange={set("closingMessage")} placeholder="e.g. You're all set. Have a great day." />
       </Section>
+
       <Section title="After flow" last>
         <Label>After-flow action</Label>
         <SelectBox value={str("afterCallAction", "hangup")} onChange={set("afterCallAction")} options={["hangup", "voicemail", "transfer"]} />
+
         <div className="mt-4">
           <BoolField label="Call recording" value={flag("callRecording", true)} onChange={set("callRecording")} />
         </div>
@@ -560,24 +724,26 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const assignedNumber = str("phoneNumber") || str("assignedNumber") || str("businessPhoneNumber");
+
   return (
     <>
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
+
         <div className="mt-4">
           <Label>Description</Label>
           <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
         </div>
       </Section>
+
       <Section title="Trigger" last>
         <Label>Trigger type</Label>
         <ReadOnly value={String(selectedNode.data.label ?? selectedNode.data.title ?? "Trigger")} />
-        <div className="mt-4">
-          <Label>Assigned number</Label>
-          <ReadOnly value={assignedNumber || "Assigned on deploy"} />
-        </div>
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Live phone/calendar/account setup belongs to the buyer during install.
+        </p>
       </Section>
     </>
   );
@@ -586,36 +752,49 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
+
   return (
     <>
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
+
         <div className="mt-4">
           <Label>Description</Label>
           <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-[72px]" />
         </div>
       </Section>
+
       <Section title="AI configuration">
         <Label>Model</Label>
-        <SelectBox value={str("model", "gpt-4o")} onChange={set("model")} options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-1.5-pro", "llama-3.1-70b"]} />
+        <SelectBox
+          value={str("model", "gpt-4o")}
+          onChange={set("model")}
+          options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-1.5-pro", "llama-3.1-70b"]}
+        />
+
         <div className="mt-4">
           <Label>Temperature</Label>
           <NumberInput testId="node-inspector-temperature-input" value={str("temperature", "0.7")} onChange={set("temperature")} min="0" max="1" step="0.1" />
         </div>
+
         <div className="mt-4">
           <Label>System prompt</Label>
           <TextArea value={str("prompt")} onChange={set("prompt")} height="h-[134px]" mono />
         </div>
+
         <div className="mt-4">
           <Label>Max tokens</Label>
           <NumberInput testId="node-inspector-delay-input" value={str("maxTokens", "200")} onChange={set("maxTokens")} />
         </div>
       </Section>
+
       <Section title="Test output" last>
         {lastOutput ? (
           <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-            <p className="text-sm leading-relaxed text-slate-700" data-testid="node-inspector-last-test-output">{lastOutput}</p>
+            <p className="text-sm leading-relaxed text-slate-700" data-testid="node-inspector-last-test-output">
+              {lastOutput}
+            </p>
           </div>
         ) : (
           <p className="text-sm text-slate-400" data-testid="node-inspector-no-test-output">
@@ -629,16 +808,18 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
       </Section>
+
       <Section title="Condition" last>
         <Label>Rule</Label>
-        <TextInput value={str("condition")} onChange={set("condition")} placeholder="e.g. 9:00 AM - 5:00 PM, Mon-Fri" />
-        <p className="mt-2 text-[11px] text-slate-400">Routes to the connected nodes based on this rule.</p>
+        <TextInput value={str("condition")} onChange={set("condition")} placeholder="e.g. after hours, urgent request, booking intent" />
+        <p className="mt-2 text-[11px] text-slate-400">Routes to connected nodes based on this rule.</p>
       </Section>
     </>
   );
@@ -650,7 +831,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
   const isGmail = connector === "Gmail";
   const isVapi = connector === "Vapi";
   const isCalendar = connector === "Google Calendar";
-  const isCore = connector === "CoreAI";
+  const isCore = connector === "CoreAI" || connector === "Triven";
   const coreAction = str("connectorAction", "save_lead");
 
   return (
@@ -658,66 +839,147 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
+
         <div className="mt-4">
           <Label>Summary</Label>
           <TextInput value={str("subtitle")} onChange={set("subtitle")} />
         </div>
       </Section>
-      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "CoreAI action" : "SMS"} last>
+
+      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "Triven action" : "SMS"} last>
         {isGmail ? (
           <>
-            <Label>Action</Label>
-            <SelectBox value={str("connectorAction", "read_emails")} onChange={set("connectorAction")} options={["read_emails", "draft_reply", "create_draft", "send_email"]} />
+            <ConnectorRequirements node={selectedNode} />
+
+            <div className="mt-4">
+              <Label>Action</Label>
+              <SelectBox
+                value={str("connectorAction", "read_emails")}
+                onChange={set("connectorAction")}
+                options={["read_emails", "draft_reply", "create_draft", "send_email"]}
+              />
+            </div>
+
             {str("connectorAction", "read_emails") === "read_emails" ? (
-              <div className="mt-4"><Label>Search query</Label><TextInput mono value={str("gmailQuery", "newer_than:7d")} onChange={set("gmailQuery")} /></div>
+              <div className="mt-4">
+                <Label>Search query template</Label>
+                <TextInput mono value={str("gmailQuery", "newer_than:7d")} onChange={set("gmailQuery")} />
+              </div>
             ) : (
               <>
-                <div className="mt-4"><Label>To</Label><TextInput mono value={str("gmailTo", "{{gmail.senderEmail}}")} onChange={set("gmailTo")} /></div>
-                <div className="mt-4"><Label>Subject</Label><TextInput mono value={str("gmailSubject", "Re: {{gmail.subject}}")} onChange={set("gmailSubject")} /></div>
-                <div className="mt-4"><Label>Body</Label><TextArea mono height="h-24" value={str("gmailBody", "{{ai.output}}")} onChange={set("gmailBody")} /></div>
+                <div className="mt-4">
+                  <Label>To</Label>
+                  <TextInput mono value={str("gmailTo", "{{gmail.senderEmail}}")} onChange={set("gmailTo")} />
+                </div>
+
+                <div className="mt-4">
+                  <Label>Subject</Label>
+                  <TextInput mono value={str("gmailSubject", "Re: {{gmail.subject}}")} onChange={set("gmailSubject")} />
+                </div>
+
+                <div className="mt-4">
+                  <Label>Body</Label>
+                  <TextArea mono height="h-24" value={str("gmailBody", "{{ai.output}}")} onChange={set("gmailBody")} />
+                </div>
               </>
             )}
           </>
         ) : isVapi ? (
           <>
-            <Label>Action</Label>
-            <SelectBox value={str("connectorAction", "start_voice_call")} onChange={set("connectorAction")} options={["start_voice_call"]} />
-            <div className="mt-4"><Label>Assistant ID</Label><TextInput mono value={str("vapiAssistantId", "{{business.vapiAssistantId}}")} onChange={set("vapiAssistantId")} /></div>
-            <div className="mt-4"><Label>Phone Number ID</Label><TextInput mono value={str("vapiPhoneNumberId", "{{business.vapiPhoneNumberId}}")} onChange={set("vapiPhoneNumberId")} /></div>
+            <ConnectorRequirements node={selectedNode} />
+
+            <div className="mt-4">
+              <Label>Action</Label>
+              <SelectBox value={str("connectorAction", "start_voice_call")} onChange={set("connectorAction")} options={["start_voice_call"]} />
+            </div>
+
+            <p className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+              Vapi assistant ID and phone number ID are created/mapped when the buyer deploys the live agent.
+            </p>
           </>
         ) : isCalendar ? (
           <>
             <CalendarConnector calendar={calendar} ownership={ownership} node={selectedNode} />
-            <div className="mt-4"><Label>Action</Label><SelectBox value={str("connectorAction", "book_appointment")} onChange={set("connectorAction")} options={["check_availability", "book_appointment"]} /></div>
-            <div className="mt-4"><Label>Calendar ID</Label><TextInput mono value={str("calendarId", "{{business.calendarId}}")} onChange={set("calendarId")} /></div>
-            <div className="mt-4"><Label>Service</Label><TextInput value={str("appointmentService")} onChange={set("appointmentService")} placeholder="Not configured" /></div>
-            <div className="mt-4"><Label>Event summary</Label><TextInput mono value={str("calendarSummary")} onChange={set("calendarSummary")} placeholder="{{appointmentService}} - {{customer.phone}}" /></div>
-            <div className="mt-4"><Label>Event description</Label><TextArea mono height="h-20" value={str("calendarDescription")} onChange={set("calendarDescription")} /></div>
+
+            <div className="mt-4">
+              <Label>Action</Label>
+              <SelectBox
+                value={str("connectorAction", "book_appointment")}
+                onChange={set("connectorAction")}
+                options={["check_availability", "book_appointment"]}
+              />
+            </div>
+
+            <div className="mt-4">
+              <Label>Service template</Label>
+              <TextInput value={str("appointmentService", "{{appointment.service}}")} onChange={set("appointmentService")} placeholder="{{appointment.service}}" />
+            </div>
+
+            <div className="mt-4">
+              <Label>Event summary</Label>
+              <TextInput mono value={str("calendarSummary", "{{appointment.service}} - {{customer.name}}")} onChange={set("calendarSummary")} />
+            </div>
+
+            <div className="mt-4">
+              <Label>Event description</Label>
+              <TextArea mono height="h-20" value={str("calendarDescription")} onChange={set("calendarDescription")} />
+            </div>
           </>
         ) : isCore ? (
           <div data-testid="node-inspector-coreai">
             <Label>Action</Label>
-            <SelectBox value={coreAction} onChange={set("connectorAction")} options={["save_lead", "save_conversation_message", "human_handoff", "trigger_next_workflow"]} />
+            <SelectBox
+              value={coreAction}
+              onChange={set("connectorAction")}
+              options={["save_lead", "save_conversation_message", "human_handoff", "trigger_next_workflow"]}
+            />
+
             {coreAction === "trigger_next_workflow" ? (
-              <div className="mt-4"><Label>Next workflow ID</Label><TextInput mono value={str("nextWorkflowId")} onChange={set("nextWorkflowId")} placeholder="Not configured" /></div>
+              <div className="mt-4">
+                <Label>Next workflow ID</Label>
+                <TextInput mono value={str("nextWorkflowId")} onChange={set("nextWorkflowId")} placeholder="Not configured" />
+              </div>
             ) : null}
+
             {coreAction === "save_conversation_message" ? (
               <>
-                <div className="mt-4"><Label>Direction</Label><SelectBox value={str("conversationDirection", "OUTBOUND")} onChange={set("conversationDirection")} options={["OUTBOUND", "INBOUND", "SYSTEM"]} /></div>
-                <div className="mt-4"><Label>Message body</Label><TextArea mono height="h-20" value={str("conversationBody", "{{ai.output}}")} onChange={set("conversationBody")} /></div>
+                <div className="mt-4">
+                  <Label>Direction</Label>
+                  <SelectBox value={str("conversationDirection", "OUTBOUND")} onChange={set("conversationDirection")} options={["OUTBOUND", "INBOUND", "SYSTEM"]} />
+                </div>
+
+                <div className="mt-4">
+                  <Label>Message body</Label>
+                  <TextArea mono height="h-20" value={str("conversationBody", "{{ai.output}}")} onChange={set("conversationBody")} />
+                </div>
               </>
             ) : null}
+
             {coreAction === "human_handoff" ? (
-              <div className="mt-4"><Label>Handoff reason</Label><TextArea height="h-16" value={str("handoffReason", "{{business.escalationRules}}")} onChange={set("handoffReason")} /></div>
+              <div className="mt-4">
+                <Label>Handoff reason</Label>
+                <TextArea height="h-16" value={str("handoffReason", "{{business.escalationRules}}")} onChange={set("handoffReason")} />
+              </div>
             ) : null}
+
             {coreAction === "save_lead" ? (
-              <p className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700" data-testid="architect-ui-workflow-builder-node-inspector-saves-the-contact-as-a-lead-for-text">Saves the contact as a lead for this business. No extra configuration needed.</p>
+              <p
+                className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700"
+                data-testid="architect-ui-workflow-builder-node-inspector-saves-the-contact-as-a-lead-for-text"
+              >
+                Saves the contact as a lead for this business. No extra configuration needed.
+              </p>
             ) : null}
           </div>
         ) : (
           <>
-            <Label>Send to</Label>
-            <TextInput mono value={str("smsTo", "{{customer.phone}}")} onChange={set("smsTo")} />
+            <ConnectorRequirements node={selectedNode} />
+
+            <div className="mt-4">
+              <Label>Send to</Label>
+              <TextInput mono value={str("smsTo", "{{customer.phone}}")} onChange={set("smsTo")} />
+            </div>
+
             <div className="mt-4">
               <Label>Message body</Label>
               <TextArea value={str("smsBody", "{{ai.output}}")} onChange={set("smsBody")} height="h-[88px]" />
@@ -731,15 +993,24 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
 
 function GenericProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+
   return (
     <>
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
-        <div className="mt-4"><Label>Summary</Label><TextInput value={str("subtitle")} onChange={set("subtitle")} /></div>
+
+        <div className="mt-4">
+          <Label>Summary</Label>
+          <TextInput value={str("subtitle")} onChange={set("subtitle")} />
+        </div>
       </Section>
+
       <Section title="Settings" last>
-        <p className="text-sm leading-relaxed text-slate-500" data-testid="architect-ui-workflow-builder-node-inspector-configure-how-this-selected-node-kind-to-text">
+        <p
+          className="text-sm leading-relaxed text-slate-500"
+          data-testid="architect-ui-workflow-builder-node-inspector-configure-how-this-selected-node-kind-to-text"
+        >
           Configure how this {String(selectedNode.data.kind ?? "").toLowerCase() || "step"} behaves. Drag from its ports to connect it to the rest of your workflow.
         </p>
       </Section>

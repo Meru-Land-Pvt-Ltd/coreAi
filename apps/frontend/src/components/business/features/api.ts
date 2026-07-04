@@ -20,6 +20,7 @@ export type BusinessHoursItem = {
 export type BusinessSetupInput = {
   businessName: string;
   businessType: string;
+  assistantName?: string;
   forwardToPhone: string;
   bookingUrl?: string;
   teamPhone?: string;
@@ -105,6 +106,7 @@ export type BusinessSetupData = {
     twilioPhoneNumberSid: string | null;
   } | null;
   installedAgent: { id: string; name: string; status: string } | null;
+  assistantName?: string | null;
   knowledge: BusinessKnowledgeItem[];
   calendar: { connected: boolean; email: string | null };
   webhooks: {

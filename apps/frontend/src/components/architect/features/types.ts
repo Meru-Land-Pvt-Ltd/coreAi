@@ -115,4 +115,30 @@ export type WorkflowRunResult = {
 export type GmailConnectorStatus = {
   connected: boolean;
   email: string | null;
+  scopes?: string[];
+  // True when the granted Google scopes include calendar.events — one Google
+  // connect powers Gmail + Calendar for architect test runs.
+  calendarConnected?: boolean;
+};
+
+export type ArchitectTestDeploymentStatus = {
+  workflowId: string;
+  businessId: string | null;
+  installedAgentId: string | null;
+  assignedPhoneNumber: string | null;
+  vapiAssistantId: string | null;
+  calendarConnected: boolean;
+  calendarEmail: string | null;
+  webhookUrl: string;
+  status: "NOT_STARTED" | "READY" | "ERROR";
+};
+
+export type ArchitectTestDeploymentInput = {
+  businessName?: string;
+  businessType?: string;
+  calendarId?: string;
+  timeZone?: string;
+  services?: string[];
+  faqs?: string[];
+  knowledge?: string[];
 };

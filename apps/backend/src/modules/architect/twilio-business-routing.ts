@@ -845,11 +845,13 @@ async function buildVapiAnswerTwiml({
   agent,
   callerNumber,
   callerName,
+  calledNumber,
   reason
 }: {
   agent: ResolvedAgent;
   callerNumber: string;
   callerName?: string;
+  calledNumber?: string | null;
   reason: string;
 }): Promise<string | null> {
   const business = agent.business;
@@ -875,6 +877,7 @@ async function buildVapiAnswerTwiml({
     },
     assistantId: business.vapiAssistantId,
     phoneNumberId: business.vapiPhoneNumberId,
+    phoneNumber: calledNumber,
     metadata: {
       businessId: business.businessId,
       businessOwnerId: business.ownerId,
@@ -1075,6 +1078,7 @@ export async function handleTwilioVoice(c: Context) {
       agent,
       callerNumber,
       callerName,
+      calledNumber,
       reason: "Inbound call answered live by the AI receptionist."
     });
 

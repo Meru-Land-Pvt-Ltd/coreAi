@@ -75,12 +75,12 @@ function buildDentalReceptionistWorkflow() {
   const overrides: Record<string, Record<string, string>> = {
     [VOICE_NODE_TYPES.phoneCallTrigger]: { callHandlingMode: "AI_ANSWERS" },
     [VOICE_NODE_TYPES.voiceConversation]: {
-      practiceName: "Triven Dental Care",
-      doctorName: "Dr. Patel",
+      practiceName: "",
+      doctorName: "",
       practiceHours: "Mon–Fri 9:00 AM–5:00 PM",
       services: "Cleaning 45min, Filling 30min, Crown 60min, Emergency 30min",
-      firstMessage: "Good morning, Triven Dental Care, this is Sarah. How can I help you?",
-      fallbackResponse: "Let me have the doctor's team call you back within 30 minutes.",
+      firstMessage: "Hello, this is {{assistant_name}} from {{business_name}}. How can I help you today?",
+      fallbackResponse: "Let me take a message and have the team call you back shortly.",
       customInstructions: [
         "New patients should be offered a 60-minute first visit and asked for their full name and a callback number.",
         "For tooth pain, swelling, or bleeding, treat it as urgent — offer the soonest available slot or escalate to the on-call dentist.",
@@ -129,7 +129,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
   {
     id: "tpl-missed-call",
     slug: "missed-call-text-back",
-    title: "Missed Call Text-Back",
+    title: "AI Receptionist Template",
     category: "Communication",
     difficulty: "Beginner",
     description: "Detect missed calls → generate an AI response → send an SMS. Average 28-second response time.",

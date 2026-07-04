@@ -1,40 +1,76 @@
-import type { WorkflowRunLog } from "@/components/architect/features/types";
+import type { ArchitectTestDeploymentStatus, WorkflowRunLog } from "@/components/architect/features/types";
 import { BuilderIcon } from "./icons";
 import { logColor } from "./run-context";
 import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 
 export function TestPanel({
   hasGmailFlow,
+  isVoiceWorkflow,
+  isDentalWorkflow,
   gmailConnected,
   gmailEmail,
+  calendarConnected,
   connectingGmail,
   running,
+  startingLive,
+  stoppingLive,
   callerNumber,
   callerName,
   businessName,
+  businessType,
+  calendarId,
+  timeZone,
+  appointmentService,
+  testDeployment,
   runLogs,
   runContext,
   onConnectGmail,
+  onDisconnectGoogle,
+  onRefreshConnections,
   onRunTest,
+  onStartLiveTest,
+  onStopLiveTest,
   onCallerNumberChange,
   onCallerNameChange,
-  onBusinessNameChange
+  onBusinessNameChange,
+  onBusinessTypeChange,
+  onCalendarIdChange,
+  onTimeZoneChange,
+  onAppointmentServiceChange
 }: {
   hasGmailFlow: boolean;
+  isVoiceWorkflow: boolean;
+  isDentalWorkflow: boolean;
   gmailConnected: boolean;
   gmailEmail: string | null;
+  calendarConnected: boolean;
   connectingGmail: boolean;
   running: boolean;
+  startingLive: boolean;
+  stoppingLive: boolean;
   callerNumber: string;
   callerName: string;
   businessName: string;
+  businessType: string;
+  calendarId: string;
+  timeZone: string;
+  appointmentService: string;
+  testDeployment: ArchitectTestDeploymentStatus | null;
   runLogs: WorkflowRunLog[];
   runContext: Record<string, unknown>;
   onConnectGmail: () => void;
+  onDisconnectGoogle: () => void;
+  onRefreshConnections: () => void;
   onRunTest: () => void;
+  onStartLiveTest: () => void;
+  onStopLiveTest: () => void;
   onCallerNumberChange: (value: string) => void;
   onCallerNameChange: (value: string) => void;
   onBusinessNameChange: (value: string) => void;
+  onBusinessTypeChange: (value: string) => void;
+  onCalendarIdChange: (value: string) => void;
+  onTimeZoneChange: (value: string) => void;
+  onAppointmentServiceChange: (value: string) => void;
 }) {
   const sentSms = getSentSms(runContext);
   const capturedLead = getCapturedLead(runContext);
@@ -54,20 +90,30 @@ export function TestPanel({
   const smsNotification = runContext.smsNotification as
     | { sendToPatient?: boolean; sendToDentist?: boolean }
     | undefined;
-  const isVoiceWorkflow = Boolean(voiceConversation || calendarAvailability || smsNotification);
+  const hasVoiceResult = Boolean(voiceConversation || calendarAvailability || smsNotification);
 
   const hasResult = Boolean(
-    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || isVoiceWorkflow || runLogs.length > 0
+    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || hasVoiceResult || runLogs.length > 0
   );
+
+  const sandboxReady = testDeployment?.status === "READY";
+  const heading = isDentalWorkflow
+    ? "Dental AI Receptionist test"
+    : isVoiceWorkflow
+      ? "Test AI Voice Agent"
+      : "Test console";
+  const subtitle = isVoiceWorkflow
+    ? "Dry test previews logic. Live sandbox lets you call the assigned Triven test number and test the assistant with your connected Google Calendar."
+    : "Send a sample trigger through the workflow and watch each step run in real time.";
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
       <div className="mx-auto max-w-3xl px-6 py-8">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-test-panel-console-heading">Test console</h2>
+            <h2 className="text-xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-test-panel-console-heading">{heading}</h2>
             <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-send-a-sample-trigger-through-the-workflow-text">
-              Send a sample trigger through the workflow and watch each step run in real time.
+              {subtitle}
             </p>
             {hasGmailFlow ? (
               <p className="mt-2 text-xs font-medium text-blue-600" data-testid="architect-ui-workflow-builder-test-panel-gmail-connected-gmail-connected-gmail-email-gmail-text">
@@ -95,16 +141,144 @@ export function TestPanel({
               className="flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
             >
               <BuilderIcon name="play" className="h-4 w-4" />
-              {running ? "Running..." : "Run test"}
+              {running ? "Running..." : "Run dry test"}
             </button>
+            {isVoiceWorkflow ? (
+              sandboxReady ? (
+                <button
+                  type="button"
+                  onClick={onStopLiveTest}
+                  disabled={stoppingLive}
+                  data-testid="builder-test-stop-live"
+                  className="rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 disabled:opacity-60"
+                >
+                  {stoppingLive ? "Stopping..." : "Stop sandbox"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onStartLiveTest}
+                  disabled={startingLive}
+                  data-testid="builder-test-start-live"
+                  className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+                >
+                  <BuilderIcon name="phone-call" className="h-4 w-4" />
+                  {startingLive ? "Starting..." : "Start live test"}
+                </button>
+              )
+            ) : null}
           </div>
         </div>
 
+        {sandboxReady ? (
+          <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm" data-testid="builder-test-live-sandbox-ready">
+            <p className="text-sm font-bold text-emerald-800" data-testid="builder-test-live-sandbox-ready-title">Live sandbox ready</p>
+            <p className="mt-1 text-sm text-emerald-700" data-testid="architect-ui-workflow-builder-test-panel-call-this-number-to-test-text">Call this number to test:</p>
+            <p className="mt-1 font-mono text-2xl font-black text-emerald-900" data-testid="builder-test-live-sandbox-number">
+              {testDeployment?.assignedPhoneNumber}
+            </p>
+            <ul className="mt-3 space-y-1 text-xs font-semibold text-emerald-700">
+              <li data-testid="builder-test-live-vapi-status">✓ Vapi assistant created</li>
+              <li data-testid="builder-test-live-webhook-status">✓ Twilio webhook active</li>
+              <li data-testid="builder-test-live-calendar-status">
+                {testDeployment?.calendarConnected ? "✓ Google Calendar connected" : "✗ Google Calendar not connected"}
+              </li>
+            </ul>
+          </div>
+        ) : null}
+
+        {isVoiceWorkflow || hasGmailFlow ? (
+          <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="builder-test-connections">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-architect-test-connections-heading">Architect test connections</h3>
+              <button
+                type="button"
+                onClick={onRefreshConnections}
+                data-testid="builder-test-refresh-status"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+              >
+                Refresh status
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-google-card">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gmail / Google account</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-google-status">
+                  {gmailConnected ? `Google connected: ${gmailEmail ?? "connected"}` : "Not connected"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-permission">
+                  Calendar permission: {calendarConnected ? "connected" : "missing"}
+                </p>
+                {gmailConnected && !calendarConnected ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-700" data-testid="builder-test-calendar-reconnect-hint">
+                    Reconnect Google to grant Calendar permission.
+                  </p>
+                ) : null}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onConnectGmail}
+                    disabled={connectingGmail}
+                    data-testid="builder-test-connect-google"
+                    className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
+                  >
+                    {connectingGmail ? "Connecting..." : gmailConnected ? "Reconnect Google" : "Connect Google"}
+                  </button>
+                  {gmailConnected ? (
+                    <button
+                      type="button"
+                      onClick={onDisconnectGoogle}
+                      data-testid="builder-test-disconnect-google"
+                      className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                    >
+                      Disconnect Google
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-calendar-card">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Google Calendar</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-calendar-status-text">
+                  {calendarConnected ? "Connected" : "Missing permission"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-id-text">Calendar ID: {calendarId || "primary"}</p>
+                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-timezone-text">Timezone: {timeZone || "America/Los_Angeles"}</p>
+              </div>
+              {isVoiceWorkflow ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-twilio-card">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Twilio test number</p>
+                  <p className="mt-1 font-mono text-sm font-semibold text-slate-800" data-testid="builder-test-twilio-number">
+                    {testDeployment?.assignedPhoneNumber ?? "Assigned when the live sandbox starts"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-twilio-note">
+                    A Triven platform number is reserved for your sandbox — buyer numbers are never used.
+                  </p>
+                </div>
+              ) : null}
+              {isVoiceWorkflow ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-vapi-card">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Vapi assistant</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-vapi-status">
+                    {testDeployment?.vapiAssistantId ? "Assistant ready" : "Created when the live sandbox starts"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-vapi-note">
+                    The sandbox uses its own assistant for this workflow — no shared production assistant.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-          <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">Simulate a missed call</h3>
+          <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">
+            {isVoiceWorkflow ? "Simulate an inbound call" : "Simulate a missed call"}
+          </h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">Caller number</span>
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">
+                {isVoiceWorkflow ? "Caller phone" : "Caller number"}
+              </span>
               <input data-testid="builder-test-caller-number-input"
                 type="text"
                 value={callerNumber}
@@ -119,29 +293,78 @@ export function TestPanel({
                 type="text"
                 value={callerName}
                 onChange={(event) => onCallerNameChange(event.target.value)}
-                placeholder="Jordan Lee"
+                placeholder={isVoiceWorkflow ? "Test Patient" : "Jordan Lee"}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
-            <label data-testid="architect-ui-workflow-builder-test-panel-time-of-call-label">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-time-of-call-text">Time of call</span>
-              <input data-testid="builder-test-message-input"
-                type="text"
-                value="Today - 2:14 PM"
-                readOnly
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-              />
-            </label>
+            {isVoiceWorkflow ? (
+              <label data-testid="builder-test-business-type-label">
+                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Business type</span>
+                <input data-testid="builder-test-business-type-input"
+                  type="text"
+                  value={businessType}
+                  onChange={(event) => onBusinessTypeChange(event.target.value)}
+                  placeholder="Dental Clinic"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                />
+              </label>
+            ) : (
+              <label data-testid="architect-ui-workflow-builder-test-panel-time-of-call-label">
+                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-time-of-call-text">Time of call</span>
+                <input data-testid="builder-test-message-input"
+                  type="text"
+                  value="Today - 2:14 PM"
+                  readOnly
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                />
+              </label>
+            )}
             <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-business-text">Business</span>
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-business-text">
+                {isVoiceWorkflow ? "Test business" : "Business"}
+              </span>
               <input data-testid="builder-test-business-name-input"
                 type="text"
                 value={businessName}
                 onChange={(event) => onBusinessNameChange(event.target.value)}
-                placeholder="Your business name"
+                placeholder={isVoiceWorkflow ? "Sample Business" : "Your business name"}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
+            {isVoiceWorkflow ? (
+              <>
+                <label data-testid="builder-test-appointment-service-label">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Appointment service</span>
+                  <input data-testid="builder-test-appointment-service-input"
+                    type="text"
+                    value={appointmentService}
+                    onChange={(event) => onAppointmentServiceChange(event.target.value)}
+                    placeholder="Cleaning"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                  />
+                </label>
+                <label data-testid="builder-test-timezone-label">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar timezone</span>
+                  <input data-testid="builder-test-timezone-input"
+                    type="text"
+                    value={timeZone}
+                    onChange={(event) => onTimeZoneChange(event.target.value)}
+                    placeholder="America/Los_Angeles"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                  />
+                </label>
+                <label data-testid="builder-test-calendar-id-label">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar ID</span>
+                  <input data-testid="builder-test-calendar-id-input"
+                    type="text"
+                    value={calendarId}
+                    onChange={(event) => onCalendarIdChange(event.target.value)}
+                    placeholder="primary"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                  />
+                </label>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -160,7 +383,7 @@ export function TestPanel({
                 </p>
               ))
             ) : (
-              <p className="text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-awaiting-run-press-run-to-execute-the-text">$ Awaiting run - press "Run test" to execute the workflow...</p>
+              <p className="text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-awaiting-run-press-run-to-execute-the-text">$ Awaiting run - press "Run dry test" to execute the workflow...</p>
             )}
             {capturedLead ? <p className="text-blue-300" data-testid="architect-ui-workflow-builder-test-panel-lead-captured-lead-caller-number-captured-lead-text">$ Lead captured - {capturedLead.callerNumber} - {capturedLead.status}</p> : null}
           </div>
@@ -169,14 +392,14 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-6">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {isVoiceWorkflow ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
+              {hasVoiceResult ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
             </h3>
             <div className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-600">
-                <BuilderIcon name={isVoiceWorkflow ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
+                <BuilderIcon name={hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                {isVoiceWorkflow ? (
+                {hasVoiceResult ? (
                   <div className="space-y-2" data-testid="test-panel-voice-result">
                     {voiceConversation ? (
                       <div data-testid="test-panel-voice-conversation-preview">

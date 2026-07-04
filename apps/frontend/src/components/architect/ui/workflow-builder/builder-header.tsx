@@ -75,7 +75,7 @@ export function BuilderHeader({
   onPreview?: () => void;
 }) {
   return (
-    <header className="fixed left-0 top-4 z-50 flex h-14 w-full items-stretch border-b border-gray-200 bg-white px-3">
+    <header className="fixed left-0 z-50 flex h-14 w-full items-stretch border-b border-gray-200 bg-white px-3">
       <div className="flex min-w-0 items-center gap-2.5 pr-1">
         <Link data-testid="builder-header-back-to-workflows"
           href={"/architect/agents" as Route}

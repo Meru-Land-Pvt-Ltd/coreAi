@@ -30,6 +30,12 @@ import {
   getTemplateBySlug,
   listTemplateCards
 } from "./templates";
+import {
+  getArchitectTestDeploymentStatus,
+  startArchitectTestDeployment,
+  stopArchitectTestDeployment,
+  TestDeploymentError
+} from "./test-deployment";
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
@@ -1118,6 +1124,83 @@ async function runOwnedWorkflow({
     mode === "live" ? "Twilio workflow run completed" : "Workflow test completed"
   );
 }
+
+/* ---- Architect SANDBOX test deployment (pre-publish live testing) ----
+ * Test/sandbox-only: creates an architect-owned sandbox Business + InstalledAgent
+ * (configJson.purpose = "ARCHITECT_TEST") and reserves an AVAILABLE platform
+ * number. Never touches buyer installs and never publishes anything. */
+
+const testDeploymentSchema = z.object({
+  businessName: z.string().trim().max(120).optional(),
+  businessType: z.string().trim().max(80).optional(),
+  calendarId: z.string().trim().max(200).optional(),
+  timeZone: z.string().trim().max(80).optional(),
+  services: z.array(z.string().trim().min(1)).max(50).optional(),
+  faqs: z.array(z.string().trim().min(1)).max(50).optional(),
+  knowledge: z.array(z.string().trim().min(1)).max(50).optional()
+});
+
+function handleTestDeploymentError(c: Context, error: unknown) {
+  if (error instanceof TestDeploymentError) {
+    return errorResponse(c, error.message, error.status, error.code);
+  }
+  console.error("[test-deployment] failed", error);
+  return errorResponse(
+    c,
+    error instanceof Error ? error.message : "Test deployment failed",
+    503,
+    "TEST_DEPLOYMENT_FAILED"
+  );
+}
+
+architectRoutes.get("/workflows/:workflowId/test-deployment", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  if (!workflowId) {
+    return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
+  try {
+    const testDeployment = await getArchitectTestDeploymentStatus(authUser.id, workflowId);
+    return successResponse(c, { testDeployment });
+  } catch (error) {
+    return handleTestDeploymentError(c, error);
+  }
+});
+
+architectRoutes.post("/workflows/:workflowId/test-deployment", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  if (!workflowId) {
+    return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
+  try {
+    const input = testDeploymentSchema.parse(await c.req.json().catch(() => ({})));
+    const testDeployment = await startArchitectTestDeployment(authUser.id, workflowId, input);
+    return successResponse(c, { testDeployment }, "Live sandbox ready");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid test input", 422, "VALIDATION_ERROR");
+    }
+    return handleTestDeploymentError(c, error);
+  }
+});
+
+architectRoutes.delete("/workflows/:workflowId/test-deployment", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  if (!workflowId) {
+    return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
+  try {
+    const testDeployment = await stopArchitectTestDeployment(authUser.id, workflowId);
+    return successResponse(c, { testDeployment }, "Sandbox test stopped");
+  } catch (error) {
+    return handleTestDeploymentError(c, error);
+  }
+});
 
 architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {
   try {
