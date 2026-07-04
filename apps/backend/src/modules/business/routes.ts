@@ -133,15 +133,13 @@ const hoursItemSchema = z.object({
 });
 
 const businessSetupSchema = z.object({
+  deploy: z.boolean().default(false),
+
   businessName: z.string().trim().min(2, "Business name is required"),
   businessType: z.string().trim().min(2, "Business type is required"),
-  // Optional so progress can be saved incrementally; required (as a blocker) only to deploy.
   forwardToPhone: z.string().trim().optional().or(z.literal("")),
-  // true only on the final "Deploy live agent" — incremental saves skip the Vapi build.
-  deploy: z.boolean().optional(),
   bookingUrl: z.string().trim().url().optional().or(z.literal("")),
   teamPhone: z.string().trim().optional().or(z.literal("")),
-  // Priority: buyer-saved tz > browser tz (sent by the wizard) > Asia/Kolkata.
   timeZone: z.string().trim().default("Asia/Kolkata"),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
@@ -151,20 +149,16 @@ const businessSetupSchema = z.object({
   knowledge: z.array(knowledgeItemSchema).default([]),
   vapiAssistantId: z.string().trim().optional().or(z.literal("")),
   vapiPhoneNumberId: z.string().trim().optional().or(z.literal("")),
-  // Buyer voice selection: accept the agent default or override it at install.
   voice: z.string().trim().optional().or(z.literal("")),
   voiceId: z.string().trim().optional().or(z.literal("")),
   voiceProvider: z.string().trim().optional().or(z.literal("")),
-  // Buyer-chosen answering mode (AI_FIRST | NO_ANSWER | BUSY | AFTER_HOURS | UNREACHABLE).
   answeringMode: z.string().trim().optional().or(z.literal("")),
-  // Buyer-owned contact name + custom instructions + silence/no-answer policy.
   contactName: z.string().trim().optional().or(z.literal("")),
   customInstructions: z.string().trim().optional().or(z.literal("")),
   silenceRepromptCount: z.coerce.number().int().min(0).max(3).optional(),
   silenceRepromptMessage1: z.string().trim().optional().or(z.literal("")),
   silenceRepromptMessage2: z.string().trim().optional().or(z.literal("")),
   goodbyeMessage: z.string().trim().optional().or(z.literal("")),
-  // Buyer-selected CoreAI/platform phone number (by id, or by number as fallback).
   selectedPlatformPhoneNumberId: z.string().trim().optional().or(z.literal("")),
   selectedPhoneNumber: z.string().trim().optional().or(z.literal("")),
   calendarId: z.string().trim().optional().or(z.literal("")),
@@ -401,9 +395,9 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
   const activePhone = business?.phoneNumbers?.[0] ?? null;
   const assignedPlatform = business
     ? await prisma.platformPhoneNumber.findFirst({
-        where: { businessId: business.id },
-        orderBy: { assignedAt: "desc" }
-      })
+      where: { businessId: business.id },
+      orderBy: { assignedAt: "desc" }
+    })
     : null;
 
   const number =
@@ -435,7 +429,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 
   const assignedToThisBusiness = Boolean(
     (business && platformForNumber && platformForNumber.businessId === business.id) ||
-      (business && businessPhoneForNumber && businessPhoneForNumber.businessId === business.id)
+    (business && businessPhoneForNumber && businessPhoneForNumber.businessId === business.id)
   );
   const installedAgent = businessPhoneForNumber?.installedAgent ?? business?.installedAgents?.[0] ?? null;
 
@@ -574,25 +568,25 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
       : null,
     profile: profile
       ? {
-          bookingUrl: profile.bookingUrl,
-          teamPhone: profile.teamPhone,
-          calendarId: profile.calendarId,
-          timeZone: normalizeTimeZone(profile.timeZone),
-          tone: profile.tone,
-          escalationRules: profile.escalationRules,
-          services: profile.services,
-          faqs: profile.faqsJson ?? [],
-          hours: profile.hoursJson ?? [],
-          vapiAssistantId: profile.vapiAssistantId,
-          vapiPhoneNumberId: profile.vapiPhoneNumberId
-        }
+        bookingUrl: profile.bookingUrl,
+        teamPhone: profile.teamPhone,
+        calendarId: profile.calendarId,
+        timeZone: normalizeTimeZone(profile.timeZone),
+        tone: profile.tone,
+        escalationRules: profile.escalationRules,
+        services: profile.services,
+        faqs: profile.faqsJson ?? [],
+        hours: profile.hoursJson ?? [],
+        vapiAssistantId: profile.vapiAssistantId,
+        vapiPhoneNumberId: profile.vapiPhoneNumberId
+      }
       : null,
     phoneNumber: phone
       ? {
-          phoneNumber: phone.phoneNumber,
-          forwardToPhone: phone.forwardToPhone,
-          twilioPhoneNumberSid: phone.twilioPhoneNumberSid
-        }
+        phoneNumber: phone.phoneNumber,
+        forwardToPhone: phone.forwardToPhone,
+        twilioPhoneNumberSid: phone.twilioPhoneNumberSid
+      }
       : null,
     installedAgent: installedAgent
       ? { id: installedAgent.id, name: installedAgent.name, status: installedAgent.status }
@@ -610,10 +604,10 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
     blockers: readiness.blockers,
     voiceSelection: voiceConfig
       ? {
-          name: typeof voiceConfig.name === "string" ? voiceConfig.name : null,
-          voiceId: typeof voiceConfig.voiceId === "string" ? voiceConfig.voiceId : null,
-          provider: typeof voiceConfig.provider === "string" ? voiceConfig.provider : null
-        }
+        name: typeof voiceConfig.name === "string" ? voiceConfig.name : null,
+        voiceId: typeof voiceConfig.voiceId === "string" ? voiceConfig.voiceId : null,
+        provider: typeof voiceConfig.provider === "string" ? voiceConfig.provider : null
+      }
       : null,
     answeringMode:
       phoneRoutingConfig && typeof phoneRoutingConfig.mode === "string"
@@ -624,11 +618,11 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
     customInstructions: typeof config?.customInstructions === "string" ? config.customInstructions : null,
     silence: silenceConfig
       ? {
-          repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
-          reprompt1: typeof silenceConfig.reprompt1 === "string" ? silenceConfig.reprompt1 : null,
-          reprompt2: typeof silenceConfig.reprompt2 === "string" ? silenceConfig.reprompt2 : null,
-          goodbye: typeof silenceConfig.goodbye === "string" ? silenceConfig.goodbye : null
-        }
+        repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
+        reprompt1: typeof silenceConfig.reprompt1 === "string" ? silenceConfig.reprompt1 : null,
+        reprompt2: typeof silenceConfig.reprompt2 === "string" ? silenceConfig.reprompt2 : null,
+        goodbye: typeof silenceConfig.goodbye === "string" ? silenceConfig.goodbye : null
+      }
       : null
   };
 }
@@ -649,14 +643,16 @@ businessRoutes.post("/setup", async (c) => {
     const authUser = c.get("authUser");
     const input = businessSetupSchema.parse(await c.req.json());
 
-    if (isBillingEnabled()) {
+    if (input.deploy && isBillingEnabled()) {
       const billed = await prisma.business.findFirst({
         where: { ownerId: authUser.id },
         orderBy: { createdAt: "desc" },
         select: { subscriptionStatus: true }
       });
+
       const active =
         billed?.subscriptionStatus === "active" || billed?.subscriptionStatus === "trialing";
+
       if (!active) {
         return errorResponse(
           c,
@@ -730,12 +726,12 @@ businessRoutes.post("/setup", async (c) => {
 
     const business = existing
       ? await prisma.business.update({
-          where: { id: existing.id },
-          data: { name: input.businessName, type: input.businessType }
-        })
+        where: { id: existing.id },
+        data: { name: input.businessName, type: input.businessType }
+      })
       : await prisma.business.create({
-          data: { ownerId: authUser.id, name: input.businessName, type: input.businessType }
-        });
+        data: { ownerId: authUser.id, name: input.businessName, type: input.businessType }
+      });
 
     await prisma.businessProfile.upsert({
       where: { businessId: business.id },
@@ -788,25 +784,25 @@ businessRoutes.post("/setup", async (c) => {
     const existingAgent = existing?.installedAgents?.[0] ?? null;
     const installedAgent = existingAgent
       ? await prisma.installedAgent.update({
-          where: { id: existingAgent.id },
-          data: {
-            workflowId: resolved.workflow.id,
-            listingId: resolved.listingId ?? undefined,
-            name: resolved.workflow.name,
-            status: "ACTIVE",
-            configJson: configJson as never
-          }
-        })
+        where: { id: existingAgent.id },
+        data: {
+          workflowId: resolved.workflow.id,
+          listingId: resolved.listingId ?? undefined,
+          name: resolved.workflow.name,
+          status: "ACTIVE",
+          configJson: configJson as never
+        }
+      })
       : await prisma.installedAgent.create({
-          data: {
-            businessId: business.id,
-            workflowId: resolved.workflow.id,
-            listingId: resolved.listingId ?? undefined,
-            name: resolved.workflow.name,
-            status: "ACTIVE",
-            configJson: configJson as never
-          }
-        });
+        data: {
+          businessId: business.id,
+          workflowId: resolved.workflow.id,
+          listingId: resolved.listingId ?? undefined,
+          name: resolved.workflow.name,
+          status: "ACTIVE",
+          configJson: configJson as never
+        }
+      });
 
     const forward = normalizePhoneNumber(input.forwardToPhone || "");
     let businessPhone: Awaited<ReturnType<typeof prisma.businessPhoneNumber.findFirst>> = null;
