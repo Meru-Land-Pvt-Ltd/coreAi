@@ -113,7 +113,7 @@ function isVoiceCapable(capabilities: unknown): boolean {
 }
 
 /** The architect's sandbox InstalledAgent for this workflow (any status). */
-async function findSandboxAgent(architectUserId: string, workflowId: string) {
+export async function findSandboxAgent(architectUserId: string, workflowId: string) {
   return prisma.installedAgent.findFirst({
     where: {
       workflowId,
@@ -129,7 +129,7 @@ async function findSandboxAgent(architectUserId: string, workflowId: string) {
 }
 
 /** The architect's sandbox Business (from any prior test deployment), if one exists. */
-async function findSandboxBusiness(architectUserId: string) {
+export async function findSandboxBusiness(architectUserId: string) {
   const agent = await prisma.installedAgent.findFirst({
     where: {
       business: { ownerId: architectUserId },

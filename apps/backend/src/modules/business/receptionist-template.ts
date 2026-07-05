@@ -4,14 +4,6 @@ export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist Template";
 export const RECEPTIONIST_WORKFLOW_DESCRIPTION =
   "Answers inbound calls, uses buyer-provided business context, checks calendar availability, books appointments, sends SMS follow-up, and ends the call cleanly.";
 
-/**
- * Default buyer-install workflow.
- *
- * Important: this workflow is only STRUCTURE. Live identity is never taken from
- * these template defaults. apps/backend/src/modules/business/deploy.ts builds
- * the Vapi assistant from buyer setup: businessName, businessType,
- * assistantName, services, timezone, customInstructions and voice.
- */
 export function buildReceptionistWorkflowJson() {
   const base = buildVoiceBookingWorkflow();
 
@@ -27,7 +19,7 @@ export function buildReceptionistWorkflowJson() {
       model: "gpt-4o-mini",
       voice: "triven-default",
       voiceName: "Triven Voice",
-      voiceProvider: "11labs",
+      voiceProvider: "",
       voiceId: "",
       practiceName: "",
       doctorName: "",

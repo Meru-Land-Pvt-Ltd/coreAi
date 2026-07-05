@@ -26,7 +26,6 @@ function asNodes(workflowJson: unknown): NodeLike[] {
   return Array.isArray(nodes) ? (nodes as NodeLike[]) : [];
 }
 
-/** Find a node's config by its registry type slug (data.type, falling back to id). */
 function nodeData(nodes: NodeLike[], type: string): Record<string, unknown> {
   const node = nodes.find((n) => (n.data?.type as string) === type || n.id === type);
   return (node?.data as Record<string, unknown>) ?? {};
@@ -115,7 +114,7 @@ export async function deployDentalWorkflow({
     "Let me have the doctor's team call you back within 30 minutes."
   );
   const customInstructions = str(ai, "customInstructions", "");
-  const assistantName = str(ai, "assistantName", "Ruby");
+  const assistantName = str(ai, "assistantName", "AI Assistant");
   const model = str(ai, "model", "gpt-4o-mini");
   const voice = str(ai, "voice", "triven-default");
   const voiceProvider = str(ai, "voiceProvider", "");
@@ -242,7 +241,6 @@ export async function deployDentalWorkflow({
     data: { vapiAssistantId: assistant.id }
   });
 
-  // ---- Create/update the InstalledAgent (links workflow + tool config) ----
   const configJson = {
     connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],
     vapiAssistantId: assistant.id,
@@ -270,8 +268,6 @@ export async function deployDentalWorkflow({
         }
       });
 
-  // ---- Assign / bind a Twilio number ----
-  // AI_ANSWERS → no human forward (the AI picks up). Otherwise forward to the dentist.
   const forwardToPhone = aiAnswers ? null : dentistPhone || null;
   const preferredNumber = normalizePhone(env.TWILIO_PHONE_NUMBER);
   const existingPhone = business.phoneNumbers[0] ?? null;

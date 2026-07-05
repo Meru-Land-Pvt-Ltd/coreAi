@@ -1,4 +1,17 @@
 import type { Context } from "hono";
+import type { ApiErrorStatus } from "./error-utils";
+
+export type ApiSuccessBody<T> = {
+  success: true;
+  message: string;
+  data: T;
+};
+
+export type ApiErrorBody = {
+  success: false;
+  error: string;
+  code: string;
+};
 
 export function successResponse<T>(
   c: Context,
@@ -6,7 +19,7 @@ export function successResponse<T>(
   message = "Success",
   status: 200 | 201 = 200
 ) {
-  return c.json(
+  return c.json<ApiSuccessBody<T>>(
     {
       success: true,
       message,
@@ -19,10 +32,10 @@ export function successResponse<T>(
 export function errorResponse(
   c: Context,
   error: string,
-  status: 400 | 401 | 402 | 403 | 404 | 409 | 422 | 500 | 503 = 400,
+  status: ApiErrorStatus = 400,
   code = "REQUEST_ERROR"
 ) {
-  return c.json(
+  return c.json<ApiErrorBody>(
     {
       success: false,
       error,

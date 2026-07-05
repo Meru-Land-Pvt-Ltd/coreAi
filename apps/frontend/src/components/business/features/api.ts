@@ -43,6 +43,14 @@ export type BusinessSetupInput = {
   silenceRepromptMessage1?: string;
   silenceRepromptMessage2?: string;
   goodbyeMessage?: string;
+  /** Appointment timing config — drives availability slot generation. */
+  scheduling?: {
+    serviceDurationMinutes?: number;
+    bufferMinutes?: number;
+    maximumSlotsToShow?: number;
+    openHour?: number;
+    closeHour?: number;
+  };
   selectedPlatformPhoneNumberId?: string;
   selectedPhoneNumber?: string;
   /** true only on the final Deploy — incremental saves skip the Vapi assistant build. */
@@ -179,10 +187,7 @@ export function getBusinessSetup() {
 }
 
 export function saveBusinessSetup(body: BusinessSetupInput) {
-  return apiPost<BusinessSetupData>(
-    "/business/setup",
-    body as unknown as Record<string, unknown>
-  );
+  return apiPost<BusinessSetupData>("/business/setup", body);
 }
 
 /**
@@ -200,10 +205,7 @@ export function getBusinessPhoneNumbers() {
 }
 
 export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPhoneNumberId?: string }) {
-  return apiPost<CallRoutingResult>(
-    "/business/setup/test-call-routing",
-    body as Record<string, unknown>
-  );
+  return apiPost<CallRoutingResult>("/business/setup/test-call-routing", body);
 }
 
 export function getBusinessCalendarStatus() {

@@ -1,5 +1,5 @@
 import { VOICE_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData } from "./types";
@@ -104,6 +104,8 @@ export function NodeInspector({
 
       {panel}
 
+      <NodeDataFlowPanel node={selectedNode} />
+
       <div className="border-t border-gray-100 p-5">
         <button
           type="button"
@@ -191,9 +193,8 @@ function TextInput({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className={`${
-        mono ? "font-mono" : ""
-      } w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
+      className={`${mono ? "font-mono" : ""
+        } w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
     />
   );
 }
@@ -217,9 +218,8 @@ function TextArea({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className={`${height} ${
-        mono ? "font-mono text-xs leading-relaxed" : ""
-      } w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
+      className={`${height} ${mono ? "font-mono text-xs leading-relaxed" : ""
+        } w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50`}
     />
   );
 }
@@ -381,9 +381,8 @@ function ConnectorRequirements({ node }: { node: BuilderNode }) {
           <div
             key={`${req.connector}-${req.note}`}
             data-testid={`connector-requirement-${req.connector}`}
-            className={`rounded-xl border px-3 py-2.5 ${
-              buyerOwned ? "border-blue-100 bg-blue-50" : "border-violet-100 bg-violet-50"
-            }`}
+            className={`rounded-xl border px-3 py-2.5 ${buyerOwned ? "border-blue-100 bg-blue-50" : "border-violet-100 bg-violet-50"
+              }`}
           >
             <p className={`flex items-center gap-1.5 text-xs font-semibold ${buyerOwned ? "text-blue-700" : "text-violet-700"}`}>
               <span className={`h-2 w-2 rounded-full ${buyerOwned ? "bg-blue-500" : "bg-violet-500"}`} />
@@ -420,6 +419,485 @@ function CalendarConnector({
   return <ConnectorRequirements node={node} />;
 }
 
+type VariableInfo = {
+  key: string;
+  label: string;
+  source: string;
+  description?: string;
+};
+
+type NodeDataFlowInfo = {
+  inputs: VariableInfo[];
+  outputs: VariableInfo[];
+  availableVariables: VariableInfo[];
+  usedVariables: VariableInfo[];
+};
+
+function variable(key: string, label: string, source: string, description?: string): VariableInfo {
+  return { key, label, source, description };
+}
+
+function readStringValues(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value.match(/{{\s*[\w.-]+\s*}}/g)?.map((item) => item.replace(/[{}]/g, "").trim()) ?? [];
+}
+
+/** Human-readable name for a node data field, e.g. "systemPrompt" -> "prompt". */
+function friendlyFieldName(field: string): string {
+  const labels: Record<string, string> = {
+    systemPrompt: "prompt",
+    prompt: "prompt",
+    firstMessage: "first message",
+    customInstructions: "custom instructions",
+    customerTemplate: "customer message",
+    patientTemplate: "customer message",
+    teamTemplate: "team message",
+    dentistTemplate: "team message",
+    eventTitleFormat: "event title",
+    eventDescription: "event description",
+    confirmationMessage: "confirmation message",
+    closingMessage: "closing message",
+    smsBody: "message body",
+    smsTo: "recipient",
+    gmailTo: "email recipient",
+    gmailSubject: "email subject",
+    gmailBody: "email body",
+    calendarSummary: "event summary",
+    calendarDescription: "event description",
+    conversationBody: "message body",
+    handoffReason: "handoff reason",
+    appointmentService: "service template",
+    subtitle: "description",
+    condition: "condition"
+  };
+
+  return labels[field] ?? field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+function collectUsedVariables(node: BuilderNode): VariableInfo[] {
+  const seen = new Set<string>();
+  const used: VariableInfo[] = [];
+
+  Object.entries(node.data).forEach(([field, value]) => {
+    for (const key of readStringValues(value)) {
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      used.push(
+        variable(
+          key,
+          key,
+          `Used in ${friendlyFieldName(field)}`,
+          `This node references {{${key}}}.`
+        )
+      );
+    }
+  });
+
+  return used;
+}
+
+function commonTriggerVariables(): VariableInfo[] {
+  return [
+    variable("caller.phone", "Caller phone", "Phone trigger", "Customer phone number from the inbound call."),
+    variable("caller.name", "Caller name", "Contact match", "Shown only when the caller is matched to a known contact."),
+    variable("call.time", "Call start time", "Phone trigger", "When the call or browser test started."),
+    variable("business.name", "Business name", "Buyer setup", "The buyer's business name from install/setup."),
+    variable("business.type", "Business type", "Buyer setup", "The buyer's business category from install/setup.")
+  ];
+}
+
+function aiConversationOutputs(): VariableInfo[] {
+  return [
+    variable("customer.name", "Customer Name", "AI Voice Conversation", "Name collected during the conversation."),
+    variable("customer.phone", "Customer Phone", "AI Voice Conversation", "Phone number confirmed during the conversation."),
+    variable("service", "Requested Service", "AI Voice Conversation", "The service the customer wants."),
+    variable("preferred.date", "Preferred Date", "AI Voice Conversation", "The date requested by the customer."),
+    variable("preferred.time", "Preferred Time", "AI Voice Conversation", "The time requested by the customer."),
+    variable("selected.slot", "Selected Slot", "AI Voice Conversation", "The slot selected by the customer.")
+  ];
+}
+
+function calendarAvailabilityOutputs(): VariableInfo[] {
+  return [
+    variable("calendar.available_slots", "Available Slots", "Calendar Availability", "Available appointment slots returned by the calendar check."),
+    variable("calendar.requested_date", "Requested Date", "Calendar Availability", "Date used for availability lookup."),
+    variable("calendar.timezone", "Timezone", "Calendar Availability", "Timezone used for the calendar lookup.")
+  ];
+}
+
+function bookingOutputs(): VariableInfo[] {
+  return [
+    variable("appointment.date", "Appointment Date", "Book Calendar Appointment", "Final appointment date."),
+    variable("appointment.time", "Appointment Time", "Book Calendar Appointment", "Final appointment time."),
+    variable("appointment.status", "Booking Status", "Book Calendar Appointment", "Booking result status."),
+    variable("appointment.confirmation_id", "Confirmation ID", "Book Calendar Appointment", "Generated confirmation ID."),
+    variable("appointment.calendar_event_id", "Calendar Event ID", "Book Calendar Appointment", "Real calendar event ID in live mode; simulated ID in test mode.")
+  ];
+}
+
+function smsOutputs(): VariableInfo[] {
+  return [
+    variable("sms.status", "SMS Status", "Send SMS", "Whether SMS was simulated, queued, or sent."),
+    variable("sms.body", "SMS Body", "Send SMS", "Final SMS body after variables are resolved.")
+  ];
+}
+
+function inboundSmsOutputs(): VariableInfo[] {
+  return [
+    variable("customer.phone", "Customer Phone", "Inbound SMS Trigger", "Phone number that sent the SMS."),
+    variable("sms.incoming_message", "Incoming Message", "Inbound SMS Trigger", "Text received from the customer."),
+    variable("sms.received_time", "Received Time", "Inbound SMS Trigger", "Time when the SMS was received."),
+    variable("sms.message_id", "Message ID", "Inbound SMS Trigger", "Provider message ID."),
+    variable("trigger.source", "Trigger Source", "Inbound SMS Trigger", "Source of the workflow trigger.")
+  ];
+}
+
+function nodeDataFlowInfo(node: BuilderNode): NodeDataFlowInfo {
+  const type = String(node.data.type ?? "");
+  const nodeKind = String(node.data.nodeKind ?? "");
+  const connector = String(node.data.connector ?? "").toLowerCase();
+  const title = String(node.data.title ?? node.data.label ?? "").toLowerCase();
+
+  const triggerVariables = commonTriggerVariables();
+  const aiOutputs = aiConversationOutputs();
+  const calendarOutputs = calendarAvailabilityOutputs();
+  const appointmentOutputs = bookingOutputs();
+  const smsOutputVariables = smsOutputs();
+
+  if (type === VOICE_NODE_TYPES.phoneCallTrigger) {
+    return {
+      inputs: [],
+      outputs: triggerVariables,
+      availableVariables: [],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (type === VOICE_NODE_TYPES.voiceConversation) {
+    return {
+      inputs: triggerVariables,
+      outputs: aiOutputs,
+      availableVariables: triggerVariables,
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (type === VOICE_NODE_TYPES.calendarAvailability) {
+    return {
+      inputs: [
+        variable("preferred.date", "Preferred Date", "AI Voice Conversation"),
+        variable("service.duration", "Service Duration", "Calendar Availability settings"),
+        variable("business.calendar_id", "Calendar ID", "Buyer setup or node settings"),
+        variable("business.timezone", "Timezone", "Buyer setup or calendar default")
+      ],
+      outputs: calendarOutputs,
+      availableVariables: [...triggerVariables, ...aiOutputs],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (type === VOICE_NODE_TYPES.bookAppointment) {
+    return {
+      inputs: [
+        variable("customer.name", "Customer Name", "AI Voice Conversation"),
+        variable("customer.phone", "Customer Phone", "AI Voice Conversation"),
+        variable("service", "Service", "AI Voice Conversation"),
+        variable("selected.slot", "Selected Slot", "AI Voice Conversation"),
+        variable("calendar.available_slots", "Available Slots", "Calendar Availability")
+      ],
+      outputs: appointmentOutputs,
+      availableVariables: [...triggerVariables, ...aiOutputs, ...calendarOutputs],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (type === VOICE_NODE_TYPES.sendSms) {
+    return {
+      inputs: [
+        variable("customer.phone", "Customer Phone", "AI Voice Conversation or Trigger"),
+        variable("customer.name", "Customer Name", "AI Voice Conversation"),
+        variable("service", "Service", "AI Voice Conversation"),
+        variable("appointment.date", "Appointment Date", "Book Calendar Appointment"),
+        variable("appointment.time", "Appointment Time", "Book Calendar Appointment"),
+        variable("appointment.confirmation_id", "Confirmation ID", "Book Calendar Appointment")
+      ],
+      outputs: smsOutputVariables,
+      availableVariables: [...triggerVariables, ...aiOutputs, ...calendarOutputs, ...appointmentOutputs],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (type === VOICE_NODE_TYPES.endFlow) {
+    return {
+      inputs: [...triggerVariables, ...aiOutputs, ...calendarOutputs, ...appointmentOutputs, ...smsOutputVariables],
+      outputs: [
+        variable("flow.status", "Flow Status", "End Flow", "Final workflow status."),
+        variable("flow.closing_message", "Closing Message", "End Flow", "Message spoken before ending.")
+      ],
+      availableVariables: [...triggerVariables, ...aiOutputs, ...calendarOutputs, ...appointmentOutputs, ...smsOutputVariables],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (nodeKind === "trigger" && (connector === "sms" || title.includes("sms"))) {
+    const outputs = inboundSmsOutputs();
+
+    return {
+      inputs: [],
+      outputs,
+      availableVariables: [],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (nodeKind === "trigger") {
+    return {
+      inputs: [],
+      outputs: triggerVariables,
+      availableVariables: [],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (nodeKind === "ai") {
+    return {
+      inputs: triggerVariables,
+      outputs: [
+        variable("ai.output", "AI Output", "AI Node", "Generated response from this AI node."),
+        variable("ai.summary", "AI Summary", "AI Node", "Optional structured summary.")
+      ],
+      availableVariables: triggerVariables,
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  if (nodeKind === "connector") {
+    return {
+      inputs: [...triggerVariables, variable("ai.output", "AI Output", "AI Node")],
+      outputs: [
+        variable("connector.status", "Connector Status", "Connector Node", "Result status from the connector."),
+        variable("connector.output", "Connector Output", "Connector Node", "Raw connector result.")
+      ],
+      availableVariables: [...triggerVariables, variable("ai.output", "AI Output", "AI Node")],
+      usedVariables: collectUsedVariables(node)
+    };
+  }
+
+  return {
+    inputs: triggerVariables,
+    outputs: [
+      variable("node.output", "Node Output", "Current Node", "Generic output from this node.")
+    ],
+    availableVariables: triggerVariables,
+    usedVariables: collectUsedVariables(node)
+  };
+}
+
+function copyVariableTemplate(key: string) {
+  const text = `{{${key}}}`;
+
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(text).catch(() => undefined);
+  }
+}
+
+function NodeDataFlowPanel({ node }: { node: BuilderNode }) {
+  const info = nodeDataFlowInfo(node);
+  const isStartNode = info.inputs.length === 0;
+
+  return (
+    <Section title="Data Flow">
+      <div
+        className="rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-3"
+        data-testid="node-data-flow-intro"
+      >
+        <p className="flex items-center gap-2 text-xs font-bold text-violet-700">
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-lg bg-violet-600 text-white">
+            <BuilderIcon name={isStartNode ? "play" : "git-branch"} className="h-3 w-3" />
+          </span>
+          {isStartNode ? "This node starts the workflow" : "This node receives data and creates new data"}
+        </p>
+
+        <p className="mt-1.5 text-[11px] leading-5 text-violet-700/80">
+          {isStartNode
+            ? "There is no input before this node. The variables below become available for the next nodes."
+            : "Use this section to understand what this node needs, what it creates, and which variables can be used."}
+        </p>
+      </div>
+
+      <div className="mt-4">
+        <VariableGroup
+          title="Input"
+          testId="node-data-flow-input"
+          emptyText="No input needed"
+          variables={info.inputs}
+          compact
+        />
+      </div>
+
+      <div className="mt-4">
+        <VariableGroup
+          title="Output"
+          testId="node-data-flow-output"
+          badge={info.outputs.length > 0 ? String(info.outputs.length) : undefined}
+          helperText="These values become available to the nodes that run after this one."
+          emptyText="This node does not create new variables."
+          variables={info.outputs}
+          compact
+        />
+      </div>
+
+      {info.availableVariables.length > 0 ? (
+        <div className="mt-4">
+          <VariableGroup
+            title="Available Variables"
+            testId="node-data-flow-available"
+            badge={String(info.availableVariables.length)}
+            helperText="Click a variable to copy it, then paste it into any text field of this node."
+            emptyText="No variables are available before this node."
+            variables={info.availableVariables}
+            showTemplate
+            compact
+          />
+        </div>
+      ) : null}
+
+      <div className="mt-4">
+        <VariableGroup
+          title="Variables Used"
+          testId="node-data-flow-used"
+          emptyText="No variables used yet."
+          variables={info.usedVariables}
+          showTemplate
+        />
+      </div>
+    </Section>
+  );
+}
+
+function VariableGroup({
+  title,
+  variables,
+  emptyText,
+  helperText,
+  badge,
+  testId,
+  showTemplate = false,
+  compact = false
+}: {
+  title: string;
+  variables: VariableInfo[];
+  emptyText: string;
+  helperText?: string;
+  badge?: string;
+  testId: string;
+  showTemplate?: boolean;
+  compact?: boolean;
+}) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  function handleCopy(key: string) {
+    copyVariableTemplate(key);
+    setCopiedKey(key);
+
+    window.setTimeout(() => {
+      setCopiedKey((current) => (current === key ? null : current));
+    }, 1200);
+  }
+
+  return (
+    <div data-testid={testId}>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          {title}
+        </p>
+
+        {badge ? (
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+            {badge}
+          </span>
+        ) : null}
+      </div>
+
+      {helperText && variables.length > 0 ? (
+        <p className="mb-2 text-[11px] leading-4 text-slate-400">{helperText}</p>
+      ) : null}
+
+      {variables.length === 0 ? (
+        <p
+          data-testid={`${testId}-empty`}
+          className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2 text-xs text-slate-400"
+        >
+          {emptyText}
+        </p>
+      ) : compact ? (
+        <div className="flex flex-wrap gap-1.5">
+          {variables.map((item) => (
+            <button
+              type="button"
+              key={`${title}-${item.key}`}
+              data-testid={`${testId}-item-${item.key}`}
+              onClick={() => handleCopy(item.key)}
+              title={`Click to copy {{${item.key}}}${item.description ? ` — ${item.description}` : ""}`}
+              className="group inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-left transition hover:border-violet-200 hover:bg-violet-50"
+            >
+              {item.label !== item.key ? (
+                <span className="text-[11px] font-semibold text-slate-700 group-hover:text-violet-700">
+                  {item.label}
+                </span>
+              ) : null}
+
+              <span className="font-mono text-[10px] text-slate-400 group-hover:text-violet-500">
+                {copiedKey === item.key ? "Copied!" : showTemplate ? `{{${item.key}}}` : item.key}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {variables.map((item) => (
+            <button
+              type="button"
+              key={`${title}-${item.key}`}
+              data-testid={`${testId}-item-${item.key}`}
+              onClick={() => handleCopy(item.key)}
+              title={`Click to copy {{${item.key}}}`}
+              className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-left transition hover:border-violet-200 hover:bg-violet-50/60"
+            >
+              <div className="flex items-center justify-between gap-2">
+                {item.label !== item.key ? (
+                  <p className="text-xs font-bold text-slate-800">{item.label}</p>
+                ) : (
+                  <p className="font-mono text-xs font-semibold text-violet-700">
+                    {copiedKey === item.key ? "Copied!" : `{{${item.key}}}`}
+                  </p>
+                )}
+
+                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-gray-100">
+                  {item.source}
+                </span>
+              </div>
+
+              {item.label !== item.key ? (
+                <p className="mt-0.5 font-mono text-[11px] text-violet-600">
+                  {copiedKey === item.key ? "Copied!" : showTemplate ? `{{${item.key}}}` : item.key}
+                </p>
+              ) : null}
+
+              {item.description ? (
+                <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                  {item.description}
+                </p>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------ data helpers ------------------------------ */
 
 function fields(selectedNode: BuilderNode, onUpdateNodeData: NodePropsPanel["onUpdateNodeData"]) {
@@ -442,6 +920,55 @@ function fields(selectedNode: BuilderNode, onUpdateNodeData: NodePropsPanel["onU
 
 /* --------------------- Generic capability node panels --------------------- */
 
+/** Human-readable label for a stored call handling mode. Never show raw enum values. */
+function friendlyAnswerMode(value: unknown): string {
+  const mode = String(value ?? "").trim();
+
+  const labels: Record<string, string> = {
+    AI_ANSWERS: "AI answers every call",
+    FORWARD_THEN_AI: "Try the business phone first, then AI",
+    FORWARD_TO_HUMAN: "Forward to human",
+    AI_AFTER_HOURS: "AI after business hours",
+    FOLLOW_SCHEDULE: "Follow forwarding schedule"
+  };
+
+  return labels[mode] ?? "AI answers every call";
+}
+
+/** Select that stores raw mode values but only ever displays friendly labels. */
+function AnswerModeSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const baseOptions = [
+    { value: "AI_ANSWERS", label: friendlyAnswerMode("AI_ANSWERS") },
+    { value: "FORWARD_THEN_AI", label: friendlyAnswerMode("FORWARD_THEN_AI") }
+  ];
+
+  const allOptions =
+    !value || baseOptions.some((option) => option.value === value)
+      ? baseOptions
+      : [{ value, label: friendlyAnswerMode(value) }, ...baseOptions];
+
+  return (
+    <div className="relative">
+      <select
+        data-testid="node-inspector-answer-mode-select"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+      >
+        {allOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+
+      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+        <BuilderIcon name="chevron" className="h-4 w-4" />
+      </span>
+    </div>
+  );
+}
+
 function PhoneCallTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
 
@@ -454,17 +981,18 @@ function PhoneCallTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPane
 
       <Section title="Buyer requirement">
         <RequirementNotice title="Buyer phone setup" testId="phone-trigger-buyer-requirement">
-          The buyer selects or assigns the live phone number during install. Architects only define that this template starts from an inbound phone call.
+          The buyer assigns the live phone number during install. This template only defines that the workflow starts from an inbound call.
         </RequirementNotice>
       </Section>
 
-      <Section title="Template behavior" last>
-        <Label>Answer mode suggestion</Label>
-        <SelectBox
-          value={str("callHandlingMode", "AI_ANSWERS")}
-          onChange={set("callHandlingMode")}
-          options={["AI_ANSWERS", "FORWARD_THEN_AI"]}
-        />
+      <Section title="Call handling" last>
+        <Label>Phone number</Label>
+        <ReadOnly value="This number will be assigned when the agent is deployed." testId="phone-trigger-number" />
+
+        <div className="mt-4">
+          <Label>Answer mode</Label>
+          <AnswerModeSelect value={str("callHandlingMode", "AI_ANSWERS")} onChange={set("callHandlingMode")} />
+        </div>
 
         <p className="mt-2 text-[11px] leading-5 text-slate-400">
           Final phone number, routing, timezone, and forwarding are configured by the buyer.
@@ -482,6 +1010,18 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
+
+        <div className="mt-4">
+          <Label>Assistant name</Label>
+          <TextInput
+            value={str("assistantName")}
+            onChange={set("assistantName")}
+            placeholder="e.g. Sarah"
+          />
+          <p className="mt-2 text-[11px] text-slate-400" data-testid="ai-assistant-name-note">
+            The name the agent introduces itself with. Buyers can override it during install.
+          </p>
+        </div>
       </Section>
 
       <Section title="Voice">

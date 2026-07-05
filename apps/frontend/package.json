@@ -13,6 +13,7 @@
     "@stripe/react-stripe-js": "^3.10.0",
     "@stripe/stripe-js": "^5.10.0",
     "@tanstack/react-query": "^5.101.0",
+    "@vapi-ai/web": "^2.5.2",
     "@xyflow/react": "^12.11.1",
     "axios": "^1.18.1",
     "firebase": "^12.15.0",

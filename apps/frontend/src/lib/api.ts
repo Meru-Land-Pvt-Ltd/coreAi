@@ -1,4 +1,4 @@
-import axios, { AxiosError } from "axios";
+import axios from "axios";
 
 // NEXT_PUBLIC_API_URL must be set per environment (e.g. https://triven.ai/api in
 // production). The localhost fallback exists only so a bare local checkout runs.
@@ -12,6 +12,12 @@ export type ApiResponse<T> = {
   /** HTTP status of a failed response (when available) — useful for diagnostics. */
   status?: number;
   data?: T;
+};
+
+type ApiErrorPayload<T> = Partial<ApiResponse<T>> & {
+  message?: unknown;
+  error?: unknown;
+  code?: unknown;
 };
 
 export const apiClient = axios.create({
@@ -34,31 +40,39 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function normalizeAxiosError<T>(error: unknown): ApiResponse<T> {
-  if (error instanceof AxiosError) {
-    const responseData = error.response?.data as Partial<ApiResponse<T>> | undefined;
+  if (axios.isAxiosError<ApiErrorPayload<T>>(error)) {
+    const responseData = error.response?.data;
+    const serverError = stringValue(responseData?.error);
+    const serverMessage = stringValue(responseData?.message);
+    const code = stringValue(responseData?.code);
 
     return {
       success: false,
       error:
-        responseData?.error ??
-        error.message ??
+        serverError ??
+        serverMessage ??
+        stringValue(error.message) ??
         "Something went wrong while connecting to server",
-      code: responseData?.code ?? "API_ERROR",
+      code: code ?? "API_ERROR",
       status: error.response?.status
     };
   }
 
   return {
     success: false,
-    error: "Unexpected error occurred",
+    error: error instanceof Error ? error.message : "Unexpected error occurred",
     code: "UNKNOWN_ERROR"
   };
 }
 
 export async function apiPost<T>(
   path: string,
-  body: Record<string, unknown>
+  body: object
 ): Promise<ApiResponse<T>> {
   try {
     const response = await apiClient.post<ApiResponse<T>>(path, body);
@@ -89,7 +103,7 @@ export async function apiGet<T>(
 
 export async function apiPatch<T>(
   path: string,
-  body: Record<string, unknown>
+  body: object
 ): Promise<ApiResponse<T>> {
   try {
     const response = await apiClient.patch<ApiResponse<T>>(path, body);
@@ -110,7 +124,7 @@ export async function apiDelete<T>(path: string): Promise<ApiResponse<T>> {
 
 export async function apiPut<T>(
   path: string,
-  body: Record<string, unknown>
+  body: object
 ): Promise<ApiResponse<T>> {
   try {
     const response = await apiClient.put<ApiResponse<T>>(path, body);

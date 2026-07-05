@@ -8,8 +8,12 @@ import type {
   ArchitectTestDeploymentInput,
   ArchitectTestDeploymentStatus,
   ArchitectWorkflow,
+  ArchitectVapiBrowserTestSession,
   GmailConnectorStatus,
-  WorkflowRunResult
+  WorkflowRunResult,
+  ArchitectConversationMessage,
+  ArchitectConversationTestResult,
+  ArchitectConversationToolCall,
 } from "./types";
 
 export function getArchitectSummary() {
@@ -257,6 +261,32 @@ export function cleanupDraftWorkflows(
   );
 }
 
+export function runArchitectConversationTest(
+  workflowId: string,
+  body: {
+    message: string;
+    history?: ArchitectConversationMessage[];
+    testContext?: {
+      businessName?: string;
+      businessType?: string;
+      assistantName?: string;
+      callerName?: string;
+      callerPhone?: string;
+      calendarId?: string;
+      timeZone?: string;
+      appointmentService?: string;
+      services?: string[];
+      faqs?: string[];
+    };
+  }
+) {
+  return apiPost<{
+    conversation: ArchitectConversationTestResult;
+  }>(`/architect/workflows/${workflowId}/conversation-test`, body);
+}
+
+export type { ArchitectConversationMessage, ArchitectConversationToolCall };
+
 export function runArchitectWorkflowTest(
   workflowId: string,
   body: {
@@ -354,6 +384,30 @@ export function startArchitectTestDeployment(
 export function stopArchitectTestDeployment(workflowId: string) {
   return apiDelete<{ testDeployment: ArchitectTestDeploymentStatus }>(
     `/architect/workflows/${workflowId}/test-deployment`
+  );
+}
+
+/** Start a Vapi-powered browser call test (no Twilio number, dry-run tools). */
+export function startArchitectVapiBrowserTest(
+  workflowId: string,
+  body: {
+    testContext?: {
+      businessName?: string;
+      businessType?: string;
+      assistantName?: string;
+      callerName?: string;
+      callerPhone?: string;
+      calendarId?: string;
+      timeZone?: string;
+      appointmentService?: string;
+      services?: string[];
+      faqs?: string[];
+    };
+  } = {}
+) {
+  return apiPost<{ session: ArchitectVapiBrowserTestSession }>(
+    `/architect/workflows/${workflowId}/vapi-browser-test/start`,
+    body
   );
 }
 

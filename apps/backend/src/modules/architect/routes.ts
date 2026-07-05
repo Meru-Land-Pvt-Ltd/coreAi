@@ -39,6 +39,8 @@ import {
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
+import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
+import { runArchitectConversationTest } from "./workflow-conversation-test";
 
 const voicePreviewSchema = z.object({
   presetId: z.string().trim().optional(),
@@ -80,6 +82,10 @@ architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
+// Public GET probe: Vapi only POSTs here; this keeps curl diagnostics honest.
+architectRoutes.get("/connectors/vapi/webhook", (c) =>
+  successResponse(c, { ok: true, note: "Vapi webhook is up. Tool calls arrive via POST." })
+);
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
@@ -178,15 +184,10 @@ async function getPublicMarketplaceListingById(c: Context) {
   });
 }
 
-// Public marketplace — no auth required (buyer marketplace + public catalog).
 architectRoutes.get("/listings/public", listPublicMarketplaceListings);
 architectRoutes.get("/listings/public/:id", getPublicMarketplaceListingById);
 
-// Voice catalog + preview — buyer-visible (architect builder AND buyer install
-// both render voice cards / play previews), so registered before the ARCHITECT
-// role guard. The ElevenLabs key never leaves the backend.
 architectRoutes.get("/voices", requireAuth, (c) => successResponse(c, listVoicePresets()));
-// Safe, secret-free diagnostics for debugging voice preview wiring.
 architectRoutes.get("/voices/debug", requireAuth, (c) => successResponse(c, voicePreviewDiagnostics()));
 architectRoutes.post("/voices/preview", requireAuth, async (c) => {
   try {
@@ -197,7 +198,6 @@ architectRoutes.post("/voices/preview", requireAuth, async (c) => {
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid preview input", 422, "VALIDATION_ERROR");
     }
-    // Surface the real status (e.g. 402 paid-plan / 404 unknown voice) + message.
     const status = error instanceof VoicePreviewError ? error.status : 503;
     return errorResponse(
       c,
@@ -293,6 +293,48 @@ const workflowRunInputSchema = z.object({
 
 const workflowRunTestSchema = z.object({
   input: workflowRunInputSchema.optional()
+});
+
+const architectConversationMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().trim().min(1).max(4000),
+  createdAt: z.string().trim().optional()
+});
+
+const vapiBrowserTestSchema = z.object({
+  testContext: z
+    .object({
+      businessName: z.string().trim().optional(),
+      businessType: z.string().trim().optional(),
+      assistantName: z.string().trim().optional(),
+      callerName: z.string().trim().optional(),
+      callerPhone: z.string().trim().optional(),
+      calendarId: z.string().trim().optional(),
+      timeZone: z.string().trim().optional(),
+      appointmentService: z.string().trim().optional(),
+      services: z.array(z.string().trim()).optional(),
+      faqs: z.array(z.string().trim()).optional()
+    })
+    .default({})
+});
+
+const architectConversationTestSchema = z.object({
+  message: z.string().trim().min(1, "Message is required").max(4000),
+  history: z.array(architectConversationMessageSchema).max(30).default([]),
+  testContext: z
+    .object({
+      businessName: z.string().trim().optional(),
+      businessType: z.string().trim().optional(),
+      assistantName: z.string().trim().optional(),
+      callerName: z.string().trim().optional(),
+      callerPhone: z.string().trim().optional(),
+      calendarId: z.string().trim().optional(),
+      timeZone: z.string().trim().optional(),
+      appointmentService: z.string().trim().optional(),
+      services: z.array(z.string().trim()).optional(),
+      faqs: z.array(z.string().trim()).optional()
+    })
+    .default({})
 });
 
 const businessInstallationSchema = z.object({
@@ -1202,6 +1244,85 @@ architectRoutes.delete("/workflows/:workflowId/test-deployment", async (c) => {
   }
 });
 
+architectRoutes.post("/workflows/:workflowId/vapi-browser-test/start", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  if (!workflowId) {
+    return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
+  try {
+    const input = vapiBrowserTestSchema.parse(await c.req.json().catch(() => ({})));
+    const session = await startArchitectVapiBrowserTest(authUser.id, workflowId, input.testContext);
+    return successResponse(c, { session }, "Vapi browser test ready");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid test input", 422, "VALIDATION_ERROR");
+    }
+    return handleTestDeploymentError(c, error);
+  }
+});
+
+architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const workflowId = c.req.param("workflowId");
+
+    if (!workflowId) {
+      return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+    }
+
+    const input = architectConversationTestSchema.parse(
+      await c.req.json().catch(() => ({}))
+    );
+
+    const workflow = await prisma.workflowDefinition.findFirst({
+      where: {
+        id: workflowId,
+        architectUserId: authUser.id
+      }
+    });
+
+    if (!workflow) {
+      return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+    }
+
+    const result = await runArchitectConversationTest({
+      userId: authUser.id,
+      workflowId,
+      workflowJson: workflow.workflowJson,
+      message: input.message,
+      history: input.history,
+      testContext: input.testContext
+    });
+
+    return successResponse(
+      c,
+      { conversation: result },
+      "Browser conversation test completed"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid conversation test input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    console.error("[architect-conversation-test] failed", error);
+
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not run browser conversation test",
+      500,
+      "ARCHITECT_CONVERSATION_TEST_FAILED"
+    );
+  }
+});
+
 architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {
   try {
     return await runOwnedWorkflow({ c, mode: "test" });
@@ -1241,11 +1362,6 @@ architectRoutes.post("/workflows/:workflowId/run-live", async (c) => {
   }
 });
 
-// The architect's OWN agent dashboard (My Agents) — not the public marketplace
-// and not the admin review queue. Returns ALL owned agents across every status:
-// published listings (DRAFT/PENDING_REVIEW/APPROVED/REJECTED/SUSPENDED) PLUS
-// saved/imported workflows that have no listing yet, surfaced as DRAFT agents.
-// Pass ?status=DRAFT|PENDING_REVIEW|... to filter; omit it to return everything owned.
 architectRoutes.get("/listings", async (c) => {
   const authUser = c.get("authUser");
   const statusFilter = c.req.query("status");
@@ -1320,20 +1436,17 @@ architectRoutes.post("/listings", async (c) => {
 
     const workflow = workflowId
       ? await prisma.workflowDefinition.findFirst({
-          where: {
-            id: workflowId,
-            architectUserId: authUser.id
-          }
-        })
+        where: {
+          id: workflowId,
+          architectUserId: authUser.id
+        }
+      })
       : null;
 
     if (workflowId && !workflow) {
       return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
     }
 
-    // Connectors the BUYER must set up to run this agent live — derived from the
-    // workflow's nodes and merged with any explicitly provided. Architect publish
-    // only DECLARES these for the buyer; it never connects them.
     const requiredConnectors = Array.from(
       new Set([
         ...input.requiredConnectors,

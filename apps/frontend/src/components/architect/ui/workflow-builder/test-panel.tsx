@@ -1,7 +1,14 @@
-import type { ArchitectTestDeploymentStatus, WorkflowRunLog } from "@/components/architect/features/types";
+import type {
+  ArchitectConversationMessage,
+  ArchitectConversationToolCall,
+  ArchitectTestDeploymentStatus,
+  ArchitectVapiBrowserTestSession,
+  WorkflowRunLog
+} from "@/components/architect/features/types";
 import { BuilderIcon } from "./icons";
 import { logColor } from "./run-context";
 import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
+import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 
 export function TestPanel({
   hasGmailFlow,
@@ -24,12 +31,19 @@ export function TestPanel({
   testDeployment,
   runLogs,
   runContext,
+  conversationMessages,
+  conversationLogs,
+  conversationToolCalls,
+  chatting,
   onConnectGmail,
   onDisconnectGoogle,
   onRefreshConnections,
   onRunTest,
   onStartLiveTest,
   onStopLiveTest,
+  onStartVapiCall,
+  onSendConversationMessage,
+  onResetConversationTest,
   onCallerNumberChange,
   onCallerNameChange,
   onBusinessNameChange,
@@ -58,12 +72,19 @@ export function TestPanel({
   testDeployment: ArchitectTestDeploymentStatus | null;
   runLogs: WorkflowRunLog[];
   runContext: Record<string, unknown>;
+  conversationMessages: ArchitectConversationMessage[];
+  conversationLogs: WorkflowRunLog[];
+  conversationToolCalls: ArchitectConversationToolCall[];
+  chatting: boolean;
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
   onRefreshConnections: () => void;
   onRunTest: () => void;
   onStartLiveTest: () => void;
   onStopLiveTest: () => void;
+  onStartVapiCall: () => Promise<ArchitectVapiBrowserTestSession | { error: string }>;
+  onSendConversationMessage: (value: string) => Promise<string | null>;
+  onResetConversationTest: () => void;
   onCallerNumberChange: (value: string) => void;
   onCallerNameChange: (value: string) => void;
   onBusinessNameChange: (value: string) => void;
@@ -72,6 +93,7 @@ export function TestPanel({
   onTimeZoneChange: (value: string) => void;
   onAppointmentServiceChange: (value: string) => void;
 }) {
+
   const sentSms = getSentSms(runContext);
   const capturedLead = getCapturedLead(runContext);
   const draftEmail = getDraftEmail(runContext);
@@ -103,7 +125,7 @@ export function TestPanel({
       ? "Test AI Voice Agent"
       : "Test console";
   const subtitle = isVoiceWorkflow
-    ? "Dry test previews logic. Live sandbox lets you call the assigned Triven test number and test the assistant with your connected Google Calendar."
+    ? "Test the AI in browser first. No call, SMS, or real calendar event is created. Live sandbox can be used later."
     : "Send a sample trigger through the workflow and watch each step run in real time.";
 
   return (
@@ -143,7 +165,7 @@ export function TestPanel({
               <BuilderIcon name="play" className="h-4 w-4" />
               {running ? "Running..." : "Run dry test"}
             </button>
-            {isVoiceWorkflow ? (
+            {false && isVoiceWorkflow ? (
               sandboxReady ? (
                 <button
                   type="button"
@@ -185,6 +207,22 @@ export function TestPanel({
               </li>
             </ul>
           </div>
+        ) : null}
+
+        {isVoiceWorkflow ? (
+          <BrowserVoiceCallTest
+            conversationMessages={conversationMessages}
+            conversationLogs={conversationLogs}
+            conversationToolCalls={conversationToolCalls}
+            chatting={chatting}
+            businessName={businessName}
+            businessType={businessType}
+            callerName={callerName}
+            appointmentService={appointmentService}
+            onStartVapiCall={onStartVapiCall}
+            onSendConversationMessage={onSendConversationMessage}
+            onResetConversationTest={onResetConversationTest}
+          />
         ) : null}
 
         {isVoiceWorkflow || hasGmailFlow ? (
@@ -251,7 +289,7 @@ export function TestPanel({
                     {testDeployment?.assignedPhoneNumber ?? "Assigned when the live sandbox starts"}
                   </p>
                   <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-twilio-note">
-                    A Triven platform number is reserved for your sandbox — buyer numbers are never used.
+                    Browser call test does not use phone numbers. Live sandbox can be enabled later.
                   </p>
                 </div>
               ) : null}
@@ -259,7 +297,7 @@ export function TestPanel({
                 <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-vapi-card">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Vapi assistant</p>
                   <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-vapi-status">
-                    {testDeployment?.vapiAssistantId ? "Assistant ready" : "Created when the live sandbox starts"}
+                    {testDeployment?.vapiAssistantId ? "Assistant ready" : "Not required for browser call test"}
                   </p>
                   <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-vapi-note">
                     The sandbox uses its own assistant for this workflow — no shared production assistant.

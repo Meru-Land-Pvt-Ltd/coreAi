@@ -3,6 +3,7 @@ import { z } from "zod";
 import { normalizeTimeZone, requiredConnectorsForWorkflow, type ConnectorRequirement } from "@coreai/shared";
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import { errorMessage, isRecord } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
@@ -53,7 +54,7 @@ function includeActivePhoneNumbers(options?: { take?: number }) {
 }
 
 const BUSINESS_SETUP_REDIRECT_PATH = "/business/agents/setup";
-const DEFAULT_ASSISTANT_NAME = "Ruby";
+const DEFAULT_ASSISTANT_NAME = "AI Assistant";
 
 businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
@@ -212,6 +213,18 @@ const businessSetupSchema = z.object({
   silenceRepromptMessage1: z.string().trim().optional().or(z.literal("")),
   silenceRepromptMessage2: z.string().trim().optional().or(z.literal("")),
   goodbyeMessage: z.string().trim().optional().or(z.literal("")),
+
+  // Buyer appointment timing: drives live/test availability (slot count, hours,
+  // duration, buffer). Optional — sensible defaults apply when omitted.
+  scheduling: z
+    .object({
+      serviceDurationMinutes: z.coerce.number().int().min(5).max(480).optional(),
+      bufferMinutes: z.coerce.number().int().min(0).max(120).optional(),
+      maximumSlotsToShow: z.coerce.number().int().min(1).max(20).optional(),
+      openHour: z.coerce.number().int().min(0).max(23).optional(),
+      closeHour: z.coerce.number().int().min(1).max(24).optional()
+    })
+    .optional(),
 
   selectedPlatformPhoneNumberId: z.string().trim().optional().or(z.literal("")),
   selectedPhoneNumber: z.string().trim().optional().or(z.literal("")),
@@ -452,10 +465,10 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     }
   ];
 
-  const requestBody = await c.req
+  const requestBody: Record<string, unknown> = await c.req
     .json()
-    .then((body) => (body && typeof body === "object" ? (body as Record<string, unknown>) : {}))
-    .catch(() => ({}) as Record<string, unknown>);
+    .then((body: unknown) => (isRecord(body) ? body : {}))
+    .catch(() => ({}));
 
   const requested = typeof requestBody.phoneNumber === "string" ? requestBody.phoneNumber : "";
   const requestedId =
@@ -891,6 +904,7 @@ businessRoutes.post("/setup", async (c) => {
       },
       contactName: cleanOptional(input.contactName),
       customInstructions: cleanOptional(input.customInstructions),
+      ...(input.scheduling ? { scheduling: input.scheduling } : {}),
       businessDetails: {
         assistantName,
         businessName: input.businessName,
@@ -1087,7 +1101,7 @@ businessRoutes.post("/setup", async (c) => {
 
     return errorResponse(
       c,
-      error instanceof Error ? error.message : "Could not save business setup",
+      errorMessage(error, "Could not save business setup"),
       500,
       "BUSINESS_SETUP_FAILED"
     );
@@ -1108,7 +1122,7 @@ businessRoutes.get("/connectors/google-calendar/oauth-url", async (c) => {
   } catch (error) {
     return errorResponse(
       c,
-      error instanceof Error ? error.message : "Could not create Google OAuth URL",
+      errorMessage(error, "Could not create Google OAuth URL"),
       500,
       "GOOGLE_OAUTH_URL_FAILED"
     );

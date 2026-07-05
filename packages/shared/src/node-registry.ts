@@ -45,6 +45,12 @@ export type NodeDefinition = {
   requiredConnectors?: ConnectorRequirement[];
   /** Default builder config applied when the node is dropped on the canvas. */
   defaultConfig?: Record<string, string>;
+  /** Agent-runtime capability slug, e.g. "calendar.check_availability". */
+  capability?: string;
+  /** Variables that must exist in the runtime context before this node can execute. */
+  requiredVariables?: string[];
+  /** Variables this node writes into the runtime context when it executes. */
+  producedVariables?: string[];
 };
 
 /** The CoreAI connector groups platform actions executed directly by the runner. */
@@ -71,6 +77,8 @@ export const VOICE_NODE_TYPES = {
   sendSms: "communication.send_sms",
   endFlow: "flow.end"
 } as const;
+
+export const BROWSER_CALL_START_MESSAGE = "__browser_call_start__";
 
 /** Vapi function-tool names the deployed assistant calls back into our webhook. */
 export const VOICE_TOOL_NAMES = {
@@ -476,7 +484,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "trigger", connector: "Twilio" },
-    defaultConfig: { callHandlingMode: "AI_ANSWERS", answerAfterRings: "1", forwardingSchedule: "always" }
+    defaultConfig: { callHandlingMode: "AI_ANSWERS", answerAfterRings: "1", forwardingSchedule: "always" },
+    capability: "trigger.phone_call",
+    requiredVariables: [],
+    producedVariables: ["caller.phone", "caller.name", "call.time", "business.name", "business.type"]
   }),
   def({
     type: VOICE_NODE_TYPES.voiceConversation,
@@ -493,7 +504,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       voiceName: "Triven Default Voice",
       voiceProvider: DEFAULT_VOICE_PROVIDER,
       voiceId: "",
-      assistantName: "Ruby",
+      assistantName: "",
       language: "en-US",
       speakingSpeed: "1.0",
       model: "gpt-4o-mini",
@@ -505,7 +516,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       fallbackResponse: "Let me take a message and have someone call you back shortly.",
       systemPrompt: RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
       customInstructions: ""
-    }
+    },
+    capability: "ai.conversation",
+    requiredVariables: [],
+    producedVariables: ["ai.reply", "customer.name", "customer.phone", "service", "selected.slot"]
   }),
   def({
     type: VOICE_NODE_TYPES.calendarAvailability,
@@ -521,7 +535,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       connector: "Google Calendar",
       connectorAction: VOICE_TOOL_NAMES.checkAvailability
     },
-    defaultConfig: { bufferMinutes: "10", maxAdvanceDays: "30", slotsToOffer: "3" }
+    defaultConfig: { bufferMinutes: "10", maxAdvanceDays: "30", slotsToOffer: "3" },
+    capability: "calendar.check_availability",
+    requiredVariables: [],
+    producedVariables: ["calendar.available_slots", "calendar.requested_date", "calendar.timezone"]
   }),
   def({
     type: VOICE_NODE_TYPES.bookAppointment,
@@ -543,7 +560,16 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       reminderEnabled: "true",
       reminderTiming: "120",
       confirmationMessage: "You're all set for [Service] on [Date] at [Time]."
-    }
+    },
+    capability: "calendar.book_appointment",
+    requiredVariables: ["customer.name", "customer.phone", "selected.slot", "service"],
+    producedVariables: [
+      "appointment.status",
+      "appointment.confirmation_id",
+      "appointment.date",
+      "appointment.time",
+      "appointment.calendar_event_id"
+    ]
   }),
   def({
     type: VOICE_NODE_TYPES.sendSms,
@@ -565,7 +591,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       sendToDentist: "false",
       dentistPhone: "",
       dentistTemplate: "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]"
-    }
+    },
+    capability: "sms.send",
+    requiredVariables: ["customer.phone"],
+    producedVariables: ["sms.status", "sms.body"]
   }),
   def({
     type: VOICE_NODE_TYPES.endFlow,
@@ -581,7 +610,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       closingMessage: "You're all set. Have a great day.",
       afterCallAction: "hangup",
       callRecording: "true"
-    }
+    },
+    capability: "flow.end",
+    requiredVariables: [],
+    producedVariables: ["flow.status", "flow.closing_message"]
   }),
 
   // ---- B. Near-term marketplace nodes (coming soon) ----

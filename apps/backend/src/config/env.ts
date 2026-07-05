@@ -48,34 +48,26 @@ const envSchema = z.object({
   TWILIO_NUMBER_POOL: z.string().optional(),
 
   VAPI_API_KEY: z.string().optional(),
+  /** Shared secret Vapi sends back on webhook calls (Bearer or X-Vapi-Secret). */
+  VAPI_WEBHOOK_SECRET: z.string().optional(),
+  /** Frontend-safe Vapi public key for browser web calls (Architect test). */
+  VAPI_PUBLIC_KEY: z.string().optional(),
   VAPI_BASE_URL: z.string().url().default("https://api.vapi.ai"),
 
-  /**
-   * Keep blank in production multi-business setup.
-   * Buyer deploy creates/updates assistant and stores:
-   * InstalledAgent.configJson.vapiAssistantId
-   */
   VAPI_DEFAULT_ASSISTANT_ID: z.string().optional(),
   VAPI_DEFAULT_PHONE_NUMBER_ID: z.string().optional(),
 
-  /**
-   * Voice defaults.
-   * Use ElevenLabs provider through Vapi.
-   * If workflow voiceId is empty, backend should resolve to:
-   * ELEVENLABS_DEFAULT_VOICE_ID or VAPI_DEFAULT_VOICE_ID.
-   */
-  VAPI_DEFAULT_VOICE_PROVIDER: z.string().default("11labs"),
-  VAPI_DEFAULT_VOICE_ID: z.string().optional(),
+  VAPI_DEFAULT_VOICE_PROVIDER: z.string().default("vapi"),
+  VAPI_DEFAULT_VOICE_ID: z.string().default("Savannah"),
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
   VAPI_ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),
   VAPI_TRANSCRIBER_PROVIDER: z.string().default("deepgram"),
   VAPI_TRANSCRIBER_MODEL: z.string().default("nova-3"),
   VAPI_ENABLE_BOOKING_TOOLS: booleanFromEnv.default(true),
 
-  /**
-   * Optional selectable voice presets.
-   * Do not put these in frontend.
-   */
+  OPENAI_API_KEY: z.string().optional(),
+  ARCHITECT_TEST_LLM_MODEL: z.string().default("gpt-4o-mini"),
+
   ELEVENLABS_VOICE_RUBY_ID: z.string().optional(),
   ELEVENLABS_VOICE_SARAH_ID: z.string().optional(),
   ELEVENLABS_VOICE_ARIA_ID: z.string().optional(),
@@ -93,7 +85,6 @@ const envSchema = z.object({
   STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional()
 });
 
-/** True when a URL is only suitable for local/dev use, never production. */
 function isDevOnlyUrl(url: string): boolean {
   return (
     !url.startsWith("https://") ||
@@ -166,14 +157,6 @@ if (parsedEnv.NODE_ENV === "production") {
     console.warn(
       "[env] VAPI_DEFAULT_PHONE_NUMBER_ID is set. For production multi-business setup, keep it blank and map phone numbers through PlatformPhoneNumber + BusinessPhoneNumber."
     );
-  }
-
-  if (parsedEnv.VAPI_DEFAULT_VOICE_PROVIDER !== "11labs") {
-    problems.push("VAPI_DEFAULT_VOICE_PROVIDER must be 11labs in production.");
-  }
-
-  if (!parsedEnv.ELEVENLABS_DEFAULT_VOICE_ID && !parsedEnv.VAPI_DEFAULT_VOICE_ID) {
-    problems.push("ELEVENLABS_DEFAULT_VOICE_ID or VAPI_DEFAULT_VOICE_ID is required for production voice fallback.");
   }
 
   if (problems.length > 0) {

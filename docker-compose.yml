@@ -46,6 +46,7 @@ services:
       FRONTEND_URL: "http://localhost:3000"
       BACKEND_URL: "http://localhost:8787"
       PORT: 8787
+      VAPI_PUBLIC_KEY: "${VAPI_PUBLIC_KEY}"
     depends_on:
       postgres:
         condition: service_healthy

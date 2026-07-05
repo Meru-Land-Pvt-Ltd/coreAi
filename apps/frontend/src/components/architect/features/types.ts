@@ -112,6 +112,29 @@ export type WorkflowRunResult = {
   context: Record<string, unknown>;
 };
 
+export type ArchitectConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+  createdAt?: string;
+};
+
+export type ArchitectConversationToolCall = {
+  name: string;
+  status: "simulated" | "skipped" | "error";
+  message: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+};
+
+export type ArchitectConversationTestResult = {
+  reply: string;
+  transcript: ArchitectConversationMessage[];
+  executedNodes: WorkflowRunLog[];
+  toolCalls: ArchitectConversationToolCall[];
+  finalOutput: Record<string, unknown>;
+  simulated: true;
+};
+
 export type GmailConnectorStatus = {
   connected: boolean;
   email: string | null;
@@ -119,6 +142,20 @@ export type GmailConnectorStatus = {
   // True when the granted Google scopes include calendar.events — one Google
   // connect powers Gmail + Calendar for architect test runs.
   calendarConnected?: boolean;
+};
+
+/** Frontend-safe config for a Vapi-powered browser call test session. */
+export type ArchitectVapiBrowserTestSession = {
+  publicKey: string;
+  assistantId: string;
+  businessId: string;
+  assistantName: string;
+  businessName: string;
+  model: string;
+  voiceName: string;
+  voiceId: string | null;
+  transcriber: string;
+  dryRun: true;
 };
 
 export type ArchitectTestDeploymentStatus = {

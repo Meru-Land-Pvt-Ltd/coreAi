@@ -15,7 +15,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
-import { VOICE_NODE_TYPES } from "@coreai/shared";
+import { BROWSER_CALL_START_MESSAGE, VOICE_NODE_TYPES } from "@coreai/shared";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectListing,
@@ -26,15 +26,20 @@ import {
   getGmailConnectorStatus,
   getGmailOAuthUrl,
   runArchitectWorkflowTest,
+  runArchitectConversationTest,
   startArchitectTestDeployment,
+  startArchitectVapiBrowserTest,
   stopArchitectTestDeployment,
   updateArchitectWorkflow,
   useArchitectTemplate
 } from "@/components/architect/features/api";
 import type {
+  ArchitectConversationMessage,
+  ArchitectConversationToolCall,
   ArchitectTestDeploymentStatus,
+  ArchitectVapiBrowserTestSession,
   ArchitectWorkflow,
-  WorkflowRunLog
+  WorkflowRunLog,
 } from "@/components/architect/features/types";
 import { getAuthUser } from "@/lib/auth";
 import { BuilderHeader } from "./workflow-builder/builder-header";
@@ -70,6 +75,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [searchTerm, setSearchTerm] = useState("");
   const [runLogs, setRunLogs] = useState<WorkflowRunLog[]>([]);
   const [runContext, setRunContext] = useState<Record<string, unknown>>({});
+  const [conversationMessages, setConversationMessages] = useState<ArchitectConversationMessage[]>([]);
+  // Mirror of conversationMessages so sendConversationMessage always reads the
+  // latest transcript, even when called right after a reset in the same tick.
+  const conversationMessagesRef = useRef<ArchitectConversationMessage[]>([]);
+  const [conversationLogs, setConversationLogs] = useState<WorkflowRunLog[]>([]);
+  const [conversationToolCalls, setConversationToolCalls] = useState<ArchitectConversationToolCall[]>([]);
+  const [chatting, setChatting] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
@@ -495,6 +507,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setActiveTab("build");
     setRunLogs([]);
     setRunContext({});
+    setConversationMessages([]);
+    setConversationLogs([]);
+    setConversationToolCalls([]);
     setMobilePanel(null);
     setMessage("Template imported");
   }
@@ -613,6 +628,137 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     setMessage("Submitted for review");
     router.push("/architect/agents" as Route);
+  }
+
+  function setConversationTranscript(next: ArchitectConversationMessage[]) {
+    conversationMessagesRef.current = next;
+    setConversationMessages(next);
+  }
+
+  function resetConversationTest() {
+    setConversationTranscript([]);
+    setConversationLogs([]);
+    setConversationToolCalls([]);
+    setMessage("Browser call reset");
+  }
+
+  /**
+   * Prepare a Vapi-powered browser call for the current workflow. Returns the
+   * frontend-safe session, or an error reason so the card can fall back to
+   * the local simulation with a clear label.
+   */
+  async function startVapiBrowserTest(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
+    if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
+
+    setMessage("Starting Vapi browser call...");
+
+    const saved = await saveAgent(false);
+
+    if (!saved || !currentWorkflowIdRef.current) {
+      return { error: "Save the agent before testing." };
+    }
+
+    const result = await startArchitectVapiBrowserTest(currentWorkflowIdRef.current, {
+      testContext: {
+        businessName: businessName.trim() || "Sample Business",
+        businessType: businessType.trim() || "Service Business",
+        callerName: callerName.trim() || "Test caller",
+        callerPhone: callerNumber.trim() || "+15555550100",
+        calendarId: calendarId.trim() || "primary",
+        timeZone: timeZone.trim() || "America/Los_Angeles",
+        appointmentService: appointmentService.trim() || "Consultation"
+      }
+    });
+
+    if (!result.success || !result.data) {
+      const reason = result.error ?? "Vapi browser call unavailable";
+      setMessage(`${reason} — using fallback simulation`);
+      return { error: reason };
+    }
+
+    setMessage("Vapi browser call ready");
+    return result.data.session;
+  }
+
+  async function sendConversationMessage(messageText: string): Promise<string | null> {
+    if (blockIfUnderReview()) return null;
+
+    const cleanMessage = messageText.trim();
+
+    if (!cleanMessage) return null;
+
+    const isCallStart = cleanMessage === BROWSER_CALL_START_MESSAGE;
+
+    setChatting(true);
+    setMessage("Running browser call test...");
+
+    const saved = await saveAgent(false);
+
+    if (!saved || !currentWorkflowIdRef.current) {
+      setChatting(false);
+      setMessage("Save the agent before testing browser call.");
+      return null;
+    }
+
+    const previousMessages = conversationMessagesRef.current.slice(-30);
+
+    const pendingMessages = isCallStart
+      ? previousMessages
+      : [
+          ...previousMessages,
+          {
+            role: "user" as const,
+            content: cleanMessage,
+            createdAt: new Date().toISOString()
+          }
+        ];
+
+    setConversationTranscript(pendingMessages);
+
+    const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
+      message: cleanMessage,
+      history: previousMessages,
+      testContext: {
+        businessName: businessName.trim() || "Sample Business",
+        businessType: businessType.trim() || "Service Business",
+        callerName: callerName.trim() || "Test caller",
+        callerPhone: callerNumber.trim() || "+15555550100",
+        calendarId: calendarId.trim() || "primary",
+        timeZone: timeZone.trim() || "America/Los_Angeles",
+        appointmentService: appointmentService.trim() || "Consultation",
+        services: ["Consultation", "Appointment booking", "General inquiry"],
+        faqs: [
+          "Pricing depends on the selected service.",
+          "Urgent requests should be escalated to the team."
+        ]
+      }
+    });
+
+    setChatting(false);
+
+    if (!result.success || !result.data) {
+      const errorMessage = result.error ?? "Could not run browser call test.";
+
+      const assistantError: ArchitectConversationMessage = {
+        role: "assistant",
+        content: errorMessage,
+        createdAt: new Date().toISOString()
+      };
+
+      setConversationTranscript([...pendingMessages, assistantError]);
+      setMessage(errorMessage);
+      setActiveTab("test");
+
+      return errorMessage;
+    }
+
+    setConversationTranscript(result.data.conversation.transcript);
+    setConversationLogs(result.data.conversation.executedNodes);
+    setConversationToolCalls(result.data.conversation.toolCalls);
+    setMessage("Browser call test complete");
+    setActiveTab("test");
+
+    return result.data.conversation.reply;
   }
 
   async function runAgent() {
@@ -902,12 +1048,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             testDeployment={testDeployment}
             runLogs={runLogs}
             runContext={runContext}
+            conversationMessages={conversationMessages}
+            conversationLogs={conversationLogs}
+            conversationToolCalls={conversationToolCalls}
+            chatting={chatting}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onRefreshConnections={() => void refreshConnections()}
             onRunTest={() => void runAgent()}
             onStartLiveTest={() => void startLiveTest()}
             onStopLiveTest={() => void stopLiveTest()}
+            onStartVapiCall={startVapiBrowserTest}
+            onSendConversationMessage={sendConversationMessage}
+            onResetConversationTest={resetConversationTest}
             onCallerNumberChange={setCallerNumber}
             onCallerNameChange={setCallerName}
             onBusinessNameChange={setBusinessName}

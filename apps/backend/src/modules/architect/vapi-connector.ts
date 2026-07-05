@@ -1,4 +1,4 @@
-import { DEFAULT_VOICE_PROVIDER, normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
+import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
 import { PLATFORM_DEFAULT_VOICE_ID, resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -15,6 +15,37 @@ export function isRealId(value?: string | null): boolean {
 
 function clean(value?: string | null): string {
   return (value ?? "").trim();
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
+  return response
+    .json()
+    .then((value: unknown) => recordOrEmpty(value))
+    .catch(() => ({}));
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function vapiErrorMessage(payload: Record<string, unknown>, status: number, fallback: string): string {
+  const message = payload.message;
+
+  if (Array.isArray(message)) {
+    const joined = message
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter(Boolean)
+      .join("; ");
+
+    if (joined) return joined;
+  }
+
+  return stringField(payload, "message") || stringField(payload, "error") || `${fallback} (HTTP ${status})`;
 }
 
 function looksLikeVoiceId(value?: string | null): boolean {
@@ -217,6 +248,7 @@ export async function startVapiOutboundCall({
       Authorization: `Bearer ${env.VAPI_API_KEY}`,
       "Content-Type": "application/json"
     },
+    signal: AbortSignal.timeout(15000),
     body: JSON.stringify({
       assistantId: config.assistantId,
       phoneNumberId: config.phoneNumberId,
@@ -240,20 +272,15 @@ export async function startVapiOutboundCall({
     })
   });
 
-  const responseJson = (await response.json().catch(() => ({}))) as {
-    id?: string;
-    status?: string;
-    message?: string;
-    error?: string;
-  };
+  const responseJson = await readJsonObject(response);
 
   if (!response.ok) {
-    throw new Error(responseJson.message || responseJson.error || "Vapi outbound call failed");
+    throw new Error(vapiErrorMessage(responseJson, response.status, "Vapi outbound call failed"));
   }
 
   return {
-    id: responseJson.id ?? null,
-    status: responseJson.status ?? null,
+    id: stringField(responseJson, "id") ?? null,
+    status: stringField(responseJson, "status") ?? null,
     customerPhone,
     assistantId: config.assistantId,
     phoneNumberId: config.phoneNumberId,
@@ -330,6 +357,7 @@ export async function createVapiInboundTwiml({
         Authorization: `Bearer ${env.VAPI_API_KEY}`,
         "Content-Type": "application/json"
       },
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify(payload)
     });
   } catch (error) {
@@ -337,52 +365,66 @@ export async function createVapiInboundTwiml({
     return null;
   }
 
-  const responseJson = (await response.json().catch(() => ({}))) as {
-    phoneCallProviderDetails?: {
-      twiml?: string;
-    };
-    message?: string;
-    error?: string;
-  };
+  const responseJson = await readJsonObject(response);
 
   if (!response.ok) {
     console.error(
       "Vapi inbound bridge rejected the call",
-      responseJson.message || responseJson.error || `HTTP ${response.status}`
+      vapiErrorMessage(responseJson, response.status, "Vapi inbound bridge failed")
     );
     return null;
   }
 
-  const twiml = responseJson.phoneCallProviderDetails?.twiml;
+  const providerDetails = recordOrEmpty(responseJson.phoneCallProviderDetails);
+  const twiml = stringField(providerDetails, "twiml");
   return typeof twiml === "string" && twiml.trim().length > 0 ? twiml : null;
 }
 
-function resolveVapiVoice(input: {
+/** Vapi built-in voices — the API requires these exact names for provider "vapi". */
+const VAPI_BUILTIN_VOICES = [
+  "Clara", "Godfrey", "Elliot", "Savannah", "Nico", "Kai", "Emma", "Sagar", "Neil", "Layla",
+  "Sid", "Gustavo", "Kylie", "Rohan", "Lily", "Hana", "Neha", "Cole", "Harry", "Paige",
+  "Spencer", "Naina", "Leah", "Tara", "Jess", "Leo", "Dan", "Mia", "Zac", "Zoe"
+] as const;
+
+const DEFAULT_VAPI_BUILTIN_VOICE = "Savannah";
+
+/** Case-insensitive match against the built-in list, preserving exact capitalization. */
+function matchVapiBuiltinVoice(value?: string | null): string | null {
+  const cleaned = clean(value);
+
+  if (!cleaned) return null;
+
+  return VAPI_BUILTIN_VOICES.find((name) => name.toLowerCase() === cleaned.toLowerCase()) ?? null;
+}
+
+export function resolveVapiVoice(input: {
   voice?: string | null;
   voiceProvider?: string | null;
   voiceId?: string | null;
 }): {
-  config?: {
+  config: {
     provider: string;
     voiceId: string;
     model?: string;
   };
-  warning?: string;
 } {
-  const provider =
-    clean(input.voiceProvider) || clean(env.VAPI_DEFAULT_VOICE_PROVIDER) || DEFAULT_VOICE_PROVIDER;
-
+  const provider = (clean(input.voiceProvider) || clean(env.VAPI_DEFAULT_VOICE_PROVIDER) || "vapi").toLowerCase();
   const explicitVoiceId = clean(input.voiceId);
+  const builtinMatch = matchVapiBuiltinVoice(explicitVoiceId) ?? matchVapiBuiltinVoice(input.voice);
 
+  if (provider === "vapi" || (builtinMatch && !looksLikeVoiceId(explicitVoiceId))) {
+    const builtin = builtinMatch ?? matchVapiBuiltinVoice(env.VAPI_DEFAULT_VOICE_ID) ?? DEFAULT_VAPI_BUILTIN_VOICE;
+    return { config: { provider: "vapi", voiceId: builtin } };
+  }
+
+  // Id-based providers (11labs): require a real-looking voice id.
   const voiceId = looksLikeVoiceId(explicitVoiceId)
     ? explicitVoiceId
     : resolvePresetVoiceId(input.voice || PLATFORM_DEFAULT_VOICE_ID);
 
-  if (!voiceId) {
-    return {
-      warning:
-        "No ElevenLabs voiceId resolved. Set ELEVENLABS_DEFAULT_VOICE_ID or VAPI_DEFAULT_VOICE_ID."
-    };
+  if (!voiceId || !looksLikeVoiceId(voiceId) || matchVapiBuiltinVoice(voiceId)) {
+    return { config: { provider: "vapi", voiceId: DEFAULT_VAPI_BUILTIN_VOICE } };
   }
 
   return {
@@ -492,7 +534,7 @@ function genericAssistantTools() {
               description: "Appointment length in minutes."
             }
           },
-          required: ["customer_name", "date", "time"]
+          required: ["customer_name", "customer_phone", "date", "time"]
         }
       }
     },
@@ -555,6 +597,16 @@ export type DeployVapiAssistantInput = {
   voiceId?: string | null;
   serverUrl: string;
   existingAssistantId?: string | null;
+  /** Assistant-level metadata echoed back on webhook calls (e.g. businessId). */
+  metadata?: Record<string, unknown>;
+  /** Restrict attached tools to the connected workflow's capabilities. */
+  includeTools?: {
+    checkAvailability?: boolean;
+    bookAppointment?: boolean;
+    sendNotification?: boolean;
+  };
+  /** Seconds of caller silence before Vapi ends the call (Vapi default: 30). */
+  silenceTimeoutSeconds?: number;
 };
 
 export async function deployVapiAssistant({
@@ -566,7 +618,10 @@ export async function deployVapiAssistant({
   voiceProvider,
   voiceId,
   serverUrl,
-  existingAssistantId
+  existingAssistantId,
+  metadata,
+  includeTools,
+  silenceTimeoutSeconds
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
@@ -586,7 +641,16 @@ export async function deployVapiAssistant({
           content: systemPrompt
         }
       ],
-      tools: env.VAPI_ENABLE_BOOKING_TOOLS ? genericAssistantTools() : []
+      tools: env.VAPI_ENABLE_BOOKING_TOOLS
+        ? genericAssistantTools().filter((tool) => {
+            if (!includeTools) return true;
+            const name = tool.function.name;
+            if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
+            if (name === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
+            if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
+            return true;
+          })
+        : []
     },
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,
@@ -606,8 +670,12 @@ export async function deployVapiAssistant({
       backoffSeconds: 1
     },
     server: {
-      url: serverUrl
-    }
+      url: serverUrl,
+      // Vapi echoes this back as X-Vapi-Secret on every webhook call.
+      ...(clean(env.VAPI_WEBHOOK_SECRET) ? { secret: env.VAPI_WEBHOOK_SECRET } : {})
+    },
+    ...(metadata ? { metadata } : {}),
+    ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {})
   };
 
   const voiceResolution = resolveVapiVoice({
@@ -616,11 +684,8 @@ export async function deployVapiAssistant({
     voiceId
   });
 
-  if (voiceResolution.config) {
-    body.voice = voiceResolution.config;
-  } else if (voiceResolution.warning) {
-    console.warn(`[vapi] ${voiceResolution.warning}`);
-  }
+  body.voice = voiceResolution.config;
+  console.log("[vapi-browser-test] final voice payload", JSON.stringify(body.voice));
 
   const base = env.VAPI_BASE_URL.replace(/\/$/, "");
 
@@ -631,14 +696,11 @@ export async function deployVapiAssistant({
         Authorization: `Bearer ${env.VAPI_API_KEY}`,
         "Content-Type": "application/json"
       },
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify(body)
     });
 
-    const json = (await response.json().catch(() => ({}))) as {
-      id?: string;
-      message?: string | string[];
-      error?: string;
-    };
+    const json = await readJsonObject(response);
 
     return {
       ok: response.ok,
@@ -657,16 +719,14 @@ export async function deployVapiAssistant({
     result = await send("POST", `${base}/assistant`);
   }
 
-  if (!result.ok || !result.json.id) {
-    const message = Array.isArray(result.json.message)
-      ? result.json.message.join("; ")
-      : result.json.message || result.json.error || `HTTP ${result.status}`;
+  const deployedAssistantId = stringField(result.json, "id");
 
-    throw new Error(`Vapi assistant deploy failed: ${message}`);
+  if (!result.ok || !deployedAssistantId) {
+    throw new Error(`Vapi assistant deploy failed: ${vapiErrorMessage(result.json, result.status, "Assistant deploy failed")}`);
   }
 
   return {
-    id: result.json.id,
+    id: deployedAssistantId,
     created: !updating
   };
 }

@@ -31,7 +31,7 @@ const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 const TRIVEN_VOICE_NAME = "Triven Voice";
 const DEFAULT_VOICE_PROVIDER = "11labs";
 const PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
-const DEFAULT_ASSISTANT_NAME = "Ruby";
+const DEFAULT_ASSISTANT_NAME = "AI Assistant";
 
 const STEPS = [
   { id: 1, title: "Business Details" },
