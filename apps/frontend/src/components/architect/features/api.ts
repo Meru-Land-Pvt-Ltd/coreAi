@@ -225,6 +225,15 @@ export function createArchitectListing(body: {
   return apiPost<{ listing: ArchitectListing }>("/architect/listings", body);
 }
 
+export function updateArchitectListingStatus(
+  agentId: string,
+  status: ArchitectListing["status"]
+) {
+  return apiPatch<{ listing: ArchitectListing }>(`/architect/listings/${agentId}/status`, {
+    status
+  });
+}
+
 export function getArchitectProjects() {
   return apiGet<{ projects: ArchitectProject[] }>("/architect/projects");
 }

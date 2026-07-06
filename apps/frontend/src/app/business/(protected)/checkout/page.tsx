@@ -3,7 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { getAuthToken, getAuthUser } from "@/lib/auth";
 import {
@@ -70,6 +70,26 @@ type ListingAccess = {
     amountCents: number;
     purchaseStatus: string | null;
 };
+
+type CheckoutCountry = {
+    id: string;
+    name: string;
+    countryCode: string;
+    flag: string;
+};
+
+type CountriesResponse = {
+    countries: CheckoutCountry[];
+};
+
+const FALLBACK_COUNTRIES: CheckoutCountry[] = [
+    {
+        id: "fallback-us",
+        name: "United States of America",
+        countryCode: "US",
+        flag: "🇺🇸"
+    }
+];
 
 function testPaymentMethodForBrand(brand: CardBrand) {
     if (brand === "mastercard") return "pm_card_mastercard";
@@ -165,6 +185,57 @@ select.field {
   background-position: right 1rem center;
   padding-right: 3rem;
   cursor: pointer;
+}
+
+.country-select {
+  position: relative;
+}
+
+.country-select-trigger {
+  text-align: left;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  padding-right: 3rem;
+}
+
+.country-select-menu {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  margin-top: 0.35rem;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.35rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
+  list-style: none;
+}
+
+.country-select-option {
+  width: 100%;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.95rem;
+  line-height: 1.25rem;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.country-select-option:hover,
+.country-select-option.is-selected {
+  background: #fffbeb;
+}
+
+.country-select-option.is-selected {
+  font-weight: 600;
 }
 
 .adorn {
@@ -518,14 +589,8 @@ function isZipValid(country: string, value: string) {
     return clean.length >= 3;
 }
 
-function formatBillingAddress(addressLine: string, zip: string, country: string) {
-    const parts = [addressLine.trim(), zip.trim()];
-
-    if (country === "US") {
-        parts.push("United States");
-    }
-
-    return parts.filter(Boolean).join(", ");
+function formatBillingAddress(addressLine: string, zip: string, countryName: string) {
+    return [addressLine.trim(), zip.trim(), countryName.trim()].filter(Boolean).join(", ");
 }
 
 export default function BusinessCheckoutPage() {
@@ -548,9 +613,8 @@ export default function BusinessCheckoutPage() {
     const [cardName, setCardName] = useState("");
     const [addressLine, setAddressLine] = useState("");
     const [zip, setZip] = useState("");
-
-    // Country is fixed to the United States for now.
-    const country = "US";
+    const [countries, setCountries] = useState<CheckoutCountry[]>(FALLBACK_COUNTRIES);
+    const [countryCode, setCountryCode] = useState("US");
 
     const [touched, setTouched] = useState({
         card: false,
@@ -569,6 +633,10 @@ export default function BusinessCheckoutPage() {
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
 
     const trialDate = useMemo(() => formatTrialDate(), []);
+    const selectedCountry = useMemo(
+        () => countries.find((country) => country.countryCode === countryCode) ?? countries[0],
+        [countries, countryCode]
+    );
     const cardDigits = cardNumber.replace(/\D/g, "");
     const brand = detectBrand(cardDigits);
     const requiredCardLength = brand === "amex" ? 15 : 16;
@@ -580,7 +648,7 @@ export default function BusinessCheckoutPage() {
         cvc: new RegExp(`^\\d{${requiredCvcLength}}$`).test(cvc),
         name: cardName.trim().length >= 2 && /[a-zA-Z]/.test(cardName),
         address: addressLine.trim().length >= 3,
-        zip: isZipValid(country, zip)
+        zip: isZipValid(countryCode, zip)
     };
 
     const futureAmount = basePrice;
@@ -683,6 +751,41 @@ export default function BusinessCheckoutPage() {
         };
     }, [authReady, listingId]);
 
+    useEffect(() => {
+        if (!authReady) return;
+
+        let mounted = true;
+
+        async function loadCountries() {
+            const response = await apiGet<CountriesResponse>("/countries");
+
+            if (!mounted) return;
+
+            const loadedCountries = response.success && response.data?.countries?.length
+                ? response.data.countries
+                : FALLBACK_COUNTRIES;
+
+            setCountries(loadedCountries);
+            setCountryCode((current) => {
+                if (loadedCountries.some((country) => country.countryCode === current)) {
+                    return current;
+                }
+
+                return (
+                    loadedCountries.find((country) => country.countryCode === "US")?.countryCode ??
+                    loadedCountries[0]?.countryCode ??
+                    "US"
+                );
+            });
+        }
+
+        loadCountries();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady]);
+
     function fieldState(isValid: boolean, shouldShowError: boolean) {
         if (isValid) return "is-valid";
         if (shouldShowError) return "is-error";
@@ -775,7 +878,11 @@ export default function BusinessCheckoutPage() {
                 paymentMethodId: testPaymentMethodForBrand(brand),
                 billingName: cardName.trim(),
                 billingEmail: email.trim(),
-                billingAddress: formatBillingAddress(addressLine, zip, country)
+                billingAddress: formatBillingAddress(
+                    addressLine,
+                    zip,
+                    selectedCountry?.name ?? countryCode
+                )
             });
 
             if (!response.success) {
@@ -987,13 +1094,10 @@ export default function BusinessCheckoutPage() {
                                                     Billing address
                                                 </h3>
 
-                                                <input data-testid="checkout-country-select"
-                                                    type="text"
-                                                    value="United States"
-                                                    readOnly
-                                                    className="field"
-                                                    autoComplete="country-name"
-                                                    aria-label="Country"
+                                                <CountrySelect
+                                                    countries={countries}
+                                                    value={countryCode}
+                                                    onChange={setCountryCode}
                                                 />
 
                                                 <div className="field-wrap mt-3">
@@ -1027,7 +1131,7 @@ export default function BusinessCheckoutPage() {
                                                         onChange={(event) => setZip(event.target.value)}
                                                         onBlur={() => setTouched((current) => ({ ...current, zip: true }))}
                                                         className={`field with-adorn ${fieldState(validations.zip, showError("zip"))}`}
-                                                        placeholder="ZIP code"
+                                                        placeholder={countryCode === "US" ? "ZIP code" : "Postal code"}
                                                     />
 
                                                     {validations.zip ? (
@@ -1201,6 +1305,87 @@ export default function BusinessCheckoutPage() {
                         }} />
                 ))}
             </div>
+        </div>
+    );
+}
+
+function CountrySelect({
+    countries,
+    value,
+    onChange
+}: {
+    countries: CheckoutCountry[];
+    value: string;
+    onChange: (countryCode: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const rootRef = useRef<HTMLDivElement>(null);
+    const selected =
+        countries.find((country) => country.countryCode === value) ?? countries[0];
+
+    useEffect(() => {
+        if (!open) return;
+
+        function handlePointerDown(event: MouseEvent) {
+            if (!rootRef.current?.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        }
+
+        function handleEscape(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                setOpen(false);
+            }
+        }
+
+        document.addEventListener("mousedown", handlePointerDown);
+        document.addEventListener("keydown", handleEscape);
+
+        return () => {
+            document.removeEventListener("mousedown", handlePointerDown);
+            document.removeEventListener("keydown", handleEscape);
+        };
+    }, [open]);
+
+    return (
+        <div ref={rootRef} className="country-select">
+            <button
+                type="button"
+                data-testid="checkout-country-select"
+                className="field country-select-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                aria-label="Country"
+                onClick={() => setOpen((current) => !current)}
+            >
+                {selected
+                    ? `${selected.flag} ${selected.name} (${selected.countryCode})`
+                    : "Select country"}
+            </button>
+
+            {open ? (
+                <ul className="country-select-menu" role="listbox" aria-label="Countries">
+                    {countries.map((country) => (
+                        <li key={country.id} role="presentation">
+                            <button
+                                type="button"
+                                role="option"
+                                aria-selected={country.countryCode === value}
+                                data-testid={`checkout-country-option-${country.countryCode.toLowerCase()}`}
+                                className={`country-select-option${
+                                    country.countryCode === value ? " is-selected" : ""
+                                }`}
+                                onClick={() => {
+                                    onChange(country.countryCode);
+                                    setOpen(false);
+                                }}
+                            >
+                                {country.flag} {country.name} ({country.countryCode})
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
         </div>
     );
 }

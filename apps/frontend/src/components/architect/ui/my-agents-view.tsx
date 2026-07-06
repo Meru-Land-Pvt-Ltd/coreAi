@@ -654,11 +654,11 @@ export function MyAgentsView() {
   const animationKey = `${filter}|${sort}|${view}`;
 
   function openAgent(agent: ArchitectListing) {
-    // Draft and under-review cards open the builder; live/rejected open the status page.
+    // Live, draft, and under-review cards open the builder; rejected/suspended open status.
     const target =
-      agent.status === "DRAFT" || agent.status === "PENDING_REVIEW"
-        ? builderHrefFor(agent)
-        : architectPublishingStatusPath(agent.id);
+      agent.status === "REJECTED" || agent.status === "SUSPENDED"
+        ? architectPublishingStatusPath(agent.id)
+        : builderHrefFor(agent);
     router.push(target);
   }
 

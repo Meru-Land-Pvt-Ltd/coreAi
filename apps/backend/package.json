@@ -15,6 +15,7 @@
     "verify:webhook-url": "tsx scripts/verify-webhook-url.ts",
     "list:numbers": "tsx scripts/list-platform-numbers.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",
+    "seed:countries": "tsx scripts/seed-countries.ts",
     "cleanup:draft-agents": "tsx scripts/cleanup-draft-agents.ts"
   },
   "dependencies": {

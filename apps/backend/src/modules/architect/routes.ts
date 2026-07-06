@@ -1509,6 +1509,68 @@ architectRoutes.post("/listings", async (c) => {
   }
 });
 
+const listingStatusUpdateSchema = z.object({
+  status: z.enum(["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "SUSPENDED"])
+});
+
+const architectListingStatusTransitions: Partial<
+  Record<
+    "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED",
+    Array<"DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED">
+  >
+> = {
+  PENDING_REVIEW: ["DRAFT"],
+  REJECTED: ["DRAFT"]
+};
+
+architectRoutes.patch("/listings/:agentId/status", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const agentId = c.req.param("agentId");
+    const input = listingStatusUpdateSchema.parse(await c.req.json());
+
+    const listing = await prisma.agentListing.findFirst({
+      where: {
+        id: agentId,
+        architectUserId: authUser.id
+      }
+    });
+
+    if (!listing) {
+      return errorResponse(c, "Agent listing not found", 404, "LISTING_NOT_FOUND");
+    }
+
+    const allowedNextStatuses = architectListingStatusTransitions[listing.status] ?? [];
+
+    if (!allowedNextStatuses.includes(input.status)) {
+      return errorResponse(
+        c,
+        `Cannot change agent status from ${listing.status} to ${input.status}`,
+        409,
+        "INVALID_STATUS_TRANSITION"
+      );
+    }
+
+    const updatedListing = await prisma.agentListing.update({
+      where: { id: agentId },
+      data: { status: input.status }
+    });
+
+    return successResponse(c, { listing: updatedListing }, "Agent status updated");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid agent status input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    return errorResponse(c, "Could not update agent status", 500, "LISTING_STATUS_UPDATE_FAILED");
+  }
+});
+
 architectRoutes.get("/projects", async (c) => {
   const authUser = c.get("authUser");
 

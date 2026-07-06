@@ -82,42 +82,6 @@ const ANALYTICS_MARKUP = `
   <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
     <div class="flex items-center gap-4 px-4 sm:px-6 lg:px-8 h-16">
       <h1 class="text-lg sm:text-2xl font-bold tracking-tight whitespace-nowrap">Agent Analytics</h1>
-
-      <div class="hidden md:flex flex-1 justify-center">
-        <div class="relative w-full max-w-md">
-          <svg class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
-          <input id="search-input" type="text" placeholder="Search agents, metrics…" aria-label="Search agents and metrics"
-            class="w-full rounded-xl bg-gray-50 border border-transparent focus:border-amber-300 focus:bg-white pl-10 pr-16 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 transition" />
-          <kbd class="absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[10.5px] font-medium text-slate-400 font-mono">⌘K</kbd>
-        </div>
-      </div>
-
-      <div class="ml-auto md:ml-0 flex items-center gap-2 sm:gap-3">
-        <div class="relative">
-          <button id="bell-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Notifications"
-            class="relative grid h-10 w-10 place-items-center rounded-xl border border-gray-100 bg-white text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition shadow-sm">
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-            <span class="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white"></span>
-          </button>
-          <div id="bell-menu" class="hidden absolute right-0 mt-2 w-80 rounded-2xl border border-gray-100 bg-white shadow-cardhover overflow-hidden z-50">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <span class="text-sm font-bold">Notifications</span>
-              <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">3 new</span>
-            </div>
-            <ul class="max-h-72 overflow-y-auto scroll-thin divide-y divide-gray-50">
-              <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2h2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800">Payout ready: <span class="font-semibold">$4,820</span> available</p><p class="text-[11.5px] text-slate-400 mt-0.5">8 minutes ago</p></div></li>
-              <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-5.4 3 1-6L3 10l6-.9L12 3.5 15 9.1l6 .9-4.6 4.3 1 6z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800">New 5-star review on <span class="font-semibold">Missed Call Text-Back</span></p><p class="text-[11.5px] text-slate-400 mt-0.5">41 minutes ago</p></div></li>
-              <li class="flex gap-3 px-4 py-3 hover:bg-gray-50 transition"><span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span><div class="min-w-0"><p class="text-[13px] font-medium text-slate-800"><span class="font-semibold">Appointment Reminder</span> success rate dipped below 96.5%</p><p class="text-[11.5px] text-slate-400 mt-0.5">2 hours ago</p></div></li>
-            </ul>
-            <button type="button" class="w-full px-4 py-2.5 text-[12.5px] font-semibold text-amber-700 hover:bg-amber-50 transition">View all notifications</button>
-          </div>
-        </div>
-
-        <button id="export-btn" type="button" class="inline-flex items-center gap-2 rounded-xl bg-gold-gradient px-3.5 sm:px-4 py-2.5 text-[13px] font-semibold text-[#1a1206] shadow-pop hover:brightness-[1.04] active:scale-[0.98] transition">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
-          <span class="hidden sm:inline">Export Report</span>
-        </button>
-      </div>
     </div>
   </header>
 
@@ -125,11 +89,8 @@ const ANALYTICS_MARKUP = `
 
     <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
       <div>
-        <p class="text-[13px] text-slate-500">Welcome back, <span class="font-semibold text-slate-700">Marcus</span> — here's how your fleet is performing.</p>
-        <div class="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-600">
-          <span class="pulse-dot text-emerald-500"><span class="block h-2 w-2 rounded-full bg-emerald-500"></span></span>
-          <span id="range-label-live">All 3 agents online</span>
-        </div>
+        <p class="text-[13px] text-slate-500"></p>
+        
       </div>
       <div id="range-pills" role="tablist" aria-label="Time range" class="inline-flex items-center gap-1 rounded-xl border border-gray-100 bg-white p-1 shadow-sm self-start sm:self-auto">
         <button role="tab" data-range="7D" class="pill rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-800">7D</button>
@@ -146,7 +107,7 @@ const ANALYTICS_MARKUP = `
       <div class="group rounded-2xl border border-gray-100 bg-white p-5 shadow-card hover:shadow-cardhover transition-shadow">
         <div class="flex items-start justify-between">
           <span class="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg></span>
-          <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"><span class="pulse-dot text-emerald-500"><span class="block h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>LIVE</span>
+          <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">—</span>
         </div>
         <p class="mt-4 text-[12px] font-semibold uppercase tracking-wide text-slate-400">Total Executions</p>
         <div class="mt-1 flex items-end justify-between gap-2">
@@ -311,7 +272,7 @@ const ANALYTICS_MARKUP = `
       <div class="flex items-center justify-between p-5 sm:p-6 pb-4 border-b border-gray-100">
         <div class="flex items-center gap-2.5">
           <h2 class="text-base font-bold">Live Executions</h2>
-          <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600"><span class="pulse-dot text-emerald-500"><span class="block h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>Real-time</span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">No activity</span>
         </div>
         <button id="feed-pause" type="button" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition">
           <svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
@@ -356,12 +317,13 @@ function lastNDayLabels(n){
 }
 const last3Months = () => MONTHS6.slice(-3);
 
+const ZERO_RANGE = { exec:0, sr:0, avg:0, rev:0, dExec:'0', dSr:'0%', dAvg:'0', dRev:'$0', proj:'$0', execN:6, revKind:'month6' };
 const RANGES = {
-  '7D':  { exec:3310,  sr:97.6, avg:1.1, rev:1180,  dExec:'+420',    dSr:'+0.3%', dAvg:'-60ms',  dRev:'+$210',   proj:'$1,260',  execN:7,  revKind:'day'     },
-  '30D': { exec:14180, sr:97.4, avg:1.2, rev:4860,  dExec:'+2,310',  dSr:'+0.3%', dAvg:'-110ms', dRev:'+$880',   proj:'$5,400',  execN:30, revKind:'week4'   },
-  '90D': { exec:41920, sr:97.2, avg:1.2, rev:10240, dExec:'+6,180',  dSr:'+0.5%', dAvg:'-150ms', dRev:'+$2,140', proj:'$11,800', execN:13, revKind:'month3'  },
-  '6M':  { exec:84291, sr:97.3, avg:1.2, rev:12840, dExec:'+12,847', dSr:'+0.4%', dAvg:'-180ms', dRev:'+$3,240', proj:'$8,900',  execN:6,  revKind:'month6'  },
-  '1Y':  { exec:90640, sr:97.1, avg:1.3, rev:13560, dExec:'+18,400', dSr:'+0.6%', dAvg:'-210ms', dRev:'+$3,560', proj:'$9,400',  execN:12, revKind:'month12' },
+  '7D':  Object.assign({}, ZERO_RANGE, { execN:7,  revKind:'day' }),
+  '30D': Object.assign({}, ZERO_RANGE, { execN:4,  revKind:'week4' }),
+  '90D': Object.assign({}, ZERO_RANGE, { execN:3,  revKind:'month3' }),
+  '6M':  Object.assign({}, ZERO_RANGE, { execN:6,  revKind:'month6' }),
+  '1Y':  Object.assign({}, ZERO_RANGE, { execN:12, revKind:'month12' }),
 };
 RANGES['Custom'] = Object.assign({}, RANGES['30D'], { custom:true });
 
@@ -373,98 +335,33 @@ function execLabels(key,n){
 }
 function genExecSeries(key){
   const r = RANGES[key], n = r.execN;
-  const rnd = mulberry32(hash(key)+11);
-  const successTotal = Math.round(r.exec * r.sr/100);
-  const failTotal = r.exec - successTotal;
-  let w=[];
-  for(let i=0;i<n;i++){
-    let t = n>1 ? i/(n-1) : 1;
-    let base = 0.55 + 0.75*t + Math.sin(i*0.9)*0.06 + (rnd()-0.5)*0.14;
-    if(key==='1Y' && i<5) base *= (0.10 + 0.16*i);
-    w.push(Math.max(0.04, base));
-  }
-  if(n>=6){ w[Math.floor(n*0.66)] *= 1.28; }
-  const sumW = w.reduce((a,b)=>a+b,0);
-  let success = w.map(x=>Math.round(x/sumW*successTotal));
-  success[n-1] += successTotal - success.reduce((a,b)=>a+b,0);
-  const fr = mulberry32(hash(key)+5);
-  let fw = success.map(s => s*(0.8 + fr()*0.5));
-  const sumFw = fw.reduce((a,b)=>a+b,0) || 1;
-  let fail = fw.map(x => Math.max(0, Math.round(x/sumFw*failTotal)));
-  fail[n-1] += failTotal - fail.reduce((a,b)=>a+b,0);
-  if(fail[n-1] < 0) fail[n-1] = 0;
-  return { labels: execLabels(key,n), success, fail, successTotal, failTotal };
+  const labels = execLabels(key, n);
+  const success = labels.map(()=>0);
+  const fail = labels.map(()=>0);
+  return { labels, success, fail, successTotal:0, failTotal:0 };
 }
-function splitAgents(vals,key){
-  const rnd = mulberry32(hash(key)+31);
-  return vals.map(v=>{
-    let p=[0.50,0.32,0.18].map(x=>x*(0.9+rnd()*0.2));
-    const ps=p.reduce((a,b)=>a+b,0); p=p.map(x=>x/ps);
-    let a=Math.round(v*p[0]), b=Math.round(v*p[1]); let c=v-a-b; if(c<0)c=0;
-    return {a,b,c};
-  });
+function splitAgents(vals){
+  return vals.map(()=>({a:0,b:0,c:0}));
 }
 function genRevSeries(key){
   const r = RANGES[key];
-  if(key==='6M'){ const vals=[2100,3400,4200,5800,6100,7240]; return {labels:MONTHS6.slice(), vals, agents:splitAgents(vals,key)}; }
   const kind = r.revKind;
   let n, labels;
   if(kind==='day'){ n=7; labels=lastNDayLabels(7); }
   else if(kind==='week4'){ n=4; labels=['Wk 1','Wk 2','Wk 3','Wk 4']; }
   else if(kind==='month3'){ n=3; labels=last3Months(); }
+  else if(kind==='month6'){ n=6; labels=MONTHS6.slice(); }
   else { n=12; labels=MONTHS12.slice(); }
-  const gross = Math.round(r.rev*2.246);
-  const rnd = mulberry32(hash(key)+23);
-  let w=[];
-  for(let i=0;i<n;i++){
-    let t = n>1 ? i/(n-1) : 1;
-    let base = 0.6 + 0.7*t + (rnd()-0.5)*0.12;
-    if(kind==='month12' && i<6) base *= (0.06 + 0.10*i);
-    w.push(Math.max(0.03, base));
-  }
-  const sumW = w.reduce((a,b)=>a+b,0);
-  let vals = w.map(x=>Math.round(x/sumW*gross));
-  vals[n-1] += gross - vals.reduce((a,b)=>a+b,0);
-  return { labels, vals, agents: splitAgents(vals,key) };
+  const vals = labels.map(()=>0);
+  return { labels, vals, agents: splitAgents(vals) };
 }
-function genSpark(key,type){
-  const seed = type==='exec'?7 : type==='avg'?17 : 27;
-  const rnd = mulberry32(hash(key)+seed);
-  const n=12, out=[];
-  for(let i=0;i<n;i++){
-    let t=i/(n-1);
-    let v = type==='avg' ? (1 - 0.5*t) : (0.5 + 0.6*t);
-    v += (rnd()-0.5)*0.18; out.push(Math.max(0.05, v));
-  }
-  return out;
+function genSpark(){
+  return [0,0,0,0,0,0,0,0,0,0,0,0];
 }
 
-const FAILURES = [
-  {label:'LLM Timeout',            pct:38, color:'#f59e0b'},
-  {label:'Connector Auth Expired', pct:24, color:'#fbbf24'},
-  {label:'Invalid AI Output',      pct:21, color:'#fcd34d'},
-  {label:'Rate Limited',           pct:11, color:'#fde68a'},
-  {label:'Other',                  pct:6,  color:'#d1d5db'},
-];
-const COHORTS = [
-  {name:'Week 1', vals:[100,92,84,76]},
-  {name:'Week 2', vals:[100,90,80,73]},
-  {name:'Week 3', vals:[100,88,77,69]},
-  {name:'Week 4', vals:[100,86,75,66]},
-];
-function agentSpark(seed){
-  const rnd=mulberry32(seed); const out=[];
-  for(let i=0;i<16;i++){ let t=i/15; out.push(Math.max(0.1, 0.5+0.5*t+(rnd()-0.5)*0.22)); }
-  return out;
-}
-const AGENTS = [
-  {name:'Missed Call Text-Back',   ver:'v2.4', exec:42180, sr:98.1, time:0.9, rev:6420, status:'Healthy',   spark:agentSpark(101)},
-  {name:'Lead Follow-Up Sequence', ver:'v1.8', exec:28400, sr:96.8, time:1.4, rev:4180, status:'Healthy',   spark:agentSpark(202)},
-  {name:'Appointment Reminder',    ver:'v3.1', exec:13711, sr:96.2, time:1.6, rev:2240, status:'Attention', spark:agentSpark(303)},
-];
-const FEED_AGENTS  = ['Missed Call Text-Back','Lead Follow-Up','Appointment Reminder'];
-const FEED_CLIENTS = ['Rodriguez HVAC','Luxe Med Spa','Bright Dental','Elite Plumbing','Summit Roofing','Apex Auto Repair','Coastal Dental','Vertex Legal','Harbor Eye Care','Pinnacle Realty','Crest Orthodontics','Ironclad Security'];
-const FAIL_REASONS = ['LLM Timeout','Connector Auth Expired','Invalid AI Output','Rate Limited'];
+const FAILURES = [];
+const COHORTS = [];
+const AGENTS = [];
 
 function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
 function animateValue(el, to, opts){
@@ -594,9 +491,8 @@ function renderRevChart(){
     '<defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD700"/><stop offset="1" stop-color="#DAA520"/></linearGradient></defs>'+
     grid+xl+bars+'</svg>';
   $$('.bar-rect',wrap).forEach(bar=>{
-    bar.addEventListener('mouseenter',()=>{ const i=+bar.dataset.i, ag=d.agents[i];
-      tip.innerHTML='<div style="font-weight:700;margin-bottom:4px">'+esc(d.labels[i])+' · '+fmtMoney(d.vals[i])+'</div>'+
-        '<div style="opacity:.85;font-size:11px;line-height:1.55">Missed Call · '+fmtMoney(ag.a)+'<br>Lead Follow-Up · '+fmtMoney(ag.b)+'<br>Appt Reminder · '+fmtMoney(ag.c)+'</div>';
+    bar.addEventListener('mouseenter',()=>{ const i=+bar.dataset.i;
+      tip.innerHTML='<div style="font-weight:700;margin-bottom:4px">'+esc(d.labels[i])+' · '+fmtMoney(d.vals[i])+'</div>';
       const bb=bar.getBBox(); tip.style.left=(bb.x+bb.width/2)+'px'; tip.style.top=bb.y+'px'; tip.classList.add('show'); });
     bar.addEventListener('mouseleave',()=>tip.classList.remove('show'));
   });
@@ -611,12 +507,14 @@ function renderDonut(failCount){
     off+=len; });
   svg.innerHTML='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#f8fafc" stroke-width="'+sw+'"/>'+segs;
   const legend=$('#donut-legend');
-  legend.innerHTML=FAILURES.map((f,idx)=>(
-    '<li class="seg-leg flex items-center justify-between px-2 py-1 -mx-2 rounded-lg text-[12.5px] transition" data-i="'+idx+'">'+
-      '<span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:'+f.color+'"></span><span class="text-slate-600 font-medium">'+esc(f.label)+'</span></span>'+
-      '<span class="flex items-center gap-2"><span class="text-slate-400 nums">'+Math.round(failCount*f.pct/100)+'</span><span class="font-bold text-slate-700 w-9 text-right nums">'+f.pct+'%</span></span>'+
-    '</li>'
-  )).join('');
+  legend.innerHTML = FAILURES.length
+    ? FAILURES.map((f,idx)=>(
+        '<li class="seg-leg flex items-center justify-between px-2 py-1 -mx-2 rounded-lg text-[12.5px] transition" data-i="'+idx+'">'+
+          '<span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:'+f.color+'"></span><span class="text-slate-600 font-medium">'+esc(f.label)+'</span></span>'+
+          '<span class="flex items-center gap-2"><span class="text-slate-400 nums">0</span><span class="font-bold text-slate-700 w-9 text-right nums">0%</span></span>'+
+        '</li>'
+      )).join('')
+    : '<li class="px-2 py-2 text-[12.5px] text-slate-400">No failure data yet</li>';
   $$('.seg',svg).forEach(seg=>{
     const i=+seg.dataset.i, li=legend.querySelector('.seg-leg[data-i="'+i+'"]');
     const enter=()=>{ seg.setAttribute('stroke-width',sw+4); $$('.seg',svg).forEach(s=>{ if(s!==seg) s.style.opacity='0.4'; }); if(li) li.classList.add('bg-gray-50'); };
@@ -629,16 +527,17 @@ function renderDonut(failCount){
 
 function renderCohort(){
   const tb=$('#cohort-grid'); if(!tb) return;
-  tb.innerHTML=COHORTS.map(c=>{
-    const cells=c.vals.map(v=>{
-      const op=(0.12+(v/100)*0.80).toFixed(2);
-      const txt = v>=72 ? '#fff' : '#92400e';
-      return '<td class="text-center"><div class="rounded-lg py-2 text-[12.5px] font-bold nums" style="background:rgba(217,119,6,'+op+');color:'+txt+'" title="'+esc(c.name)+' cohort · '+v+'% retained">'+v+'%</div></td>';
-    }).join('');
-    return '<tr><td class="text-left text-[12px] font-semibold text-slate-600 pr-2 whitespace-nowrap">'+esc(c.name)+'</td>'+cells+'</tr>';
-  }).join('');
-  const last=COHORTS.map(c=>c.vals[3]); const avg=Math.round(last.reduce((a,b)=>a+b,0)/last.length);
-  $('#cohort-avg').textContent=avg+'%';
+  tb.innerHTML = COHORTS.length
+    ? COHORTS.map(c=>{
+        const cells=c.vals.map(v=>{
+          const op=(0.12+(v/100)*0.80).toFixed(2);
+          const txt = v>=72 ? '#fff' : '#92400e';
+          return '<td class="text-center"><div class="rounded-lg py-2 text-[12.5px] font-bold nums" style="background:rgba(217,119,6,'+op+');color:'+txt+'" title="'+esc(c.name)+' cohort · '+v+'% retained">'+v+'%</div></td>';
+        }).join('');
+        return '<tr><td class="text-left text-[12px] font-semibold text-slate-600 pr-2 whitespace-nowrap">'+esc(c.name)+'</td>'+cells+'</tr>';
+      }).join('')
+    : '<tr><td colspan="5" class="py-6 text-center text-[13px] text-slate-400">No retention data yet</td></tr>';
+  $('#cohort-avg').textContent='0%';
 }
 
 function drawAgentSpark(svg,data){
@@ -661,7 +560,7 @@ function renderAgents(filter){
   filter=filter||'all';
   const host=$('#agent-tbody'); if(!host) return;
   const list=AGENTS.filter(a=> filter==='all' ? true : filter==='top' ? a.status==='Healthy' : a.status==='Attention');
-  if(list.length===0){ host.innerHTML='<div class="px-6 py-10 text-center text-[13px] text-slate-400">No agents match this filter.</div>'; return; }
+  if(list.length===0){ host.innerHTML='<div class="px-6 py-10 text-center text-[13px] text-slate-400">No agent performance data yet.</div>'; return; }
   host.innerHTML=list.map((a,idx)=>{
     const healthy=a.status==='Healthy';
     const initials=a.name.split(' ').slice(0,2).map(w=>w[0]).join('');
@@ -712,33 +611,12 @@ function feedItemHTML(it){
     '<span class="min-w-0 flex-1 truncate"><span class="text-[13px] font-medium '+(ok?'text-slate-700':'text-rose-700')+'">'+esc(it.agent)+'</span><span class="text-slate-400 text-[12.5px]"> · '+esc(it.client)+'</span></span>'+
     right+'</li>';
 }
-function makeRandomFeedItem(now){
-  const agent=FEED_AGENTS[Math.floor(Math.random()*FEED_AGENTS.length)];
-  const client=FEED_CLIENTS[Math.floor(Math.random()*FEED_CLIENTS.length)];
-  const fail=Math.random()<0.16;
-  return { t:fmtClock(now), agent, client, status:fail?'Failed':'Success', time:fail?0:(0.6+Math.random()*1.1), reason:fail?FAIL_REASONS[Math.floor(Math.random()*FAIL_REASONS.length)]:'' };
-}
-function pushFeed(){
+function seedFeed(){
   const list=$('#feed-list'); if(!list) return;
-  list.insertAdjacentHTML('afterbegin', feedItemHTML(makeRandomFeedItem(new Date())));
-  while(list.children.length>22) list.removeChild(list.lastElementChild);
+  list.innerHTML='<li class="px-5 sm:px-6 py-8 text-center text-[13px] text-slate-400">No live executions yet</li>';
 }
 function scheduleFeed(){
   clearTimeout(feedTimer);
-  feedTimer=setTimeout(function tick(){
-    if(!feedPaused && !document.hidden) pushFeed();
-    if(!feedPaused) feedTimer=setTimeout(tick, 3200+Math.random()*1800);
-  }, 3200+Math.random()*1800);
-}
-function seedFeed(){
-  const list=$('#feed-list'); if(!list) return; const now=Date.now();
-  const seeds=[
-    {off:0,  agent:'Missed Call Text-Back', client:'Rodriguez HVAC', status:'Success', time:0.8, reason:''},
-    {off:14, agent:'Lead Follow-Up',        client:'Luxe Med Spa',   status:'Success', time:1.2, reason:''},
-    {off:31, agent:'Appointment Reminder',  client:'Bright Dental',  status:'Failed',  time:0,   reason:'LLM Timeout'},
-    {off:50, agent:'Missed Call Text-Back', client:'Elite Plumbing', status:'Success', time:0.7, reason:''},
-  ];
-  list.innerHTML=seeds.map(s=>{ s.t=fmtClock(new Date(now-s.off*1000)); return feedItemHTML(s); }).join('');
 }
 
 let currentRange='6M';
@@ -753,23 +631,25 @@ function applyRange(key){
   animateValue($('#m-success'), r.sr, {decimals:1});
   animateValue($('#m-avg'), r.avg, {decimals:1});
   animateValue($('#m-rev'), r.rev, {money:true});
-  $('#m-exec-delta').innerHTML=arrowUp()+esc(r.dExec)+' this period';
-  $('#m-success-delta').innerHTML=arrowUp()+esc(r.dSr)+' vs last period';
-  $('#m-avg-delta').innerHTML=arrowDown()+esc(r.dAvg)+' improvement';
-  $('#m-rev-delta').innerHTML=arrowUp()+esc(r.dRev)+' this period';
+  $('#m-exec-delta').textContent = r.dExec + ' this period';
+  $('#m-success-delta').textContent = r.dSr + ' vs last period';
+  $('#m-avg-delta').textContent = r.dAvg + ' avg time';
+  $('#m-rev-delta').textContent = r.dRev + ' this period';
+  const liveLabel=$('#range-label-live');
+  if(liveLabel) liveLabel.textContent = AGENTS.length ? (AGENTS.length + ' agent' + (AGENTS.length===1?'':'s') + ' online') : '0 agents online';
   const ringC=2*Math.PI*18, ring=$('#ring-progress');
   ring.style.transition=REDUCED?'none':'stroke-dashoffset 1100ms cubic-bezier(.22,1,.36,1)';
   ring.setAttribute('stroke-dashoffset',(ringC*(1-r.sr/100)).toFixed(2));
-  renderSpark($('#m-exec-spark'), genSpark(key,'exec'), '#f59e0b','spkExec');
-  renderSpark($('#m-avg-spark'),  genSpark(key,'avg'),  '#10b981','spkAvg');
-  renderSpark($('#m-rev-spark'),  genSpark(key,'rev'),  '#DAA520','spkRev');
+  renderSpark($('#m-exec-spark'), genSpark(), '#f59e0b','spkExec');
+  renderSpark($('#m-avg-spark'),  genSpark(), '#10b981','spkAvg');
+  renderSpark($('#m-rev-spark'),  genSpark(), '#DAA520','spkRev');
   renderExecChart(); renderRevChart();
   const gross=revData.vals.reduce((a,b)=>a+b,0);
   $('#rev-total').textContent=fmtMoney(gross);
   $('#rev-proj').textContent=r.proj;
-  renderDonut(execData.failTotal);
-  $('#donut-total').textContent=fmtInt(execData.failTotal);
-  $('#fail-count-badge').textContent=fmtInt(execData.failTotal)+' failures';
+  renderDonut(0);
+  $('#donut-total').textContent='0';
+  $('#fail-count-badge').textContent='0 failures';
 }
 function setActivePill(key){
   $$('#range-pills [role=tab]').forEach(b=>{
@@ -855,7 +735,6 @@ function init(){
   wire();
   setActivePill('6M');
   applyRange('6M');
-  scheduleFeed();
 }
 init();
 return function(){ try{clearTimeout(feedTimer);}catch(e){} try{clearTimeout(rzT);}catch(e){} try{clearTimeout(showToast._t);}catch(e){} };
@@ -874,7 +753,7 @@ export default function ArchitectAgentAnalyticsPage() {
       ) => (() => void) | undefined;
       cleanup = run(ac.signal);
     } catch {
-      /* no-op: analytics is a self-contained demo view */
+      /* analytics script failed to initialize */
     }
     return () => {
       ac.abort();

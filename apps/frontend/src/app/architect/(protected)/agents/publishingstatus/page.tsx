@@ -4,7 +4,7 @@ import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { formatDate } from "@/components/architect/ui/architect-ui";
-import { getArchitectListings } from "@/components/architect/features/api";
+import { getArchitectListings, updateArchitectListingStatus } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
 
@@ -126,11 +126,13 @@ function StatBox({ value, label }: { value: string; label: string }) {
 function UnderReviewPanel({
   agent,
   onEditSubmission,
-  onCancelSubmission
+  onCancelSubmission,
+  cancellingSubmission
 }: {
   agent: ResolvedAgent;
   onEditSubmission: () => void;
   onCancelSubmission: () => void;
+  cancellingSubmission: boolean;
 }) {
   return (
     <div className="ps-reveal" role="status" aria-label="Agent status: Under Review" data-testid="publishing-status-panel-under-review">
@@ -178,10 +180,11 @@ function UnderReviewPanel({
           <button
             type="button"
             onClick={onCancelSubmission}
+            disabled={cancellingSubmission}
             data-testid="publishing-status-cancel-submission"
-            className="border-0 bg-transparent p-0 text-sm font-medium text-amber-700 hover:underline"
+            className="border-0 bg-transparent p-0 text-sm font-medium text-amber-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Cancel submission
+            {cancellingSubmission ? "Cancelling submission…" : "Cancel submission"}
           </button>
         </div>
       </div>
@@ -542,6 +545,8 @@ function PublishingStatusContent() {
   const [agent, setAgent] = useState<ResolvedAgent | null>(null);
   const [architectName] = useState("you");
   const [activeState, setActiveState] = useState<StatusState>(1);
+  const [cancellingSubmission, setCancellingSubmission] = useState(false);
+  const [cancelError, setCancelError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -609,8 +614,27 @@ function PublishingStatusContent() {
     );
   }
 
-  function cancelSubmission() {
-    router.push(ARCHITECT_MY_AGENTS_PATH);
+  async function cancelSubmission() {
+    if (!headerAgent.id || headerAgent.id.startsWith("draft-")) {
+      goToMyAgents();
+      return;
+    }
+
+    setCancelError("");
+    setCancellingSubmission(true);
+
+    try {
+      const result = await updateArchitectListingStatus(headerAgent.id, "DRAFT");
+
+      if (!result.success) {
+        setCancelError(result.error ?? "Could not cancel submission.");
+        return;
+      }
+
+      router.push(ARCHITECT_MY_AGENTS_PATH);
+    } finally {
+      setCancellingSubmission(false);
+    }
   }
 
   return (
@@ -665,7 +689,13 @@ function PublishingStatusContent() {
                     agent={headerAgent}
                     onEditSubmission={editSubmission}
                     onCancelSubmission={cancelSubmission}
+                    cancellingSubmission={cancellingSubmission}
                   />
+                ) : null}
+                {cancelError ? (
+                  <p className="mt-3 text-sm text-red-600" data-testid="publishing-status-cancel-error">
+                    {cancelError}
+                  </p>
                 ) : null}
                 {activeState === 2 ? (
                   <>
