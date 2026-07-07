@@ -18,6 +18,14 @@ import {
   handleTwilioVoiceAction,
   handleVapiWebhook
 } from "./twilio-business-routing";
+import {
+  getWorkflowConfigure,
+  getWorkflowMarketplacePreview,
+  patchWorkflowConfigure,
+  publishWorkflowListing,
+  saveWorkflowConfigureDraft,
+  submitWorkflowForReview
+} from "./configure";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
   getPhoneRoutingStatus,
@@ -1368,6 +1376,17 @@ architectRoutes.post("/workflows/:workflowId/run-live", async (c) => {
     );
   }
 });
+
+// ---- Architect Configure flow (marketplace template metadata) ----
+// Draft lives on WorkflowDefinition.configureJson; submit-review maps it onto
+// the AgentListing the marketplace reads. Architect-only (registered after the
+// requireAuth + requireRole("ARCHITECT") guards above).
+architectRoutes.get("/workflows/:workflowId/configure", getWorkflowConfigure);
+architectRoutes.patch("/workflows/:workflowId/configure", patchWorkflowConfigure);
+architectRoutes.post("/workflows/:workflowId/configure/save-draft", saveWorkflowConfigureDraft);
+architectRoutes.post("/workflows/:workflowId/submit-review", submitWorkflowForReview);
+architectRoutes.post("/workflows/:workflowId/publish", publishWorkflowListing);
+architectRoutes.get("/workflows/:workflowId/marketplace-preview", getWorkflowMarketplacePreview);
 
 architectRoutes.get("/listings", async (c) => {
   const authUser = c.get("authUser");

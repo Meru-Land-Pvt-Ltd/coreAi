@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
+import type { AgentConfigureData, AgentMarketplacePreview } from "@coreai/shared";
 import type {
   ArchitectListing,
   ArchitectProfile,
@@ -571,6 +572,74 @@ export function startArchitectVapiBrowserTest(
   return apiPost<{ session: ArchitectVapiBrowserTestSession }>(
     `/architect/workflows/${workflowId}/vapi-browser-test/start`,
     body
+  );
+}
+
+/* ---- Architect Configure flow (marketplace template metadata) ---- */
+
+export type WorkflowConfigureListingSummary = {
+  id: string;
+  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  reviewStatus: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
+  publishStatus: "DRAFT" | "IN_REVIEW" | "PUBLISHED" | "UNPUBLISHED";
+  rejectionReason: string | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  publishedAt: string | null;
+};
+
+export type WorkflowConfigureResponse = {
+  workflowId: string;
+  configure: AgentConfigureData;
+  reviewStatus: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
+  publishStatus: "DRAFT" | "IN_REVIEW" | "PUBLISHED" | "UNPUBLISHED";
+  listing: WorkflowConfigureListingSummary | null;
+  locked: boolean;
+  lockedMessage: string | null;
+};
+
+export type ConfigureValidationIssuePayload = {
+  step: 1 | 2 | 3 | 4 | 5;
+  field: string;
+  message: string;
+};
+
+export function getWorkflowConfigure(workflowId: string) {
+  return apiGet<WorkflowConfigureResponse>(`/architect/workflows/${workflowId}/configure`);
+}
+
+export function patchWorkflowConfigure(workflowId: string, configure: Partial<AgentConfigureData>) {
+  return apiPatch<WorkflowConfigureResponse>(`/architect/workflows/${workflowId}/configure`, {
+    configure
+  });
+}
+
+export function saveWorkflowConfigureDraft(workflowId: string, configure: Partial<AgentConfigureData>) {
+  return apiPost<WorkflowConfigureResponse>(
+    `/architect/workflows/${workflowId}/configure/save-draft`,
+    { configure }
+  );
+}
+
+export function submitWorkflowForReview(workflowId: string, configure: Partial<AgentConfigureData>) {
+  return apiPost<WorkflowConfigureResponse & { listingId: string; issues?: ConfigureValidationIssuePayload[] }>(
+    `/architect/workflows/${workflowId}/submit-review`,
+    { configure }
+  );
+}
+
+export function publishWorkflowListing(workflowId: string) {
+  return apiPost<{
+    listingId: string;
+    status: string;
+    publishStatus: string;
+    publishedAt: string | null;
+  }>(`/architect/workflows/${workflowId}/publish`, {});
+}
+
+export function getWorkflowMarketplacePreview(workflowId: string) {
+  return apiGet<{ preview: AgentMarketplacePreview }>(
+    `/architect/workflows/${workflowId}/marketplace-preview`
   );
 }
 
