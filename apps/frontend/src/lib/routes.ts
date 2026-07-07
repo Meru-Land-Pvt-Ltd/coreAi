@@ -16,6 +16,8 @@ export const ASSIGNMENT_PATH = "/assignment" as Route;
 export const MARKETPLACE_PATH = "/marketplace" as Route;
 export const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 export const ARCHITECT_MY_AGENTS_PATH = "/architect/agents" as Route;
+export const ARCHITECT_PAYOUTS_PATH = "/architect/payouts" as Route;
+export const ARCHITECT_SETTINGS_PATH = "/architect/settings" as Route;
 export const ARCHITECT_ANALYTICS_PATH = "/architect/agents/analytics" as Route;
 
 export const FOOTER_HASH_PATH = "#footer" as Route;

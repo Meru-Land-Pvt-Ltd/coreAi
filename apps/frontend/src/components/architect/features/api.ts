@@ -234,6 +234,160 @@ export function updateArchitectListingStatus(
   });
 }
 
+export type ArchitectPayoutMethod = {
+  bankName: string;
+  accountHolderName: string;
+  accountLast4: string;
+  ifscCode: string;
+  createdAt: string;
+  verified: boolean;
+};
+
+export type ArchitectPayoutSummary = {
+  totalEarningsCents: number;
+  availableBalanceCents: number;
+  pendingCents: number;
+  thisMonthEarningsCents: number;
+  thisMonthLabel: string;
+  thisMonthSalesCount: number;
+  totalSalesCount: number;
+  agentCount: number;
+  architectSharePercent: number;
+  sales: ArchitectPayoutSale[];
+  listingBreakdown: ArchitectListingEarnings[];
+  chart: {
+    period: string;
+    points: Array<{
+      label: string;
+      confirmedCents: number;
+      pendingCents: number;
+    }>;
+  };
+  nextPayout: {
+    amountCents: number;
+    scheduledFor: string;
+    grossSalesCents: number;
+    platformFeeCents: number;
+    earningsCents: number;
+  };
+  payoutMethod: ArchitectPayoutMethod | null;
+};
+
+export type ArchitectPayoutSale = {
+  id: string;
+  paymentId: string;
+  listingId: string;
+  installId: string | null;
+  buyerUserId: string;
+  date: string;
+  listingName: string;
+  businessName: string;
+  grossCents: number;
+  earningsCents: number;
+  purchaseStatus: string;
+};
+
+export type ArchitectListingEarnings = {
+  listingId: string;
+  listingName: string;
+  priceCents: number;
+  installCount: number;
+  grossCents: number;
+  earningsCents: number;
+};
+
+export type ArchitectPayoutTransaction = {
+  id: string;
+  paymentId: string | null;
+  listingId: string | null;
+  installId: string | null;
+  date: string;
+  description: string;
+  type: "Sale" | "Payout" | "Refund";
+  amountCents: number;
+  status: string;
+};
+
+export function getArchitectPayoutSummary(listingIds?: string[]) {
+  const query = listingIds?.length
+    ? `?listingIds=${encodeURIComponent(listingIds.join(","))}`
+    : "";
+  return apiGet<ArchitectPayoutSummary>(`/architect/payouts/summary${query}`);
+}
+
+export function getArchitectPayoutEarnings(listingIds?: string[]) {
+  const query = listingIds?.length
+    ? `?listingIds=${encodeURIComponent(listingIds.join(","))}`
+    : "";
+  return apiGet<{
+    sales: ArchitectPayoutSale[];
+    totals: {
+      salesCount: number;
+      grossCents: number;
+      earningsCents: number;
+      architectSharePercent: number;
+    };
+  }>(`/architect/payouts/earnings${query}`);
+}
+
+export function verifyArchitectIfsc(ifscCode: string) {
+  return apiGet<{
+    valid: boolean;
+    ifscCode: string;
+    bankName: string;
+    branch: string;
+    city: string;
+    state: string;
+  }>(`/architect/payouts/verify-ifsc/${encodeURIComponent(ifscCode.trim().toUpperCase())}`);
+}
+
+export function saveArchitectPayoutMethod(body: {
+  bankName: string;
+  accountHolderName: string;
+  accountNumber: string;
+  confirmAccountNumber: string;
+  ifscCode: string;
+}) {
+  return apiPut<{ payoutMethod: ArchitectPayoutMethod }>("/architect/payouts/method", body);
+}
+
+export function getArchitectPayoutTransactions(params?: {
+  type?: string;
+  range?: string;
+  page?: number;
+  perPage?: number;
+  listingIds?: string[];
+}) {
+  const search = new URLSearchParams();
+  if (params?.type) search.set("type", params.type);
+  if (params?.range) search.set("range", params.range);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.perPage) search.set("perPage", String(params.perPage));
+  if (params?.listingIds?.length) search.set("listingIds", params.listingIds.join(","));
+  const query = search.toString();
+  return apiGet<{
+    transactions: ArchitectPayoutTransaction[];
+    pagination: {
+      page: number;
+      perPage: number;
+      total: number;
+      totalPages: number;
+    };
+  }>(`/architect/payouts/transactions${query ? `?${query}` : ""}`);
+}
+
+export function requestArchitectPayout(body?: { amountCents?: number }) {
+  return apiPost<{
+    payout: {
+      id: string;
+      amountCents: number;
+      status: string;
+      createdAt: string;
+    };
+    summary: ArchitectPayoutSummary;
+  }>("/architect/payouts/request", body ?? {});
+}
+
 export function getArchitectProjects() {
   return apiGet<{ projects: ArchitectProject[] }>("/architect/projects");
 }
@@ -458,4 +612,164 @@ export function createTwilioBusinessInstallation(body: {
     phoneNumber: unknown;
     webhooks: { voice: string; sms: string; vapi: string };
   }>("/architect/connectors/twilio/business-installations", body);
+}
+
+export type ArchitectSettingsProfile = {
+  fullName: string;
+  email: string;
+  phone: string;
+  location: string;
+  timezone: string;
+};
+
+export type ArchitectSettingsStorefront = {
+  displayName: string;
+  tagline: string;
+  bio: string;
+  portfolioUrl: string;
+  githubUrl: string;
+  linkedinUrl: string;
+  twitterHandle: string;
+  experienceBand: string;
+  skills: string[];
+  approvalStatus: string;
+  rating: number;
+  completedJobs: number;
+  agentsPaused: boolean;
+};
+
+export type ArchitectSettingsSession = {
+  id: string;
+  deviceLabel: string;
+  location: string;
+  ipMasked: string;
+  isCurrent: boolean;
+  statusLabel: string;
+  lastActiveAt: string;
+};
+
+export type ArchitectLoginHistoryEntry = {
+  id: string;
+  date: string;
+  device: string;
+  location: string;
+  status: string;
+};
+
+export type ArchitectRefundAgent = {
+  listingId: string;
+  listingName: string;
+  listingStatus: string;
+  paidInstallCount: number;
+  refundPerInstallCents: number;
+  totalRefundCents: number;
+};
+
+export type ArchitectSettingsPayload = {
+  profile: ArchitectSettingsProfile;
+  storefront: ArchitectSettingsStorefront;
+  notifications: Record<string, { email?: boolean; push?: boolean; locked?: boolean }>;
+  privacy: Record<string, boolean>;
+  security: {
+    sessions: ArchitectSettingsSession[];
+    loginHistory: ArchitectLoginHistoryEntry[];
+  };
+  payouts: {
+    payoutMethod: {
+      bankName: string;
+      accountLast4: string;
+      ifscCode: string;
+      verified: boolean;
+    } | null;
+    architectSharePercent: number;
+    lastPayoutAt: string | null;
+  };
+  danger: {
+    obligations: {
+      agents: ArchitectRefundAgent[];
+      totalRefundCents: number;
+      requiresPayment: boolean;
+    };
+    agentsPaused: boolean;
+  };
+};
+
+export function getArchitectSettings() {
+  return apiGet<ArchitectSettingsPayload>("/architect/settings");
+}
+
+export function saveArchitectSettingsProfile(body: Partial<ArchitectSettingsProfile>) {
+  return apiPut<{ profile: ArchitectSettingsProfile }>("/architect/settings/profile", body);
+}
+
+export function saveArchitectSettingsStorefront(body: Partial<ArchitectSettingsStorefront>) {
+  return apiPut<{ storefront: ArchitectSettingsStorefront }>("/architect/settings/storefront", body);
+}
+
+export function saveArchitectNotificationPrefs(body: Record<string, { email?: boolean; push?: boolean }>) {
+  return apiPut<{ notifications: Record<string, unknown> }>("/architect/settings/notifications", body);
+}
+
+export function saveArchitectPrivacyPrefs(body: Record<string, boolean>) {
+  return apiPut<{ privacy: Record<string, boolean> }>("/architect/settings/privacy", body);
+}
+
+export function getArchitectLoginHistory(page = 1, perPage = 20) {
+  return apiGet<{
+    loginHistory: ArchitectLoginHistoryEntry[];
+    pagination: { page: number; perPage: number; total: number; totalPages: number };
+  }>(`/architect/settings/login-history?page=${page}&perPage=${perPage}`);
+}
+
+export function getArchitectActiveSessions() {
+  return apiGet<{ sessions: ArchitectSettingsSession[] }>("/architect/settings/sessions");
+}
+
+export function revokeArchitectSession(sessionId: string) {
+  return apiDelete<{ revoked: boolean }>(`/architect/settings/sessions/${sessionId}`);
+}
+
+export function revokeOtherArchitectSessions() {
+  return apiDelete<{ revoked: boolean }>("/architect/settings/sessions");
+}
+
+export function getArchitectDangerObligations() {
+  return apiGet<{
+    agents: ArchitectRefundAgent[];
+    totalRefundCents: number;
+    requiresPayment: boolean;
+  }>("/architect/settings/danger/obligations");
+}
+
+export function payArchitectRefundObligations(action: "PAUSE_ALL_AGENTS" | "DELETE_ACCOUNT") {
+  return apiPost<{
+    paid: boolean;
+    settlementId?: string;
+    amountCents: number;
+    agents?: ArchitectRefundAgent[];
+  }>("/architect/settings/danger/pay-obligations", { action });
+}
+
+export function pauseAllArchitectAgents() {
+  return apiPost<{
+    paused: boolean;
+    requiresPayment?: boolean;
+    obligations?: {
+      agents: ArchitectRefundAgent[];
+      totalRefundCents: number;
+      requiresPayment: boolean;
+    };
+  }>("/architect/settings/danger/pause-agents", {});
+}
+
+export function deleteArchitectAccount(confirmation: "DELETE") {
+  return apiPost<{
+    deleted: boolean;
+    requiresPayment?: boolean;
+    obligations?: {
+      agents: ArchitectRefundAgent[];
+      totalRefundCents: number;
+      requiresPayment: boolean;
+    };
+  }>("/architect/settings/danger/delete-account", { confirmation });
 }
