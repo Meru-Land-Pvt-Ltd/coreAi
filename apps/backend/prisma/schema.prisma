@@ -51,40 +51,76 @@ model ArchitectProfile {
 }
 
 model WorkflowDefinition {
-  id              String           @id @default(cuid())
-  name            String
-  description     String?
-  workflowJson    Json
-  isTemplate      Boolean          @default(false)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  architectUserId String
-  listings        AgentListing[]
-  installedAgents InstalledAgent[]
-  architect       User             @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  id                   String               @id @default(cuid())
+  name                 String
+  description          String?
+  workflowJson         Json
+  // Architect Configure flow (marketplace template metadata) — optional so
+  // existing workflows keep working with safe defaults.
+  configureJson        Json?
+  marketplaceJson      Json?
+  requiredIntegrations Json?
+  buyerSetupSchema     Json?
+  publishChecklist     Json?
+  reviewStatus         ListingReviewStatus  @default(DRAFT)
+  publishStatus        ListingPublishStatus @default(DRAFT)
+  isTemplate           Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  architectUserId      String
+  listings             AgentListing[]
+  installedAgents      InstalledAgent[]
+  architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
   @@index([createdAt])
 }
 
 model AgentListing {
-  id                 String              @id @default(cuid())
-  name               String
-  shortDescription   String
-  description        String?
-  priceCents         Int                 @default(0)
-  status             ListingStatus       @default(DRAFT)
-  requiredConnectors String[]
-  supportedLlms      String[]
-  tags               String[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  architectUserId    String
-  workflowId         String?
-  architect          User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  workflow           WorkflowDefinition? @relation(fields: [workflowId], references: [id])
-  installedAgents    InstalledAgent[]
-  payments           Payment[]
+  id                     String               @id @default(cuid())
+  name                   String
+  shortDescription       String
+  description            String?
+  priceCents             Int                  @default(0)
+  status                 ListingStatus        @default(DRAFT)
+  requiredConnectors     String[]
+  supportedLlms          String[]
+  tags                   String[]
+  // Marketplace configure/publish metadata (Architect Configure flow). All
+  // optional or defaulted so pre-existing listings stay valid.
+  tagline                String?
+  category               String?
+  industryTags           String[]             @default([])
+  iconUrl                String?
+  fullDescription        String?
+  includedFeatures       String[]             @default([])
+  screenshotUrls         String[]             @default([])
+  demoVideoUrl           String?
+  pricingModel           PricingModel         @default(SUBSCRIPTION)
+  executionFeeCents      Int                  @default(0)
+  freeTrialEnabled       Boolean              @default(false)
+  trialDays              Int                  @default(0)
+  setupTimeEstimate      String?
+  requiredIntegrations   Json?
+  requiredBuyerSetup     Json?
+  buyerSetupInstructions String?
+  installInstructions    String?
+  dataHandling           Json?
+  complianceChecks       Json?
+  reviewStatus           ListingReviewStatus  @default(DRAFT)
+  publishStatus          ListingPublishStatus @default(DRAFT)
+  rejectionReason        String?
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  publishedAt            DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  architectUserId        String
+  workflowId             String?
+  architect              User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  workflow               WorkflowDefinition?  @relation(fields: [workflowId], references: [id])
+  installedAgents        InstalledAgent[]
+  payments               Payment[]
 
   @@index([architectUserId])
   @@index([workflowId])
@@ -490,6 +526,27 @@ enum ListingStatus {
   APPROVED
   REJECTED
   SUSPENDED
+}
+
+enum ListingReviewStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum ListingPublishStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum PricingModel {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
 }
 
 enum ConnectorProvider {
