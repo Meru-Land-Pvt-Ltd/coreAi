@@ -24,6 +24,7 @@ model User {
   proposals            ProjectProposal[]
   templateRequests     TemplateRequest[]
   workflows            WorkflowDefinition[]
+  workflowRuns         WorkflowRun[]
 
   // Same email may exist once per role (e.g. BUSINESS + ARCHITECT), but not twice
   // for the same role.
@@ -70,6 +71,7 @@ model WorkflowDefinition {
   architectUserId      String
   listings             AgentListing[]
   installedAgents      InstalledAgent[]
+  workflowRuns    WorkflowRun[]
   architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
@@ -226,6 +228,7 @@ model Business {
   installedAgents InstalledAgent[]
   leads           Lead[]
   vapiCalls       VapiCall[]
+  workflowRuns    WorkflowRun[]
 
   @@index([ownerId])
   @@index([type])
@@ -285,6 +288,7 @@ model InstalledAgent {
   business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
   listing      AgentListing?         @relation(fields: [listingId], references: [id])
   workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowRuns WorkflowRun[]
 
   @@index([businessId])
   @@index([workflowId])
@@ -569,4 +573,125 @@ enum PaymentStatus {
   FAILED
   CANCELED
   REFUNDED
+}
+
+// Workflow run related enums(Brain Memory)
+
+enum WorkflowRunMode {
+  TEST
+  LIVE
+}
+
+enum WorkflowRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum NodeRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  WAITING
+  ERROR
+  SKIPPED
+}
+
+enum ContextLinkType {
+  BACKLINK
+  REFERENCE
+  SUMMARY_SOURCE
+}
+
+//workflowRun Model
+
+model WorkflowRun {
+  id                String            @id @default(cuid())
+  workflowId        String
+  installedAgentId  String?
+  businessId        String?
+  triggeredByUserId String?
+  mode              WorkflowRunMode   @default(TEST)
+  status            WorkflowRunStatus   @default(RUNNING)
+  threadId          String?
+  inputJson         Json?
+  outputJson        Json?
+  errorMessage      String?
+  startedAt         DateTime          @default(now())
+  finishedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  workflow       WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent?    @relation(fields: [installedAgentId], references: [id])
+  business       Business?          @relation(fields: [businessId], references: [id])
+  triggeredBy    User?              @relation(fields: [triggeredByUserId], references: [id])
+  nodeRuns       NodeRun[]
+  contextLinks   ContextLink[]
+  @@index([workflowId])
+  @@index([installedAgentId])
+  @@index([businessId])
+  @@index([threadId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+//nodeRun Model
+
+model NodeRun {
+  id             String        @id @default(cuid())
+  workflowRunId  String
+  nodeId         String
+  nodeType       String
+  nodeLabel      String?
+  status         NodeRunStatus @default(PENDING)
+  executionOrder Int           @default(0)
+  threadId       String?
+
+  inputJson      Json?
+  outputJson     Json?
+  summary        String?
+  variablesJson  Json?
+  filesJson      Json?
+
+  provider       String?
+  model          String?
+  costCents      Int?
+  tokenInput     Int?
+  tokenOutput    Int?
+
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  durationMs     Int?
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  workflowRun       WorkflowRun   @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  outgoingLinks     ContextLink[] @relation("ContextLinkFrom")
+  incomingLinks     ContextLink[] @relation("ContextLinkTo")
+
+  @@index([workflowRunId])
+  @@index([workflowRunId, nodeId])
+  @@index([threadId])
+  @@index([status])
+}
+
+//ContextLink Model
+model ContextLink {
+  id             String          @id @default(cuid())
+  workflowRunId  String
+  fromNodeRunId  String
+  toNodeRunId    String
+  linkType       ContextLinkType @default(BACKLINK)
+  reason         String?
+  createdAt      DateTime        @default(now())
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  fromNodeRun NodeRun     @relation("ContextLinkFrom", fields: [fromNodeRunId], references: [id], onDelete: Cascade)
+  toNodeRun   NodeRun     @relation("ContextLinkTo", fields: [toNodeRunId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId])
+  @@index([fromNodeRunId])
+  @@index([toNodeRunId])
 }
