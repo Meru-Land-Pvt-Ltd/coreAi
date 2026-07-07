@@ -7,10 +7,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
+import { ARCHITECT_SETTINGS_PATH } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
-type IconName = "dashboard" | "agents" | "builder" | "templates";
+type IconName = "dashboard" | "agents" | "builder" | "templates" | "payouts" | "settings";
 
 type NavItem = {
   label: string;
@@ -43,6 +44,18 @@ const navItems: NavItem[] = [
     href: "/architect/templets" as Route,
     icon: "templates",
     matchPrefix: "/architect/templets"
+  },
+  {
+    label: "Payouts",
+    href: "/architect/payouts" as Route,
+    icon: "payouts",
+    matchPrefix: "/architect/payouts"
+  },
+  {
+    label: "Settings",
+    href: ARCHITECT_SETTINGS_PATH,
+    icon: "settings",
+    matchPrefix: "/architect/settings"
   }
 ];
 
@@ -87,6 +100,24 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
       <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2.5" />
         <path d="M12 8v8M8 12h8" />
+      </svg>
+    );
+  }
+
+  if (name === "payouts") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+        <path d="M21 12a2 2 0 0 0-2-2h-4a2 2 0 0 0 0 4h4a2 2 0 0 0 2-2Z" />
+      </svg>
+    );
+  }
+
+  if (name === "settings") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
       </svg>
     );
   }
