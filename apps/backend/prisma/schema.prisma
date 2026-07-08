@@ -518,11 +518,12 @@ enum PaymentStatus {
   REFUNDED
 }
 
-// Workflow run related enums(Brain Memory)
+// Brain Memory — stores what each workflow run and node actually did.
+// WorkflowRun = one execution. NodeRun = one step. ContextLink = back-links between steps.
 
 enum WorkflowRunMode {
-  TEST
-  LIVE
+  TEST // Architect test panel / dry run
+  LIVE // Real Twilio, Vapi, or production trigger
 }
 
 enum WorkflowRunStatus {
@@ -542,13 +543,18 @@ enum NodeRunStatus {
 }
 
 enum ContextLinkType {
-  BACKLINK
-  REFERENCE
-  SUMMARY_SOURCE
+  BACKLINK        // Load full memory from an earlier node into a later one
+  REFERENCE       // Soft dependency / traceability
+  SUMMARY_SOURCE  // Target summary was derived from source node
 }
 
-//workflowRun Model
+enum ContextLinkStatus {
+  ACTIVE
+  INACTIVE
+  FAILED
+}
 
+// One execution of an entire workflow (user clicks Run, or live event fires).
 model WorkflowRun {
   id                String            @id @default(cuid())
   workflowId        String
@@ -571,6 +577,14 @@ model WorkflowRun {
   triggeredBy    User?              @relation(fields: [triggeredByUserId], references: [id])
   nodeRuns       NodeRun[]
   contextLinks   ContextLink[]
+  durationMs       Int?      /// Total run duration in milliseconds
+  totalTokenInput  Int?      @default(0)
+  totalTokenOutput Int?      @default(0)
+  totalCostCents   Int?      @default(0)
+  currentNodeId    String?   /// Last node that executed in this run
+  metadataJson     Json?     /// Extra workflow-level metadata
+
+  @@index([currentNodeId])
   @@index([workflowId])
   @@index([installedAgentId])
   @@index([businessId])
@@ -579,8 +593,7 @@ model WorkflowRun {
   @@index([createdAt])
 }
 
-//nodeRun Model
-
+// One execution of a single workflow node — this is where per-step memory lives.
 model NodeRun {
   id             String        @id @default(cuid())
   workflowRunId  String
@@ -620,7 +633,7 @@ model NodeRun {
   @@index([status])
 }
 
-//ContextLink Model
+// Back-link: fromNodeRun = memory source, toNodeRun = node that reads it.
 model ContextLink {
   id             String          @id @default(cuid())
   workflowRunId  String
@@ -633,8 +646,10 @@ model ContextLink {
   workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
   fromNodeRun NodeRun     @relation("ContextLinkFrom", fields: [fromNodeRunId], references: [id], onDelete: Cascade)
   toNodeRun   NodeRun     @relation("ContextLinkTo", fields: [toNodeRunId], references: [id], onDelete: Cascade)
+  linkStatus ContextLinkStatus @default(ACTIVE)
 
   @@index([workflowRunId])
   @@index([fromNodeRunId])
   @@index([toNodeRunId])
+  @@index([linkStatus])
 }
