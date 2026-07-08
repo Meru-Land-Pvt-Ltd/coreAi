@@ -654,8 +654,9 @@ export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promis
   }
 
   // DB rows that claim a Twilio SID Twilio no longer reports (released/moved).
+  // RELEASED and ARCHIVED rows are intentionally out of service — not noise.
   const dbWithSid = await prisma.platformPhoneNumber.findMany({
-    where: { twilioSid: { not: null }, status: { not: "RELEASED" } },
+    where: { twilioSid: { not: null }, status: { notIn: ["RELEASED", "ARCHIVED"] } },
     select: { phoneNumber: true, twilioSid: true }
   });
   for (const row of dbWithSid) {

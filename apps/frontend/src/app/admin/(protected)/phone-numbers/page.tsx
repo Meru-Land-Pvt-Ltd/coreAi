@@ -61,6 +61,8 @@ type Toast = { id: number; type: "success" | "error"; message: string };
 export default function AdminPhoneNumbersPage() {
   const [rows, setRows] = useState<AdminPhoneNumber[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  /** ARCHIVED numbers are hidden from the inventory unless explicitly shown. */
+  const [showArchived, setShowArchived] = useState(false);
   /** Key of the action currently running — disables its buttons. */
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -275,6 +277,12 @@ export default function AdminPhoneNumbersPage() {
   const canRelease = (row: AdminPhoneNumber) =>
     row.status === "AVAILABLE" && !row.business && !row.installedAgent && Boolean(row.twilioSid);
 
+  const visibleRows = useMemo(
+    () => (showArchived ? rows : rows.filter((row) => row.status !== "ARCHIVED")),
+    [rows, showArchived]
+  );
+  const archivedCount = rows.length - rows.filter((row) => row.status !== "ARCHIVED").length;
+
   return (
     <div>
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -313,13 +321,27 @@ export default function AdminPhoneNumbersPage() {
       </div>
 
       {/* Inventory table */}
+      {archivedCount > 0 ? (
+        <label className="mb-3 flex w-fit items-center gap-2 text-sm font-semibold text-slate-600">
+          <input
+            type="checkbox"
+            data-testid="admin-phone-show-archived"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+            className="h-4 w-4 accent-orange-500"
+          />
+          Show archived ({archivedCount})
+        </label>
+      ) : null}
       {state === "loading" ? (
         <p data-testid="admin-phone-loading" className="text-sm font-semibold text-orange-700">Loading…</p>
       ) : state === "error" ? (
         <p data-testid="admin-phone-error" className="text-sm font-semibold text-red-600">Could not load phone numbers.</p>
-      ) : rows.length === 0 ? (
+      ) : visibleRows.length === 0 ? (
         <p data-testid="admin-phone-empty" className="text-sm font-semibold text-slate-500">
-          No platform numbers yet. Search below to purchase your first number, or sync existing numbers from Twilio.
+          {rows.length > 0
+            ? "No active numbers — archived numbers are hidden. Use the checkbox above to show them."
+            : "No platform numbers yet. Search below to purchase your first number, or sync existing numbers from Twilio."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-orange-100 bg-white">
@@ -341,7 +363,7 @@ export default function AdminPhoneNumbersPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <tr key={row.id} className="border-b border-orange-50 align-top" data-testid={`admin-phone-row-${row.phoneNumber}`}>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{row.phoneNumber}</p>
@@ -394,7 +416,7 @@ export default function AdminPhoneNumbersPage() {
                           Unassign
                         </button>
                       ) : null}
-                      {row.twilioSid && row.status !== "RELEASED" ? (
+                      {row.twilioSid && row.status !== "RELEASED" && row.status !== "ARCHIVED" ? (
                         <button
                           type="button"
                           data-testid={`admin-phone-webhooks-${row.phoneNumber}`}
