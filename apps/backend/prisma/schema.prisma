@@ -421,9 +421,11 @@ model VapiCall {
 model PlatformPhoneNumber {
   id               String              @id @default(cuid())
   phoneNumber      String              @unique
+  /// Normalized E.164 form of phoneNumber (backfilled; canonical for lookups going forward).
+  e164             String?             @unique
   provider         ConnectorProvider   @default(TWILIO)
   status           PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid        String?
+  twilioSid        String?             @unique
   /// Provider-agnostic number id (alias for twilioSid; future non-Twilio providers).
   providerNumberId String?
   country          String?
@@ -431,13 +433,45 @@ model PlatformPhoneNumber {
   locality         String?
   /// e.g. { "voice": true, "sms": false, "mms": false }
   capabilities     Json?
+  voiceEnabled     Boolean             @default(true)
+  smsEnabled       Boolean             @default(true)
+  mmsEnabled       Boolean?
   businessId       String?
+  buyerUserId      String?
+  installedAgentId String?
   assignedAt       DateTime?
+  /// Admin provisioning metadata (numbers purchased through the admin panel).
+  purchasedByAdminId String?
+  purchasedAt        DateTime?
+  releasedAt         DateTime?
+  voiceWebhookUrl    String?
+  smsWebhookUrl      String?
+  webhookStatus      PhoneWebhookStatus @default(UNKNOWN)
+  complianceStatus   String?
+  a2pStatus          String?
+  lastSyncedAt       DateTime?
+  lastError          String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
   @@index([status])
   @@index([businessId])
+  @@index([installedAgentId])
+}
+
+/// Structured record of privileged admin actions (phone provisioning, assignment, release…).
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  action      String
+  targetType  String
+  targetId    String?
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model Payment {
@@ -678,6 +712,16 @@ enum PlatformPhoneStatus {
   AVAILABLE
   ASSIGNED
   DISABLED
+  ARCHIVED
+  RELEASED
+  ERROR
+}
+
+enum PhoneWebhookStatus {
+  CONFIGURED
+  MISSING
+  FAILED
+  UNKNOWN
 }
 
 enum PaymentStatus {

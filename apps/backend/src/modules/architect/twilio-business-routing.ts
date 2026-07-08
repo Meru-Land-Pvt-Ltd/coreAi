@@ -330,10 +330,12 @@ async function resolveAgent({
     }
 
     // ---- B / D: PlatformPhoneNumber exact match assigned to a business ----
+    // Only ASSIGNED numbers route here: RELEASED/ARCHIVED/DISABLED/ERROR rows
+    // must never resolve a live call even if they still carry a businessId.
     const platform = await prisma.platformPhoneNumber.findUnique({
       where: { phoneNumber: normalizedCalledNumber }
     });
-    if (platform?.businessId) {
+    if (platform?.businessId && platform.status === "ASSIGNED") {
       const bizPhone = await prisma.businessPhoneNumber.findFirst({
         where: { businessId: platform.businessId, isActive: true },
         orderBy: { createdAt: "desc" },
@@ -1432,12 +1434,16 @@ type DentalToolConfig = {
   patientTemplate: string;
   dentistTemplate: string;
   confirmationMessage: string;
+  /** What a booking is called for this business: appointment, reservation, consultation, quote request… */
+  bookingLabel: string;
 };
 
 /**
  * Read scheduling/tool params persisted on the InstalledAgent at Deploy time.
  * Generic `configJson.scheduling` (buyer timing setup) takes priority; the
- * legacy `dentalConfig` block stays supported for existing installs.
+ * legacy `dentalConfig` block stays supported for existing installs. Generic
+ * key names (providerName/teamPhone/customerTemplate/teamTemplate) are read
+ * first, with the legacy dental key names as fallbacks.
  */
 async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
   const agent = await prisma.installedAgent.findFirst({
@@ -1455,6 +1461,8 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   };
   const str = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
+  const strOr = (value: unknown, fallback: string) =>
+    typeof value === "string" && value.trim() ? value : fallback;
   return {
     dryRun,
     bufferMinutes: num(cfg.bufferMinutes, 10),
@@ -1462,28 +1470,73 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
     openHour: num(cfg.openHour, 9),
     closeHour: num(cfg.closeHour, 17),
     defaultDurationMinutes: num(cfg.serviceDurationMinutes ?? cfg.defaultDurationMinutes, 30),
-    doctorName: str(cfg.doctorName),
-    sendToPatient: cfg.sendToPatient !== false,
-    sendToDentist: cfg.sendToDentist !== false,
-    dentistPhone: normalizePhoneNumber(str(cfg.dentistPhone)),
-    patientTemplate: str(
-      cfg.patientTemplate,
-      "Confirmed: [Service] with [Doctor Name], [Date] at [Time]. Reply C to cancel."
+    doctorName: str(cfg.providerName ?? cfg.teamName ?? cfg.doctorName),
+    sendToPatient: (cfg.sendToCustomer ?? cfg.sendToPatient) !== false,
+    sendToDentist: (cfg.sendToTeam ?? cfg.sendToDentist) !== false,
+    dentistPhone: normalizePhoneNumber(str(cfg.teamPhone ?? cfg.dentistPhone)),
+    patientTemplate: strOr(
+      cfg.customerTemplate ?? cfg.patientTemplate,
+      "Confirmed: [Service] on [Date] at [Time] with [Business Name]. Reply C to cancel."
     ),
-    dentistTemplate: str(
-      cfg.dentistTemplate,
-      "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]"
+    dentistTemplate: strOr(
+      cfg.teamTemplate ?? cfg.dentistTemplate,
+      "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]"
     ),
-    confirmationMessage: str(cfg.confirmationMessage)
+    confirmationMessage: str(cfg.confirmationMessage),
+    bookingLabel: strOr(cfg.bookingLabel ?? cfg.bookingType ?? customBookingLabelOf(configJson), "appointment")
   };
 }
 
-/** Fill [Bracketed] tokens in a dental SMS/confirmation template. */
+/** An architect-defined "Booking label" buyer setup field also sets the label. */
+function customBookingLabelOf(configJson: Record<string, unknown>): string | undefined {
+  if (!Array.isArray(configJson.customFields)) return undefined;
+  const match = (configJson.customFields as Array<Record<string, unknown>>)
+    .filter((item) => typeof item === "object" && item !== null)
+    .find((item) => item.key === "booking-label" || item.key === "booking-type");
+  return typeof match?.value === "string" ? match.value : undefined;
+}
+
+/** Fill [Bracketed] tokens in an SMS/confirmation template. */
 function applyBracketTemplate(template: string, values: Record<string, string>): string {
   return template.replace(/\[([^\]]+)\]/g, (match, key: string) => {
     const normalized = key.trim().toLowerCase();
     return values[normalized] ?? match;
   });
+}
+
+/**
+ * Bracket-token values with both generic tokens ([Customer Name], [Business
+ * Name], [Team]) and legacy dental tokens ([Patient Name], [Doctor Name]) so
+ * templates written for any industry — or before the rename — keep filling.
+ */
+function bracketTemplateValues(input: {
+  service: string;
+  customerName: string;
+  customerPhone: string;
+  teamName: string;
+  date: string;
+  time: string;
+}): Record<string, string> {
+  return {
+    service: input.service,
+    date: input.date,
+    time: input.time,
+    name: input.customerName,
+    "customer name": input.customerName,
+    "patient name": input.customerName,
+    "guest name": input.customerName,
+    "client name": input.customerName,
+    "lead name": input.customerName,
+    phone: input.customerPhone,
+    "customer phone": input.customerPhone,
+    "patient phone": input.customerPhone,
+    "business name": input.teamName,
+    "doctor name": input.teamName,
+    "provider name": input.teamName,
+    team: input.teamName,
+    "team name": input.teamName,
+    "staff name": input.teamName
+  };
 }
 
 /** Shape a Vapi tool result envelope. */
@@ -1644,6 +1697,20 @@ function argStr(args: Record<string, unknown>, keys: string[]): string | undefin
   return undefined;
 }
 
+/**
+ * Canonical + alias arg keys for the caller's name/phone. customer_* is the
+ * canonical form; patient_/guest_/lead_/client_ variants keep every industry
+ * (and older dental assistants) working.
+ */
+const NAME_ARG_KEYS = [
+  "customer_name", "patient_name", "guest_name", "lead_name", "client_name", "name", "full_name",
+  "customerName", "patientName", "guestName", "leadName", "clientName", "fullName", "patient_full_name"
+];
+const PHONE_ARG_KEYS = [
+  "customer_phone", "patient_phone", "phone", "callback_phone", "caller_phone",
+  "customerPhone", "patientPhone", "callbackPhone", "callerPhone"
+];
+
 /** Collect ALL tool calls in a Vapi webhook (one webhook can carry several). */
 function getAllToolCalls(body: Record<string, unknown>): Array<{ id: string; name: string; parameters: Record<string, unknown> }> {
   const out: Array<{ id: string; name: string; parameters: Record<string, unknown> }> = [];
@@ -1736,12 +1803,13 @@ const NEEDS_CUSTOMER_PHONE_RESULT = {
 
 const INVALID_PATIENT_NAMES = new Set([
   "john doe", "jane doe", "full name", "patient name", "patient full name", "test user",
-  "unknown", "the caller", "caller", "customer", "patient", "client", "n/a", "na", "name",
+  "customer name", "guest name", "lead name", "client name",
+  "unknown", "the caller", "caller", "customer", "patient", "client", "guest", "lead", "n/a", "na", "name",
   "first name", "last name", "first last", "your name", "no name", "none", "na na"
 ]);
 
 const GENERIC_NAME_WORDS = new Set([
-  "name", "caller", "customer", "patient", "client", "unknown", "test", "user", "full", "first", "last", "none", "na"
+  "name", "caller", "customer", "patient", "client", "guest", "lead", "unknown", "test", "user", "full", "first", "last", "none", "na"
 ]);
 
 /** True only for a plausibly-real human name (not a placeholder/blocklisted value). */
@@ -1799,12 +1867,9 @@ function extractPatientNameFromTranscript(transcript: string): string | null {
   return null;
 }
 
-/** Resolve the patient's real full name: validated arg → transcript → null (ask). */
+/** Resolve the customer's real full name: validated arg → transcript → null (ask). */
 function resolvePatientName(args: Record<string, unknown>, transcript: string, summary: string): string | null {
-  const argName = argStr(args, [
-    "customer_name", "patient_name", "name", "full_name",
-    "customerName", "patientName", "fullName", "patient_full_name"
-  ]);
+  const argName = argStr(args, NAME_ARG_KEYS);
   if (isValidPatientName(argName)) return (argName as string).trim().replace(/\s+/g, " ");
   return extractPatientNameFromTranscript(`${transcript}\n${summary}`);
 }
@@ -1843,7 +1908,7 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
   if (isPast) return INVALID_DATE_RESULT;
 
   const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
-  const service = argStr(args, ["service_type", "service"]) || "appointment";
+  const service = argStr(args, ["service_type", "service"]) || ctx.dental?.bookingLabel || "appointment";
   const ownerId = ctx.business?.ownerId;
 
   if (!ownerId) {
@@ -1910,10 +1975,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     return NEEDS_CUSTOMER_NAME_RESULT;
   }
 
-  const rawPhone = argStr(args, [
-    "customer_phone", "patient_phone", "phone", "callback_phone", "caller_phone",
-    "customerPhone", "patientPhone", "callbackPhone"
-  ]);
+  const rawPhone = argStr(args, PHONE_ARG_KEYS);
   let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone);
 
   // Dry-run bookings accept short/spoken numbers ("8 8 8 2 7 7 4 5 7") so the
@@ -1948,21 +2010,25 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   // Never book in the past (e.g. today + an earlier time). 60s grace for clock skew.
   if (startAt.getTime() < Date.now() - 60_000) return INVALID_DATE_RESULT;
 
-  const doctorName = ctx.dental?.doctorName || ctx.business?.businessName || "the doctor";
+  const teamName = ctx.dental?.doctorName || ctx.business?.businessName || "our team";
   const whenLabel = formatAppointmentTime(startAt.toISOString(), ctx.timeZone);
   const confirmation = ctx.dental?.confirmationMessage
-    ? applyBracketTemplate(ctx.dental.confirmationMessage, {
-        service,
-        "patient name": patientName,
-        "doctor name": doctorName,
-        date: whenLabel,
-        time: whenLabel
-      })
+    ? applyBracketTemplate(
+        ctx.dental.confirmationMessage,
+        bracketTemplateValues({
+          service,
+          customerName: patientName,
+          customerPhone: patientPhone,
+          teamName,
+          date: whenLabel,
+          time: whenLabel
+        })
+      )
     : `Perfect, ${patientName} — you're booked for ${service} on ${whenLabel}.`;
 
   // Rich, validated calendar description.
   const eventDescription = [
-    `Patient: ${patientName}`,
+    `Customer: ${patientName}`,
     `Phone: ${patientPhone || "not provided"}`,
     `Service: ${service}`,
     "Source: Triven AI voice receptionist",
@@ -1996,7 +2062,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       source: "dry_run",
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
-      message: `Appointment confirmed for ${patientName} on ${whenLabel}.`,
+      message: `Booking confirmed for ${patientName} on ${whenLabel}.`,
       confirmation
     };
   }
@@ -2078,78 +2144,99 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   return localFallback("not_connected");
 }
 
-/** send_notification: SMS the patient and/or dentist. */
+/** send_notification: SMS the customer and/or the business team. */
 async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiToolContext) {
-  let patientSmsSent = false;
-  let dentistSmsSent = false;
+  let customerSmsSent = false;
+  let teamSmsSent = false;
+
+  const service = argStr(args, ["service", "service_type"]) || ctx.dental?.bookingLabel || "appointment";
+  const teamName =
+    argStr(args, ["doctor_name", "provider_name", "team_name"]) ||
+    ctx.dental?.doctorName ||
+    ctx.business?.businessName ||
+    "";
 
   // Architect browser test: preview the SMS, never call Twilio.
   if (ctx.dental?.dryRun) {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
-    const previewPhone = resolvePatientPhone(argStr(args, ["patient_phone", "phone"]), ctx.customerPhone);
+    const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
     const preview = applyBracketTemplate(
       ctx.dental?.patientTemplate ?? "Confirmed: [Service] on [Date] at [Time].",
-      {
-        service: argStr(args, ["service", "service_type"]) || "appointment",
-        "patient name": previewName,
-        "patient phone": previewPhone || "",
-        "doctor name": ctx.dental?.doctorName || ctx.business?.businessName || "",
+      bracketTemplateValues({
+        service,
+        customerName: previewName,
+        customerPhone: previewPhone || "",
+        teamName,
         date: argStr(args, ["appointment_date", "date"]) || "",
         time: argStr(args, ["appointment_time", "time"]) || ""
-      }
+      })
     );
     console.log("[vapi-webhook] send_notification dry-run (browser test)", { to: previewPhone, preview });
-    return { success: true, dry_run: true, sms_preview: preview, patient_sms_sent: false, dentist_sms_sent: false };
+    return {
+      success: true,
+      dry_run: true,
+      sms_preview: preview,
+      customer_sms_sent: false,
+      team_sms_sent: false,
+      patient_sms_sent: false,
+      dentist_sms_sent: false
+    };
   }
 
   if (ctx.business?.businessId) {
     // Only ever use a validated real name in SMS — never a placeholder.
-    const patientName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
-    const patientPhone = resolvePatientPhone(argStr(args, ["patient_phone", "phone"]), ctx.customerPhone);
-    const values: Record<string, string> = {
-      service: argStr(args, ["service", "service_type"]) || "appointment",
-      "patient name": patientName,
-      "patient phone": patientPhone || "",
-      "doctor name": argStr(args, ["doctor_name"]) || ctx.dental?.doctorName || ctx.business.businessName,
+    const customerName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
+    const customerPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
+    const values = bracketTemplateValues({
+      service,
+      customerName,
+      customerPhone: customerPhone || "",
+      teamName: teamName || ctx.business.businessName,
       date: argStr(args, ["appointment_date", "date"]) || "",
       time: argStr(args, ["appointment_time", "time"]) || ""
-    };
+    });
 
-    if ((ctx.dental?.sendToPatient ?? true) && patientPhone) {
+    if ((ctx.dental?.sendToPatient ?? true) && customerPhone) {
       try {
         const sms = applyBracketTemplate(
-          ctx.dental?.patientTemplate ?? "Confirmed: [Service] with [Doctor Name], [Date] at [Time].",
+          ctx.dental?.patientTemplate ?? "Confirmed: [Service] on [Date] at [Time] with [Business Name].",
           values
         );
-        await sendTwilioSms({ to: patientPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
+        await sendTwilioSms({ to: customerPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
         await upsertConversation({
           businessId: ctx.business.businessId,
-          customerPhone: patientPhone,
+          customerPhone,
           direction: "OUTBOUND",
           body: sms
         }).catch(() => null);
-        patientSmsSent = true;
+        customerSmsSent = true;
       } catch (error) {
-        console.error("[vapi-webhook] patient SMS failed (non-fatal)", error);
+        console.error("[vapi-webhook] customer SMS failed (non-fatal)", error);
       }
     }
 
-    const dentistPhone = ctx.dental?.dentistPhone;
-    if ((ctx.dental?.sendToDentist ?? true) && dentistPhone) {
+    const teamPhone = ctx.dental?.dentistPhone;
+    if ((ctx.dental?.sendToDentist ?? true) && teamPhone) {
       try {
         const sms = applyBracketTemplate(
-          ctx.dental?.dentistTemplate ?? "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]",
+          ctx.dental?.dentistTemplate ?? "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
           values
         );
-        await sendTwilioSms({ to: dentistPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
-        dentistSmsSent = true;
+        await sendTwilioSms({ to: teamPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
+        teamSmsSent = true;
       } catch (error) {
-        console.error("[vapi-webhook] dentist SMS failed (non-fatal)", error);
+        console.error("[vapi-webhook] team SMS failed (non-fatal)", error);
       }
     }
   }
 
-  return { success: patientSmsSent || dentistSmsSent, patient_sms_sent: patientSmsSent, dentist_sms_sent: dentistSmsSent };
+  return {
+    success: customerSmsSent || teamSmsSent,
+    customer_sms_sent: customerSmsSent,
+    team_sms_sent: teamSmsSent,
+    patient_sms_sent: customerSmsSent,
+    dentist_sms_sent: teamSmsSent
+  };
 }
 
 /**
@@ -2286,7 +2373,7 @@ export async function handleVapiWebhook(c: Context) {
       const isNotify = fnName.startsWith("send") || fnName.includes("notif");
       const ctx: VapiToolContext = {
         ...baseCtx,
-        patientPhone: argStr(toolCall.parameters, ["patient_phone", "customerPhone", "phone"]) || customerPhone
+        patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
       };
 
       let payload: unknown;

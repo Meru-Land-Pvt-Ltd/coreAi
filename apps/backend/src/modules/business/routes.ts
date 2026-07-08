@@ -222,9 +222,23 @@ const businessSetupSchema = z.object({
       bufferMinutes: z.coerce.number().int().min(0).max(120).optional(),
       maximumSlotsToShow: z.coerce.number().int().min(1).max(20).optional(),
       openHour: z.coerce.number().int().min(0).max(23).optional(),
-      closeHour: z.coerce.number().int().min(1).max(24).optional()
+      closeHour: z.coerce.number().int().min(1).max(24).optional(),
+      bookingLabel: z.string().trim().max(60).optional().or(z.literal(""))
     })
     .optional(),
+
+  // Architect-defined buyer setup answers (the listing's requiredBuyerSetup
+  // fields) — industry-specific facts injected into the live system prompt.
+  customFields: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1).max(80),
+        label: z.string().trim().min(1).max(120),
+        value: z.string().trim().max(2000)
+      })
+    )
+    .max(40)
+    .default([]),
 
   selectedPlatformPhoneNumberId: z.string().trim().optional().or(z.literal("")),
   selectedPhoneNumber: z.string().trim().optional().or(z.literal("")),
@@ -747,6 +761,16 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
         : null,
     contactName: typeof config?.contactName === "string" ? config.contactName : null,
     customInstructions: typeof config?.customInstructions === "string" ? config.customInstructions : null,
+    customFields: Array.isArray(config?.customFields)
+      ? (config.customFields as Array<Record<string, unknown>>)
+          .filter((item) => typeof item === "object" && item !== null)
+          .map((item) => ({
+            key: typeof item.key === "string" ? item.key : "",
+            label: typeof item.label === "string" ? item.label : "",
+            value: typeof item.value === "string" ? item.value : ""
+          }))
+          .filter((item) => item.key)
+      : [],
     silence: silenceConfig
       ? {
           repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
@@ -905,6 +929,9 @@ businessRoutes.post("/setup", async (c) => {
       contactName: cleanOptional(input.contactName),
       customInstructions: cleanOptional(input.customInstructions),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
+      ...(input.customFields.length > 0
+        ? { customFields: input.customFields.filter((field) => field.value.trim()) }
+        : {}),
       businessDetails: {
         assistantName,
         businessName: input.businessName,

@@ -21,13 +21,13 @@ export function defaultNodeData(
   if (nodeKind === "trigger") {
     return {
       ...base,
-      label: "Customer Calls",
-      title: "Customer Calls",
+      label: "Incoming Event",
+      title: "Incoming Event",
       kind: "TRIGGER",
       icon: "phone",
       accent: "amber",
-      subtitle: "When someone calls and no one picks up",
-      footer: "Twilio detects the missed call instantly",
+      subtitle: "Starts the workflow when a customer event happens",
+      footer: "Buyer setup decides the live source",
       ...overrides
     };
   }
@@ -35,14 +35,13 @@ export function defaultNodeData(
   if (nodeKind === "ai") {
     return {
       ...base,
-      label: "Personalize Text",
-      title: "Personalize Text",
-      kind: "AI PROCESS",
+      label: "AI Step",
+      title: "AI Step",
+      kind: "AI",
       icon: "sparkles",
       accent: "violet",
-      subtitle: "Generate a caring SMS reply",
-      prompt:
-        "Write a friendly SMS text-back after a missed call. Apologize briefly, mention the business, and ask how we can help or book an appointment.",
+      subtitle: "Understand the customer and decide the next response",
+      prompt: "",
       ...overrides
     };
   }
@@ -50,13 +49,13 @@ export function defaultNodeData(
   if (nodeKind === "condition") {
     return {
       ...base,
-      label: "Business Hours?",
-      title: "Business Hours?",
+      label: "Rule Check",
+      title: "Rule Check",
       kind: "CONDITION",
       icon: "diamond",
       accent: "orange",
-      subtitle: "Send now or queue for morning",
-      condition: "8AM–6PM, Monday–Friday",
+      subtitle: "Route the workflow based on a rule",
+      condition: "",
       ...overrides
     };
   }
@@ -86,12 +85,12 @@ export function defaultNodeData(
     if (connector === "Vapi") {
       return {
         ...base,
-        label: "AI Voice Callback",
-        title: "AI Voice Callback",
+        label: "AI Voice Call",
+        title: "AI Voice Call",
         kind: "VAPI AI",
         icon: "phone-call",
         accent: "violet",
-        subtitle: "Vapi talks to the patient after the missed call",
+        subtitle: "Start or continue a voice call through buyer phone setup",
         connector: "Vapi",
         connectorAction: "start_voice_call",
         vapiAssistantId: "{{business.vapiAssistantId}}",
@@ -108,13 +107,13 @@ export function defaultNodeData(
         kind: "CALENDAR",
         icon: "calendar",
         accent: "blue",
-        subtitle: "Create a Google Calendar event when the patient chooses a slot",
+        subtitle: "Create a Google Calendar event when the customer chooses a slot",
         connector: "Google Calendar",
         connectorAction: "book_appointment",
         calendarId: "{{business.calendarId}}",
-        appointmentService: "Consultation",
-        calendarSummary: "{{appointmentService}} - {{customer.phone}}",
-        calendarDescription: "Booked by the AI assistant.",
+        appointmentService: "",
+        calendarSummary: "",
+        calendarDescription: "",
         ...overrides
       };
     }
@@ -124,10 +123,10 @@ export function defaultNodeData(
         ...base,
         label: "Save Lead",
         title: "Save Lead",
-        kind: "COREAI",
+        kind: "TRIVEN",
         icon: "capture",
         accent: "blue",
-        subtitle: "CoreAI platform action (lead, conversation, handoff, or next workflow)",
+        subtitle: "Triven platform action for leads, conversations, handoff, or workflow chaining",
         connector: "CoreAI",
         connectorAction: "save_lead",
         ...overrides
@@ -136,30 +135,29 @@ export function defaultNodeData(
 
     return {
       ...base,
-      label: "Auto Text in 5 Seconds",
-      title: "Auto Text in 5 Seconds",
+      label: "Send SMS",
+      title: "Send SMS",
       kind: "ACTION",
       icon: "message",
       accent: "green",
-      subtitle: "Personalized SMS goes out immediately",
+      subtitle: "Send a message using the buyer SMS setup",
       connector: "SMS",
       connectorAction: "send_sms",
-      smsTo: "{{caller_number}}",
-      smsBody:
-        "{{ai.output}}",
+      smsTo: "",
+      smsBody: "",
       ...overrides
     };
   }
 
   return {
     ...base,
-    label: "Lead Captured",
-    title: "Lead Captured",
+    label: "Flow Complete",
+    title: "Flow Complete",
     kind: "OUTPUT",
     icon: "capture",
     accent: "blue",
-    subtitle: "Book appointment, answer FAQ, or route to team",
-    outputKey: "missedCallTextBackResult",
+    subtitle: "Finish the workflow or pass the result to another step",
+    outputKey: "",
     ...overrides
   };
 }

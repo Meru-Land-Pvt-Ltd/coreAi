@@ -30,7 +30,7 @@ export function PreviewModal({
         >
           <BuilderIcon name="x" className="h-4 w-4" />
         </button>
-        <p className="mb-4 text-sm font-medium text-white/80" data-testid="architect-ui-workflow-builder-preview-modal-what-the-patient-sees-on-their-phone-text">What the patient sees on their phone</p>
+        <p className="mb-4 text-sm font-medium text-white/80" data-testid="architect-ui-workflow-builder-preview-modal-what-the-patient-sees-on-their-phone-text">What the customer sees on their phone</p>
         <div className="phone-shell h-[600px] w-[300px] rounded-[44px] bg-black p-2.5">
           <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[36px] bg-white">
             <div className="absolute left-1/2 top-0 z-20 h-6 w-32 -translate-x-1/2 rounded-b-2xl bg-black" />

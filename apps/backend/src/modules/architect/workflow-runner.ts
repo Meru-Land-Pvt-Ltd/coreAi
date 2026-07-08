@@ -610,17 +610,19 @@ async function runSmsConnectorNode({
 }) {
   const action = asString(node.data?.connectorAction, "send_sms");
 
-  // Voice booking: Send SMS notifies patient + dentist after booking.
+  // Voice booking: Send SMS notifies the customer + business team after booking.
+  // Generic node keys are read first; legacy dental key names stay supported.
   if (action === "send_notification") {
-    const sendToPatient = asString(node.data?.sendToPatient, "true") !== "false";
-    const sendToDentist = asString(node.data?.sendToDentist, "false") === "true";
-    const dentistPhone = asString(node.data?.dentistPhone);
-    const targets = [sendToPatient ? "patient" : null, sendToDentist && dentistPhone ? "dentist" : null].filter(Boolean);
+    const data = (node.data ?? {}) as Record<string, unknown>;
+    const sendToPatient = asString(data.sendToCustomer ?? data.sendToPatient, "true") !== "false";
+    const sendToDentist = asString(data.sendToTeam ?? data.sendToDentist, "false") === "true";
+    const dentistPhone = asString(data.teamPhone ?? data.dentistPhone);
+    const targets = [sendToPatient ? "customer" : null, sendToDentist && dentistPhone ? "team" : null].filter(Boolean);
     context.smsNotification = {
       sendToPatient,
       sendToDentist: sendToDentist && Boolean(dentistPhone),
-      patientTemplate: asString(node.data?.patientTemplate),
-      dentistTemplate: asString(node.data?.dentistTemplate),
+      patientTemplate: asString(data.customerTemplate ?? data.patientTemplate),
+      dentistTemplate: asString(data.teamTemplate ?? data.dentistTemplate),
       mode
     };
     if (mode === "live") {
