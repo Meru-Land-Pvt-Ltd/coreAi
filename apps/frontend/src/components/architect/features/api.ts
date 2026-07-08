@@ -689,6 +689,7 @@ export type ArchitectSettingsProfile = {
   phone: string;
   location: string;
   timezone: string;
+  profilePhotoUrl?: string | null;
 };
 
 export type ArchitectSettingsStorefront = {
@@ -769,6 +770,30 @@ export function getArchitectSettings() {
 
 export function saveArchitectSettingsProfile(body: Partial<ArchitectSettingsProfile>) {
   return apiPut<{ profile: ArchitectSettingsProfile }>("/architect/settings/profile", body);
+}
+
+export function saveArchitectProfilePhoto(photoDataUrl: string) {
+  return apiPut<{ profile: ArchitectSettingsProfile }>("/architect/settings/profile/photo", {
+    photoDataUrl
+  });
+}
+
+export function requestArchitectEmailChange(email: string) {
+  return apiPost<{ email: string; sent: boolean }>("/architect/settings/profile/email/request", { email });
+}
+
+export function verifyArchitectEmailChange(body: { email: string; code: string }) {
+  return apiPost<{
+    email: string;
+    token: string;
+    user: {
+      id: string;
+      fullName: string | null;
+      email: string;
+      role: "ARCHITECT";
+      profilePhotoUrl?: string | null;
+    };
+  }>("/architect/settings/profile/email/verify", body);
 }
 
 export function saveArchitectSettingsStorefront(body: Partial<ArchitectSettingsStorefront>) {

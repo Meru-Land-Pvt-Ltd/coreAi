@@ -1,12 +1,16 @@
-import { randomInt } from "crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
-import { hashPassword, verifyPassword } from "../../lib/password";
+import { verifyPassword } from "../../lib/password";
 import { createAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth } from "../../middleware/auth";
-import { sendBuyerWelcomeEmail, sendVerificationEmail } from "../../lib/mailer";
+import {
+  issueEmailVerificationCode,
+  isOtpError,
+  verifyEmailVerificationCode
+} from "../../lib/email-otp";
+import { sendBuyerWelcomeEmail } from "../../lib/mailer";
 import { getFirebaseAdminAuth } from "../../lib/firebase-admin";
 import { issueAuthSession } from "../../lib/user-session";
 import {
@@ -17,10 +21,6 @@ import {
 } from "./schemas";
 
 export const authRoutes = new Hono();
-
-const OTP_EXPIRES_IN_MINUTES = 10;
-const OTP_RESEND_COOLDOWN_SECONDS = 60;
-const OTP_MAX_ATTEMPTS = 5;
 
 function getNameFromEmail(email: string) {
   const name = email.split("@")[0] ?? "User";
@@ -57,6 +57,7 @@ function toSafeUser(user: {
   role: unknown;
   isSuspended: boolean;
   createdAt: Date;
+  profilePhotoUrl?: string | null;
 }) {
   return {
     id: user.id,
@@ -64,7 +65,8 @@ function toSafeUser(user: {
     email: user.email,
     role: user.role,
     isSuspended: user.isSuspended,
-    createdAt: user.createdAt
+    createdAt: user.createdAt,
+    profilePhotoUrl: user.profilePhotoUrl ?? null
   };
 }
 
@@ -93,60 +95,7 @@ authRoutes.post("/send-verification-code", async (c) => {
       );
     }
 
-    const cooldownDate = new Date(
-      Date.now() - OTP_RESEND_COOLDOWN_SECONDS * 1000
-    );
-
-    const recentCode = await prisma.emailVerificationCode.findFirst({
-      where: {
-        email: input.email,
-        role: input.role,
-        consumedAt: null,
-        createdAt: {
-          gte: cooldownDate
-        }
-      },
-      select: {
-        id: true
-      }
-    });
-
-    if (recentCode) {
-      return errorResponse(
-        c,
-        "Please wait before requesting another code",
-        422,
-        "OTP_COOLDOWN"
-      );
-    }
-
-    await prisma.emailVerificationCode.updateMany({
-      where: {
-        email: input.email,
-        role: input.role,
-        consumedAt: null
-      },
-      data: {
-        consumedAt: new Date()
-      }
-    });
-
-    const code = String(randomInt(100000, 1000000));
-
-    await prisma.emailVerificationCode.create({
-      data: {
-        email: input.email,
-        role: input.role,
-        codeHash: hashPassword(code),
-        expiresAt: new Date(Date.now() + OTP_EXPIRES_IN_MINUTES * 60 * 1000)
-      }
-    });
-
-    await sendVerificationEmail({
-      to: input.email,
-      code,
-      role: input.role
-    });
+    await issueEmailVerificationCode(input.email, input.role);
 
     return successResponse(
       c,
@@ -166,6 +115,11 @@ authRoutes.post("/send-verification-code", async (c) => {
       );
     }
 
+    if (isOtpError(error) && error.code === "OTP_COOLDOWN") {
+      return errorResponse(c, error.message, 422, "OTP_COOLDOWN");
+    }
+
+    console.error("Send verification code failed", error);
     return errorResponse(
       c,
       "Failed to send verification code",
@@ -179,77 +133,10 @@ authRoutes.post("/verify-code", async (c) => {
   try {
     const input = verifyCodeSchema.parse(await c.req.json());
 
-    const verificationCode = await prisma.emailVerificationCode.findFirst({
-      where: {
-        email: input.email,
-        role: input.role,
-        consumedAt: null,
-        expiresAt: {
-          gt: new Date()
-        }
-      },
-      orderBy: {
-        createdAt: "desc"
-      }
-    });
-
-    if (!verificationCode) {
-      return errorResponse(
-        c,
-        "Verification code is invalid or expired",
-        401,
-        "OTP_INVALID_OR_EXPIRED"
-      );
+    const verification = await verifyEmailVerificationCode(input.email, input.role, input.code);
+    if (!verification.ok) {
+      return errorResponse(c, verification.message, verification.status, verification.code);
     }
-
-    if (verificationCode.attempts >= OTP_MAX_ATTEMPTS) {
-      await prisma.emailVerificationCode.update({
-        where: {
-          id: verificationCode.id
-        },
-        data: {
-          consumedAt: new Date()
-        }
-      });
-
-      return errorResponse(
-        c,
-        "Too many incorrect attempts. Please request a new code",
-        422,
-        "OTP_TOO_MANY_ATTEMPTS"
-      );
-    }
-
-    const isCodeValid = verifyPassword(input.code, verificationCode.codeHash);
-
-    if (!isCodeValid) {
-      await prisma.emailVerificationCode.update({
-        where: {
-          id: verificationCode.id
-        },
-        data: {
-          attempts: {
-            increment: 1
-          }
-        }
-      });
-
-      return errorResponse(
-        c,
-        "Invalid verification code",
-        401,
-        "INVALID_OTP"
-      );
-    }
-
-    await prisma.emailVerificationCode.update({
-      where: {
-        id: verificationCode.id
-      },
-      data: {
-        consumedAt: new Date()
-      }
-    });
 
     let user = await prisma.user.findFirst({
       where: {

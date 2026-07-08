@@ -1,8 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import {
+  issueEmailVerificationCode,
+  isOtpError,
+  verifyEmailVerificationCode
+} from "../../lib/email-otp";
 import { prisma } from "../../lib/prisma";
-import { verifyAuthToken } from "../../lib/jwt";
+import { createAuthToken, verifyAuthToken, type JwtUserRole } from "../../lib/jwt";
 import {
   serializeActiveSession,
   serializeLoginHistory
@@ -43,6 +48,29 @@ const profileSchema = z.object({
   timezone: z.string().trim().optional().or(z.literal(""))
 });
 
+const profilePhotoSchema = z.object({
+  photoDataUrl: z.string().trim().min(1, "Profile photo is required")
+});
+
+const PROFILE_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+
+function parseProfilePhotoDataUrl(photoDataUrl: string) {
+  const match = /^data:(image\/(?:jpeg|png));base64,([a-zA-Z0-9+/=\s]+)$/.exec(photoDataUrl.trim());
+  if (!match) {
+    throw new Error("Upload a JPG or PNG image");
+  }
+
+  const mimeType = match[1]!;
+  const base64 = match[2]!.replace(/\s/g, "");
+  const bytes = Buffer.byteLength(base64, "base64");
+
+  if (bytes <= 0 || bytes > PROFILE_PHOTO_MAX_BYTES) {
+    throw new Error("Profile photo must be 2MB or smaller");
+  }
+
+  return photoDataUrl.trim();
+}
+
 const storefrontSchema = z.object({
   displayName: z.string().trim().min(2).optional().or(z.literal("")),
   tagline: z.string().trim().max(80).optional().or(z.literal("")),
@@ -74,6 +102,21 @@ const dangerDeleteSchema = z.object({
   confirmation: z.literal("DELETE")
 });
 
+const emailChangeRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Valid email is required")
+});
+
+const emailChangeVerifySchema = emailChangeRequestSchema.extend({
+  code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code")
+});
+
+/** Binds an in-flight email-change OTP to the authenticated architect. */
+const emailChangeBindings = new Map<string, string>();
+
+function emailChangeBindingKey(userId: string, email: string) {
+  return `${userId}:${email}`;
+}
+
 async function getCurrentSid(c: { req: { header: (name: string) => string | undefined } }) {
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return undefined;
@@ -102,6 +145,7 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
         phone: true,
         location: true,
         timezone: true,
+        profilePhotoUrl: true,
         createdAt: true
       }
     }),
@@ -134,7 +178,8 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
       email: user.email,
       phone: user.phone ?? "",
       location: user.location ?? "",
-      timezone: user.timezone ?? "America/Los_Angeles"
+      timezone: user.timezone ?? "America/Los_Angeles",
+      profilePhotoUrl: user.profilePhotoUrl ?? null
     },
     storefront: {
       displayName: profile?.displayName ?? user.fullName ?? "",
@@ -211,7 +256,8 @@ architectSettingsRoutes.put("/profile", async (c) => {
         email: true,
         phone: true,
         location: true,
-        timezone: true
+        timezone: true,
+        profilePhotoUrl: true
       }
     });
 
@@ -222,6 +268,167 @@ architectSettingsRoutes.put("/profile", async (c) => {
     }
 
     return errorResponse(c, "Could not save profile", 500, "PROFILE_SAVE_FAILED");
+  }
+});
+
+architectSettingsRoutes.put("/profile/photo", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = profilePhotoSchema.parse(await c.req.json());
+    const photoDataUrl = parseProfilePhotoDataUrl(input.photoDataUrl);
+
+    const user = await prisma.user.update({
+      where: { id: authUser.id },
+      data: { profilePhotoUrl: photoDataUrl },
+      select: {
+        fullName: true,
+        email: true,
+        phone: true,
+        location: true,
+        timezone: true,
+        profilePhotoUrl: true
+      }
+    });
+
+    return successResponse(c, { profile: user }, "Profile photo saved");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid profile photo", 422, "VALIDATION_ERROR");
+    }
+
+    if (error instanceof Error && error.message) {
+      return errorResponse(c, error.message, 422, "INVALID_PROFILE_PHOTO");
+    }
+
+    return errorResponse(c, "Could not save profile photo", 500, "PROFILE_PHOTO_SAVE_FAILED");
+  }
+});
+
+architectSettingsRoutes.post("/profile/email/request", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = emailChangeRequestSchema.parse(await c.req.json());
+    const currentEmail = authUser.email.toLowerCase();
+
+    if (input.email === currentEmail) {
+      return errorResponse(c, "Enter a different email address", 422, "EMAIL_UNCHANGED");
+    }
+
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: input.email,
+        role: "ARCHITECT",
+        id: { not: authUser.id }
+      },
+      select: { id: true }
+    });
+
+    if (existingUser) {
+      return errorResponse(c, "This email is already used by another architect account", 409, "EMAIL_ALREADY_IN_USE");
+    }
+
+    await issueEmailVerificationCode(input.email, "ARCHITECT", "email_update");
+    emailChangeBindings.set(emailChangeBindingKey(authUser.id, input.email), input.email);
+
+    return successResponse(c, { email: input.email, sent: true }, "Verification code sent");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid email", 422, "VALIDATION_ERROR");
+    }
+
+    if (isOtpError(error) && error.code === "OTP_COOLDOWN") {
+      return errorResponse(c, error.message, 422, "OTP_COOLDOWN");
+    }
+
+    console.error("Architect email change request failed", error);
+    return errorResponse(c, "Failed to send verification code", 500, "SEND_EMAIL_CHANGE_CODE_FAILED");
+  }
+});
+
+architectSettingsRoutes.post("/profile/email/verify", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = emailChangeVerifySchema.parse(await c.req.json());
+    const bindingKey = emailChangeBindingKey(authUser.id, input.email);
+    const boundEmail = emailChangeBindings.get(bindingKey);
+
+    if (!boundEmail || boundEmail !== input.email) {
+      return errorResponse(
+        c,
+        "Please request a new verification code for this email",
+        400,
+        "EMAIL_CHANGE_REQUEST_REQUIRED"
+      );
+    }
+
+    const verification = await verifyEmailVerificationCode(input.email, "ARCHITECT", input.code);
+    if (!verification.ok) {
+      return errorResponse(c, verification.message, verification.status, verification.code);
+    }
+
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: input.email,
+        role: "ARCHITECT",
+        id: { not: authUser.id }
+      },
+      select: { id: true }
+    });
+
+    if (existingUser) {
+      emailChangeBindings.delete(bindingKey);
+      return errorResponse(c, "This email is already used by another architect account", 409, "EMAIL_ALREADY_IN_USE");
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: authUser.id },
+      data: { email: input.email },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        profilePhotoUrl: true
+      }
+    });
+
+    for (const [key] of emailChangeBindings.entries()) {
+      if (key.startsWith(`${authUser.id}:`)) {
+        emailChangeBindings.delete(key);
+      }
+    }
+
+    const currentSid = await getCurrentSid(c);
+    const token = await createAuthToken(
+      {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        role: updatedUser.role as JwtUserRole
+      },
+      currentSid
+    );
+
+    return successResponse(
+      c,
+      {
+        email: updatedUser.email,
+        token,
+        user: {
+          id: updatedUser.id,
+          fullName: updatedUser.fullName,
+          email: updatedUser.email,
+          role: updatedUser.role
+        }
+      },
+      "Email address changed"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid verification code", 422, "VALIDATION_ERROR");
+    }
+
+    console.error("Architect email change verify failed", error);
+    return errorResponse(c, "Could not change email address", 500, "EMAIL_CHANGE_FAILED");
   }
 });
 

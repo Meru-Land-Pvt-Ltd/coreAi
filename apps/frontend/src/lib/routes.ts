@@ -8,6 +8,7 @@ export const BUSINESS_AGENTS_PATH = "/business/agents" as Route;
 export const BUSINESS_PAYMENT_SUCCESS_PATH = "/business/paymentsuccess" as Route;
 export const BUSINESS_PAYMENT_FAILED_PATH = "/business/paymentfailed" as Route;
 export const BUSINESS_BILLING_PATH = "/business/billingandusage" as Route;
+export const BUSINESS_SETTINGS_PATH = "/business/setting" as Route;
 export const BUSINESS_INVOICE_PATH = "/business/billingandusage/billing" as Route;
 export const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 export const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;

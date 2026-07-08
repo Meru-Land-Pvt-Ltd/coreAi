@@ -6,7 +6,8 @@ import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
-import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
+import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
+import { AUTH_USER_UPDATED_EVENT, getAuthUser, logout, type AuthUser } from "@/lib/auth";
 import { ARCHITECT_SETTINGS_PATH } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -64,9 +65,14 @@ function isActive(pathname: string, item: NavItem) {
   return pathname.startsWith(`${item.matchPrefix}/`) || pathname.startsWith(item.matchPrefix);
 }
 
-function getInitial(user: AuthUser | null) {
+function getInitials(user: AuthUser | null) {
   const source = user?.fullName || user?.email || "A";
-  return source.charAt(0).toUpperCase();
+  return source
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "A";
 }
 
 function Icon({ name, className = "" }: { name: IconName; className?: string }) {
@@ -199,12 +205,13 @@ function SidebarContent({
 
       <div className="border-t border-gray-100 p-3">
         <div className="relative flex items-center gap-3 rounded-xl p-2">
-          <span
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-500 text-sm font-bold text-white"
-            data-testid="architect-sidebar-initial-text"
-          >
-            {getInitial(user)}
-          </span>
+          <ProfileAvatar
+            photoUrl={user?.profilePhotoUrl}
+            initials={getInitials(user)}
+            className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-amber-500 text-sm font-bold text-white"
+            imageClassName="h-full w-full object-cover"
+            testId="architect-sidebar-profile-avatar"
+          />
 
           <span className="min-w-0 flex-1">
             <span
@@ -277,6 +284,19 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
     setUser(authUser);
     setReady(true);
   }, [router]);
+
+  useEffect(() => {
+    function refreshUser() {
+      setUser(getAuthUser());
+    }
+
+    window.addEventListener(AUTH_USER_UPDATED_EVENT, refreshUser);
+    window.addEventListener("storage", refreshUser);
+    return () => {
+      window.removeEventListener(AUTH_USER_UPDATED_EVENT, refreshUser);
+      window.removeEventListener("storage", refreshUser);
+    };
+  }, []);
 
   useEffect(() => {
     setMobileNavOpen(false);

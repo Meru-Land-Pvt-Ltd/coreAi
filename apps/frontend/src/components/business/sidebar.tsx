@@ -2,11 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { BUSINESS_LOGIN_PATH, BUSINESS_MARKETPLACE_PATH } from "@/lib/routes";
+import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
+import { BUSINESS_LOGIN_PATH, BUSINESS_MARKETPLACE_PATH, BUSINESS_SETTINGS_PATH } from "@/lib/routes";
+import { AUTH_USER_UPDATED_EVENT, getAuthUser } from "@/lib/auth";
 
-const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
+const BUSINESS_DASHBOARD_ROUTE = "/business/dashboard" as Route;
+const TRIVEN_LOGO_SRC = encodeURI("/triven.ai word logo transparent bg.PNG");
 const USER_STORAGE_KEY = "coreai-user";
 
 type TrivenUser = {
@@ -14,6 +18,7 @@ type TrivenUser = {
     fullName?: string | null;
     email?: string | null;
     role?: string | null;
+    profilePhotoUrl?: string | null;
     isSuspended?: boolean;
     createdAt?: string | null;
     architectProfile?: unknown;
@@ -47,6 +52,11 @@ const businessNavItems = [
         href: "/business/billingandusage",
         icon: "card" as IconName
     },
+    {
+        label: "Settings",
+        href: BUSINESS_SETTINGS_PATH,
+        icon: "settings" as IconName
+    },
 ];
 
 export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
@@ -59,7 +69,10 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const [currentUser, setCurrentUser] = useState<TrivenUser | null>(null);
 
     useEffect(() => {
-        setCurrentUser(readTrivenUser());
+        const refreshUser = () => setCurrentUser(readTrivenUser());
+        refreshUser();
+        window.addEventListener(AUTH_USER_UPDATED_EVENT, refreshUser);
+        return () => window.removeEventListener(AUTH_USER_UPDATED_EVENT, refreshUser);
     }, []);
 
     useEffect(() => {
@@ -176,9 +189,13 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
 
                 <div className="mt-auto border-t border-gray-100 p-4">
                     <div className="flex items-center gap-3">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700" data-testid="business-sidebar-initials-text">
-                            {initials}
-                        </span>
+                        <ProfileAvatar
+                            photoUrl={currentUser?.profilePhotoUrl}
+                            initials={initials}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-amber-100 text-sm font-bold text-amber-700"
+                            imageClassName="h-full w-full object-cover"
+                            testId="business-sidebar-avatar"
+                        />
 
                         <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-slate-900" data-testid="business-sidebar-display-text">
@@ -371,7 +388,8 @@ function isMarketplaceRoute(pathname: string) {
         "/business/paymentsuccess",
         "/business/paymentfailed",
         "/business/agents",
-        "/business/agents/setup"
+        "/business/agents/setup",
+        "/business/setting"
     ]);
 
     return pathname.startsWith("/business/") && !staticBusinessRoutes.has(pathname);
@@ -390,6 +408,10 @@ function isBusinessNavItemActive(
         return pathname === "/business/agents" || pathname.startsWith("/business/agents/");
     }
 
+    if (item.label === "Settings") {
+        return pathname === BUSINESS_SETTINGS_PATH;
+    }
+
     if (pathname !== "/business/dashboard") return false;
 
     if (item.label === "Overview") return hash === "" || hash === "#";
@@ -401,6 +423,17 @@ function readTrivenUser(): TrivenUser | null {
     if (typeof window === "undefined") return null;
 
     try {
+        const authUser = getAuthUser();
+        if (authUser) {
+            return {
+                id: authUser.id,
+                fullName: authUser.fullName,
+                email: authUser.email,
+                role: authUser.role,
+                profilePhotoUrl: authUser.profilePhotoUrl ?? null
+            };
+        }
+
         const raw = localStorage.getItem(USER_STORAGE_KEY);
         return raw ? (JSON.parse(raw) as TrivenUser) : null;
     } catch {

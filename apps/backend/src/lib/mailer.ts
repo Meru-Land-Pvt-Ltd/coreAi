@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import nodemailer from "nodemailer";
 import PDFDocument from "pdfkit";
-import { env } from "../config/env";
+import { env, isProduction } from "../config/env";
 
 const smtpPort = Number(process.env.SMTP_PORT ?? 587);
 const smtpSecure = process.env.SMTP_SECURE === "true";
@@ -36,28 +36,84 @@ export const mailTransporter = nodemailer.createTransport({
   }
 });
 
+type VerificationEmailPurpose = "sign_in" | "email_update";
+
 type SendVerificationEmailInput = {
   to: string;
   code: string;
   role: "BUSINESS" | "ARCHITECT";
+  purpose?: VerificationEmailPurpose;
 };
+
+function verificationEmailCopy({
+  purpose,
+  roleLabel,
+  expirationMinutes
+}: {
+  purpose: VerificationEmailPurpose;
+  roleLabel: string;
+  expirationMinutes: number;
+}) {
+  if (purpose === "email_update") {
+    return {
+      subject: `Confirm your new ${brandName} email: verification code`,
+      previewText: `Confirm your new email address. This code expires in ${expirationMinutes} minutes.`,
+      bodyText: `Your ${brandName} verification code is {code}. Use this code to confirm your new email address for your ${roleLabel} account. This code expires in ${expirationMinutes} minutes. ${brandName} will never ask you for this code. Do not share it with anyone.`
+    };
+  }
+
+  return {
+    subject: `Your ${brandName} verification code: {code}`,
+    previewText: `Your one-time code expires in ${expirationMinutes} minutes.`,
+    bodyText: `Your ${brandName} verification code is {code}. Use this code to finish signing in as ${roleLabel}. This code expires in ${expirationMinutes} minutes. ${brandName} will never ask you for this code. Do not share it with anyone.`
+  };
+}
+
+export function isSmtpConfigured() {
+  return Boolean(
+    process.env.SMTP_HOST?.trim() &&
+      process.env.SMTP_USER?.trim() &&
+      process.env.SMTP_PASS?.trim()
+  );
+}
 
 export async function sendVerificationEmail({
   to,
   code,
-  role
+  role,
+  purpose = "sign_in"
 }: SendVerificationEmailInput) {
   const roleLabel = role === "BUSINESS" ? "Business Owner" : "AI Architect";
+  const copy = verificationEmailCopy({
+    purpose,
+    roleLabel,
+    expirationMinutes: verificationCodeExpirationMinutes
+  });
+  const subject = copy.subject.replace("{code}", code);
+  const text = copy.bodyText.replace("{code}", code);
+
+  if (!isSmtpConfigured()) {
+    console.warn(
+      `[mailer] SMTP is not configured. ${purpose === "email_update" ? "Email update" : "Sign-in"} verification code for ${to} (${roleLabel}): ${code}`
+    );
+
+    if (isProduction) {
+      throw new Error("Email delivery is not configured on the server");
+    }
+
+    return;
+  }
 
   await mailTransporter.sendMail({
     from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
     to,
-    subject: `Your ${brandName} verification code: ${code}`,
-    text: `Your ${brandName} verification code is ${code}. Use this code to finish signing in as ${roleLabel}. This code expires in ${verificationCodeExpirationMinutes} minutes. ${brandName} will never ask you for this code. Do not share it with anyone.`,
+    subject,
+    text,
     html: buildVerificationEmailHtml({
       code,
       roleLabel,
-      expirationMinutes: verificationCodeExpirationMinutes
+      expirationMinutes: verificationCodeExpirationMinutes,
+      purpose
     })
   });
 }
@@ -65,17 +121,25 @@ export async function sendVerificationEmail({
 function buildVerificationEmailHtml({
   code,
   roleLabel,
-  expirationMinutes
+  expirationMinutes,
+  purpose = "sign_in"
 }: {
   code: string;
   roleLabel: string;
   expirationMinutes: number;
+  purpose?: VerificationEmailPurpose;
 }) {
+  const copy = verificationEmailCopy({ purpose, roleLabel, expirationMinutes });
   const safeCode = escapeHtml(code);
   const safeRoleLabel = escapeHtml(roleLabel);
   const safeExpirationMinutes = escapeHtml(String(expirationMinutes));
   const safePrivacyLink = escapeHtml(privacyLink);
   const safeTermsLink = escapeHtml(termsLink);
+  const safePreviewText = escapeHtml(copy.previewText);
+  const safeBodyHtml =
+    purpose === "email_update"
+      ? `Use this code to confirm your new email address for your ${brandName} account as <strong>${safeRoleLabel}</strong>.`
+      : `Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -84,12 +148,12 @@ function buildVerificationEmailHtml({
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<title>Your ${brandName} verification code: ${safeCode}</title>
+<title>${escapeHtml(copy.subject.replace("{code}", code))}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body style="margin:0;padding:0;background-color:#f1f5f9;">
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f1f5f9;">Your one-time code expires in ${safeExpirationMinutes} minutes.</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f1f5f9;">${safePreviewText}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;">
 <tr>
 <td align="center" style="padding:24px 12px;">
@@ -109,7 +173,7 @@ ${emailLogoMarkup()}
 <tr>
 <td style="padding:24px 32px 6px 32px;">
 <p style="margin:0 0 16px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;color:#334155;">
-Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.
+${safeBodyHtml}
 </p>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
@@ -138,7 +202,7 @@ ${brandName} will never ask you for this code. Don't share it with anyone.
 <tr>
 <td style="padding:10px 32px 30px 32px;">
 <div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#94a3b8;">
-<div style="font-weight:600;color:#64748b;">${brandName} &mdash; AI Agent Platform</div>
+<div style="font-weight:600;color:#64748b;">${brandName}</div>
 <div>Your AI Workforce</div>
 <div style="margin-top:8px;">
 <a href="${safePrivacyLink}" target="_blank" style="color:#d97706;text-decoration:none;">Privacy</a>

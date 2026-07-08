@@ -5,7 +5,15 @@ export type AuthUser = {
   fullName: string | null;
   email: string;
   role: AuthRole;
+  profilePhotoUrl?: string | null;
 };
+
+export const AUTH_USER_UPDATED_EVENT = "coreai-auth-user-updated";
+
+function notifyAuthUserUpdated() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_USER_UPDATED_EVENT));
+}
 
 export function saveAuthSession(token: string, user: AuthUser) {
   if (typeof window === "undefined") return;
@@ -13,6 +21,7 @@ export function saveAuthSession(token: string, user: AuthUser) {
   localStorage.setItem("coreai-token", token);
   localStorage.setItem("coreai-user", JSON.stringify(user));
   localStorage.setItem("coreai-role", user.role);
+  notifyAuthUserUpdated();
 }
 
 export function getAuthToken() {
@@ -34,12 +43,25 @@ export function getAuthUser(): AuthUser | null {
   }
 }
 
+export function updateAuthUser(patch: Partial<AuthUser>) {
+  if (typeof window === "undefined") return;
+
+  const currentUser = getAuthUser();
+  if (!currentUser) return;
+
+  const nextUser = { ...currentUser, ...patch };
+  localStorage.setItem("coreai-user", JSON.stringify(nextUser));
+  if (nextUser.role) localStorage.setItem("coreai-role", nextUser.role);
+  notifyAuthUserUpdated();
+}
+
 export function clearAuthSession() {
   if (typeof window === "undefined") return;
 
   localStorage.removeItem("coreai-token");
   localStorage.removeItem("coreai-user");
   localStorage.removeItem("coreai-role");
+  notifyAuthUserUpdated();
 }
 
 export function logout() {

@@ -16,6 +16,7 @@ model User {
   phone                String?
   location             String?
   timezone             String?
+  profilePhotoUrl      String?
   isSuspended          Boolean               @default(false)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt

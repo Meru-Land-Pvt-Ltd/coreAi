@@ -28,6 +28,7 @@ import {
   buildDashboardActivities,
   sumInvoiceTotalCents
 } from "../../lib/billing-invoices";
+import { businessSettingsRoutes } from "./settings-routes";
 
 export const businessRoutes = new Hono();
 
@@ -63,6 +64,7 @@ businessRoutes.use("*", requireRole(["BUSINESS"]));
 
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
+businessRoutes.route("/settings", businessSettingsRoutes);
 
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");

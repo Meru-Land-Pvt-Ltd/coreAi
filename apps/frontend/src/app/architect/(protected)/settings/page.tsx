@@ -1,26 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deleteArchitectAccount,
   getArchitectSettings,
   payArchitectRefundObligations,
   pauseAllArchitectAgents,
+  requestArchitectEmailChange,
   revokeArchitectSession,
   revokeOtherArchitectSessions,
   saveArchitectNotificationPrefs,
   saveArchitectPrivacyPrefs,
+  saveArchitectProfilePhoto,
   saveArchitectSettingsProfile,
   saveArchitectSettingsStorefront,
+  verifyArchitectEmailChange,
   type ArchitectLoginHistoryEntry,
   type ArchitectRefundAgent,
   type ArchitectSettingsPayload,
   type ArchitectSettingsSession
 } from "@/components/architect/features/api";
+import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
 import { ARCHITECT_PAYOUTS_PATH } from "@/lib/routes";
-import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
+import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
+import { readProfilePhotoFile } from "@/lib/profile-photo";
 
 type SettingsTab =
   | "profile"
@@ -64,6 +68,19 @@ const TIMEZONES = [
   "Asia/Kolkata (India Standard Time)"
 ];
 
+const COUNTRY_CODES = [
+  { code: "+1", label: "US / Canada" },
+  { code: "+44", label: "United Kingdom" },
+  { code: "+91", label: "India" },
+  { code: "+61", label: "Australia" },
+  { code: "+971", label: "UAE" },
+  { code: "+65", label: "Singapore" },
+  { code: "+49", label: "Germany" },
+  { code: "+33", label: "France" },
+  { code: "+81", label: "Japan" },
+  { code: "+55", label: "Brazil" }
+];
+
 const NOTIFICATION_ROWS: Array<{
   key: string;
   title: string;
@@ -91,6 +108,17 @@ const PRIVACY_TOGGLES = [
   { key: "marketingCookies", label: "Marketing cookies", description: "Receive personalized marketplace tips." }
 ];
 
+const PRIVACY_GROUPS = [
+  {
+    title: "Marketplace visibility",
+    keys: ["showProfileOnMarketplace", "showSalesCount", "showRating", "allowBuyerMessages"]
+  },
+  {
+    title: "Cookie preferences",
+    keys: ["analyticsCookies", "marketingCookies"]
+  }
+];
+
 function formatUsd(cents: number) {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -112,6 +140,25 @@ function getInitials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "A";
+}
+
+function splitPhoneNumber(value: string) {
+  const phone = value.trim();
+  const countryCode = COUNTRY_CODES.find((country) => phone.startsWith(`${country.code} `) || phone === country.code);
+
+  if (!countryCode) {
+    return { countryCode: COUNTRY_CODES[0]!.code, phone };
+  }
+
+  return {
+    countryCode: countryCode.code,
+    phone: phone.replace(countryCode.code, "").trim()
+  };
+}
+
+function joinPhoneNumber(countryCode: string, phone: string) {
+  const trimmedPhone = phone.trim();
+  return trimmedPhone ? `${countryCode} ${trimmedPhone}` : "";
 }
 
 function Toggle({
@@ -229,6 +276,12 @@ export default function ArchitectSettingsPage() {
   const [sessions, setSessions] = useState<ArchitectSettingsSession[]>([]);
   const [loginHistory, setLoginHistory] = useState<ArchitectLoginHistoryEntry[]>([]);
   const [accountEmail, setAccountEmail] = useState(authUser?.email ?? "");
+  const [emailDraft, setEmailDraft] = useState(authUser?.email ?? "");
+  const [emailOtp, setEmailOtp] = useState("");
+  const [emailOtpVisible, setEmailOtpVisible] = useState(false);
+  const [emailChangeSending, setEmailChangeSending] = useState(false);
+  const [emailChangeVerifying, setEmailChangeVerifying] = useState(false);
+  const [phoneCountryCode, setPhoneCountryCode] = useState(COUNTRY_CODES[0]!.code);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [refundModal, setRefundModal] = useState<{
@@ -237,6 +290,11 @@ export default function ArchitectSettingsPage() {
     totalCents: number;
   } | null>(null);
   const [payingRefund, setPayingRefund] = useState(false);
+  const [savedProfilePhotoUrl, setSavedProfilePhotoUrl] = useState<string | null>(
+    authUser?.profilePhotoUrl ?? null
+  );
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
+  const [profilePhotoSelecting, setProfilePhotoSelecting] = useState(false);
 
   const [profileForm, setProfileForm] = useState(() => buildProfileFormFromAuth(authUser));
 
@@ -257,6 +315,7 @@ export default function ArchitectSettingsPage() {
     if (!result.success || !result.data) {
       if (localUser) {
         setAccountEmail(localUser.email);
+        setEmailDraft(localUser.email);
         setProfileForm((current) => ({
           ...current,
           fullName: current.fullName || localUser.fullName || ""
@@ -273,12 +332,22 @@ export default function ArchitectSettingsPage() {
     setSessions(result.data.security.sessions);
     setLoginHistory(result.data.security.loginHistory);
     setAccountEmail(result.data.profile.email || localUser?.email || "");
+    setEmailDraft(result.data.profile.email || localUser?.email || "");
+    const phoneParts = splitPhoneNumber(result.data.profile.phone);
+    setPhoneCountryCode(phoneParts.countryCode);
     setProfileForm({
       fullName: result.data.profile.fullName || localUser?.fullName || "",
-      phone: result.data.profile.phone,
+      phone: phoneParts.phone,
       location: result.data.profile.location,
       timezone: result.data.profile.timezone || TIMEZONES[0]!
     });
+    setSavedProfilePhotoUrl(result.data.profile.profilePhotoUrl ?? null);
+    setProfilePhotoPreview(null);
+    if (result.data.profile.profilePhotoUrl) {
+      updateAuthUser({ profilePhotoUrl: result.data.profile.profilePhotoUrl });
+    }
+    setEmailOtp("");
+    setEmailOtpVisible(false);
     setStorefrontForm({
       displayName:
         result.data.storefront.displayName ||
@@ -319,18 +388,111 @@ export default function ArchitectSettingsPage() {
     () => getInitials(storefrontForm.displayName || accountEmail || authUser?.email || "A"),
     [storefrontForm.displayName, accountEmail, authUser?.email]
   );
+  const normalizedAccountEmail = accountEmail.trim().toLowerCase();
+  const normalizedEmailDraft = emailDraft.trim().toLowerCase();
+  const emailDraftChanged = Boolean(normalizedEmailDraft) && normalizedEmailDraft !== normalizedAccountEmail;
+  const emailDraftValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmailDraft);
+
+  const profilePhotoDraft = profilePhotoPreview ?? savedProfilePhotoUrl;
+
+  async function handleProfilePhotoSelect(file: File) {
+    setProfilePhotoSelecting(true);
+    try {
+      const photoDataUrl = await readProfilePhotoFile(file);
+      setProfilePhotoPreview(photoDataUrl);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not read profile photo");
+    } finally {
+      setProfilePhotoSelecting(false);
+    }
+  }
 
   async function handleSaveProfile(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
-    const result = await saveArchitectSettingsProfile(profileForm);
+
+    let nextProfilePhotoUrl = savedProfilePhotoUrl;
+
+    if (profilePhotoPreview) {
+      const photoResult = await saveArchitectProfilePhoto(profilePhotoPreview);
+      if (!photoResult.success || !photoResult.data?.profile) {
+        setSaving(false);
+        showToast(photoResult.error ?? "Could not save profile photo");
+        return;
+      }
+
+      nextProfilePhotoUrl = photoResult.data.profile.profilePhotoUrl ?? profilePhotoPreview;
+    }
+
+    const result = await saveArchitectSettingsProfile({
+      fullName: profileForm.fullName,
+      phone: joinPhoneNumber(phoneCountryCode, profileForm.phone),
+      location: profileForm.location,
+      timezone: profileForm.timezone
+    });
     setSaving(false);
     if (result.success) {
+      setSavedProfilePhotoUrl(nextProfilePhotoUrl);
+      setProfilePhotoPreview(null);
+      updateAuthUser({
+        fullName: result.data?.profile.fullName ?? profileForm.fullName,
+        ...(nextProfilePhotoUrl ? { profilePhotoUrl: nextProfilePhotoUrl } : {})
+      });
       showToast("Profile saved ✓");
       await loadSettings();
     } else {
       showToast(result.error ?? "Could not save profile");
     }
+  }
+
+  async function handleRequestEmailChange() {
+    if (!emailDraftChanged || !emailDraftValid) {
+      showToast("Enter a valid new email address");
+      return;
+    }
+
+    setEmailChangeSending(true);
+    const result = await requestArchitectEmailChange(normalizedEmailDraft);
+    setEmailChangeSending(false);
+
+    if (!result.success) {
+      showToast(result.error ?? "Could not send verification code");
+      return;
+    }
+
+    setEmailOtp("");
+    setEmailOtpVisible(true);
+    showToast(`Verification code sent to ${normalizedEmailDraft}`);
+  }
+
+  async function handleVerifyEmailChange() {
+    if (emailOtp.trim().length !== 6) {
+      showToast("Enter the 6-digit code");
+      return;
+    }
+
+    setEmailChangeVerifying(true);
+    const result = await verifyArchitectEmailChange({
+      email: normalizedEmailDraft,
+      code: emailOtp.trim()
+    });
+    setEmailChangeVerifying(false);
+
+    if (!result.success || !result.data) {
+      showToast(result.error ?? "Could not change email");
+      return;
+    }
+
+    saveAuthSession(result.data.token, {
+      ...result.data.user,
+      role: "ARCHITECT"
+    });
+    setAccountEmail(result.data.email);
+    setEmailDraft(result.data.email);
+    setEmailOtp("");
+    setEmailOtpVisible(false);
+    showToast("Email address changed ✓");
+    await loadSettings();
   }
 
   async function handleSaveStorefront(event: FormEvent) {
@@ -509,10 +671,29 @@ export default function ArchitectSettingsPage() {
                 <p className="mt-1 text-sm text-slate-500">Your private account details. Not shown publicly.</p>
                 <form onSubmit={handleSaveProfile} className="mt-6 space-y-6">
                   <div className="flex items-center gap-5">
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-xl font-bold text-white">{initials}</div>
+                    <ProfileAvatar
+                      photoUrl={profilePhotoDraft}
+                      initials={initials}
+                      testId="architect-settings-profile-avatar"
+                    />
                     <div className="text-sm text-slate-500">
                       <p className="font-medium text-slate-700">Profile photo</p>
-                      <p>JPG or PNG. Used only inside your account.</p>
+                      <p>JPG or PNG, up to 2MB. Saved when you click Save changes.</p>
+                      <label className="mt-2 inline-flex cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">
+                        {profilePhotoSelecting ? "Loading preview..." : "Upload photo"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg"
+                          className="sr-only"
+                          disabled={profilePhotoSelecting || saving}
+                          data-testid="architect-settings-profile-photo"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = "";
+                            if (file) void handleProfilePhotoSelect(file);
+                          }}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="grid gap-5 sm:grid-cols-2">
@@ -523,13 +704,87 @@ export default function ArchitectSettingsPage() {
                     <div>
                       <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">Email address</label>
                       <div className="relative">
-                        <input id="email" readOnly value={accountEmail} data-testid="architect-settings-email" className="w-full rounded-xl border border-gray-200 px-4 py-3 pr-24 text-sm" />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-green-200 bg-green-50 px-2 py-1 text-[11px] font-semibold text-green-700">Verified ✓</span>
+                        <input
+                          id="email"
+                          type="email"
+                          value={emailDraft}
+                          data-testid="architect-settings-email"
+                          onChange={(event) => {
+                            setEmailDraft(event.target.value);
+                            setEmailOtp("");
+                            setEmailOtpVisible(false);
+                          }}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-3 pr-24 text-sm"
+                        />
+                        <span className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-full border px-2 py-1 text-[11px] font-semibold ${emailDraftChanged ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700"}`}>
+                          {emailDraftChanged ? "New" : "Verified ✓"}
+                        </span>
                       </div>
+                      {emailDraftChanged ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleRequestEmailChange()}
+                          disabled={!emailDraftValid || emailChangeSending}
+                          className="mt-2 text-xs font-semibold text-amber-700 transition hover:text-amber-800 disabled:cursor-not-allowed disabled:text-slate-400"
+                          data-testid="architect-settings-change-email"
+                        >
+                          {emailChangeSending ? "Sending code..." : "Change email"}
+                        </button>
+                      ) : null}
+                      {emailOtpVisible ? (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                          <p className="mb-2 text-xs text-amber-900">
+                            We sent a 6-digit code to <span className="font-semibold">{normalizedEmailDraft}</span>. Check your inbox and spam folder.
+                          </p>
+                          <label htmlFor="emailOtp" className="mb-1.5 block text-xs font-semibold text-amber-900">Enter verification code</label>
+                          <div className="flex flex-wrap gap-2">
+                            <input
+                              id="emailOtp"
+                              value={emailOtp}
+                              inputMode="numeric"
+                              maxLength={6}
+                              onChange={(event) => setEmailOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                              className="w-36 rounded-xl border border-amber-200 bg-white px-4 py-2.5 font-mono text-sm tracking-[0.35em] text-slate-900"
+                              data-testid="architect-settings-email-otp"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleVerifyEmailChange()}
+                              disabled={emailOtp.length !== 6 || emailChangeVerifying}
+                              className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+                              data-testid="architect-settings-verify-email"
+                            >
+                              {emailChangeVerifying ? "Verifying..." : "Verify"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleRequestEmailChange()}
+                              disabled={emailChangeSending}
+                              className="rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                              data-testid="architect-settings-resend-email-otp"
+                            >
+                              {emailChangeSending ? "Sending..." : "Resend code"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                     <div>
                       <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-slate-700">Phone number</label>
-                      <input id="phone" data-testid="architect-settings-phone" value={profileForm.phone} onChange={(e) => setProfileForm((c) => ({ ...c, phone: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" />
+                      <div className="flex">
+                        <select
+                          aria-label="Country code"
+                          value={phoneCountryCode}
+                          onChange={(event) => setPhoneCountryCode(event.target.value)}
+                          className="w-32 rounded-l-xl border border-r-0 border-gray-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-600"
+                          data-testid="architect-settings-phone-country-code"
+                        >
+                          {COUNTRY_CODES.map((country) => (
+                            <option key={country.code} value={country.code}>{country.code} {country.label}</option>
+                          ))}
+                        </select>
+                        <input id="phone" data-testid="architect-settings-phone" value={profileForm.phone} onChange={(e) => setProfileForm((c) => ({ ...c, phone: e.target.value }))} className="w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm" />
+                      </div>
                     </div>
                     <div>
                       <label htmlFor="location" className="mb-1.5 block text-sm font-medium text-slate-700">Location</label>
@@ -544,6 +799,7 @@ export default function ArchitectSettingsPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <button type="submit" disabled={saving} data-testid="architect-settings-save-profile" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
+                    <button type="button" onClick={() => void loadSettings()} className="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
                   </div>
                 </form>
               </section>
@@ -552,26 +808,45 @@ export default function ArchitectSettingsPage() {
             {activeTab === "storefront" ? (
               <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-storefront">
                 <h2 className="text-lg font-bold text-slate-900">Public Profile &amp; Storefront</h2>
-                <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the CORE marketplace.</p>
+                <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the CORE marketplace. Make it count.</p>
                 <form onSubmit={handleSaveStorefront} className="mt-6 space-y-8">
+                  <div>
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">Display identity</h3>
                   <div className="grid gap-5 sm:grid-cols-2">
                     <div className="sm:col-span-2">
                       <label htmlFor="displayName" className="mb-1.5 block text-sm font-medium text-slate-700">Display name</label>
                       <input id="displayName" data-testid="architect-settings-display-name" value={storefrontForm.displayName} onChange={(e) => setStorefrontForm((c) => ({ ...c, displayName: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" />
-                      <p className="mt-1.5 text-xs text-slate-400">Shown on all your agent listings.</p>
+                      <p className="mt-1.5 text-xs text-slate-400">This appears on all your agent listings.</p>
                     </div>
                     <div className="sm:col-span-2 flex flex-wrap items-center gap-5">
                       <div className="flex h-[100px] w-[100px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-bold text-white" data-testid="architect-settings-storefront-avatar">{storefrontInitials}</div>
                       <div>
                         <p className="text-sm font-medium text-slate-700">Marketplace photo</p>
-                        <p className="mt-1 text-xs text-slate-400">Uses your display name initials until a photo is uploaded.</p>
+                        <label className="mt-2 inline-flex cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">
+                          Upload marketplace photo
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg"
+                            className="sr-only"
+                            data-testid="architect-settings-marketplace-photo"
+                            onChange={(event) => {
+                              if (event.target.files?.[0]) showToast("Marketplace photo selected");
+                            }}
+                          />
+                        </label>
+                        <p className="mt-1.5 text-xs text-slate-400">Recommended: professional headshot, 400x400px minimum.</p>
                       </div>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-semibold text-green-700">
+                        Identity Verified
+                      </span>
                     </div>
                     {settings?.storefront ? (
                       <div className="sm:col-span-2 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5" data-testid="architect-settings-storefront-tier">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 px-3 py-1.5 text-sm font-bold text-white shadow-sm shadow-amber-200">
-                            {settings.storefront.approvalStatus === "APPROVED" ? "Verified Architect" : "Architect"}
+                            {settings.storefront.approvalStatus === "APPROVED" ? "Gold Architect" : "Architect"}
                           </span>
                           <span className="text-sm text-slate-500">
                             Rating <span className="font-semibold text-slate-700">{settings.storefront.rating.toFixed(1)}</span>
@@ -580,6 +855,11 @@ export default function ArchitectSettingsPage() {
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-7">
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">Bio &amp; expertise</h3>
+                    <div className="grid gap-5 sm:grid-cols-2">
                     <div className="sm:col-span-2">
                       <label htmlFor="tagline" className="mb-1.5 block text-sm font-medium text-slate-700">Tagline</label>
                       <input id="tagline" maxLength={80} data-testid="architect-settings-tagline" value={storefrontForm.tagline} onChange={(e) => setStorefrontForm((c) => ({ ...c, tagline: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" />
@@ -607,6 +887,11 @@ export default function ArchitectSettingsPage() {
                         {["1–2", "3–5", "5–10", "10+"].map((band) => <option key={band} value={band}>{band}</option>)}
                       </select>
                     </div>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-7">
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">Links</h3>
+                    <div className="grid gap-5 sm:grid-cols-2">
                     <div>
                       <label htmlFor="portfolio" className="mb-1.5 block text-sm font-medium text-slate-700">Portfolio website</label>
                       <input id="portfolio" data-testid="architect-settings-portfolio" value={storefrontForm.portfolioUrl} onChange={(e) => setStorefrontForm((c) => ({ ...c, portfolioUrl: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
@@ -623,6 +908,7 @@ export default function ArchitectSettingsPage() {
                       <label htmlFor="twitter" className="mb-1.5 block text-sm font-medium text-slate-700">Twitter / X</label>
                       <input id="twitter" data-testid="architect-settings-twitter" value={storefrontForm.twitterHandle} onChange={(e) => setStorefrontForm((c) => ({ ...c, twitterHandle: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
                     </div>
+                  </div>
                   </div>
                   <button type="submit" disabled={saving} data-testid="architect-settings-save-storefront" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save storefront</button>
                 </form>
@@ -686,6 +972,7 @@ export default function ArchitectSettingsPage() {
             {activeTab === "notifications" ? (
               <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-notifications">
                 <h2 className="text-lg font-bold text-slate-900">Notification Preferences</h2>
+                <p className="mt-1 text-sm text-slate-500">Choose how and when CORE contacts you about your agent business.</p>
                 <div className="mt-6 overflow-x-auto">
                   <table className="min-w-[560px] w-full">
                     <thead>
@@ -725,69 +1012,227 @@ export default function ArchitectSettingsPage() {
             ) : null}
 
             {activeTab === "developer" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-developer">
+              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-developer">
                 <h2 className="text-lg font-bold text-slate-900">Developer Tools &amp; Integrations</h2>
-                <p className="mt-1 text-sm text-slate-500">Manage API keys, webhooks, and connected services.</p>
-                <div className="mt-6 space-y-4">
-                  <div>
-                    <p className="text-sm font-medium text-slate-700">Production key</p>
-                    <code className="mt-2 block truncate rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-700">core_live_••••••••••••••••mT4x</code>
+                <p className="mt-1 text-sm text-slate-500">Manage API keys, connected services, and development tools.</p>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">CORE API Keys</h3>
+                  <p className="mb-4 mt-1 text-sm text-slate-500">Use these keys to access the CORE Agent SDK and test your agents locally.</p>
+                  <div className="space-y-4">
+                    {[
+                      { label: "Production key", keyValue: "core_live_••••••••••••••••mT4x", lastUsed: "Last used 2 hours ago" },
+                      { label: "Test key", keyValue: "core_test_••••••••••••••••kP2y", lastUsed: "" }
+                    ].map((keyRow) => (
+                      <div key={keyRow.label}>
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <span className="text-sm font-medium text-slate-700">{keyRow.label}</span>
+                          {keyRow.lastUsed ? <span className="text-xs text-slate-400">{keyRow.lastUsed}</span> : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <code className="min-w-[200px] flex-1 truncate rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-700">{keyRow.keyValue}</code>
+                          <button type="button" onClick={() => showToast("Key copied")} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Copy</button>
+                          <button type="button" onClick={() => showToast("Key regenerated")} className="rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50">Regenerate</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                  <p className="mt-3 text-xs text-slate-400">Never share your production key. Use test keys during development.</p>
+                </div>
+                <div className="border-t border-gray-100 pt-7">
+                  <h3 className="text-base font-semibold text-slate-900">Webhook Endpoints</h3>
+                  <p className="mb-4 mt-1 text-sm text-slate-500">Receive real-time notifications when events happen.</p>
                   <div>
-                    <p className="text-sm font-medium text-slate-700">Test key</p>
-                    <code className="mt-2 block truncate rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-700">core_test_••••••••••••••••kP2y</code>
+                    <label htmlFor="webhookUrl" className="mb-1.5 block text-sm font-medium text-slate-700">Endpoint URL</label>
+                    <input id="webhookUrl" type="url" defaultValue="https://agentlabs.dev/webhooks/core" className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
+                  </div>
+                  <div className="mt-4">
+                    <span className="mb-2 block text-sm font-medium text-slate-700">Events subscribed</span>
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      {["agent.sold", "agent.review.created", "agent.error", "payout.processed", "agent.execution.completed"].map((eventName, index) => (
+                        <label key={eventName} className="flex items-center gap-2.5 text-sm text-slate-700">
+                          <input type="checkbox" defaultChecked={index < 3} className="h-4 w-4 rounded border-slate-300 accent-amber-500" />
+                          <code className="font-mono text-xs">{eventName}</code>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => showToast("Webhook updated ✓")} className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600">Update webhook</button>
+                  <div className="mt-5">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Recent deliveries</p>
+                    <div className="space-y-1.5 font-mono text-xs">
+                      {[
+                        ["Jul 08 09:12:04", "agent.sold", "200 ✓", "text-green-600"],
+                        ["Jul 08 08:40:51", "agent.review.created", "200 ✓", "text-green-600"],
+                        ["Jul 07 22:18:30", "agent.error", "500", "text-red-600"]
+                      ].map(([time, eventName, status, tone]) => (
+                        <div key={`${time}-${eventName}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                          <span className="text-slate-500">{time}</span>
+                          <span className="text-slate-700">{eventName}</span>
+                          <span className={`font-semibold ${tone}`}>{status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t border-gray-100 pt-7">
+                  <h3 className="mb-4 text-base font-semibold text-slate-900">Connected services</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {[
+                      { name: "GitHub", status: "Connected", action: "Disconnect" },
+                      { name: "Google Calendar", status: "Connected", action: "Disconnect" },
+                      { name: "Slack", status: "Not connected", action: "Connect" },
+                      { name: "Stripe", status: "Connected", action: "Disconnect" }
+                    ].map((service) => (
+                      <div key={service.name} className="rounded-xl border border-gray-200 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{service.name}</p>
+                            <p className="text-xs text-slate-500">{service.status}</p>
+                          </div>
+                          <button type="button" onClick={() => showToast(`${service.name} ${service.action.toLowerCase()} requested`)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-gray-50">
+                            {service.action}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </section>
             ) : null}
 
             {activeTab === "payouts" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-payouts">
-                <h2 className="text-lg font-bold text-slate-900">Payout Settings</h2>
-                <p className="mt-1 text-sm text-slate-500">Manage payout method and revenue split.</p>
-                <div className="mt-6 rounded-2xl border border-gray-200 p-5">
-                  {settings?.payouts.payoutMethod ? (
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{settings.payouts.payoutMethod.bankName}</p>
-                      <p className="mt-0.5 font-mono text-xs text-slate-500">Account •••• {settings.payouts.payoutMethod.accountLast4}</p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">No payout method on file.</p>
-                  )}
+              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-payouts">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Payout Settings</h2>
+                  <p className="mt-1 text-sm text-slate-500">Manage how and when you receive earnings from agent sales.</p>
                 </div>
-                <div className="mt-6 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5">
+                <div>
+                  <h3 className="mb-4 text-base font-semibold text-slate-900">Payout method</h3>
+                  <div className="rounded-2xl border border-gray-200 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        {settings?.payouts.payoutMethod ? (
+                          <>
+                            <p className="text-sm font-semibold text-slate-900">{settings.payouts.payoutMethod.bankName}</p>
+                            <p className="mt-0.5 font-mono text-xs text-slate-500">Account •••• {settings.payouts.payoutMethod.accountLast4}</p>
+                            <p className="font-mono text-xs text-slate-500">IFSC {settings.payouts.payoutMethod.ifscCode}</p>
+                          </>
+                        ) : (
+                          <p className="text-sm text-slate-500">No payout method on file.</p>
+                        )}
+                      </div>
+                      {settings?.payouts.payoutMethod?.verified ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700">Verified ✓</span>
+                      ) : null}
+                    </div>
+                    <button type="button" onClick={() => showToast("Payout method update requested")} className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Update bank account</button>
+                  </div>
+                  <Link href={ARCHITECT_PAYOUTS_PATH} className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800">+ Add backup payout method</Link>
+                </div>
+                <div className="border-t border-gray-100 pt-7">
+                  <h3 className="mb-4 text-base font-semibold text-slate-900">Payout schedule</h3>
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <div>
+                      <label htmlFor="payoutFrequency" className="mb-1.5 block text-sm font-medium text-slate-700">Frequency</label>
+                      <select id="payoutFrequency" defaultValue="Monthly" className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
+                        <option>Weekly</option>
+                        <option>Bi-weekly</option>
+                        <option>Monthly</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="payoutDay" className="mb-1.5 block text-sm font-medium text-slate-700">Payout day</label>
+                      <select id="payoutDay" defaultValue="1st" className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
+                        <option>1st</option>
+                        <option>15th</option>
+                        <option>Last day of month</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="payoutThreshold" className="mb-1.5 block text-sm font-medium text-slate-700">Minimum threshold</label>
+                      <div className="flex">
+                        <span className="inline-flex items-center rounded-l-xl border border-r-0 border-gray-200 bg-slate-50 px-3 text-sm font-medium text-slate-500">$</span>
+                        <input id="payoutThreshold" defaultValue="50.00" className="w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-400">Earnings below this amount roll over to the next payout period.</p>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <span className="text-sm text-slate-700">Next scheduled payout</span>
+                    <span className="text-sm font-bold text-amber-700">{settings?.payouts.lastPayoutAt ? `Last paid ${formatDateTime(settings.payouts.lastPayoutAt)}` : "Pending first payout"}</span>
+                  </div>
+                  <button type="button" onClick={() => showToast("Payout schedule saved ✓")} className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600">Save schedule</button>
+                </div>
+                <div className="border-t border-gray-100 pt-7">
+                  <h3 className="mb-4 text-base font-semibold text-slate-900">Tax information</h3>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-sm font-semibold text-green-700">W-9 on file ✓</span>
+                      <span className="text-xs text-slate-400">Submitted profile verification</span>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <button type="button" onClick={() => showToast("Tax update requested")} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Update W-9</button>
+                      <button type="button" onClick={() => showToast("Downloading tax form")} className="text-sm font-semibold text-amber-700 hover:text-amber-800">Download 1099-K →</button>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-400">CORE reports earnings for architects crossing annual reporting thresholds.</p>
+                </div>
+                <div className="border-t border-gray-100 pt-7">
+                  <h3 className="mb-4 text-base font-semibold text-slate-900">Revenue split</h3>
+                  <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5">
                   <div className="flex items-center gap-4">
                     <div className="text-center"><div className="text-2xl font-extrabold text-amber-600">{settings?.payouts.architectSharePercent ?? 70}%</div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">You</div></div>
                     <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-200"><div className="h-full bg-gradient-to-r from-amber-400 to-amber-600" style={{ width: `${settings?.payouts.architectSharePercent ?? 70}%` }} /></div>
                     <div className="text-center"><div className="text-2xl font-extrabold text-slate-400">{100 - (settings?.payouts.architectSharePercent ?? 70)}%</div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CORE</div></div>
                   </div>
+                    <p className="mt-4 text-sm text-slate-600">This applies to all agent sales and covers hosting, marketplace listing, payment processing, and customer support infrastructure.</p>
+                    <Link href={ARCHITECT_PAYOUTS_PATH} className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800">View full fee schedule →</Link>
+                  </div>
                 </div>
-                <Link href={ARCHITECT_PAYOUTS_PATH} className="mt-5 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800" data-testid="architect-settings-open-payouts">Open full payouts page →</Link>
+                <Link href={ARCHITECT_PAYOUTS_PATH} className="inline-block text-sm font-semibold text-amber-700 hover:text-amber-800" data-testid="architect-settings-open-payouts">Open full payouts page →</Link>
               </section>
             ) : null}
 
             {activeTab === "data" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-data">
-                <h2 className="text-lg font-bold text-slate-900">Data &amp; Privacy</h2>
-                <div className="mt-6">
-                  <h3 className="text-base font-semibold text-slate-900">Data export</h3>
-                  <p className="mt-1 text-sm text-slate-500">Download a complete copy of your account data and analytics.</p>
-                  <button type="button" onClick={() => showToast("Export requested — check your email")} className="mt-4 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid="architect-settings-request-export">Request data export</button>
+              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-data">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Data &amp; Privacy</h2>
+                  <p className="mt-1 text-sm text-slate-500">Control your data, privacy preferences, and marketplace visibility.</p>
                 </div>
-                <div className="mt-8 border-t border-gray-100 pt-7">
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Privacy preferences</h3>
-                  <div className="space-y-4">
-                    {PRIVACY_TOGGLES.map((item) => (
-                      <div key={item.key} className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-slate-800">{item.label}</p>
-                          <p className="text-xs text-slate-500">{item.description}</p>
-                        </div>
-                        <Toggle checked={privacyPrefs[item.key] ?? false} onChange={(value) => setPrivacyPrefs((c) => ({ ...c, [item.key]: value }))} testId={`architect-settings-privacy-${item.key}`} />
-                      </div>
-                    ))}
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">Data export</h3>
+                  <p className="mt-1 text-sm text-slate-500">Download a complete copy of your account data, agent source code, sales history, conversation logs, and analytics.</p>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button type="button" onClick={() => showToast("Export requested — check your email")} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid="architect-settings-request-export">Request data export</button>
+                    <span className="text-xs text-slate-400">Export delivered as a ZIP within 24 hours.</span>
                   </div>
-                  <button type="button" onClick={() => void handleSavePrivacy()} disabled={saving} data-testid="architect-settings-save-privacy" className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
+                </div>
+                {PRIVACY_GROUPS.map((group) => (
+                  <div key={group.title} className="border-t border-gray-100 pt-7">
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">{group.title}</h3>
+                    <div className="space-y-1">
+                      {PRIVACY_TOGGLES.filter((item) => group.keys.includes(item.key)).map((item) => (
+                        <div key={item.key} className="flex items-start justify-between gap-4 rounded-xl px-3 py-3 hover:bg-gray-50">
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">{item.label}</p>
+                            <p className="text-xs text-slate-500">{item.description}</p>
+                          </div>
+                          <Toggle checked={privacyPrefs[item.key] ?? false} onChange={(value) => setPrivacyPrefs((c) => ({ ...c, [item.key]: value }))} testId={`architect-settings-privacy-${item.key}`} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div className="border-t border-gray-100 pt-7">
+                  <h3 className="mb-2 text-base font-semibold text-slate-900">Data Processing Agreement</h3>
+                  <p className="text-sm text-slate-500">As an architect processing buyer data through your agents, you are bound by the CORE DPA.</p>
+                  <div className="mt-4 flex flex-wrap items-center gap-4">
+                    <button type="button" onClick={() => showToast("Opening DPA")} className="text-sm font-semibold text-amber-700 hover:text-amber-800">View Data Processing Agreement →</button>
+                    <button type="button" onClick={() => showToast("DPA download requested")} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Download your executed DPA</button>
+                  </div>
+                </div>
+                <div className="border-t border-gray-100 pt-6">
+                  <button type="button" onClick={() => void handleSavePrivacy()} disabled={saving} data-testid="architect-settings-save-privacy" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
                 </div>
               </section>
             ) : null}
@@ -800,15 +1245,22 @@ export default function ArchitectSettingsPage() {
                   <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-red-100 bg-white p-5">
                     <div className="max-w-xl">
                       <p className="text-sm font-semibold text-slate-900">Pause all published agents</p>
-                      <p className="mt-1 text-sm text-slate-500">Remove all agents from the marketplace. Existing buyers retain access but no new purchases can be made.</p>
+                      <p className="mt-1 text-sm text-slate-500">Immediately remove all your agents from the marketplace. Existing buyers retain access but no new purchases can be made. You can unpause at any time.</p>
                       {settings?.danger.agentsPaused ? <p className="mt-2 text-xs font-semibold text-amber-700">All agents are currently paused.</p> : null}
                     </div>
                     <button type="button" onClick={() => void executePauseAgents()} className="shrink-0 rounded-xl border border-amber-300 px-5 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50" data-testid="architect-settings-pause-all-agents">Pause all agents</button>
                   </div>
                   <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-red-100 bg-white p-5">
                     <div className="max-w-xl">
+                      <p className="text-sm font-semibold text-slate-900">Deactivate your architect account</p>
+                      <p className="mt-1 text-sm text-slate-500">Temporarily disable your account and unlist agents from the marketplace. Existing buyers retain access and pending payouts still process.</p>
+                    </div>
+                    <button type="button" onClick={() => showToast("Account deactivation requested")} className="shrink-0 rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50">Deactivate account</button>
+                  </div>
+                  <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-red-100 bg-white p-5">
+                    <div className="max-w-xl">
                       <p className="text-sm font-semibold text-slate-900">Permanently delete account</p>
-                      <p className="mt-1 text-sm text-slate-500">Permanently delete your architect account, agents, analytics, and storefront. This cannot be undone.</p>
+                      <p className="mt-1 text-sm text-slate-500">Permanently delete your architect account, all agent source code, analytics data, storefront, and conversation history. This cannot be undone.</p>
                     </div>
                     <button type="button" onClick={() => setDeleteModalOpen(true)} className="shrink-0 rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-600" data-testid="architect-settings-open-delete">Delete my account</button>
                   </div>

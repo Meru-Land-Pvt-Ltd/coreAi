@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
 
 export type BusinessFaq = {
   question: string;
@@ -218,4 +218,66 @@ export function getBusinessCalendarOAuthUrl() {
 
 export function disconnectBusinessCalendar() {
   return apiDelete<null>("/business/connectors/google-calendar");
+}
+
+export type BusinessSettingsProfile = {
+  businessId: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  profilePhotoUrl: string | null;
+  businessName: string;
+  businessType: string;
+  teamPhone: string;
+  bookingUrl: string;
+  timeZone: string;
+  businessAddress: string;
+};
+
+export function getBusinessSettingsProfile() {
+  return apiGet<{ profile: BusinessSettingsProfile }>("/business/settings/profile");
+}
+
+export function saveBusinessSettingsProfile(body: {
+  businessId: string;
+  fullName?: string;
+  phone?: string;
+  email?: string;
+  businessName?: string;
+  businessType?: string;
+  teamPhone?: string;
+  bookingUrl?: string;
+  timeZone?: string;
+  businessAddress?: string;
+}) {
+  return apiPut<{
+    profile: BusinessSettingsProfile;
+    token?: string;
+    user?: {
+      id: string;
+      fullName: string | null;
+      email: string;
+      role: "BUSINESS";
+      profilePhotoUrl: string | null;
+    };
+  }>("/business/settings/profile", body);
+}
+
+export function saveBusinessProfilePhoto(photoDataUrl: string) {
+  return apiPut<{
+    profile: {
+      fullName: string | null;
+      email: string;
+      phone: string | null;
+      profilePhotoUrl: string | null;
+    };
+  }>("/business/settings/profile/photo", { photoDataUrl });
+}
+
+export function requestBusinessEmailChange(email: string) {
+  return apiPost<{ email: string; sent: boolean }>("/business/settings/profile/email/request", { email });
+}
+
+export function verifyBusinessEmailChange(body: { email: string; code: string }) {
+  return apiPost<{ email: string; verified: boolean }>("/business/settings/profile/email/verify", body);
 }
