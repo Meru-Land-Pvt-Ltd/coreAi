@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth, requireRole } from "../../middleware/auth";
+import { adminPhoneNumberRoutes } from "./phone-numbers";
 
 export const adminRoutes = new Hono();
 
@@ -10,6 +11,9 @@ export const adminRoutes = new Hono();
 // Never rely on the frontend guard alone.
 adminRoutes.use("*", requireAuth);
 adminRoutes.use("*", requireRole(["ADMIN"]));
+
+// Platform Twilio phone-number management (inherits the guards above).
+adminRoutes.route("/phone-numbers", adminPhoneNumberRoutes);
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {
   const page = Math.max(1, Number(c.req.query("page")) || 1);

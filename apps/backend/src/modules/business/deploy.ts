@@ -1,5 +1,6 @@
 import {
   DEFAULT_CALENDAR_BOOKING_RULES,
+  RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
   VOICE_NODE_TYPES,
   buildSilencePolicy
 } from "@coreai/shared";
@@ -54,6 +55,25 @@ function voiceNodeData(workflowJson: unknown): Record<string, unknown> | null {
     (n) => (n.data?.type as string) === VOICE_NODE_TYPES.voiceConversation
   );
   return node?.data ? (node.data as Record<string, unknown>) : null;
+}
+
+/**
+ * Architect-authored instructions on the voice node. The stock template is
+ * skipped — it would duplicate the generic receptionist rules — so only a
+ * genuinely customized prompt or extra instructions reach the live prompt.
+ */
+function architectNodeInstructions(voiceNode: Record<string, unknown>): string {
+  const parts: string[] = [];
+
+  const systemPrompt = cleanString(voiceNode.systemPrompt);
+  if (systemPrompt && systemPrompt !== RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE.trim()) {
+    parts.push(systemPrompt);
+  }
+
+  const custom = firstString(voiceNode.customInstructions, voiceNode.instructions);
+  if (custom) parts.push(custom);
+
+  return parts.join("\n\n").trim();
 }
 
 function recordOf(value: unknown): Record<string, unknown> {
@@ -185,6 +205,38 @@ function readBuyerConfig(configJson: unknown): BuyerConfig {
   };
 }
 
+/**
+ * Architect-defined setup fields the buyer filled in during install
+ * (configJson.customFields — label/value pairs from the listing's
+ * requiredBuyerSetup schema).
+ */
+function readCustomFields(configJson: unknown): Array<{ label: string; value: string }> {
+  const raw = recordOf(configJson).customFields;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const record = recordOf(item);
+      return {
+        label: cleanString(record.label) ?? cleanString(record.key) ?? "",
+        value: cleanString(record.value) ?? ""
+      };
+    })
+    .filter((field) => field.label && field.value);
+}
+
+/**
+ * What a booking is called for this business — from scheduling config, or an
+ * architect-defined "Booking label" buyer setup field.
+ */
+function readBookingLabel(configJson: unknown): string | undefined {
+  const config = recordOf(configJson);
+  const scheduling = recordOf(config.scheduling);
+  const customBookingLabel = readCustomFields(configJson).find(
+    (field) => field.label.trim().toLowerCase() === "booking label" || field.label.trim().toLowerCase() === "booking type"
+  )?.value;
+  return firstString(scheduling.bookingLabel, scheduling.bookingType, config.bookingLabel, customBookingLabel);
+}
+
 /** Compact human-readable business hours from buyer setup. */
 function formatHours(hoursJson: unknown, fallback = "not provided"): string {
   if (!Array.isArray(hoursJson) || hoursJson.length === 0) return fallback;
@@ -279,6 +331,12 @@ export async function deployInstalledAgentVoiceAssistant(
   const silencePolicy = buildSilencePolicy(buyer.silence);
   const capabilities = workflowCapabilities(installedAgent.workflow.workflowJson);
 
+  // Architect template instructions run before buyer custom instructions in
+  // the prompt, so buyer-specific config always has the last word.
+  const nodeInstructions = architectNodeInstructions(voiceNode);
+  const customFields = readCustomFields(installedAgent.configJson);
+  const bookingLabel = readBookingLabel(installedAgent.configJson);
+
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
     businessName,
@@ -302,6 +360,11 @@ export async function deployInstalledAgentVoiceAssistant(
       canBook: capabilities.canBook,
       canText: capabilities.canText
     },
+    nodeInstructions: nodeInstructions
+      ? sanitizeLegacyFallbacks(nodeInstructions, { assistantName, businessName })
+      : undefined,
+    bookingLabel,
+    customFields,
     extraSections: [LIVE_TOOL_NOTES]
   });
 

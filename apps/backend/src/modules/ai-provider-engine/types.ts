@@ -31,12 +31,17 @@ export type AIIntent = "chat" | "reasoning" | "code" | "image";
 
 export type AIExecuteRequest = {
   messages: AIMessage[];
+  /** Prior conversation turns — passed by Memory Broker in future integration */
+  conversationHistory?: AIMessage[];
   systemPrompt?: string;
+  workflowContext?: Record<string, unknown>;
+  previousNodeMemory?: Record<string, unknown>;
+  attachments?: AIAttachment[];
   model?: string;
   temperature?: number;
   maxTokens?: number;
   outputFormat?: "text" | "json";
-  task?: string; // Optional manual override
+  task?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -47,7 +52,7 @@ export type AIContinueRequest = AIExecuteRequest & {
 export interface AIProviderAdapter {
   readonly providerId: string;
   readonly displayName: string;
-  readonly scores: Partial<Record<AIIntent, number>>; // Scores indicating how good this provider is for each intent (0-10, default 0)
+  readonly scores: Partial<Record<AIIntent, number>>;
   validate(): Promise<ValidationResult>;
   execute(request: AIExecuteRequest): Promise<AIExecuteResponse>;
   continueConversation(request: AIContinueRequest): Promise<AIExecuteResponse>;
@@ -64,6 +69,7 @@ export type AIExecuteResponse = {
   conversationId: string | null;
   providerMetadata: Record<string, unknown>;
   providerId: string;
+  modelName: string;
   durationMs: number;
   error: string | null;
 };

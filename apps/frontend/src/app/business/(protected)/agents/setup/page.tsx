@@ -20,6 +20,8 @@ import {
   type BusinessFaq,
   type BusinessHoursItem,
   type BusinessKnowledgeItem,
+  type BuyerCustomFieldValue,
+  type BuyerSetupFieldDef,
   type CallRoutingResult,
   type PlatformPhoneOption
 } from "@/components/business/features/api";
@@ -293,6 +295,21 @@ function SetupWizard() {
 
   const [requiredKeys, setRequiredKeys] = useState<string[]>([]);
 
+  // Architect-defined setup fields from the listing (requiredBuyerSetup) and
+  // the buyer's answers to them. Answers persist in InstalledAgent.configJson.
+  const [buyerSetupFields, setBuyerSetupFields] = useState<BuyerSetupFieldDef[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<BuyerCustomFieldValue[]>([]);
+
+  const setCustomFieldValue = useCallback((key: string, label: string, value: string) => {
+    setCustomFieldValues((current) => {
+      const existing = current.find((item) => item.key === key);
+      if (existing) {
+        return current.map((item) => (item.key === key ? { ...item, label, value } : item));
+      }
+      return [...current, { key, label, value }];
+    });
+  }, []);
+
   const loadSetup = useCallback(async () => {
     setLoading(true);
 
@@ -375,13 +392,24 @@ function SetupWizard() {
         setCustomVoiceId("");
       }
 
+      if (Array.isArray(data.customFields) && data.customFields.length > 0) {
+        setCustomFieldValues(data.customFields);
+      }
+
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
 
-      if (listingId && !data.installedAgent) {
+      if (listingId) {
         const listingRes = await getMarketplaceListing(listingId);
 
         if (listingRes.success && listingRes.data?.listing) {
-          keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
+          if (!data.installedAgent) {
+            keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
+          }
+
+          const setupFields = (listingRes.data.listing.requiredBuyerSetup ?? []).filter(
+            (field) => field && field.key && field.label
+          );
+          setBuyerSetupFields(setupFields);
         }
       }
 
@@ -485,6 +513,9 @@ function SetupWizard() {
       silenceRepromptMessage1: silenceMessage1.trim(),
       silenceRepromptMessage2: silenceMessage2.trim(),
       goodbyeMessage: goodbyeMessage.trim(),
+      customFields: customFieldValues
+        .map((field) => ({ key: field.key, label: field.label, value: field.value.trim() }))
+        .filter((field) => field.key && field.label && field.value),
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
       ...(listingId ? { listingId } : {})
@@ -884,11 +915,14 @@ function SetupWizard() {
             servicesText={servicesText}
             faqs={faqs}
             checklist={checklist}
+            setupFields={buyerSetupFields}
+            customValues={customFieldValues}
             onBusinessName={setBusinessName}
             onBusinessType={setBusinessType}
             onContactName={setContactName}
             onServices={setServicesText}
             onFaqs={setFaqs}
+            onCustomField={setCustomFieldValue}
           />
         ) : null}
 
@@ -1043,11 +1077,14 @@ function StepBusiness({
   servicesText,
   faqs,
   checklist,
+  setupFields,
+  customValues,
   onBusinessName,
   onBusinessType,
   onContactName,
   onServices,
-  onFaqs
+  onFaqs,
+  onCustomField
 }: {
   businessName: string;
   businessType: string;
@@ -1055,11 +1092,14 @@ function StepBusiness({
   servicesText: string;
   faqs: BusinessFaq[];
   checklist: ChecklistRow[];
+  setupFields: BuyerSetupFieldDef[];
+  customValues: BuyerCustomFieldValue[];
   onBusinessName: (v: string) => void;
   onBusinessType: (v: string) => void;
   onContactName: (v: string) => void;
   onServices: (v: string) => void;
   onFaqs: (v: BusinessFaq[]) => void;
+  onCustomField: (key: string, label: string, value: string) => void;
 }) {
   return (
     <div className={CARD}>
@@ -1124,6 +1164,50 @@ function StepBusiness({
           />
         </div>
       </div>
+
+      {setupFields.length > 0 ? (
+        <div className={SECTION} data-testid="business-setup-custom-fields">
+          <h3 className={SECTION_TITLE}>Agent setup details</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            This agent asks for a few extra details so it can answer callers accurately.
+          </p>
+
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {setupFields.map((field) => {
+              const saved = customValues.find((item) => item.key === field.key)?.value ?? "";
+              const inputId = `custom-field-${field.key}`;
+
+              return (
+                <div key={field.key} className={field.type === "textarea" ? "sm:col-span-2" : undefined}>
+                  <label className={LABEL} htmlFor={inputId}>
+                    {field.label} {field.required ? "" : "optional"}
+                  </label>
+                  {field.type === "textarea" ? (
+                    <textarea
+                      data-testid={`business-setup-custom-field-${field.key}`}
+                      id={inputId}
+                      value={saved}
+                      onChange={(e) => onCustomField(field.key, field.label, e.target.value)}
+                      rows={3}
+                      className={FIELD}
+                    />
+                  ) : (
+                    <input
+                      data-testid={`business-setup-custom-field-${field.key}`}
+                      id={inputId}
+                      type={field.type === "phone" ? "tel" : field.type === "url" ? "url" : "text"}
+                      value={saved}
+                      onChange={(e) => onCustomField(field.key, field.label, e.target.value)}
+                      className={FIELD}
+                    />
+                  )}
+                  {field.helper ? <p className="mt-1 text-xs text-slate-400">{field.helper}</p> : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className={SECTION} data-testid="business-setup-faqs">
         <div className="flex items-center justify-between">

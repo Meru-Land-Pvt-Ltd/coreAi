@@ -49,11 +49,11 @@ export function PublishPanel({
                     <BuilderIcon name="message" className="h-8 w-8 text-amber-500" />
                   </div>
                   <div className="pb-1">
-                    <span className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700" data-testid="architect-ui-workflow-builder-publish-panel-healthcare-dental-text">Healthcare & Dental</span>
+                    <span className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700" data-testid="architect-ui-workflow-builder-publish-panel-category-text">Business Automation</span>
                   </div>
                 </div>
                 <h3 className="mt-3 text-lg font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-agent-heading">{agentName}</h3>
-                <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-tagline-never-lose-a-patient-to-a-text">{tagline || "Never lose a patient to a missed call again. Turns missed calls into booked appointments - automatically."}</p>
+                <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-agent-tagline-text">{tagline || "Automate customer conversations, bookings, and follow-ups with a reusable AI agent."}</p>
                 <div className="mt-4 flex items-center gap-4 text-sm">
                   <span className="flex items-center gap-1 font-semibold text-amber-500" data-testid="architect-ui-workflow-builder-publish-panel-new-text">
                     <BuilderIcon name="star" className="h-4 w-4" />

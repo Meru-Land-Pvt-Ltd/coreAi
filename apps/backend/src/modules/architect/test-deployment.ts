@@ -258,12 +258,12 @@ export async function startArchitectTestDeployment(
     );
   }
 
-  // ---- Test business context (defaults suit the Dental AI Receptionist template) ----
+  // ---- Test business context (generic defaults; the node/test input can override) ----
   const businessName = (input.businessName ?? "").trim() || str(ai, "practiceName", "the business");
-  const businessType = (input.businessType ?? "").trim() || "Dental Clinic";
+  const businessType = (input.businessType ?? "").trim() || "Service Business";
   const calendarId = (input.calendarId ?? "").trim() || "primary";
   const timeZone = normalizeTimeZone((input.timeZone ?? "").trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
-  const servicesText = str(ai, "services", "Cleaning, Filling, Crown, Emergency");
+  const servicesText = str(ai, "services", "Consultation, Appointment booking, General inquiry");
   const services = input.services?.length ? input.services : servicesToArray(servicesText);
 
   // ---- Sandbox Business (create once per architect, reuse afterwards) ----
@@ -348,7 +348,9 @@ export async function startArchitectTestDeployment(
     data: { vapiAssistantId: assistant.id }
   });
 
-  // ---- Dental/booking tool config from the generic nodes (used by Vapi tools) ----
+  // ---- Booking tool config from the generic nodes (used by Vapi tools).
+  // Generic node keys (sendToCustomer/customerTemplate/teamTemplate/teamPhone)
+  // are read first; the legacy dental key names remain as fallbacks. ----
   const check = nodeData(nodes, VOICE_NODE_TYPES.calendarAvailability);
   const book = nodeData(nodes, VOICE_NODE_TYPES.bookAppointment);
   const sms = nodeData(nodes, VOICE_NODE_TYPES.sendSms);
@@ -361,11 +363,15 @@ export async function startArchitectTestDeployment(
     closeHour: num(check, "closeHour", 17),
     defaultDurationMinutes: 30,
     doctorName: contactName,
-    sendToPatient: bool(sms, "sendToPatient", true),
-    sendToDentist: bool(sms, "sendToDentist", false),
-    dentistPhone: normalizePhone(str(sms, "dentistPhone")),
-    patientTemplate: str(sms, "patientTemplate", "Confirmed: [Service] with [Doctor Name], [Date] at [Time]."),
-    dentistTemplate: str(sms, "dentistTemplate", "New booking: [Patient Name], [Date] [Time], [Service]."),
+    sendToPatient: bool(sms, "sendToCustomer", bool(sms, "sendToPatient", true)),
+    sendToDentist: bool(sms, "sendToTeam", bool(sms, "sendToDentist", false)),
+    dentistPhone: normalizePhone(str(sms, "teamPhone") || str(sms, "dentistPhone")),
+    patientTemplate:
+      str(sms, "customerTemplate") ||
+      str(sms, "patientTemplate", "Confirmed: [Service] on [Date] at [Time] with [Business Name]."),
+    dentistTemplate:
+      str(sms, "teamTemplate") ||
+      str(sms, "dentistTemplate", "New booking: [Customer Name], [Date] [Time], [Service]."),
     confirmationMessage: str(book, "confirmationMessage", ""),
     closingMessage: str(end, "closingMessage", "You're all set! Have a wonderful day."),
     afterCallAction: str(end, "afterCallAction", "hangup"),

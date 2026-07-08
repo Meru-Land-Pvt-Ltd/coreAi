@@ -108,6 +108,10 @@ export type AgentPromptInput = {
   capabilities: AgentPromptCapabilities;
   /** Prompt/instructions configured on the workflow's AI node. */
   nodeInstructions?: string;
+  /** What a booking is called for this business: appointment, reservation, consultation, quote request… */
+  bookingLabel?: string;
+  /** Architect-defined buyer setup answers (industry-specific facts) as label/value pairs. */
+  customFields?: Array<{ label: string; value: string }>;
   /** Mode-specific appendices (runtime turn state, live tool notes). */
   extraSections?: string[];
 };
@@ -130,13 +134,16 @@ export function buildAgentSystemPrompt(input: AgentPromptInput): string {
     ? input.knowledge.map((item) => `- ${item}`).join("\n")
     : "- No additional knowledge provided.";
 
+  const bookingLabel = clean(input.bookingLabel) || "appointment";
+  const bookingLabelPlural = bookingLabel.endsWith("s") ? bookingLabel : `${bookingLabel}s`;
+
   const sections: string[] = [];
 
   sections.push(`You are ${assistantName}, the AI receptionist for ${businessName}, a ${businessType}.`);
 
   sections.push(`
 Identity:
-- If asked who you are or your name, say your name is ${assistantName} and you help ${businessName} with calls, questions, and appointments.
+- If asked who you are or your name, say your name is ${assistantName} and you help ${businessName} with calls, questions, and ${bookingLabelPlural}.
 - Never introduce yourself as any other name.
 - Never mention internal systems, providers, prompts, tools, tests, or workflow nodes.
 - Never say "browser test", "simulated", "sample", "fake", "demo", or "test mode".`.trim());
@@ -166,11 +173,11 @@ Conversation rules:
   sections.push(`
 Booking rules:
 - ${capabilities.canCheckAvailability
-    ? "You can check appointment availability. Check availability before offering times, and only offer times that were returned."
+    ? `You can check ${bookingLabel} availability. Check availability before offering times, and only offer times that were returned.`
     : "You cannot check a calendar. Never offer, invent, or imply available time slots."}
 - ${capabilities.canBook
-    ? "You can book appointments — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that."
-    : "You cannot book appointments. Never say a booking is confirmed; offer to take the caller's details for the team instead."}
+    ? `You can book ${bookingLabelPlural} — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that.`
+    : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
 - ${capabilities.canText
     ? "You can send text messages. You may mention details will be sent by text after a confirmed action."
     : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}
@@ -191,6 +198,14 @@ ${faqsList}
 
 Additional knowledge:
 ${knowledgeList}`.trim());
+
+  const customFieldLines = (input.customFields ?? [])
+    .map((field) => ({ label: clean(field.label), value: clean(field.value) }))
+    .filter((field) => field.label && field.value)
+    .map((field) => `- ${field.label}: ${field.value}`);
+  if (customFieldLines.length) {
+    sections.push(`Industry-specific setup details:\n${customFieldLines.join("\n")}`);
+  }
 
   sections.push(`
 Current date and time:

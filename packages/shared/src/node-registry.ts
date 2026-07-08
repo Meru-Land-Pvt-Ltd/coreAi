@@ -508,13 +508,9 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       language: "en-US",
       speakingSpeed: "1.0",
       model: "gpt-4o-mini",
-      firstMessage: "Thanks for calling. This is your AI receptionist — how can I help you today?",
-      practiceName: "",
-      doctorName: "",
-      practiceHours: "",
-      services: "",
-      fallbackResponse: "Let me take a message and have someone call you back shortly.",
-      systemPrompt: RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
+      firstMessage: "",
+      fallbackResponse: "",
+      systemPrompt: "",
       customInstructions: ""
     },
     capability: "ai.conversation",
@@ -586,11 +582,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       connectorAction: VOICE_TOOL_NAMES.sendNotification
     },
     defaultConfig: {
-      sendToPatient: "true",
-      patientTemplate: "Confirmed: [Service] on [Date] at [Time].",
-      sendToDentist: "false",
-      dentistPhone: "",
-      dentistTemplate: "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]"
+      sendToCustomer: "true",
+      customerTemplate: "",
+      sendToTeam: "false",
+      teamTemplate: ""
     },
     capability: "sms.send",
     requiredVariables: ["customer.phone"],
@@ -607,7 +602,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     comingSoon: false,
     runtime: { nodeKind: "output" },
     defaultConfig: {
-      closingMessage: "You're all set. Have a great day.",
+      closingMessage: "",
       afterCallAction: "hangup",
       callRecording: "true"
     },

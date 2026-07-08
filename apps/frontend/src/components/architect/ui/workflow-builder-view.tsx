@@ -187,16 +187,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return isVoiceWorkflow && name.includes("dental");
   }, [agentName, workflow?.name, isVoiceWorkflow]);
 
-  // Default test values for voice-booking workflows (dental template defaults).
-  // Test-tab-only prefills — they never change the workflow nodes themselves.
+  // Generic test-tab-only defaults. These never change the workflow nodes themselves.
   useEffect(() => {
     if (!isVoiceWorkflow) return;
     setBusinessName((value) => value || "Sample Business");
-    setBusinessType((value) => value || "Dental Clinic");
-    setCallerName((value) => value || "Test Patient");
+    setBusinessType((value) => value || "Service Business");
+    setCallerName((value) => value || "Test Customer");
     setCalendarId((value) => value || "primary");
     setTimeZone((value) => value || "America/Los_Angeles");
-    setAppointmentService((value) => value || "Cleaning");
+    setAppointmentService((value) => value || "General Consultation");
   }, [isVoiceWorkflow]);
 
   const meaningfulForSave = useCallback(
@@ -805,13 +804,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           callerNumber: normalizedCallerNumber,
           callerName: callerName.trim(),
           businessName: normalizedBusinessName || "Sample Business",
-          businessType: businessType.trim() || "Dental Clinic",
+          businessType: businessType.trim() || "Service Business",
           businessPhoneNumber: "",
           calendarId: calendarId.trim() || "primary",
           timeZone: timeZone.trim() || "America/Los_Angeles",
           callStatus: "no-answer",
           callTimestamp: new Date().toISOString(),
-          appointmentService: appointmentService.trim() || "Cleaning"
+          appointmentService: appointmentService.trim() || "General Consultation"
         }
       }
       : hasSmsFlow

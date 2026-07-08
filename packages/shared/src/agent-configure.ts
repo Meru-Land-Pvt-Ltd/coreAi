@@ -51,16 +51,63 @@ export const AGENT_CATEGORIES = [
 
 export const AGENT_INDUSTRIES = [
   "Dental",
-  "HVAC",
-  "Legal",
-  "Medical Spa",
-  "Real Estate",
-  "Restaurant",
-  "Automotive",
-  "Fitness",
+  "Medical Clinic",
+  "Dermatology",
+  "Physiotherapy",
+  "Chiropractor",
+  "Optometry",
+  "Veterinary",
+  "Med Spa",
   "Salon",
-  "General"
+  "Barbershop",
+  "Spa & Wellness",
+  "Yoga Studio",
+  "Gym / Fitness",
+  "Law Firm",
+  "Plumber",
+  "HVAC",
+  "Electrician",
+  "Garage Door",
+  "Roofing",
+  "Landscaping",
+  "Pool Service",
+  "Real Estate",
+  "Auto Repair",
+  "Restaurant",
+  "Insurance",
+  "Mortgage Broker",
+  "Urgent Care",
+  "Senior Care",
+  "Property Management",
+  "Hotel / Hospitality",
+  "Custom"
 ] as const;
+
+/** Industry names from the original short list → their canonical replacements. */
+export const LEGACY_INDUSTRY_MAP: Record<string, string> = {
+  Legal: "Law Firm",
+  "Medical Spa": "Med Spa",
+  Medical: "Medical Clinic",
+  Automotive: "Auto Repair",
+  Fitness: "Gym / Fitness",
+  General: "Custom"
+};
+
+/**
+ * Map legacy industry names to their canonical equivalents, keep only values
+ * present in AGENT_INDUSTRIES, and dedupe — so configureJson saved before the
+ * list changed still loads safely.
+ */
+export function normalizeIndustryTags(tags: string[]): string[] {
+  const canonical = new Set<string>(AGENT_INDUSTRIES);
+  const result: string[] = [];
+  for (const tag of tags) {
+    const trimmed = tag.trim();
+    const mapped = LEGACY_INDUSTRY_MAP[trimmed] ?? trimmed;
+    if (canonical.has(mapped) && !result.includes(mapped)) result.push(mapped);
+  }
+  return result;
+}
 
 export const SETUP_TIME_OPTIONS = ["Under 2 min", "2-5 min", "5-10 min", "10+ min"] as const;
 
@@ -446,7 +493,7 @@ export function normalizeAgentConfigure(
       agentName: cleanString(basics.agentName, base.basics.agentName),
       tagline: cleanString(basics.tagline, base.basics.tagline),
       category: cleanString(basics.category, base.basics.category),
-      industryTags: cleanStringArray(basics.industryTags, base.basics.industryTags),
+      industryTags: normalizeIndustryTags(cleanStringArray(basics.industryTags, base.basics.industryTags)),
       iconUrl: cleanString(basics.iconUrl, base.basics.iconUrl),
       visibility: basics.visibility === "private" ? "private" : "public",
       shortDescription: cleanString(basics.shortDescription, base.basics.shortDescription)
@@ -463,7 +510,9 @@ export function normalizeAgentConfigure(
     },
     template: {
       templateType: cleanString(template.templateType, base.template.templateType),
-      supportedIndustries: cleanStringArray(template.supportedIndustries, base.template.supportedIndustries),
+      supportedIndustries: normalizeIndustryTags(
+        cleanStringArray(template.supportedIndustries, base.template.supportedIndustries)
+      ),
       requiredBuyerSetup,
       setupTimeEstimate: cleanString(template.setupTimeEstimate, base.template.setupTimeEstimate),
       requiredIntegrations: integrations,

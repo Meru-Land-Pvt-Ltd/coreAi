@@ -17,6 +17,22 @@ export type BusinessHoursItem = {
   closed: boolean;
 };
 
+/** One architect-defined buyer setup field, as defined on the listing. */
+export type BuyerSetupFieldDef = {
+  key: string;
+  label: string;
+  type: "text" | "phone" | "url" | "select" | "textarea";
+  required: boolean;
+  helper?: string;
+};
+
+/** A buyer's answer to an architect-defined setup field. */
+export type BuyerCustomFieldValue = {
+  key: string;
+  label: string;
+  value: string;
+};
+
 export type BusinessSetupInput = {
   businessName: string;
   businessType: string;
@@ -50,7 +66,10 @@ export type BusinessSetupInput = {
     maximumSlotsToShow?: number;
     openHour?: number;
     closeHour?: number;
+    bookingLabel?: string;
   };
+  /** Architect-defined setup answers (the listing's requiredBuyerSetup fields). */
+  customFields?: BuyerCustomFieldValue[];
   selectedPlatformPhoneNumberId?: string;
   selectedPhoneNumber?: string;
   /** true only on the final Deploy — incremental saves skip the Vapi assistant build. */
@@ -137,6 +156,8 @@ export type BusinessSetupData = {
   /** Buyer's persisted contact name + custom instructions + silence policy. */
   contactName?: string | null;
   customInstructions?: string | null;
+  /** Buyer's persisted answers to architect-defined setup fields. */
+  customFields?: BuyerCustomFieldValue[];
   silence?: {
     repromptCount: number | null;
     reprompt1: string | null;
@@ -172,6 +193,8 @@ export type MarketplaceListing = {
   shortDescription: string;
   requiredConnectors: string[];
   workflowId: string | null;
+  /** Architect-defined setup fields the buyer fills in during install. */
+  requiredBuyerSetup?: BuyerSetupFieldDef[] | null;
 };
 
 export type BusinessCalendarStatus = {

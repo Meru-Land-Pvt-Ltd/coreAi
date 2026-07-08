@@ -28,11 +28,11 @@ model User {
   proposals            ProjectProposal[]
   templateRequests     TemplateRequest[]
   workflows            WorkflowDefinition[]
+  workflowRuns         WorkflowRun[]
   payoutMethod         ArchitectPayoutMethod?
   payouts              ArchitectPayout[]
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
-  workflowRuns         WorkflowRun[]
 
   // Same email may exist once per role (e.g. BUSINESS + ARCHITECT), but not twice
   // for the same role.
@@ -422,9 +422,11 @@ model VapiCall {
 model PlatformPhoneNumber {
   id               String              @id @default(cuid())
   phoneNumber      String              @unique
+  /// Normalized E.164 form of phoneNumber (backfilled; canonical for lookups going forward).
+  e164             String?             @unique
   provider         ConnectorProvider   @default(TWILIO)
   status           PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid        String?
+  twilioSid        String?             @unique
   /// Provider-agnostic number id (alias for twilioSid; future non-Twilio providers).
   providerNumberId String?
   country          String?
@@ -432,13 +434,45 @@ model PlatformPhoneNumber {
   locality         String?
   /// e.g. { "voice": true, "sms": false, "mms": false }
   capabilities     Json?
+  voiceEnabled     Boolean             @default(true)
+  smsEnabled       Boolean             @default(true)
+  mmsEnabled       Boolean?
   businessId       String?
+  buyerUserId      String?
+  installedAgentId String?
   assignedAt       DateTime?
+  /// Admin provisioning metadata (numbers purchased through the admin panel).
+  purchasedByAdminId String?
+  purchasedAt        DateTime?
+  releasedAt         DateTime?
+  voiceWebhookUrl    String?
+  smsWebhookUrl      String?
+  webhookStatus      PhoneWebhookStatus @default(UNKNOWN)
+  complianceStatus   String?
+  a2pStatus          String?
+  lastSyncedAt       DateTime?
+  lastError          String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
   @@index([status])
   @@index([businessId])
+  @@index([installedAgentId])
+}
+
+/// Structured record of privileged admin actions (phone provisioning, assignment, release…).
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  action      String
+  targetType  String
+  targetId    String?
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model Payment {
@@ -625,6 +659,27 @@ enum ListingStatus {
   SUSPENDED
 }
 
+enum ListingReviewStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum ListingPublishStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum PricingModel {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
+}
+
 enum ArchitectPayoutStatus {
   PENDING
   PROCESSING
@@ -679,6 +734,16 @@ enum PlatformPhoneStatus {
   AVAILABLE
   ASSIGNED
   DISABLED
+  ARCHIVED
+  RELEASED
+  ERROR
+}
+
+enum PhoneWebhookStatus {
+  CONFIGURED
+  MISSING
+  FAILED
+  UNKNOWN
 }
 
 enum PaymentStatus {
@@ -690,11 +755,12 @@ enum PaymentStatus {
   REFUNDED
 }
 
-// Workflow run related enums(Brain Memory)
+// Brain Memory — stores what each workflow run and node actually did.
+// WorkflowRun = one execution. NodeRun = one step. ContextLink = back-links between steps.
 
 enum WorkflowRunMode {
-  TEST
-  LIVE
+  TEST // Architect test panel / dry run
+  LIVE // Real Twilio, Vapi, or production trigger
 }
 
 enum WorkflowRunStatus {
@@ -714,13 +780,18 @@ enum NodeRunStatus {
 }
 
 enum ContextLinkType {
-  BACKLINK
-  REFERENCE
-  SUMMARY_SOURCE
+  BACKLINK        // Load full memory from an earlier node into a later one
+  REFERENCE       // Soft dependency / traceability
+  SUMMARY_SOURCE  // Target summary was derived from source node
 }
 
-//workflowRun Model
+enum ContextLinkStatus {
+  ACTIVE
+  INACTIVE
+  FAILED
+}
 
+// One execution of an entire workflow (user clicks Run, or live event fires).
 model WorkflowRun {
   id                String            @id @default(cuid())
   workflowId        String
@@ -743,6 +814,14 @@ model WorkflowRun {
   triggeredBy    User?              @relation(fields: [triggeredByUserId], references: [id])
   nodeRuns       NodeRun[]
   contextLinks   ContextLink[]
+  durationMs       Int?      /// Total run duration in milliseconds
+  totalTokenInput  Int?      @default(0)
+  totalTokenOutput Int?      @default(0)
+  totalCostCents   Int?      @default(0)
+  currentNodeId    String?   /// Last node that executed in this run
+  metadataJson     Json?     /// Extra workflow-level metadata
+
+  @@index([currentNodeId])
   @@index([workflowId])
   @@index([installedAgentId])
   @@index([businessId])
@@ -751,8 +830,7 @@ model WorkflowRun {
   @@index([createdAt])
 }
 
-//nodeRun Model
-
+// One execution of a single workflow node — this is where per-step memory lives.
 model NodeRun {
   id             String        @id @default(cuid())
   workflowRunId  String
@@ -792,7 +870,7 @@ model NodeRun {
   @@index([status])
 }
 
-//ContextLink Model
+// Back-link: fromNodeRun = memory source, toNodeRun = node that reads it.
 model ContextLink {
   id             String          @id @default(cuid())
   workflowRunId  String
@@ -805,8 +883,10 @@ model ContextLink {
   workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
   fromNodeRun NodeRun     @relation("ContextLinkFrom", fields: [fromNodeRunId], references: [id], onDelete: Cascade)
   toNodeRun   NodeRun     @relation("ContextLinkTo", fields: [toNodeRunId], references: [id], onDelete: Cascade)
+  linkStatus ContextLinkStatus @default(ACTIVE)
 
   @@index([workflowRunId])
   @@index([fromNodeRunId])
   @@index([toNodeRunId])
+  @@index([linkStatus])
 }

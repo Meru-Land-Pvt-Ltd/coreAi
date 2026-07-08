@@ -15,6 +15,7 @@ import { paymentRoutes } from "./modules/payments/routes";
 import { setupRoutes } from "./modules/setup/routes";
 import { contactRoutes } from "./modules/contact/routes";
 import { countryRoutes } from "./modules/countries/routes";
+import { memoryRoutes } from "./modules/memory/routes";
 
 export const app = new Hono();
 
@@ -40,6 +41,7 @@ app.route("/payments", paymentRoutes);
 app.route("/setup", setupRoutes);
 app.route("/contact", contactRoutes);
 app.route("/countries", countryRoutes);
+app.route("/memory", memoryRoutes); 
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

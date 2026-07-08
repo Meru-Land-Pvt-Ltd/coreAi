@@ -310,7 +310,7 @@ export function TestPanel({
 
         <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">
-            {isVoiceWorkflow ? "Simulate an inbound call" : "Simulate a missed call"}
+            {isVoiceWorkflow ? "Simulate an inbound call" : "Simulate a customer event"}
           </h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
@@ -331,7 +331,7 @@ export function TestPanel({
                 type="text"
                 value={callerName}
                 onChange={(event) => onCallerNameChange(event.target.value)}
-                placeholder={isVoiceWorkflow ? "Test Patient" : "Jordan Lee"}
+                placeholder={isVoiceWorkflow ? "Test Customer" : "Jordan Lee"}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
               />
             </label>
@@ -342,7 +342,7 @@ export function TestPanel({
                   type="text"
                   value={businessType}
                   onChange={(event) => onBusinessTypeChange(event.target.value)}
-                  placeholder="Dental Clinic"
+                  placeholder="Service Business"
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
                 />
               </label>
@@ -377,7 +377,7 @@ export function TestPanel({
                     type="text"
                     value={appointmentService}
                     onChange={(event) => onAppointmentServiceChange(event.target.value)}
-                    placeholder="Cleaning"
+                    placeholder="General Consultation"
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
                   />
                 </label>
@@ -463,7 +463,7 @@ export function TestPanel({
                     ) : null}
                     {smsNotification ? (
                       <p className="font-mono text-xs text-green-500" data-testid="test-panel-sms-notification-result">
-                        SMS notification result: dry run — {[smsNotification.sendToPatient ? "patient" : null, smsNotification.sendToDentist ? "dentist" : null].filter(Boolean).join(" + ") || "no recipients"}
+                        SMS notification result: dry run — {[smsNotification.sendToPatient ? "customer" : null, smsNotification.sendToDentist ? "team" : null].filter(Boolean).join(" + ") || "no recipients"}
                       </p>
                     ) : null}
                   </div>

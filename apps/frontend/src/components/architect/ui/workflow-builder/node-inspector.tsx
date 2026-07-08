@@ -104,7 +104,9 @@ export function NodeInspector({
 
       {panel}
 
-      <NodeDataFlowPanel node={selectedNode} />
+      <NodeOverviewPanel node={selectedNode} />
+
+      <NodeAdvancedSettingsPanel node={selectedNode} />
 
       <div className="border-t border-gray-100 p-5">
         <button
@@ -419,481 +421,404 @@ function CalendarConnector({
   return <ConnectorRequirements node={node} />;
 }
 
-type VariableInfo = {
-  key: string;
-  label: string;
-  source: string;
-  description?: string;
+type StepOverview = {
+  tone: "amber" | "violet" | "blue" | "green" | "orange" | "slate";
+  summary: string;
+  needs: string[];
+  creates: string[];
+  setup: string[];
 };
 
-type NodeDataFlowInfo = {
-  inputs: VariableInfo[];
-  outputs: VariableInfo[];
-  availableVariables: VariableInfo[];
-  usedVariables: VariableInfo[];
+const TONE_CLASSNAMES: Record<StepOverview["tone"], {
+  card: string;
+  icon: string;
+  title: string;
+  chip: string;
+}> = {
+  amber: {
+    card: "border-amber-100 bg-amber-50/70",
+    icon: "bg-amber-600 text-white",
+    title: "text-amber-800",
+    chip: "border-amber-100 bg-white/80 text-amber-700"
+  },
+  violet: {
+    card: "border-violet-100 bg-violet-50/70",
+    icon: "bg-violet-600 text-white",
+    title: "text-violet-800",
+    chip: "border-violet-100 bg-white/80 text-violet-700"
+  },
+  blue: {
+    card: "border-blue-100 bg-blue-50/70",
+    icon: "bg-blue-600 text-white",
+    title: "text-blue-800",
+    chip: "border-blue-100 bg-white/80 text-blue-700"
+  },
+  green: {
+    card: "border-green-100 bg-green-50/70",
+    icon: "bg-green-600 text-white",
+    title: "text-green-800",
+    chip: "border-green-100 bg-white/80 text-green-700"
+  },
+  orange: {
+    card: "border-orange-100 bg-orange-50/70",
+    icon: "bg-orange-600 text-white",
+    title: "text-orange-800",
+    chip: "border-orange-100 bg-white/80 text-orange-700"
+  },
+  slate: {
+    card: "border-slate-200 bg-slate-50/80",
+    icon: "bg-slate-700 text-white",
+    title: "text-slate-800",
+    chip: "border-slate-200 bg-white text-slate-600"
+  }
 };
 
-function variable(key: string, label: string, source: string, description?: string): VariableInfo {
-  return { key, label, source, description };
+function titleFromType(value: string): string {
+  return value
+    .replace(/^[a-z]+\./, "")
+    .replace(/[_.-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function readStringValues(value: unknown): string[] {
-  if (typeof value !== "string") return [];
-  return value.match(/{{\s*[\w.-]+\s*}}/g)?.map((item) => item.replace(/[{}]/g, "").trim()) ?? [];
+function humanizeVariable(value: string): string {
+  return value
+    .replace(/[{}]/g, "")
+    .replace(/^[a-z]+\./, "")
+    .replace(/[_.-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-/** Human-readable name for a node data field, e.g. "systemPrompt" -> "prompt". */
-function friendlyFieldName(field: string): string {
-  const labels: Record<string, string> = {
-    systemPrompt: "prompt",
-    prompt: "prompt",
-    firstMessage: "first message",
-    customInstructions: "custom instructions",
-    customerTemplate: "customer message",
-    patientTemplate: "customer message",
-    teamTemplate: "team message",
-    dentistTemplate: "team message",
-    eventTitleFormat: "event title",
-    eventDescription: "event description",
-    confirmationMessage: "confirmation message",
-    closingMessage: "closing message",
-    smsBody: "message body",
-    smsTo: "recipient",
-    gmailTo: "email recipient",
-    gmailSubject: "email subject",
-    gmailBody: "email body",
-    calendarSummary: "event summary",
-    calendarDescription: "event description",
-    conversationBody: "message body",
-    handoffReason: "handoff reason",
-    appointmentService: "service template",
-    subtitle: "description",
-    condition: "condition"
-  };
-
-  return labels[field] ?? field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+function uniqueItems(values: Array<string | undefined | null>): string[] {
+  return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
 }
 
-function collectUsedVariables(node: BuilderNode): VariableInfo[] {
-  const seen = new Set<string>();
-  const used: VariableInfo[] = [];
-
-  Object.entries(node.data).forEach(([field, value]) => {
-    for (const key of readStringValues(value)) {
-      if (seen.has(key)) continue;
-
-      seen.add(key);
-      used.push(
-        variable(
-          key,
-          key,
-          `Used in ${friendlyFieldName(field)}`,
-          `This node references {{${key}}}.`
-        )
-      );
-    }
-  });
-
-  return used;
-}
-
-function commonTriggerVariables(): VariableInfo[] {
-  return [
-    variable("caller.phone", "Caller phone", "Phone trigger", "Customer phone number from the inbound call."),
-    variable("caller.name", "Caller name", "Contact match", "Shown only when the caller is matched to a known contact."),
-    variable("call.time", "Call start time", "Phone trigger", "When the call or browser test started."),
-    variable("business.name", "Business name", "Buyer setup", "The buyer's business name from install/setup."),
-    variable("business.type", "Business type", "Buyer setup", "The buyer's business category from install/setup.")
-  ];
-}
-
-function aiConversationOutputs(): VariableInfo[] {
-  return [
-    variable("customer.name", "Customer Name", "AI Voice Conversation", "Name collected during the conversation."),
-    variable("customer.phone", "Customer Phone", "AI Voice Conversation", "Phone number confirmed during the conversation."),
-    variable("service", "Requested Service", "AI Voice Conversation", "The service the customer wants."),
-    variable("preferred.date", "Preferred Date", "AI Voice Conversation", "The date requested by the customer."),
-    variable("preferred.time", "Preferred Time", "AI Voice Conversation", "The time requested by the customer."),
-    variable("selected.slot", "Selected Slot", "AI Voice Conversation", "The slot selected by the customer.")
-  ];
-}
-
-function calendarAvailabilityOutputs(): VariableInfo[] {
-  return [
-    variable("calendar.available_slots", "Available Slots", "Calendar Availability", "Available appointment slots returned by the calendar check."),
-    variable("calendar.requested_date", "Requested Date", "Calendar Availability", "Date used for availability lookup."),
-    variable("calendar.timezone", "Timezone", "Calendar Availability", "Timezone used for the calendar lookup.")
-  ];
-}
-
-function bookingOutputs(): VariableInfo[] {
-  return [
-    variable("appointment.date", "Appointment Date", "Book Calendar Appointment", "Final appointment date."),
-    variable("appointment.time", "Appointment Time", "Book Calendar Appointment", "Final appointment time."),
-    variable("appointment.status", "Booking Status", "Book Calendar Appointment", "Booking result status."),
-    variable("appointment.confirmation_id", "Confirmation ID", "Book Calendar Appointment", "Generated confirmation ID."),
-    variable("appointment.calendar_event_id", "Calendar Event ID", "Book Calendar Appointment", "Real calendar event ID in live mode; simulated ID in test mode.")
-  ];
-}
-
-function smsOutputs(): VariableInfo[] {
-  return [
-    variable("sms.status", "SMS Status", "Send SMS", "Whether SMS was simulated, queued, or sent."),
-    variable("sms.body", "SMS Body", "Send SMS", "Final SMS body after variables are resolved.")
-  ];
-}
-
-function inboundSmsOutputs(): VariableInfo[] {
-  return [
-    variable("customer.phone", "Customer Phone", "Inbound SMS Trigger", "Phone number that sent the SMS."),
-    variable("sms.incoming_message", "Incoming Message", "Inbound SMS Trigger", "Text received from the customer."),
-    variable("sms.received_time", "Received Time", "Inbound SMS Trigger", "Time when the SMS was received."),
-    variable("sms.message_id", "Message ID", "Inbound SMS Trigger", "Provider message ID."),
-    variable("trigger.source", "Trigger Source", "Inbound SMS Trigger", "Source of the workflow trigger.")
-  ];
-}
-
-function nodeDataFlowInfo(node: BuilderNode): NodeDataFlowInfo {
+function nodeOverview(node: BuilderNode): StepOverview {
   const type = String(node.data.type ?? "");
+  const connector = String(node.data.connector ?? "");
   const nodeKind = String(node.data.nodeKind ?? "");
-  const connector = String(node.data.connector ?? "").toLowerCase();
-  const title = String(node.data.title ?? node.data.label ?? "").toLowerCase();
-
-  const triggerVariables = commonTriggerVariables();
-  const aiOutputs = aiConversationOutputs();
-  const calendarOutputs = calendarAvailabilityOutputs();
-  const appointmentOutputs = bookingOutputs();
-  const smsOutputVariables = smsOutputs();
+  const definition = getNodeDefinition(type);
+  const produced = uniqueItems(definition?.producedVariables?.map(humanizeVariable) ?? []);
+  const required = uniqueItems(definition?.requiredVariables?.map(humanizeVariable) ?? []);
 
   if (type === VOICE_NODE_TYPES.phoneCallTrigger) {
     return {
-      inputs: [],
-      outputs: triggerVariables,
-      availableVariables: [],
-      usedVariables: collectUsedVariables(node)
+      tone: "amber",
+      summary: "Starts the agent when a customer calls the buyer's assigned phone number.",
+      needs: ["Buyer phone number", "Call routing rule"],
+      creates: ["Caller details", "Call start time"],
+      setup: ["Buyer connects phone provider during install"]
     };
   }
 
   if (type === VOICE_NODE_TYPES.voiceConversation) {
     return {
-      inputs: triggerVariables,
-      outputs: aiOutputs,
-      availableVariables: triggerVariables,
-      usedVariables: collectUsedVariables(node)
+      tone: "violet",
+      summary: "Handles the live AI voice conversation and collects the details needed by later steps.",
+      needs: ["Assistant prompt", "Voice", "Language"],
+      creates: ["Customer details", "Requested service", "Preferred booking time"],
+      setup: ["Buyer can override voice and business instructions before deploy"]
     };
   }
 
   if (type === VOICE_NODE_TYPES.calendarAvailability) {
     return {
-      inputs: [
-        variable("preferred.date", "Preferred Date", "AI Voice Conversation"),
-        variable("service.duration", "Service Duration", "Calendar Availability settings"),
-        variable("business.calendar_id", "Calendar ID", "Buyer setup or node settings"),
-        variable("business.timezone", "Timezone", "Buyer setup or calendar default")
-      ],
-      outputs: calendarOutputs,
-      availableVariables: [...triggerVariables, ...aiOutputs],
-      usedVariables: collectUsedVariables(node)
+      tone: "blue",
+      summary: "Checks the buyer's connected calendar and returns appointment options.",
+      needs: ["Requested date", "Service duration", "Calendar access"],
+      creates: ["Available slots", "Calendar timezone"],
+      setup: ["Buyer connects Google Calendar during install"]
     };
   }
 
   if (type === VOICE_NODE_TYPES.bookAppointment) {
     return {
-      inputs: [
-        variable("customer.name", "Customer Name", "AI Voice Conversation"),
-        variable("customer.phone", "Customer Phone", "AI Voice Conversation"),
-        variable("service", "Service", "AI Voice Conversation"),
-        variable("selected.slot", "Selected Slot", "AI Voice Conversation"),
-        variable("calendar.available_slots", "Available Slots", "Calendar Availability")
-      ],
-      outputs: appointmentOutputs,
-      availableVariables: [...triggerVariables, ...aiOutputs, ...calendarOutputs],
-      usedVariables: collectUsedVariables(node)
+      tone: "blue",
+      summary: "Creates the final calendar event after the customer chooses a slot.",
+      needs: ["Customer details", "Selected slot", "Calendar access"],
+      creates: ["Booking status", "Confirmation ID", "Calendar event"],
+      setup: ["Buyer calendar is used at deployment time"]
     };
   }
 
   if (type === VOICE_NODE_TYPES.sendSms) {
     return {
-      inputs: [
-        variable("customer.phone", "Customer Phone", "AI Voice Conversation or Trigger"),
-        variable("customer.name", "Customer Name", "AI Voice Conversation"),
-        variable("service", "Service", "AI Voice Conversation"),
-        variable("appointment.date", "Appointment Date", "Book Calendar Appointment"),
-        variable("appointment.time", "Appointment Time", "Book Calendar Appointment"),
-        variable("appointment.confirmation_id", "Confirmation ID", "Book Calendar Appointment")
-      ],
-      outputs: smsOutputVariables,
-      availableVariables: [...triggerVariables, ...aiOutputs, ...calendarOutputs, ...appointmentOutputs],
-      usedVariables: collectUsedVariables(node)
+      tone: "green",
+      summary: "Sends a confirmation or internal update using the buyer's SMS setup.",
+      needs: ["Recipient phone", "Message template"],
+      creates: ["SMS delivery status"],
+      setup: ["Buyer phone provider sends the live message"]
     };
   }
 
   if (type === VOICE_NODE_TYPES.endFlow) {
     return {
-      inputs: [...triggerVariables, ...aiOutputs, ...calendarOutputs, ...appointmentOutputs, ...smsOutputVariables],
-      outputs: [
-        variable("flow.status", "Flow Status", "End Flow", "Final workflow status."),
-        variable("flow.closing_message", "Closing Message", "End Flow", "Message spoken before ending.")
-      ],
-      availableVariables: [...triggerVariables, ...aiOutputs, ...calendarOutputs, ...appointmentOutputs, ...smsOutputVariables],
-      usedVariables: collectUsedVariables(node)
-    };
-  }
-
-  if (nodeKind === "trigger" && (connector === "sms" || title.includes("sms"))) {
-    const outputs = inboundSmsOutputs();
-
-    return {
-      inputs: [],
-      outputs,
-      availableVariables: [],
-      usedVariables: collectUsedVariables(node)
+      tone: "slate",
+      summary: "Ends the workflow cleanly and decides what happens after the conversation.",
+      needs: ["Closing message"],
+      creates: ["Final flow status"],
+      setup: ["No extra buyer setup required"]
     };
   }
 
   if (nodeKind === "trigger") {
     return {
-      inputs: [],
-      outputs: triggerVariables,
-      availableVariables: [],
-      usedVariables: collectUsedVariables(node)
+      tone: "amber",
+      summary: definition?.description ?? "Starts the workflow from an external event.",
+      needs: [connector ? `${connector} event` : "Trigger event"],
+      creates: produced.length ? produced : ["Trigger details"],
+      setup: [connector ? `${connector} is configured by the buyer or platform` : "Setup depends on the trigger type"]
     };
   }
 
   if (nodeKind === "ai") {
     return {
-      inputs: triggerVariables,
-      outputs: [
-        variable("ai.output", "AI Output", "AI Node", "Generated response from this AI node."),
-        variable("ai.summary", "AI Summary", "AI Node", "Optional structured summary.")
-      ],
-      availableVariables: triggerVariables,
-      usedVariables: collectUsedVariables(node)
+      tone: "violet",
+      summary: definition?.description ?? "Uses AI to understand, generate, or transform content for the workflow.",
+      needs: required.length ? required : ["Prompt or instruction"],
+      creates: produced.length ? produced : ["AI result"],
+      setup: ["Model settings are template defaults and can be adjusted before deploy"]
+    };
+  }
+
+  if (nodeKind === "condition") {
+    return {
+      tone: "orange",
+      summary: definition?.description ?? "Routes the workflow based on a rule or business condition.",
+      needs: required.length ? required : ["Condition rule"],
+      creates: ["Routing decision"],
+      setup: ["No external connection required"]
     };
   }
 
   if (nodeKind === "connector") {
     return {
-      inputs: [...triggerVariables, variable("ai.output", "AI Output", "AI Node")],
-      outputs: [
-        variable("connector.status", "Connector Status", "Connector Node", "Result status from the connector."),
-        variable("connector.output", "Connector Output", "Connector Node", "Raw connector result.")
-      ],
-      availableVariables: [...triggerVariables, variable("ai.output", "AI Output", "AI Node")],
-      usedVariables: collectUsedVariables(node)
+      tone: connector === "SMS" ? "green" : connector === "Google Calendar" ? "blue" : "slate",
+      summary: definition?.description ?? "Connects this workflow to another service or platform action.",
+      needs: required.length ? required : [connector ? `${connector} configuration` : "Connector configuration"],
+      creates: produced.length ? produced : ["Action result"],
+      setup: [connector ? `${connector} access is resolved during buyer setup or deployment` : "Connection setup depends on this action"]
     };
   }
 
   return {
-    inputs: triggerVariables,
-    outputs: [
-      variable("node.output", "Node Output", "Current Node", "Generic output from this node.")
-    ],
-    availableVariables: triggerVariables,
-    usedVariables: collectUsedVariables(node)
+    tone: "slate",
+    summary: definition?.description ?? "A generic workflow step that can be connected to other nodes.",
+    needs: required.length ? required : ["Previous step data"],
+    creates: produced.length ? produced : [titleFromType(type || String(node.data.title ?? "Step"))],
+    setup: ["Setup depends on how this step is used"]
   };
 }
 
-function copyVariableTemplate(key: string) {
-  const text = `{{${key}}}`;
-
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    void navigator.clipboard.writeText(text).catch(() => undefined);
-  }
-}
-
-function NodeDataFlowPanel({ node }: { node: BuilderNode }) {
-  const info = nodeDataFlowInfo(node);
-  const isStartNode = info.inputs.length === 0;
+function PillList({ items, emptyText, className }: { items: string[]; emptyText: string; className: string }) {
+  const visibleItems = items.length ? items : [emptyText];
 
   return (
-    <Section title="Data Flow">
-      <div
-        className="rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-3"
-        data-testid="node-data-flow-intro"
-      >
-        <p className="flex items-center gap-2 text-xs font-bold text-violet-700">
-          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-lg bg-violet-600 text-white">
-            <BuilderIcon name={isStartNode ? "play" : "git-branch"} className="h-3 w-3" />
+    <div className="flex flex-wrap gap-1.5">
+      {visibleItems.map((item) => (
+        <span key={item} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${className}`}>
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function NodeOverviewPanel({ node }: { node: BuilderNode }) {
+  const overview = nodeOverview(node);
+  const styles = TONE_CLASSNAMES[overview.tone];
+
+  return (
+    <Section title="Step overview">
+      <div className={`rounded-2xl border px-3.5 py-3.5 ${styles.card}`} data-testid="node-step-overview">
+        <div className="flex gap-3">
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${styles.icon}`}>
+            <BuilderIcon name={String(node.data.icon ?? "message")} className="h-4 w-4" />
           </span>
-          {isStartNode ? "This node starts the workflow" : "This node receives data and creates new data"}
-        </p>
 
-        <p className="mt-1.5 text-[11px] leading-5 text-violet-700/80">
-          {isStartNode
-            ? "There is no input before this node. The variables below become available for the next nodes."
-            : "Use this section to understand what this node needs, what it creates, and which variables can be used."}
-        </p>
-      </div>
-
-      <div className="mt-4">
-        <VariableGroup
-          title="Input"
-          testId="node-data-flow-input"
-          emptyText="No input needed"
-          variables={info.inputs}
-          compact
-        />
-      </div>
-
-      <div className="mt-4">
-        <VariableGroup
-          title="Output"
-          testId="node-data-flow-output"
-          badge={info.outputs.length > 0 ? String(info.outputs.length) : undefined}
-          helperText="These values become available to the nodes that run after this one."
-          emptyText="This node does not create new variables."
-          variables={info.outputs}
-          compact
-        />
-      </div>
-
-      {info.availableVariables.length > 0 ? (
-        <div className="mt-4">
-          <VariableGroup
-            title="Available Variables"
-            testId="node-data-flow-available"
-            badge={String(info.availableVariables.length)}
-            helperText="Click a variable to copy it, then paste it into any text field of this node."
-            emptyText="No variables are available before this node."
-            variables={info.availableVariables}
-            showTemplate
-            compact
-          />
+          <div className="min-w-0 flex-1">
+            <p className={`text-sm font-bold leading-5 ${styles.title}`}>
+              {String(node.data.title ?? node.data.label ?? "Workflow step")}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">{overview.summary}</p>
+          </div>
         </div>
-      ) : null}
 
-      <div className="mt-4">
-        <VariableGroup
-          title="Variables Used"
-          testId="node-data-flow-used"
-          emptyText="No variables used yet."
-          variables={info.usedVariables}
-          showTemplate
-        />
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Needs</p>
+            <PillList items={overview.needs} emptyText="No input required" className={styles.chip} />
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Creates</p>
+            <PillList items={overview.creates} emptyText="No new output" className={styles.chip} />
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-white/70 bg-white/70 px-3 py-2">
+          <p className="flex items-start gap-2 text-[11px] leading-5 text-slate-600">
+            <BuilderIcon name="info" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <span>{overview.setup.join(". ")}</span>
+          </p>
+        </div>
       </div>
     </Section>
   );
 }
 
-function VariableGroup({
+/* --------------------------- advanced settings --------------------------- */
+
+/** {{variable}} tokens referenced anywhere in this node's string fields. */
+function collectTemplateVariables(node: BuilderNode): string[] {
+  const seen = new Set<string>();
+
+  for (const value of Object.values(node.data)) {
+    if (typeof value !== "string") continue;
+    for (const match of value.match(/{{\s*[\w.-]+\s*}}/g) ?? []) {
+      seen.add(match.replace(/[{}]/g, "").trim());
+    }
+  }
+
+  return Array.from(seen);
+}
+
+function AdvancedVariableGroup({
   title,
-  variables,
+  keys,
   emptyText,
-  helperText,
-  badge,
+  helper,
   testId,
-  showTemplate = false,
-  compact = false
+  copiedKey,
+  onCopy
 }: {
   title: string;
-  variables: VariableInfo[];
+  keys: string[];
   emptyText: string;
-  helperText?: string;
-  badge?: string;
+  helper?: string;
   testId: string;
-  showTemplate?: boolean;
-  compact?: boolean;
+  copiedKey: string | null;
+  onCopy: (key: string) => void;
 }) {
+  return (
+    <div data-testid={testId}>
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
+
+      {helper && keys.length > 0 ? <p className="mb-2 text-[11px] leading-4 text-slate-400">{helper}</p> : null}
+
+      {keys.length === 0 ? (
+        <p
+          data-testid={`${testId}-empty`}
+          className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2 text-[11px] text-slate-400"
+        >
+          {emptyText}
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {keys.map((key) => (
+            <button
+              type="button"
+              key={key}
+              data-testid={`${testId}-item-${key}`}
+              onClick={() => onCopy(key)}
+              title={`Click to copy {{${key}}}`}
+              className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2.5 py-1 font-mono text-[10px] text-slate-500 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600"
+            >
+              {copiedKey === key ? "Copied!" : `{{${key}}}`}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Collapsed-by-default technical panel: variable mappings and developer
+ * details. The default inspector stays plain-language; power users expand
+ * this to wire {{variables}} between steps.
+ */
+function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
+  const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  function handleCopy(key: string) {
-    copyVariableTemplate(key);
-    setCopiedKey(key);
+  const type = String(node.data.type ?? "");
+  const definition = getNodeDefinition(type);
+  const inputKeys = definition?.requiredVariables ?? [];
+  const outputKeys = definition?.producedVariables ?? [];
+  const usedKeys = collectTemplateVariables(node);
+  const connector = String(node.data.connector ?? "");
+  const connectorAction = String(node.data.connectorAction ?? "");
 
+  function handleCopy(key: string) {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(`{{${key}}}`).catch(() => undefined);
+    }
+    setCopiedKey(key);
     window.setTimeout(() => {
       setCopiedKey((current) => (current === key ? null : current));
     }, 1200);
   }
 
   return (
-    <div data-testid={testId}>
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-          {title}
-        </p>
+    <div className="border-t border-gray-100 px-5 py-4">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        data-testid="node-advanced-settings-toggle"
+        className="flex w-full items-center justify-between rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5 text-left transition hover:border-gray-200"
+      >
+        <span className="text-xs font-bold text-slate-600">Advanced settings</span>
+        <BuilderIcon
+          name="chevron"
+          className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
 
-        {badge ? (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
-            {badge}
-          </span>
-        ) : null}
-      </div>
+      {open ? (
+        <div className="mt-3 space-y-4" data-testid="node-advanced-settings">
+          <AdvancedVariableGroup
+            title="Input mapping"
+            testId="node-advanced-input"
+            emptyText="This step does not require mapped variables."
+            keys={inputKeys}
+            copiedKey={copiedKey}
+            onCopy={handleCopy}
+          />
 
-      {helperText && variables.length > 0 ? (
-        <p className="mb-2 text-[11px] leading-4 text-slate-400">{helperText}</p>
+          <AdvancedVariableGroup
+            title="Output mapping"
+            testId="node-advanced-output"
+            emptyText="This step does not publish variables."
+            helper="These values become available to the steps that run after this one."
+            keys={outputKeys}
+            copiedKey={copiedKey}
+            onCopy={handleCopy}
+          />
+
+          <AdvancedVariableGroup
+            title="Variables"
+            testId="node-advanced-variables"
+            emptyText="No variables are used in this step yet."
+            helper="Variables referenced by this step's fields. Click one to copy it, then paste it into any text field."
+            keys={usedKeys}
+            copiedKey={copiedKey}
+            onCopy={handleCopy}
+          />
+
+          <div data-testid="node-advanced-developer">
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Developer options</p>
+            <div className="space-y-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-500">
+              <p>id: {node.id}</p>
+              <p>type: {type || "—"}</p>
+              <p>kind: {String(node.data.nodeKind ?? "—")}</p>
+              {connector ? <p>connector: {connector}</p> : null}
+              {connectorAction ? <p>action: {connectorAction}</p> : null}
+              {definition?.capability ? <p>capability: {definition.capability}</p> : null}
+            </div>
+          </div>
+        </div>
       ) : null}
-
-      {variables.length === 0 ? (
-        <p
-          data-testid={`${testId}-empty`}
-          className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2 text-xs text-slate-400"
-        >
-          {emptyText}
-        </p>
-      ) : compact ? (
-        <div className="flex flex-wrap gap-1.5">
-          {variables.map((item) => (
-            <button
-              type="button"
-              key={`${title}-${item.key}`}
-              data-testid={`${testId}-item-${item.key}`}
-              onClick={() => handleCopy(item.key)}
-              title={`Click to copy {{${item.key}}}${item.description ? ` — ${item.description}` : ""}`}
-              className="group inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-left transition hover:border-violet-200 hover:bg-violet-50"
-            >
-              {item.label !== item.key ? (
-                <span className="text-[11px] font-semibold text-slate-700 group-hover:text-violet-700">
-                  {item.label}
-                </span>
-              ) : null}
-
-              <span className="font-mono text-[10px] text-slate-400 group-hover:text-violet-500">
-                {copiedKey === item.key ? "Copied!" : showTemplate ? `{{${item.key}}}` : item.key}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {variables.map((item) => (
-            <button
-              type="button"
-              key={`${title}-${item.key}`}
-              data-testid={`${testId}-item-${item.key}`}
-              onClick={() => handleCopy(item.key)}
-              title={`Click to copy {{${item.key}}}`}
-              className="w-full rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-left transition hover:border-violet-200 hover:bg-violet-50/60"
-            >
-              <div className="flex items-center justify-between gap-2">
-                {item.label !== item.key ? (
-                  <p className="text-xs font-bold text-slate-800">{item.label}</p>
-                ) : (
-                  <p className="font-mono text-xs font-semibold text-violet-700">
-                    {copiedKey === item.key ? "Copied!" : `{{${item.key}}}`}
-                  </p>
-                )}
-
-                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-gray-100">
-                  {item.source}
-                </span>
-              </div>
-
-              {item.label !== item.key ? (
-                <p className="mt-0.5 font-mono text-[11px] text-violet-600">
-                  {copiedKey === item.key ? "Copied!" : showTemplate ? `{{${item.key}}}` : item.key}
-                </p>
-              ) : null}
-
-              {item.description ? (
-                <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                  {item.description}
-                </p>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1153,7 +1078,7 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
         <Label>Event title format</Label>
         <TextInput
           mono
-          value={str("eventTitleFormat", "{{appointment.service}} - {{customer.name}}")}
+          value={str("eventTitleFormat")}
           onChange={set("eventTitleFormat")}
           placeholder="{{appointment.service}} - {{customer.name}}"
         />
@@ -1163,7 +1088,7 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
           <TextArea
             mono
             height="h-20"
-            value={str("eventDescription", "Phone: {{customer.phone}}\nService: {{appointment.service}}")}
+            value={str("eventDescription")}
             onChange={set("eventDescription")}
             placeholder="Phone: {{customer.phone}} | Service: {{appointment.service}}"
           />
@@ -1182,7 +1107,7 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
           <Label>Confirmation message</Label>
           <TextArea
             height="h-16"
-            value={str("confirmationMessage", "You're all set. Your appointment is booked for {{appointment.date}} at {{appointment.time}}.")}
+            value={str("confirmationMessage")}
             onChange={set("confirmationMessage")}
             placeholder="Said after a successful booking"
           />
@@ -1210,7 +1135,7 @@ function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           <Label>Customer message template</Label>
           <TextArea
             height="h-20"
-            value={str("customerTemplate", str("patientTemplate", "Confirmed: {{appointment.service}} on {{appointment.date}} at {{appointment.time}}."))}
+            value={str("customerTemplate", str("patientTemplate"))}
             onChange={set("customerTemplate")}
             placeholder="Confirmed: {{appointment.service}} on {{appointment.date}} at {{appointment.time}}."
           />
@@ -1224,7 +1149,7 @@ function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           <Label>Team message template</Label>
           <TextArea
             height="h-20"
-            value={str("teamTemplate", str("dentistTemplate", "New booking: {{customer.name}}, {{appointment.date}} {{appointment.time}}, {{appointment.service}}."))}
+            value={str("teamTemplate", str("dentistTemplate"))}
             onChange={set("teamTemplate")}
             placeholder="New booking: {{customer.name}}, {{appointment.date}} {{appointment.time}}, {{appointment.service}}."
           />
@@ -1452,12 +1377,12 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
 
             <div className="mt-4">
               <Label>Service template</Label>
-              <TextInput value={str("appointmentService", "{{appointment.service}}")} onChange={set("appointmentService")} placeholder="{{appointment.service}}" />
+              <TextInput value={str("appointmentService")} onChange={set("appointmentService")} placeholder="{{appointment.service}}" />
             </div>
 
             <div className="mt-4">
               <Label>Event summary</Label>
-              <TextInput mono value={str("calendarSummary", "{{appointment.service}} - {{customer.name}}")} onChange={set("calendarSummary")} />
+              <TextInput mono value={str("calendarSummary")} onChange={set("calendarSummary")} />
             </div>
 
             <div className="mt-4">
@@ -1517,12 +1442,12 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
 
             <div className="mt-4">
               <Label>Send to</Label>
-              <TextInput mono value={str("smsTo", "{{customer.phone}}")} onChange={set("smsTo")} />
+              <TextInput mono value={str("smsTo")} onChange={set("smsTo")} />
             </div>
 
             <div className="mt-4">
               <Label>Message body</Label>
-              <TextArea value={str("smsBody", "{{ai.output}}")} onChange={set("smsBody")} height="h-[88px]" />
+              <TextArea value={str("smsBody")} onChange={set("smsBody")} height="h-[88px]" />
             </div>
           </>
         )}

@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 
 export type AdminSummary = {
   totalBusinesses: number;
@@ -130,4 +130,117 @@ export function getAdminContactSubmissions(
   params: { search?: string; subject?: string; page?: number; limit?: number } = {}
 ) {
   return apiGet<AdminPaged<AdminContactSubmission>>(`/admin/contact-submissions${query(params)}`);
+}
+
+/* ------------------------- Platform phone numbers ------------------------- */
+
+export type PhoneNumberStatus = "AVAILABLE" | "ASSIGNED" | "DISABLED" | "ARCHIVED" | "RELEASED" | "ERROR";
+export type PhoneWebhookStatus = "CONFIGURED" | "MISSING" | "FAILED" | "UNKNOWN";
+
+export type AdminPhoneNumber = {
+  id: string;
+  phoneNumber: string;
+  e164: string | null;
+  provider: string;
+  status: PhoneNumberStatus;
+  twilioSid: string | null;
+  country: string | null;
+  region: string | null;
+  locality: string | null;
+  capabilities: { voice?: boolean; sms?: boolean; mms?: boolean } | null;
+  voiceEnabled: boolean;
+  smsEnabled: boolean;
+  mmsEnabled: boolean | null;
+  business: { id: string; name: string | null; type: string | null } | null;
+  installedAgent: { id: string; name: string | null; status: string | null } | null;
+  buyerUser: { id: string; email: string | null; fullName: string | null } | null;
+  assignedAt: string | null;
+  purchasedAt: string | null;
+  releasedAt: string | null;
+  voiceWebhookUrl: string | null;
+  smsWebhookUrl: string | null;
+  webhookStatus: PhoneWebhookStatus;
+  complianceStatus: string;
+  a2pStatus: string;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+};
+
+export type AvailablePhoneNumber = {
+  phoneNumber: string;
+  friendlyName: string;
+  country: string;
+  region: string | null;
+  locality: string | null;
+  capabilities: { voice: boolean; sms: boolean; mms: boolean };
+};
+
+export type PhoneSyncResult = {
+  dryRun: boolean;
+  totalOnTwilio: number;
+  created: string[];
+  updated: string[];
+  /** Numbers whose stored Twilio SID was stale and repaired during sync. */
+  repairedSids: string[];
+  missingInTwilio: string[];
+  unchanged: number;
+};
+
+export function getAdminPhoneNumbers() {
+  return apiGet<{ numbers: AdminPhoneNumber[] }>("/admin/phone-numbers");
+}
+
+export function searchAvailablePhoneNumbers(params: {
+  country?: string;
+  areaCode?: string;
+  contains?: string;
+  voiceEnabled?: boolean;
+  smsEnabled?: boolean;
+  mmsEnabled?: boolean;
+  limit?: number;
+}) {
+  const flags: Record<string, string | number | undefined> = {
+    country: params.country,
+    areaCode: params.areaCode,
+    contains: params.contains,
+    limit: params.limit,
+    voiceEnabled: params.voiceEnabled ? "true" : undefined,
+    smsEnabled: params.smsEnabled ? "true" : undefined,
+    mmsEnabled: params.mmsEnabled ? "true" : undefined
+  };
+  return apiGet<{ numbers: AvailablePhoneNumber[] }>(`/admin/phone-numbers/available${query(flags)}`);
+}
+
+export function purchasePhoneNumber(body: { phoneNumber: string; country?: string; friendlyName?: string }) {
+  return apiPost<{ number: AdminPhoneNumber }>("/admin/phone-numbers/purchase", body);
+}
+
+export function getPhoneAssignOptions(businessId: string) {
+  return apiGet<{ agents: { id: string; name: string; status: string }[] }>(
+    `/admin/phone-numbers/assign-options${query({ businessId })}`
+  );
+}
+
+export function assignPhoneNumber(
+  id: string,
+  body: { businessId: string; installedAgentId?: string; buyerUserId?: string }
+) {
+  return apiPost<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/assign`, body);
+}
+
+export function unassignPhoneNumber(id: string) {
+  return apiPost<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/unassign`, {});
+}
+
+export function configurePhoneNumberWebhooks(id: string) {
+  return apiPost<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/configure-webhooks`, {});
+}
+
+export function syncTwilioPhoneNumbers(dryRun: boolean) {
+  return apiPost<PhoneSyncResult>(`/admin/phone-numbers/sync-twilio${dryRun ? "?dryRun=true" : ""}`, {});
+}
+
+export function releasePhoneNumber(id: string) {
+  return apiDelete<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/release`);
 }

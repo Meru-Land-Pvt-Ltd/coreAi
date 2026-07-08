@@ -715,7 +715,7 @@ export function ConfigurePanel({
                         data-testid={`configure-feature-input-${index}`}
                         value={configure.media.includedFeatures[index] ?? ""}
                         disabled={isLocked}
-                        placeholder="e.g. 24/7 missed call detection"
+                        placeholder="e.g. 24/7 customer response"
                         onChange={(event) => {
                           const nextFeatures = [...configure.media.includedFeatures];
                           while (nextFeatures.length < 4) nextFeatures.push("");
