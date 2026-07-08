@@ -701,6 +701,27 @@ enum RefundSettlementStatus {
   PAID
 }
 
+enum ListingReviewStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum ListingPublishStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum PricingModel {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
+}
+
 enum ConnectorProvider {
   GMAIL
   TWILIO
