@@ -13,6 +13,14 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
+import {
+  createWorkflowRun,
+  completeWorkflowRun,
+  failWorkflowRun,
+  runAiBrainNode,
+  memoryBroker,
+  type AiBrainNodeConfig,
+} from "../memory";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -114,6 +122,22 @@ type RunnerNodeData = {
   dentistPhone?: unknown;
   patientTemplate?: unknown;
   dentistTemplate?: unknown;
+  provider?: unknown;
+  instructions?: unknown;
+  temperature?: unknown;
+  maxTokens?: unknown;
+  outputFormat?: unknown;
+  backlinkNodeIds?: unknown;
+  // LLM Call node fields (ai.llm_call) — set from the workflow builder inspector
+  llmProvider?: unknown;
+  llmModel?: unknown;
+  llmSystemPrompt?: unknown;
+  llmPrompt?: unknown;
+  llmContext?: unknown;
+  llmTemperature?: unknown;
+  llmMaxTokens?: unknown;
+  llmOutputFormat?: unknown;
+  llmOutputKey?: unknown;
 };
 
 type RunnerNode = {
@@ -248,6 +272,14 @@ type RunnerContext = {
     ran: boolean;
   };
   output?: unknown;
+  /** Accumulated per-node outputs for LLM Call pipelines (ai.llm_call nodes). */
+  llmPipeline?: Record<string, {
+    label: string;
+    outputKey: string;
+    output: string;
+    providerId: string;
+    modelName: string;
+  }>;
   [key: string]: unknown;
 };
 
@@ -354,9 +386,54 @@ function createLog(
   };
 }
 
+function toAiBrainNodeConfig(node: RunnerNode): AiBrainNodeConfig {
+  const isLlmCall = asString(node.data?.type) === "ai.llm_call";
+
+  // For LLM Call nodes, remap frontend field names to the canonical names
+  // expected by runAiBrainNode / contextBundleToExecuteRequest:
+  //   llmProvider -> provider
+  //   llmModel    -> model
+  //   llmSystemPrompt -> instructions (used as the system context/persona)
+  //   llmPrompt   -> prompt (the user-facing task message)
+  //   llmTemperature -> temperature
+  //   llmMaxTokens   -> maxTokens
+  //   llmOutputFormat -> outputFormat
+  const data = isLlmCall
+    ? {
+        ...node.data,
+        provider: node.data?.llmProvider ?? node.data?.provider,
+        model: node.data?.llmModel ?? node.data?.model,
+        instructions: node.data?.llmSystemPrompt ?? node.data?.instructions,
+        prompt: node.data?.llmPrompt ?? node.data?.prompt,
+        temperature: node.data?.llmTemperature ?? node.data?.temperature,
+        maxTokens: node.data?.llmMaxTokens ?? node.data?.maxTokens,
+        outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
+      }
+    : node.data;
+
+  return {
+    id: node.id,
+    nodeType: asString(node.data?.type, "ai.context_reply"),
+    nodeLabel: asString(node.data?.title ?? node.data?.label),
+    data,
+  };
+}
+
+/** Test runs use Provider Engine for builder AI nodes; live receptionist keeps legacy SMS logic without provider. */
+function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boolean {
+  const type = asString(node.data?.type);
+  if (type === VOICE_NODE_TYPES.voiceConversation) return false;
+  if (type === "ai.brain") return true;
+  // LLM Call node (from workflow builder) always uses the provider engine
+  if (type === "ai.llm_call") return true;
+  if (Boolean(asString(node.data?.provider))) return true;
+  if (type === "ai.context_reply" && mode === "test") return true;
+  return false;
+}
+
 function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
-  const callerNumber = optionalString(input?.callerNumber);
-  const callerName = optionalString(input?.callerName);
+  const callerNumber = optionalString(input?.callerNumber) ?? "+15555550100";
+  const callerName = optionalString(input?.callerName) ?? "Jordan Lee";
   const businessName =
     optionalString(input?.businessName) ??
     optionalString(env.TWILIO_DEFAULT_BUSINESS_NAME) ??
@@ -1429,28 +1506,53 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
 
   const outputKey = asString(node.data?.outputKey, isVoiceWorkflow ? "voiceBookingResult" : "missedCallTextBackResult");
 
+  // If one or more LLM Call nodes ran, surface the final LLM output as the
+  // primary result value, with the full pipeline map attached so every node's
+  // output is visible in the test panel.
+  const hasLlmPipeline =
+    context.llmPipeline &&
+    typeof context.llmPipeline === "object" &&
+    Object.keys(context.llmPipeline as Record<string, unknown>).length > 0;
+
   context.output = {
     key: outputKey,
-    value:
-      context.calendarAppointment ??
-      context.calendarAvailability ??
-      context.smsNotification ??
-      context.voiceConversation ??
-      context.capturedLead ??
-      context.vapiCall ??
-      context.sentSms ??
-      context.queuedSms ??
-      context.sentEmail ??
-      context.draftEmail ??
-      context.ai ??
-      context.gmail ??
-      context.missedCall ??
-      null
+    value: hasLlmPipeline
+      ? {
+          finalOutput: context.ai?.output ?? "",
+          pipeline: context.llmPipeline,
+        }
+      : (context.calendarAppointment ??
+        context.calendarAvailability ??
+        context.smsNotification ??
+        context.voiceConversation ??
+        context.capturedLead ??
+        context.vapiCall ??
+        context.sentSms ??
+        context.queuedSms ??
+        context.sentEmail ??
+        context.draftEmail ??
+        context.ai ??
+        context.gmail ??
+        context.missedCall ??
+        null)
   };
 
   if (isVoiceWorkflow) {
     logs.push(
       createLog(node, "success", "Voice booking workflow dry run completed.", context.output)
+    );
+    return;
+  }
+
+  if (hasLlmPipeline) {
+    const pipelineCount = Object.keys(context.llmPipeline as Record<string, unknown>).length;
+    logs.push(
+      createLog(
+        node,
+        "success",
+        `LLM pipeline complete — ${pipelineCount} node(s) ran. Final output saved as ${outputKey}.`,
+        context.output
+      )
     );
     return;
   }
@@ -1495,56 +1597,166 @@ export async function runWorkflowTest({
     };
   }
 
-  for (const node of sortNodesForRun(parsedWorkflow.nodes)) {
-    const nodeKind = asString(node.data?.nodeKind);
+  const { workflowRunId, threadId } = await createWorkflowRun({
+    workflowId,
+    triggeredByUserId: userId,
+    businessId: input?.businessId,
+    installedAgentId: input?.installedAgentId,
+    mode,
+    inputJson: input as Record<string, unknown> | undefined,
+  });
 
-    try {
-      if (nodeKind === "trigger") {
-        runTriggerNode(node, context, logs);
-        continue;
+  let executionOrder = 0;
+  let runFailed = false;
+
+  try {
+    for (const node of sortNodesForRun(parsedWorkflow.nodes)) {
+      const nodeKind = asString(node.data?.nodeKind);
+
+      try {
+        if (nodeKind === "trigger") {
+          runTriggerNode(node, context, logs);
+          await memoryBroker.saveNodeMemory({
+            workflowRunId,
+            nodeId: node.id,
+            nodeType: asString(node.data?.type, "trigger"),
+            nodeLabel: asString(node.data?.title ?? node.data?.label),
+            status: "success",
+            executionOrder: executionOrder++,
+            threadId,
+            input: input as Record<string, unknown> | undefined,
+            output: {
+              callerNumber: context.caller_number,
+              inboundSms: context.inboundSms,
+              missedCall: context.missedCall,
+            },
+            summary: "Trigger fired",
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          });
+          continue;
+        }
+
+        if (nodeKind === "connector") {
+          await runConnectorNode({
+            userId,
+            node,
+            context,
+            logs,
+            mode,
+            chain
+          });
+          continue;
+        }
+
+        if (nodeKind === "ai") {
+          if (shouldUseProviderEngine(node, mode)) {
+            const result = await runAiBrainNode({
+              workflowRunId,
+              threadId,
+              executionOrder: executionOrder++,
+              node: toAiBrainNodeConfig(node),
+            });
+
+            const outputText = result.text ?? "";
+
+            // Always update context.ai so generic downstream nodes see it
+            context.ai = { output: outputText };
+
+            // For LLM Call nodes: also write to the configured llmOutputKey
+            // (defaults to "ai.output") so template variables like {{ai.output}}
+            // resolve correctly. Also write a namespaced per-node key
+            // (node.<id>.output) for explicit multi-LLM chaining references.
+            const isLlmCall = asString(node.data?.type) === "ai.llm_call";
+            if (isLlmCall) {
+              const outputKey = asString(node.data?.llmOutputKey, "ai.output");
+              // Flat dot-path key — renderTemplate resolves e.g. {{ai.output}}
+              context[outputKey] = outputText;
+              // Per-node alias for explicit chaining: {{node.<id>.output}}
+              const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "_");
+              context[`node.${node.id}.output`] = outputText;
+              context[`node.${nodeLabel}.output`] = outputText;
+
+              // Build/update the LLM pipeline accumulator
+              // so the final output node can surface all node results
+              if (!context.llmPipeline || typeof context.llmPipeline !== "object") {
+                context.llmPipeline = {};
+              }
+              (context.llmPipeline as Record<string, unknown>)[node.id] = {
+                label: asString(node.data?.title ?? node.data?.label, node.id),
+                outputKey,
+                output: outputText,
+                providerId: result.providerId,
+                modelName: result.modelName,
+              };
+            }
+
+            logs.push(
+              createLog(
+                node,
+                result.status === "success" ? "success" : "error",
+                result.error ??
+                  (isLlmCall
+                    ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
+                    : "AI Brain node completed."),
+                {
+                  text: result.text,
+                  providerId: result.providerId,
+                  modelName: result.modelName,
+                  nodeRunId: result.nodeRunId,
+                  ...(isLlmCall ? { outputKey: asString(node.data?.llmOutputKey, "ai.output") } : {}),
+                }
+              )
+            );
+
+            if (result.status === "error") runFailed = true;
+          } else {
+            runAiNode(node, context, logs);
+          }
+          continue;
+        }
+
+        if (nodeKind === "condition") {
+          runConditionNode(node, context, logs);
+          continue;
+        }
+
+        if (nodeKind === "output") {
+          runOutputNode(node, context, logs);
+          continue;
+        }
+
+        logs.push(createLog(node, "error", `Unknown node kind: ${nodeKind}`));
+      } catch (error) {
+        runFailed = true;
+        logs.push(
+          createLog(
+            node,
+            "error",
+            error instanceof Error ? error.message : "Node execution failed"
+          )
+        );
       }
-
-      if (nodeKind === "connector") {
-        await runConnectorNode({
-          userId,
-          node,
-          context,
-          logs,
-          mode,
-          chain
-        });
-        continue;
-      }
-
-      if (nodeKind === "ai") {
-        runAiNode(node, context, logs);
-        continue;
-      }
-
-      if (nodeKind === "condition") {
-        runConditionNode(node, context, logs);
-        continue;
-      }
-
-      if (nodeKind === "output") {
-        runOutputNode(node, context, logs);
-        continue;
-      }
-
-      logs.push(createLog(node, "error", `Unknown node kind: ${nodeKind}`));
-    } catch (error) {
-      logs.push(
-        createLog(
-          node,
-          "error",
-          error instanceof Error ? error.message : "Node execution failed"
-        )
-      );
     }
+  } catch (error) {
+    await failWorkflowRun(
+      workflowRunId,
+      error instanceof Error ? error.message : "Workflow run failed"
+    );
+    throw error;
+  }
+
+  if (runFailed) {
+    await failWorkflowRun(workflowRunId, "One or more nodes failed");
+  } else {
+    await completeWorkflowRun(workflowRunId);
   }
 
   return {
     workflowId,
+    workflowRunId,
     logs,
     context
   };

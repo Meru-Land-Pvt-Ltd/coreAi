@@ -33,6 +33,28 @@ export function defaultNodeData(
   }
 
   if (nodeKind === "ai") {
+    if (overrides?.type === "ai.llm_call") {
+      return {
+        ...base,
+        label: "LLM Call",
+        title: "LLM Call",
+        kind: "LLM",
+        icon: "sparkles",
+        accent: "violet",
+        subtitle: "Generate text/JSON response using an LLM model",
+        llmProvider: "openai",
+        llmModel: "gpt-4o",
+        llmSystemPrompt: "You are a helpful assistant.",
+        llmPrompt: "",
+        llmContext: "",
+        llmTemperature: "0.7",
+        llmMaxTokens: "1024",
+        llmOutputFormat: "text",
+        llmOutputKey: "ai.output",
+        ...overrides
+      };
+    }
+
     return {
       ...base,
       label: "AI Step",

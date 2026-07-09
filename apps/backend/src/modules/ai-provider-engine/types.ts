@@ -53,6 +53,7 @@ export interface AIProviderAdapter {
   readonly providerId: string;
   readonly displayName: string;
   readonly scores: Partial<Record<AIIntent, number>>;
+  readonly models: string[];
   validate(): Promise<ValidationResult>;
   execute(request: AIExecuteRequest): Promise<AIExecuteResponse>;
   continueConversation(request: AIContinueRequest): Promise<AIExecuteResponse>;

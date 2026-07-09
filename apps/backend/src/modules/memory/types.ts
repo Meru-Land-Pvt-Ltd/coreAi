@@ -103,6 +103,8 @@ export type BuildContextBundleInput = {
   nodeId: string;
   threadId?: string;
   originalPrompt?: string;
+  /** Current node order in this run — used to resolve forward-chain memory before NodeRun exists. */
+  executionOrder?: number;
   /** Node ids the architect picked for back-linking in the workflow builder. */
   backlinkNodeIds?: string[];
   workflowMetadata?: Record<string, unknown>;

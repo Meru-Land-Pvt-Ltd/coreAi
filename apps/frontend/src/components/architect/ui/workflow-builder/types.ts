@@ -51,6 +51,15 @@ export type BuilderNodeData = Record<string, unknown> & {
   conversationBody?: string;
   handoffReason?: string;
   nextWorkflowId?: string;
+  llmProvider?: string;
+  llmModel?: string;
+  llmSystemPrompt?: string;
+  llmPrompt?: string;
+  llmContext?: string;
+  llmTemperature?: string;
+  llmMaxTokens?: string;
+  llmOutputFormat?: string;
+  llmOutputKey?: string;
 };
 
 export type BuilderNode = Node<BuilderNodeData, "coreNode">;

@@ -39,6 +39,14 @@ class ClaudeAdapter implements AIProviderAdapter {
     reasoning: 10,
     code: 8,
   };
+  readonly models = [
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    "claude-haiku-3-5",
+    "claude-3-opus",
+    "claude-3-sonnet",
+    "claude-3-haiku",
+  ];
 
   private get client(): Anthropic {
     return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });

@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData } from "./types";
+import { LlmNodeInspector } from "./llm-node-inspector";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
@@ -61,7 +62,8 @@ export function NodeInspector({
 
   let panel: ReactNode;
 
-  if (type === VOICE_NODE_TYPES.phoneCallTrigger) panel = <PhoneCallTriggerProps {...base} />;
+  if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
+  else if (type === VOICE_NODE_TYPES.phoneCallTrigger) panel = <PhoneCallTriggerProps {...base} />;
   else if (type === VOICE_NODE_TYPES.voiceConversation) panel = <AiVoiceConversationProps {...base} />;
   else if (type === VOICE_NODE_TYPES.calendarAvailability) {
     panel = <CalendarAvailabilityProps {...base} calendar={calendar} ownership={ownership} />;
@@ -150,7 +152,7 @@ function EmptyProperties() {
 
 /* ---------------------------------- UI ---------------------------------- */
 
-function Section({ title, children, last = false }: { title: string; children: ReactNode; last?: boolean }) {
+export function Section({ title, children, last = false }: { title: string; children: ReactNode; last?: boolean }) {
   return (
     <div className={last ? "p-5" : "border-b border-gray-100 p-5"}>
       {title ? (
@@ -167,7 +169,7 @@ function Section({ title, children, last = false }: { title: string; children: R
   );
 }
 
-function Label({ children }: { children: ReactNode }) {
+export function Label({ children }: { children: ReactNode }) {
   return (
     <span
       data-testid="node-inspector-field-label"
@@ -178,7 +180,7 @@ function Label({ children }: { children: ReactNode }) {
   );
 }
 
-function TextInput({
+export function TextInput({
   value,
   onChange,
   placeholder,
@@ -201,7 +203,7 @@ function TextInput({
   );
 }
 
-function TextArea({
+export function TextArea({
   value,
   onChange,
   height = "h-20",
@@ -226,7 +228,7 @@ function TextArea({
   );
 }
 
-function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: string[] }) {
+export function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: string[] }) {
   const allOptions = options.includes(value) || !value ? options : [value, ...options];
 
   return (
@@ -251,7 +253,7 @@ function SelectBox({ value, onChange, options }: { value: string; onChange: (val
   );
 }
 
-function NumberInput({
+export function NumberInput({
   value,
   onChange,
   testId,

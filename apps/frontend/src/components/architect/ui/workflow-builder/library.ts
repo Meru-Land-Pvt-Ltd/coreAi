@@ -53,7 +53,22 @@ export const libraryGroups: LibraryGroup[] = [
     title: "AI",
     items: [
       paletteItem(VOICE_NODE_TYPES.voiceConversation, { icon: "sparkles", accent: "violet" }),
-      paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" })
+      paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
+      {
+        nodeKind: "ai",
+        label: "LLM Call",
+        helper: "Generate text or JSON using a select LLM model",
+        icon: "sparkles",
+        accent: "violet",
+        testId: "library-ai-llm-call",
+        overrides: {
+          type: "ai.llm_call",
+          nodeKind: "ai",
+          kind: "LLM",
+          title: "LLM Call",
+          subtitle: "Generate text or JSON using a select LLM model"
+        }
+      }
     ]
   },
   {
