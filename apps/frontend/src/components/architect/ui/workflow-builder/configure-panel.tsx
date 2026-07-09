@@ -11,7 +11,14 @@ import {
   SETUP_TIME_OPTIONS,
   defaultAgentConfigure,
   generateIncludedFeaturesFromWorkflow,
+  normalizeBuyerSetupKey,
+  RECEPTIONIST_DEFAULT_FULL_DESCRIPTION,
+  RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION,
+  RECEPTIONIST_DEFAULT_TAGLINE,
+  validateBuyerSetupFields,
   validateConfigureForSubmit,
+  workflowUsesSms,
+  workflowUsesVoice,
   type AgentConfigureBasics,
   type AgentConfigureCompliance,
   type AgentConfigureData,
@@ -42,6 +49,96 @@ import { StepProgress } from "./configure/step-progress";
 const STEP_LABELS = ["Details", "Description", "Pricing", "Requirements", "Review"];
 
 type Toast = { id: number; message: string; type: "success" | "error" };
+
+/** Buyer setup field types the architect can pick, with buyer-friendly labels. */
+const BUYER_FIELD_TYPE_OPTIONS: { value: BuyerSetupField["type"]; label: string }[] = [
+  { value: "text", label: "Text" },
+  { value: "textarea", label: "Long text" },
+  { value: "select", label: "Dropdown" },
+  { value: "multiselect", label: "Multi-select" },
+  { value: "phone", label: "Phone" },
+  { value: "email", label: "Email" },
+  { value: "url", label: "URL" },
+  { value: "number", label: "Number" },
+  { value: "boolean", label: "Yes / No" },
+  { value: "date", label: "Date" },
+  { value: "time", label: "Time" }
+];
+
+/** Generic reusable field definitions the presets and suggestions draw from. Never industry-specific. */
+const PRESET_FIELDS = {
+  businessOverview: { label: "Business overview", type: "textarea", required: true, placeholder: "Location, specialties, anything callers usually ask about" },
+  targetCustomers: { label: "Target customers", type: "text", required: false, placeholder: "Who this business mainly serves" },
+  servicesOffered: { label: "Services offered", type: "textarea", required: true, placeholder: "One service per line or comma-separated" },
+  servicePricingNotes: { label: "Service pricing notes", type: "textarea", required: false, placeholder: "Starting prices, ranges, or “quote on request”" },
+  workingHours: { label: "Working hours", type: "text", required: true, placeholder: "Mon-Fri 9am-6pm, Sat 10am-2pm" },
+  holidayHours: { label: "Holiday hours", type: "text", required: false, placeholder: "Closed on public holidays, reduced weekend hours…" },
+  bookingRules: { label: "Booking rules", type: "textarea", required: true, placeholder: "How and when customers can book or reschedule" },
+  cancellationPolicy: { label: "Cancellation policy", type: "textarea", required: false, placeholder: "Notice period, fees, no-show handling" },
+  escalationPhone: { label: "Escalation phone", type: "phone", required: true, placeholder: "+1 555 123 4567", helper: "Who the AI should hand urgent callers to." },
+  escalationInstructions: { label: "Escalation instructions", type: "textarea", required: false, placeholder: "When to escalate and what to tell the caller" },
+  businessPolicies: { label: "Business policies", type: "textarea", required: false, placeholder: "Payment, refund, or privacy policies" },
+  frequentQuestions: { label: "Frequent questions", type: "textarea", required: false, placeholder: "Common questions and the answers callers should hear" }
+} satisfies Record<string, Omit<BuyerSetupField, "key">>;
+
+type PresetFieldKey = keyof typeof PRESET_FIELDS;
+
+function presetField(key: PresetFieldKey, overrides?: Partial<BuyerSetupField>): BuyerSetupField {
+  return { key, ...PRESET_FIELDS[key], ...overrides };
+}
+
+/** Quick-add presets — each adds a small required/optional pair, not a wall of required fields. */
+const BUYER_SETUP_PRESETS: { id: string; label: string; fields: BuyerSetupField[] }[] = [
+  { id: "business-details", label: "Business details", fields: [presetField("businessOverview"), presetField("targetCustomers")] },
+  { id: "services", label: "Services", fields: [presetField("servicesOffered"), presetField("servicePricingNotes")] },
+  { id: "working-hours", label: "Working hours", fields: [presetField("workingHours"), presetField("holidayHours")] },
+  { id: "booking-rules", label: "Booking rules", fields: [presetField("bookingRules"), presetField("cancellationPolicy")] },
+  { id: "escalation-contact", label: "Escalation contact", fields: [presetField("escalationPhone"), presetField("escalationInstructions")] },
+  { id: "policies", label: "Policies", fields: [presetField("businessPolicies")] },
+  { id: "faqs", label: "FAQs", fields: [presetField("frequentQuestions")] }
+];
+
+/** One-click starter bundles shown while the field list is still empty. */
+const BUYER_SETUP_SUGGESTIONS: { id: string; label: string; fields: BuyerSetupField[] }[] = [
+  {
+    id: "receptionist",
+    label: "Add recommended receptionist setup fields",
+    fields: [
+      presetField("servicesOffered"),
+      presetField("workingHours"),
+      presetField("bookingRules"),
+      presetField("escalationPhone"),
+      presetField("businessOverview", { required: false }),
+      presetField("businessPolicies"),
+      presetField("frequentQuestions")
+    ]
+  },
+  {
+    id: "booking",
+    label: "Add booking-focused fields",
+    fields: [
+      presetField("servicesOffered"),
+      presetField("workingHours"),
+      presetField("bookingRules"),
+      presetField("cancellationPolicy")
+    ]
+  },
+  {
+    id: "support",
+    label: "Add support-focused fields",
+    fields: [
+      presetField("frequentQuestions", { required: true }),
+      presetField("escalationPhone"),
+      presetField("escalationInstructions"),
+      presetField("businessPolicies")
+    ]
+  }
+];
+
+/** Compact label for the collapsed field-card header. */
+function buyerFieldTypeLabel(type: BuyerSetupField["type"]): string {
+  return BUYER_FIELD_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type;
+}
 
 function plainText(html: string): string {
   return html
@@ -158,6 +255,38 @@ export function ConfigurePanel({
         if (!loaded.basics.tagline.trim() && tagline.trim()) {
           loaded.basics.tagline = tagline;
         }
+
+        // Marketplace copy defaults — prefill ONLY empty fields, and replace
+        // the old node-chain template seeds ("Incoming call → … → send SMS")
+        // that used to leak into tagline/descriptions. Never appends.
+        const voiceAgent = workflowUsesVoice(workflowFlowRef.current);
+        const isSeedChain = (text: string) => text.includes("→");
+        if (voiceAgent) {
+          if (!loaded.basics.tagline.trim() || isSeedChain(loaded.basics.tagline)) {
+            loaded.basics.tagline = RECEPTIONIST_DEFAULT_TAGLINE;
+          }
+          if (!loaded.basics.shortDescription.trim() || isSeedChain(loaded.basics.shortDescription)) {
+            loaded.basics.shortDescription = RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION;
+          }
+          if (!plainText(loaded.media.fullDescription).trim() || isSeedChain(plainText(loaded.media.fullDescription))) {
+            loaded.media.fullDescription = RECEPTIONIST_DEFAULT_FULL_DESCRIPTION;
+          }
+        }
+        // Short and full description should not be identical copies of the seed.
+        if (
+          loaded.basics.shortDescription.trim() &&
+          loaded.basics.shortDescription.trim() === plainText(loaded.media.fullDescription)
+        ) {
+          const firstSentence = loaded.basics.shortDescription.split(/(?<=[.!?])\s+/)[0] ?? "";
+          loaded.basics.shortDescription = (voiceAgent ? RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION : firstSentence).slice(0, 200);
+        }
+
+        // Single source of truth for industries: Step 1 "Industry tags".
+        // Older drafts that only filled Step 4's supportedIndustries migrate up.
+        if (loaded.basics.industryTags.length === 0 && loaded.template.supportedIndustries.length > 0) {
+          loaded.basics.industryTags = [...loaded.template.supportedIndustries];
+        }
+        loaded.template.supportedIndustries = [...loaded.basics.industryTags];
 
         // "What's included" prefill: if the stored bullets are all blank,
         // generate from the LIVE builder graph (covers unsaved node edits the
@@ -371,19 +500,42 @@ export function ConfigurePanel({
 
     setSubmitted(true);
     setListing(result.data?.listing ?? null);
+    // Lock immediately client-side, but DON'T notify the parent yet — its
+    // workflow reload would remount/lock this panel and kill the success
+    // modal before the architect ever sees it. onSubmitted fires when the
+    // modal is dismissed ("Stay in builder") or on navigation ("View My Agents").
+    setServerLocked(true);
+    setServerLockedMessage("This agent is under review. Configuration is locked until the review completes.");
     pushToast("Submitted for review — we'll email you within 24–48 hours.");
-    onSubmitted?.();
-  }, [configure, ensureWorkflowId, goToStep, isLocked, onSubmitted, pushToast, submitting, workflowId]);
+  }, [configure, ensureWorkflowId, goToStep, isLocked, pushToast, submitting, workflowId]);
 
   /* ---- Buyer setup field helpers (step 4) ---- */
+  // Compact cards: fields render collapsed; only one editor is open at a time.
+  const [expandedFieldIndex, setExpandedFieldIndex] = useState<number | null>(null);
+
   const addBuyerSetupField = useCallback(() => {
+    const next = configure.template.requiredBuyerSetup.length;
     updateTemplate({
       requiredBuyerSetup: [
         ...configure.template.requiredBuyerSetup,
-        { key: `field-${configure.template.requiredBuyerSetup.length + 1}`, label: "", type: "text", required: true }
+        { key: `field${next + 1}`, label: "", type: "text", required: true }
       ]
     });
+    setExpandedFieldIndex(next);
   }, [configure.template.requiredBuyerSetup, updateTemplate]);
+
+  /** Add a preset/suggestion bundle, skipping fields whose key already exists. */
+  const addBuyerSetupBundle = useCallback(
+    (fields: BuyerSetupField[]) => {
+      const existing = new Set(configure.template.requiredBuyerSetup.map((field) => field.key));
+      const fresh = fields.filter((field) => !existing.has(field.key));
+      if (fresh.length === 0) return;
+      updateTemplate({ requiredBuyerSetup: [...configure.template.requiredBuyerSetup, ...fresh] });
+      setExpandedFieldIndex(null);
+      pushToast(`${fresh.length} setup field${fresh.length === 1 ? "" : "s"} added`);
+    },
+    [configure.template.requiredBuyerSetup, pushToast, updateTemplate]
+  );
 
   const updateBuyerSetupField = useCallback(
     (index: number, patch: Partial<BuyerSetupField>) => {
@@ -394,7 +546,11 @@ export function ConfigurePanel({
                 ...field,
                 ...patch,
                 ...(typeof patch.label === "string"
-                  ? { key: patch.label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || field.key }
+                  ? { key: normalizeBuyerSetupKey(patch.label) || field.key }
+                  : {}),
+                // Switching to a choice type needs somewhere to hold options.
+                ...(patch.type && (patch.type === "select" || patch.type === "multiselect") && !field.options
+                  ? { options: [] }
                   : {})
               }
             : field
@@ -404,14 +560,62 @@ export function ConfigurePanel({
     [configure.template.requiredBuyerSetup, updateTemplate]
   );
 
+  const updateBuyerSetupValidation = useCallback(
+    (index: number, patch: Record<string, number | undefined>) => {
+      const field = configure.template.requiredBuyerSetup[index];
+      if (!field) return;
+      const validation = { ...(field.validation ?? {}), ...patch };
+      const hasRules = Object.values(validation).some((rule) => rule !== undefined);
+      updateBuyerSetupField(index, { validation: hasRules ? validation : undefined });
+    },
+    [configure.template.requiredBuyerSetup, updateBuyerSetupField]
+  );
+
+  const moveBuyerSetupField = useCallback(
+    (index: number, delta: -1 | 1) => {
+      const fields = [...configure.template.requiredBuyerSetup];
+      const target = index + delta;
+      if (target < 0 || target >= fields.length) return;
+      const [moved] = fields.splice(index, 1);
+      fields.splice(target, 0, moved);
+      updateTemplate({ requiredBuyerSetup: fields });
+      setExpandedFieldIndex((current) =>
+        current === index ? target : current === target ? index : current
+      );
+    },
+    [configure.template.requiredBuyerSetup, updateTemplate]
+  );
+
   const removeBuyerSetupField = useCallback(
     (index: number) => {
       updateTemplate({
         requiredBuyerSetup: configure.template.requiredBuyerSetup.filter((_, i) => i !== index)
       });
+      setExpandedFieldIndex((current) =>
+        current === null ? null : current === index ? null : current > index ? current - 1 : current
+      );
     },
     [configure.template.requiredBuyerSetup, updateTemplate]
   );
+
+  /* Live schema issues (duplicate keys, missing labels, empty dropdowns). */
+  const buyerSetupIssuesByIndex = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const issue of validateBuyerSetupFields(configure.template.requiredBuyerSetup)) {
+      map.set(issue.index, [...(map.get(issue.index) ?? []), issue.message]);
+    }
+    return map;
+  }, [configure.template.requiredBuyerSetup]);
+
+  const [showBuyerPreview, setShowBuyerPreview] = useState(false);
+  const [showBuyerInstructions, setShowBuyerInstructions] = useState(false);
+
+  const existingFieldKeys = useMemo(
+    () => new Set(configure.template.requiredBuyerSetup.map((field) => field.key)),
+    [configure.template.requiredBuyerSetup]
+  );
+
+  const workflowHasSms = workflowUsesSms(workflowFlow);
 
   const toggleIntegration = useCallback(
     (key: RequiredIntegrationKey) => {
@@ -516,7 +720,7 @@ export function ConfigurePanel({
         {/* ============ STEP 1: DETAILS ============ */}
         {step === 1 ? (
           <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-1">
-            <StepHeader index={1} kicker="Basics" title="Tell buyers what it is" subtitle="The essentials that show up first in search and on your listing." />
+            <StepHeader index={1} kicker="Details" title="Basics" subtitle="The essentials that show up first in search and on your listing." />
             <div className="space-y-7 px-6 py-7 sm:px-8">
               <div>
                 <div className="mb-2 flex items-center justify-between">
@@ -603,13 +807,14 @@ export function ConfigurePanel({
                   options={AGENT_INDUSTRIES}
                   selected={configure.basics.industryTags}
                   disabled={isLocked}
-                  onToggle={(industry) =>
-                    updateBasics({
-                      industryTags: configure.basics.industryTags.includes(industry)
-                        ? configure.basics.industryTags.filter((tag) => tag !== industry)
-                        : [...configure.basics.industryTags, industry]
-                    })
-                  }
+                  onToggle={(industry) => {
+                    const industryTags = configure.basics.industryTags.includes(industry)
+                      ? configure.basics.industryTags.filter((tag) => tag !== industry)
+                      : [...configure.basics.industryTags, industry];
+                    updateBasics({ industryTags });
+                    // Step 4's "Supported industries" mirrors this list — one source of truth.
+                    updateTemplate({ supportedIndustries: industryTags });
+                  }}
                 />
                 <FieldError message={fieldErrors.industryTags} testId="configure-error-industry-tags" />
               </div>
@@ -660,7 +865,7 @@ export function ConfigurePanel({
         {/* ============ STEP 2: DESCRIPTION & MEDIA ============ */}
         {step === 2 ? (
           <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-2">
-            <StepHeader index={2} kicker="Story" title="Show it off" subtitle="A clear description and a few screenshots turn browsers into buyers." />
+            <StepHeader index={2} kicker="Description" title="Show it off" subtitle="A clear description and a few screenshots turn browsers into buyers." />
             <div className="space-y-8 px-6 py-7 sm:px-8">
               <div>
                 <div className="mb-2 flex items-center justify-between">
@@ -801,15 +1006,7 @@ export function ConfigurePanel({
               subtitle="What buyers need to connect, and the checks that keep the Marketplace trusted."
             />
             <div className="space-y-8 px-6 py-7 sm:px-8">
-              <div className="flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50/70 px-5 py-4">
-                <BuilderIcon name="info" className="mt-0.5 h-[18px] w-[18px] flex-none text-amber-500" />
-                <p className="text-[12.5px] text-amber-900/90">
-                  You never enter buyer secrets here. Triven collects the buyer&apos;s phone numbers, calendars, and
-                  API connections during <span className="font-semibold">their</span> onboarding — this step only
-                  tells them what to expect.
-                </p>
-              </div>
-
+              {/* 1 · Template setup summary */}
               <div className="grid gap-7 sm:grid-cols-2">
                 <div>
                   <label htmlFor="configure-template-type" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
@@ -861,37 +1058,52 @@ export function ConfigurePanel({
                 </div>
               </div>
 
-              <div>
-                <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">Supported industries</span>
-                <p className="mb-3 text-[12.5px] text-slate-400">Where this template works out of the box.</p>
-                <IndustryPills
-                  options={AGENT_INDUSTRIES}
-                  selected={configure.template.supportedIndustries}
-                  disabled={isLocked}
-                  testIdPrefix="configure-supported-industry"
-                  onToggle={(industry) =>
-                    updateTemplate({
-                      supportedIndustries: configure.template.supportedIndustries.includes(industry)
-                        ? configure.template.supportedIndustries.filter((tag) => tag !== industry)
-                        : [...configure.template.supportedIndustries, industry]
-                    })
-                  }
-                />
+              {/* Supported industries mirror Step 1's Industry tags — summary only, no second grid. */}
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3"
+                data-testid="configure-supported-industries-summary"
+              >
+                <p className="min-w-0 text-[13px] text-slate-600">
+                  <span className="font-semibold text-slate-700">Supported industries: </span>
+                  {configure.basics.industryTags.length > 0
+                    ? configure.basics.industryTags.join(", ")
+                    : "none selected yet"}
+                </p>
+                <button
+                  type="button"
+                  data-testid="configure-supported-industries-edit"
+                  onClick={() => goToStep(1)}
+                  className="flex-none text-[12.5px] font-bold text-amber-600 transition hover:text-amber-700"
+                >
+                  Edit in Step 1
+                </button>
               </div>
 
-              <div>
+              {/* 2 · Required integrations */}
+              <div className="border-t border-gray-100 pt-7">
                 <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">Required integrations</span>
                 <p className="mb-3 text-[12.5px] text-slate-400">Turn on what the buyer must connect for your agent to work.</p>
                 <RequiredIntegrationsSelector
                   value={configure.template.requiredIntegrations}
                   onToggle={toggleIntegration}
                   disabled={isLocked}
+                  hiddenKeys={workflowHasSms || configure.template.requiredIntegrations.sms ? [] : ["sms"]}
                 />
+                {workflowHasSms ? (
+                  <p
+                    className="mt-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-[12.5px] text-amber-900/90"
+                    data-testid="configure-sms-warning"
+                  >
+                    <BuilderIcon name="info" className="mt-0.5 h-4 w-4 flex-none text-amber-500" />
+                    This workflow currently includes SMS. Replace it with Email follow-up if you want to avoid A2P/SMS setup.
+                  </p>
+                ) : null}
               </div>
 
-              <div>
+              {/* 3 · Buyer setup requirements */}
+              <div className="border-t border-gray-100 pt-7">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13.5px] font-semibold text-slate-700">Buyer setup fields</span>
+                  <span className="text-[13.5px] font-semibold text-slate-700">Buyer setup requirements</span>
                   {!isLocked ? (
                     <button
                       type="button"
@@ -903,96 +1115,382 @@ export function ConfigurePanel({
                     </button>
                   ) : null}
                 </div>
-                <p className="mb-3 text-[12.5px] text-slate-400">
-                  Extra info buyers must provide during setup (e.g. forwarding phone, booking URL).
+                <p className="mb-1 text-[12.5px] text-slate-400">
+                  Extra info buyers must provide during setup — never secrets or API keys; Triven collects the
+                  buyer&apos;s phone numbers, calendars, and connections during their onboarding.
                 </p>
+                <p className="mb-3 text-[12.5px] font-semibold text-amber-600" data-testid="configure-buyer-setup-warning">
+                  These fields will be shown to buyers during installation.
+                </p>
+
+                {!isLocked && configure.template.requiredBuyerSetup.length === 0 ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-1.5" data-testid="configure-buyer-setup-suggestions">
+                    {BUYER_SETUP_SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion.id}
+                        type="button"
+                        data-testid={`configure-buyer-setup-suggest-${suggestion.id}`}
+                        onClick={() => addBuyerSetupBundle(suggestion.fields)}
+                        className="rounded-full border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-[12px] font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-50"
+                      >
+                        ✨ {suggestion.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {!isLocked ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-1.5" data-testid="configure-buyer-setup-presets">
+                    <span className="text-[11.5px] font-semibold text-slate-400">Quick add:</span>
+                    {BUYER_SETUP_PRESETS.map((preset) => {
+                      const exhausted = preset.fields.every((field) => existingFieldKeys.has(field.key));
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          data-testid={`configure-buyer-setup-preset-${preset.id}`}
+                          disabled={exhausted}
+                          onClick={() => addBuyerSetupBundle(preset.fields)}
+                          className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-slate-500 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:text-slate-500"
+                        >
+                          + {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
                 {configure.template.requiredBuyerSetup.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-3 text-[12.5px] text-slate-400" data-testid="configure-buyer-setup-empty">
                     No extra fields — buyers only connect the integrations above.
                   </p>
                 ) : (
-                  <div className="space-y-2.5">
-                    {configure.template.requiredBuyerSetup.map((field, index) => (
-                      <div key={index} className="flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-100 bg-gray-50/40 px-3 py-2.5" data-testid={`configure-buyer-setup-row-${index}`}>
-                        <input
-                          type="text"
-                          data-testid={`configure-buyer-setup-label-${index}`}
-                          value={field.label}
-                          disabled={isLocked}
-                          placeholder="Field label, e.g. Forwarding phone"
-                          onChange={(event) => updateBuyerSetupField(index, { label: event.target.value })}
-                          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
-                        />
-                        <select
-                          data-testid={`configure-buyer-setup-type-${index}`}
-                          value={field.type}
-                          disabled={isLocked}
-                          onChange={(event) => updateBuyerSetupField(index, { type: event.target.value as BuyerSetupField["type"] })}
-                          className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[13px] font-medium text-slate-600 outline-none transition focus:border-amber-300 disabled:opacity-60"
+                  <div className="space-y-2">
+                    {configure.template.requiredBuyerSetup.map((field, index) => {
+                      const expanded = expandedFieldIndex === index;
+                      const issues = buyerSetupIssuesByIndex.get(index) ?? [];
+
+                      return (
+                        <div
+                          key={index}
+                          className={`rounded-xl border bg-gray-50/40 px-3 py-2 ${issues.length ? "border-red-200" : "border-gray-100"}`}
+                          data-testid={`configure-buyer-setup-row-${index}`}
                         >
-                          <option value="text">Text</option>
-                          <option value="phone">Phone</option>
-                          <option value="url">URL</option>
-                          <option value="select">Select</option>
-                          <option value="textarea">Long text</option>
-                        </select>
-                        <label className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
-                          <input
-                            type="checkbox"
-                            data-testid={`configure-buyer-setup-required-${index}`}
-                            checked={field.required}
-                            disabled={isLocked}
-                            onChange={(event) => updateBuyerSetupField(index, { required: event.target.checked })}
-                            className="h-3.5 w-3.5 accent-amber-500"
-                          />
-                          Required
-                        </label>
-                        {!isLocked ? (
-                          <button
-                            type="button"
-                            data-testid={`configure-buyer-setup-remove-${index}`}
-                            aria-label="Remove field"
-                            onClick={() => removeBuyerSetupField(index)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500"
-                          >
-                            <BuilderIcon name="x" className="h-4 w-4" />
-                          </button>
-                        ) : null}
-                      </div>
-                    ))}
+                          {/* Collapsed card header — always visible */}
+                          <div className="flex items-center gap-2">
+                            <p className="min-w-0 flex-1 truncate text-[13px] text-slate-700">
+                              <span className="font-semibold">{field.label.trim() || "Untitled field"}</span>
+                              <span className="text-slate-400"> · {buyerFieldTypeLabel(field.type)} · </span>
+                              <span className={field.required ? "font-semibold text-amber-600" : "text-slate-400"}>
+                                {field.required ? "Required" : "Optional"}
+                              </span>
+                            </p>
+                            {!isLocked ? (
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid={`configure-buyer-setup-edit-${index}`}
+                                  onClick={() => setExpandedFieldIndex(expanded ? null : index)}
+                                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11.5px] font-bold text-slate-600 transition hover:border-amber-300 hover:text-amber-700"
+                                >
+                                  {expanded ? "Done" : "Edit"}
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`configure-buyer-setup-up-${index}`}
+                                  aria-label="Move field up"
+                                  disabled={index === 0}
+                                  onClick={() => moveBuyerSetupField(index, -1)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-600 disabled:opacity-30"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`configure-buyer-setup-down-${index}`}
+                                  aria-label="Move field down"
+                                  disabled={index === configure.template.requiredBuyerSetup.length - 1}
+                                  onClick={() => moveBuyerSetupField(index, 1)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-600 disabled:opacity-30"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`configure-buyer-setup-remove-${index}`}
+                                  aria-label="Remove field"
+                                  onClick={() => removeBuyerSetupField(index)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-500"
+                                >
+                                  <BuilderIcon name="x" className="h-4 w-4" />
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+
+                          {/* Expanded editor — one field at a time */}
+                          {expanded ? (
+                            <div className="mt-2.5 space-y-2.5 border-t border-gray-100 pt-2.5">
+                              <div className="flex flex-wrap items-center gap-2.5">
+                                <input
+                                  type="text"
+                                  data-testid={`configure-buyer-setup-label-${index}`}
+                                  value={field.label}
+                                  disabled={isLocked}
+                                  placeholder="Field label, e.g. Forwarding phone"
+                                  onChange={(event) => updateBuyerSetupField(index, { label: event.target.value })}
+                                  className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                                />
+                                <select
+                                  data-testid={`configure-buyer-setup-type-${index}`}
+                                  value={field.type}
+                                  disabled={isLocked}
+                                  onChange={(event) => updateBuyerSetupField(index, { type: event.target.value as BuyerSetupField["type"] })}
+                                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[13px] font-medium text-slate-600 outline-none transition focus:border-amber-300 disabled:opacity-60"
+                                >
+                                  {BUYER_FIELD_TYPE_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <label className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
+                                  <input
+                                    type="checkbox"
+                                    data-testid={`configure-buyer-setup-required-${index}`}
+                                    checked={field.required}
+                                    disabled={isLocked}
+                                    onChange={(event) => updateBuyerSetupField(index, { required: event.target.checked })}
+                                    className="h-3.5 w-3.5 accent-amber-500"
+                                  />
+                                  Required
+                                </label>
+                              </div>
+
+                              <p className="text-[11.5px] text-slate-400" data-testid={`configure-buyer-setup-key-${index}`}>
+                                Key: <span className="font-mono text-slate-500">{field.key}</span> — how the answer is stored; derived from the label.
+                              </p>
+
+                              <div className="flex flex-wrap gap-2.5">
+                                <input
+                                  type="text"
+                                  data-testid={`configure-buyer-setup-placeholder-${index}`}
+                                  value={field.placeholder ?? ""}
+                                  disabled={isLocked}
+                                  placeholder="Placeholder buyers see, e.g. Mon-Fri 9am-6pm"
+                                  onChange={(event) => updateBuyerSetupField(index, { placeholder: event.target.value })}
+                                  className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12.5px] outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                                />
+                                <input
+                                  type="text"
+                                  data-testid={`configure-buyer-setup-helper-${index}`}
+                                  value={field.helper ?? ""}
+                                  disabled={isLocked}
+                                  placeholder="Help text shown under the field (optional)"
+                                  onChange={(event) => updateBuyerSetupField(index, { helper: event.target.value })}
+                                  className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12.5px] outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                                />
+                              </div>
+
+                              {field.type === "select" || field.type === "multiselect" ? (
+                                <input
+                                  type="text"
+                                  data-testid={`configure-buyer-setup-options-${index}`}
+                                  value={(field.options ?? []).join(", ")}
+                                  disabled={isLocked}
+                                  placeholder="Options, comma-separated — e.g. Morning, Afternoon, Evening"
+                                  onChange={(event) =>
+                                    updateBuyerSetupField(index, {
+                                      options: event.target.value.split(",").map((option) => option.trim())
+                                    })
+                                  }
+                                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12.5px] outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                                />
+                              ) : null}
+
+                              {field.type === "number" ? (
+                                <div className="flex flex-wrap items-center gap-2.5 text-[12px] font-semibold text-slate-500">
+                                  Validation:
+                                  <input
+                                    type="number"
+                                    data-testid={`configure-buyer-setup-validation-min-${index}`}
+                                    value={field.validation?.min ?? ""}
+                                    disabled={isLocked}
+                                    placeholder="Min"
+                                    onChange={(event) =>
+                                      updateBuyerSetupValidation(index, {
+                                        min: event.target.value === "" ? undefined : Number(event.target.value)
+                                      })
+                                    }
+                                    className="w-24 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12.5px] font-normal outline-none transition focus:border-amber-300 disabled:opacity-60"
+                                  />
+                                  <input
+                                    type="number"
+                                    data-testid={`configure-buyer-setup-validation-max-${index}`}
+                                    value={field.validation?.max ?? ""}
+                                    disabled={isLocked}
+                                    placeholder="Max"
+                                    onChange={(event) =>
+                                      updateBuyerSetupValidation(index, {
+                                        max: event.target.value === "" ? undefined : Number(event.target.value)
+                                      })
+                                    }
+                                    className="w-24 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12.5px] font-normal outline-none transition focus:border-amber-300 disabled:opacity-60"
+                                  />
+                                </div>
+                              ) : ["text", "textarea", "phone", "email", "url"].includes(field.type) ? (
+                                <div className="flex flex-wrap items-center gap-2.5 text-[12px] font-semibold text-slate-500">
+                                  Validation:
+                                  <input
+                                    type="number"
+                                    data-testid={`configure-buyer-setup-validation-maxlength-${index}`}
+                                    value={field.validation?.maxLength ?? ""}
+                                    disabled={isLocked}
+                                    placeholder="Max length"
+                                    onChange={(event) =>
+                                      updateBuyerSetupValidation(index, {
+                                        maxLength: event.target.value === "" ? undefined : Number(event.target.value)
+                                      })
+                                    }
+                                    className="w-28 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12.5px] font-normal outline-none transition focus:border-amber-300 disabled:opacity-60"
+                                  />
+                                  <span className="font-normal text-slate-400">characters (optional)</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+
+                          {issues.map((message) => (
+                            <p key={message} className="mt-1.5 text-[12px] font-semibold text-red-500" data-testid={`configure-buyer-setup-issue-${index}`}>
+                              {message}
+                            </p>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
+
+                {configure.template.requiredBuyerSetup.length > 0 ? (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      data-testid="configure-buyer-setup-preview-toggle"
+                      onClick={() => setShowBuyerPreview((current) => !current)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:border-amber-300 hover:text-amber-700"
+                    >
+                      {showBuyerPreview ? "Hide buyer preview" : "Preview buyer form"}
+                    </button>
+
+                    {showBuyerPreview ? (
+                      <div className="mt-2.5 rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm" data-testid="configure-buyer-setup-preview">
+                        <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          How buyers see this during setup
+                        </p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {configure.template.requiredBuyerSetup.map((field, index) => (
+                            <div key={index} className={field.type === "textarea" || field.type === "multiselect" ? "sm:col-span-2" : undefined}>
+                              <span className="mb-1 block text-[12.5px] font-semibold text-slate-700">
+                                {field.label.trim() || `Field ${index + 1}`}{" "}
+                                {field.required ? "" : <span className="font-normal text-slate-400">optional</span>}
+                              </span>
+                              {field.type === "textarea" ? (
+                                <textarea disabled rows={2} placeholder={field.placeholder} className="w-full rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 text-[12.5px]" />
+                              ) : field.type === "select" ? (
+                                <select disabled className="w-full rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 text-[12.5px] text-slate-400">
+                                  <option>{field.placeholder || "Select an option…"}</option>
+                                  {(field.options ?? []).filter((option) => option.trim()).map((option) => (
+                                    <option key={option}>{option}</option>
+                                  ))}
+                                </select>
+                              ) : field.type === "multiselect" ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(field.options ?? []).filter((option) => option.trim()).length > 0 ? (
+                                    (field.options ?? []).filter((option) => option.trim()).map((option) => (
+                                      <span key={option} className="rounded-full border border-gray-200 bg-gray-50/60 px-2.5 py-1 text-[11.5px] text-slate-500">
+                                        {option}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-[12px] text-slate-400">Add options above</span>
+                                  )}
+                                </div>
+                              ) : field.type === "boolean" ? (
+                                <label className="flex items-center gap-2 text-[12.5px] text-slate-500">
+                                  <input type="checkbox" disabled className="h-3.5 w-3.5" /> Yes
+                                </label>
+                              ) : (
+                                <input
+                                  disabled
+                                  type={field.type === "phone" ? "tel" : field.type}
+                                  placeholder={field.placeholder}
+                                  className="w-full rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 text-[12.5px]"
+                                />
+                              )}
+                              {field.helper ? <p className="mt-1 text-[11.5px] text-slate-400">{field.helper}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
-              <div className="grid gap-7 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="configure-buyer-instructions" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                    Buyer setup instructions
-                  </label>
-                  <textarea
-                    id="configure-buyer-instructions"
-                    data-testid="configure-buyer-instructions-input"
-                    value={configure.template.buyerSetupInstructions}
-                    disabled={isLocked}
-                    placeholder="Step-by-step notes buyers see during their onboarding."
-                    onChange={(event) => updateTemplate({ buyerSetupInstructions: event.target.value })}
-                    className="h-[110px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="configure-install-instructions" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                    Install instructions
-                  </label>
-                  <textarea
-                    id="configure-install-instructions"
-                    data-testid="configure-install-instructions-input"
-                    value={configure.template.installInstructions}
-                    disabled={isLocked}
-                    placeholder="Anything buyers should know right after installing."
-                    onChange={(event) => updateTemplate({ installInstructions: event.target.value })}
-                    className="h-[110px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
-                  />
-                </div>
+              {/* 4 · Buyer-facing instructions (collapsed by default) */}
+              <div className="border-t border-gray-100 pt-7">
+                <button
+                  type="button"
+                  data-testid="configure-buyer-instructions-toggle"
+                  onClick={() => setShowBuyerInstructions((current) => !current)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <span>
+                    <span className="block text-[13.5px] font-semibold text-slate-700">
+                      Buyer-facing instructions
+                      {(configure.template.buyerSetupInstructions.trim() || configure.template.installInstructions.trim()) && !showBuyerInstructions ? (
+                        <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-600">has notes</span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block text-[12.5px] font-normal text-slate-400">
+                      These notes explain what the buyer should prepare before going live.
+                    </span>
+                  </span>
+                  <BuilderIcon name="chevron" className={`h-4 w-4 flex-none text-slate-400 transition-transform ${showBuyerInstructions ? "rotate-180" : ""}`} />
+                </button>
+
+                {showBuyerInstructions ? (
+                  <div className="mt-4 grid gap-7 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="configure-buyer-instructions" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                        Buyer setup instructions
+                      </label>
+                      <textarea
+                        id="configure-buyer-instructions"
+                        data-testid="configure-buyer-instructions-input"
+                        value={configure.template.buyerSetupInstructions}
+                        disabled={isLocked}
+                        placeholder="Step-by-step notes buyers see during their onboarding."
+                        onChange={(event) => updateTemplate({ buyerSetupInstructions: event.target.value })}
+                        className="h-[110px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="configure-install-instructions" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                        Install instructions
+                      </label>
+                      <textarea
+                        id="configure-install-instructions"
+                        data-testid="configure-install-instructions-input"
+                        value={configure.template.installInstructions}
+                        disabled={isLocked}
+                        placeholder="Anything buyers should know right after installing."
+                        onChange={(event) => updateTemplate({ installInstructions: event.target.value })}
+                        className="h-[110px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* Compliance lives HERE (Step 4) — data handling + required publish checks. */}
@@ -1060,7 +1558,7 @@ export function ConfigurePanel({
                     onEdit={() => goToStep(3)}
                     rows={[
                       { label: "Model", value: priceModelLabel },
-                      { label: "Execution fee", value: `$${configure.pricing.executionFee.toFixed(2)} / run` },
+                      { label: "Execution fee", value: `$${configure.pricing.executionFee.toFixed(2)} / execution` },
                       {
                         label: "Free trial",
                         value: configure.pricing.freeTrialEnabled ? `${configure.pricing.trialDays}-day trial` : "Off"
@@ -1073,6 +1571,15 @@ export function ConfigurePanel({
                     onEdit={() => goToStep(4)}
                     rows={[
                       { label: "Integrations", value: enabledIntegrationLabels.join(", ") || undefined },
+                      {
+                        label: "Buyer setup fields",
+                        value: configure.template.requiredBuyerSetup.length
+                          ? configure.template.requiredBuyerSetup
+                              .map((field) => field.label.trim())
+                              .filter(Boolean)
+                              .join(", ") || `${configure.template.requiredBuyerSetup.length} field(s)`
+                          : undefined
+                      },
                       { label: "Setup time", value: configure.template.setupTimeEstimate },
                       { label: "Processes personal data", value: configure.compliance.processesPersonalData ? "Yes" : "No" },
                       { label: "Stores history", value: configure.compliance.storesConversationHistory ? "Yes" : "No" },
@@ -1147,12 +1654,7 @@ export function ConfigurePanel({
           </button>
 
           <div className="flex items-center gap-3">
-            {statusMessage ? (
-              <span data-testid="configure-status" className="hidden text-xs font-semibold text-slate-500 sm:inline">
-                {savingDraft || saving ? "Saving..." : statusMessage}
-              </span>
-            ) : null}
-
+            {/* Save status lives on the "Save draft" button + builder header only — no duplicate text here. */}
             {step < STEP_LABELS.length ? (
               <button
                 type="button"
@@ -1194,7 +1696,12 @@ export function ConfigurePanel({
               <button
                 type="button"
                 data-testid="configure-success-stay"
-                onClick={() => setSubmitted(false)}
+                onClick={() => {
+                  // Close the modal first, then let the parent reload the
+                  // workflow (which re-locks the panel server-side).
+                  setSubmitted(false);
+                  onSubmitted?.();
+                }}
                 className="flex-1 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
               >
                 Stay in builder
@@ -1202,6 +1709,7 @@ export function ConfigurePanel({
               <Link
                 href={"/architect/agents" as Route}
                 data-testid="configure-success-view-agents"
+                onClick={() => onSubmitted?.()}
                 className="flex-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg"
               >
                 View My Agents

@@ -15,15 +15,18 @@ const INTEGRATION_ICONS: Record<RequiredIntegrationKey, string> = {
 export function RequiredIntegrationsSelector({
   value,
   onToggle,
-  disabled = false
+  disabled = false,
+  hiddenKeys = []
 }: {
   value: RequiredIntegrations;
   onToggle: (key: RequiredIntegrationKey) => void;
   disabled?: boolean;
+  /** Integrations to omit entirely (e.g. SMS when the workflow never sends SMS). */
+  hiddenKeys?: RequiredIntegrationKey[];
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {REQUIRED_INTEGRATION_DEFS.map((def) => {
+      {REQUIRED_INTEGRATION_DEFS.filter((def) => !hiddenKeys.includes(def.key)).map((def) => {
         const active = value[def.key];
 
         return (

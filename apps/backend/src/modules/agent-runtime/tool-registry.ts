@@ -62,6 +62,9 @@ export function nodeCapability(node: GraphNode): string {
   if (kind === "ai") return "ai.conversation";
   if (action.startsWith("check") || action.includes("availab")) return "calendar.check_availability";
   if (action.includes("book")) return "calendar.book_appointment";
+  if (action.includes("send_email") || (connector === "email" && kind === "connector") || title.includes("send email")) {
+    return "email.send";
+  }
   if (action.includes("send_sms") || action.includes("send_notification") || ((connector === "sms" || connector === "twilio") && kind === "connector")) {
     return "sms.send";
   }

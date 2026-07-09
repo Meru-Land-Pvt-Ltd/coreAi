@@ -9,14 +9,19 @@ END $$;
 
 ALTER TABLE "Business" ALTER COLUMN "subscriptionStatus" SET DEFAULT 'active';
 
-ALTER TABLE "WorkflowRun" ADD COLUMN IF NOT EXISTS "durationMs" INTEGER;
-ALTER TABLE "WorkflowRun" ADD COLUMN IF NOT EXISTS "totalTokenInput" INTEGER DEFAULT 0;
-ALTER TABLE "WorkflowRun" ADD COLUMN IF NOT EXISTS "totalTokenOutput" INTEGER DEFAULT 0;
-ALTER TABLE "WorkflowRun" ADD COLUMN IF NOT EXISTS "totalCostCents" INTEGER DEFAULT 0;
-ALTER TABLE "WorkflowRun" ADD COLUMN IF NOT EXISTS "currentNodeId" TEXT;
-ALTER TABLE "WorkflowRun" ADD COLUMN IF NOT EXISTS "metadataJson" JSONB;
+-- AlterTable
+ALTER TABLE "WorkflowRun" ADD COLUMN "durationMs" INTEGER,
+ADD COLUMN "totalTokenInput" INTEGER DEFAULT 0,
+ADD COLUMN "totalTokenOutput" INTEGER DEFAULT 0,
+ADD COLUMN "totalCostCents" INTEGER DEFAULT 0,
+ADD COLUMN "currentNodeId" TEXT,
+ADD COLUMN "metadataJson" JSONB;
 
-ALTER TABLE "ContextLink" ADD COLUMN IF NOT EXISTS "linkStatus" "ContextLinkStatus" NOT NULL DEFAULT 'ACTIVE';
+-- AlterTable
+ALTER TABLE "ContextLink" ADD COLUMN "linkStatus" "ContextLinkStatus" NOT NULL DEFAULT 'ACTIVE';
 
-CREATE INDEX IF NOT EXISTS "WorkflowRun_currentNodeId_idx" ON "WorkflowRun"("currentNodeId");
-CREATE INDEX IF NOT EXISTS "ContextLink_linkStatus_idx" ON "ContextLink"("linkStatus");
+-- CreateIndex
+CREATE INDEX "WorkflowRun_currentNodeId_idx" ON "WorkflowRun"("currentNodeId");
+
+-- CreateIndex
+CREATE INDEX "ContextLink_linkStatus_idx" ON "ContextLink"("linkStatus");

@@ -53,7 +53,22 @@ export const libraryGroups: LibraryGroup[] = [
     title: "AI",
     items: [
       paletteItem(VOICE_NODE_TYPES.voiceConversation, { icon: "sparkles", accent: "violet" }),
-      paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" })
+      paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
+      {
+        nodeKind: "ai",
+        label: "LLM Call",
+        helper: "Generate text or JSON using a select LLM model",
+        icon: "sparkles",
+        accent: "violet",
+        testId: "library-ai-llm-call",
+        overrides: {
+          type: "ai.llm_call",
+          nodeKind: "ai",
+          kind: "LLM",
+          title: "LLM Call",
+          subtitle: "Generate text or JSON using a select LLM model"
+        }
+      }
     ]
   },
   {
@@ -66,6 +81,8 @@ export const libraryGroups: LibraryGroup[] = [
   {
     title: "Communication",
     items: [
+      // Email-first MVP: Send Email (Triven proxy) leads; SMS stays an optional add-on.
+      paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
       paletteItem("integration.gmail_send_email", { icon: "mail", accent: "green" }),
       paletteItem("integration.gmail_create_draft", { icon: "mail", accent: "blue" })

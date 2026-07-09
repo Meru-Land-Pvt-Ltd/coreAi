@@ -1,3 +1,4 @@
+import type { BuyerSetupField } from "@coreai/shared";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
 
 export type BusinessFaq = {
@@ -17,20 +18,14 @@ export type BusinessHoursItem = {
   closed: boolean;
 };
 
-/** One architect-defined buyer setup field, as defined on the listing. */
-export type BuyerSetupFieldDef = {
-  key: string;
-  label: string;
-  type: "text" | "phone" | "url" | "select" | "textarea";
-  required: boolean;
-  helper?: string;
-};
+/** One architect-defined buyer setup field, as defined on the listing (shared shape). */
+export type BuyerSetupFieldDef = BuyerSetupField;
 
 /** A buyer's answer to an architect-defined setup field. */
 export type BuyerCustomFieldValue = {
   key: string;
   label: string;
-  value: string;
+  value: string | string[] | boolean;
 };
 
 export type BusinessSetupInput = {
@@ -158,6 +153,8 @@ export type BusinessSetupData = {
   customInstructions?: string | null;
   /** Buyer's persisted answers to architect-defined setup fields. */
   customFields?: BuyerCustomFieldValue[];
+  /** Snapshot of the listing's buyer setup schema saved with the installed agent. */
+  buyerSetupSchema?: BuyerSetupFieldDef[];
   silence?: {
     repromptCount: number | null;
     reprompt1: string | null;
@@ -195,6 +192,8 @@ export type MarketplaceListing = {
   workflowId: string | null;
   /** Architect-defined setup fields the buyer fills in during install. */
   requiredBuyerSetup?: BuyerSetupFieldDef[] | null;
+  /** Architect's setup notes shown to the buyer above the agent-specific fields. */
+  buyerSetupInstructions?: string | null;
 };
 
 export type BusinessCalendarStatus = {
@@ -229,6 +228,51 @@ export function getBusinessPhoneNumbers() {
 
 export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPhoneNumberId?: string }) {
   return apiPost<CallRoutingResult>("/business/setup/test-call-routing", body);
+}
+
+/* ---- Mail Setup (proxy email alias on reply.triven.ai) ---- */
+
+export type BusinessEmailAliasData = {
+  id: string;
+  localPart: string;
+  domain: string;
+  emailAddress: string;
+  displayName: string;
+  forwardToEmail: string | null;
+  replyHandlingMode: "TRIVEN_INBOX" | "FORWARD_ONLY" | "TRIVEN_AND_FORWARD";
+  status: "ACTIVE" | "DISABLED" | "ARCHIVED";
+};
+
+export type BusinessMailSetupData = {
+  alias: BusinessEmailAliasData | null;
+  suggestedLocalPart: string;
+  domain: string;
+  sesConfigured: boolean;
+};
+
+export type MailSetupInput = {
+  localPart: string;
+  displayName: string;
+  forwardToEmail?: string;
+  replyHandlingMode: BusinessEmailAliasData["replyHandlingMode"];
+};
+
+export function getBusinessMailSetup() {
+  return apiGet<BusinessMailSetupData>("/business/mail-setup");
+}
+
+export function checkMailAliasAvailability(localPart: string) {
+  return apiGet<{ localPart: string; available: boolean; reason: string | null }>(
+    `/business/mail-setup/check?localPart=${encodeURIComponent(localPart)}`
+  );
+}
+
+export function saveBusinessMailSetup(body: MailSetupInput) {
+  return apiPost<{ alias: BusinessEmailAliasData }>("/business/mail-setup", body);
+}
+
+export function sendMailSetupTestEmail(to?: string) {
+  return apiPost<{ messageId: string; dryRun: boolean }>("/business/mail-setup/test-email", to ? { to } : {});
 }
 
 export function getBusinessCalendarStatus() {

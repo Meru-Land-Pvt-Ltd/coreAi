@@ -114,8 +114,14 @@ export function TestPanel({
     | undefined;
   const hasVoiceResult = Boolean(voiceConversation || calendarAvailability || smsNotification);
 
+  const hasLlmPipeline = Boolean(
+    runContext.llmPipeline &&
+    typeof runContext.llmPipeline === "object" &&
+    Object.keys(runContext.llmPipeline).length > 0
+  );
+
   const hasResult = Boolean(
-    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || hasVoiceResult || runLogs.length > 0
+    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || hasVoiceResult || hasLlmPipeline || runLogs.length > 0
   );
 
   const sandboxReady = testDeployment?.status === "READY";
@@ -430,14 +436,31 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-6">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasVoiceResult ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
+              {hasLlmPipeline ? "LLM Pipeline Results" : hasVoiceResult ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
             </h3>
             <div className="flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-600">
-                <BuilderIcon name={hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasLlmPipeline ? "bg-violet-50 text-violet-600" : "bg-green-50 text-green-600"}`}>
+                <BuilderIcon name={hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                {hasVoiceResult ? (
+                {hasLlmPipeline ? (
+                  <div className="space-y-4" data-testid="test-panel-llm-pipeline-results">
+                    <div>
+                      {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (
+                        <div key={idx} className="mb-3 last:mb-0 rounded-xl border border-violet-100 bg-violet-50/10 p-4">
+                          <div className="flex items-center justify-between border-b border-violet-100 pb-2">
+                            <span className="text-xs font-bold text-violet-950">{step.label || "LLM Step"}</span>
+                            <span className="font-mono text-[10px] text-violet-500 bg-violet-50 px-2 py-0.5 rounded">
+                              {step.providerId} ({step.modelName})
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{step.output}</p>
+                          <p className="mt-2 font-mono text-[9px] text-slate-400">Variable: <code className="text-violet-600 font-bold">{step.outputKey}</code></p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : hasVoiceResult ? (
                   <div className="space-y-2" data-testid="test-panel-voice-result">
                     {voiceConversation ? (
                       <div data-testid="test-panel-voice-conversation-preview">

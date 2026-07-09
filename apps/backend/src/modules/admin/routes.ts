@@ -5,11 +5,10 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { adminPhoneNumberRoutes } from "./phone-numbers";
 import { adminPayoutRoutes } from "./payout-routes";
+import { sendBusinessEmail } from "../email/ses-mail-service";
 
 export const adminRoutes = new Hono();
 
-// Admin is fully privileged — enforce auth + ADMIN role on every route.
-// Never rely on the frontend guard alone.
 adminRoutes.use("*", requireAuth);
 adminRoutes.use("*", requireRole(["ADMIN"]));
 
@@ -473,4 +472,55 @@ adminRoutes.get("/contact-submissions", async (c) => {
   ]);
 
   return successResponse(c, { items: submissions, total, page, limit });
+});
+
+/* ---- Proxy email alias administration (reply.triven.ai) ---- */
+
+adminRoutes.get("/email-aliases", async (c) => {
+  const { page, limit, skip } = parsePagination(c);
+
+  const [items, total] = await Promise.all([
+    prisma.businessEmailAlias.findMany({
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: { business: { select: { id: true, name: true } } }
+    }),
+    prisma.businessEmailAlias.count()
+  ]);
+
+  return successResponse(c, { items, total, page, limit });
+});
+
+function registerAliasStatusRoute(path: string, status: "DISABLED" | "ARCHIVED") {
+  adminRoutes.post(path, async (c) => {
+    const id = c.req.param("id");
+    const alias = await prisma.businessEmailAlias.findUnique({ where: { id } });
+    if (!alias) return errorResponse(c, "Alias not found", 404, "ALIAS_NOT_FOUND");
+
+    const updated = await prisma.businessEmailAlias.update({ where: { id }, data: { status } });
+    console.log(`[email] admin set alias ${updated.emailAddress} -> ${status}`);
+    return successResponse(c, { alias: updated }, `Alias ${status.toLowerCase()}`);
+  });
+}
+
+registerAliasStatusRoute("/email-aliases/:id/disable", "DISABLED");
+registerAliasStatusRoute("/email-aliases/:id/archive", "ARCHIVED");
+
+adminRoutes.post("/email-aliases/:id/resend-test", async (c) => {
+  const id = c.req.param("id");
+  const alias = await prisma.businessEmailAlias.findUnique({ where: { id } });
+  if (!alias) return errorResponse(c, "Alias not found", 404, "ALIAS_NOT_FOUND");
+  if (!alias.forwardToEmail) return errorResponse(c, "Alias has no forward-to email", 422, "NO_FORWARD_EMAIL");
+
+  const result = await sendBusinessEmail({
+    businessId: alias.businessId,
+    to: alias.forwardToEmail,
+    subject: `Test email from ${alias.displayName} via Triven`,
+    textBody: `Admin-triggered test for ${alias.emailAddress}.`,
+    purpose: "TEST"
+  });
+
+  if (!result.ok) return errorResponse(c, result.error, 422, "TEST_EMAIL_FAILED");
+  return successResponse(c, { messageId: result.messageId, dryRun: result.dryRun }, "Test email sent");
 });

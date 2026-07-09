@@ -798,48 +798,31 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
-    const payload = isVoiceWorkflow
-      ? {
-        input: {
-          callerNumber: normalizedCallerNumber,
-          callerName: callerName.trim(),
-          businessName: normalizedBusinessName || "Sample Business",
-          businessType: businessType.trim() || "Service Business",
-          businessPhoneNumber: "",
-          calendarId: calendarId.trim() || "primary",
-          timeZone: timeZone.trim() || "America/Los_Angeles",
-          callStatus: "no-answer",
-          callTimestamp: new Date().toISOString(),
-          appointmentService: appointmentService.trim() || "General Consultation"
-        }
+    const payload = {
+      input: {
+        callerNumber: normalizedCallerNumber,
+        callerName: callerName.trim(),
+        businessName: normalizedBusinessName || "Sample Business",
+        businessType: businessType.trim() || "Service Business",
+        businessPhoneNumber: "",
+        calendarId: calendarId.trim() || "primary",
+        timeZone: timeZone.trim() || "America/Los_Angeles",
+        services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
+        faqs: [
+          "Pricing depends on the service and business policy.",
+          "Urgent calls should be escalated to the team."
+        ],
+        knowledge: [
+          "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
+        ],
+        bookingUrl: "https://example.com/book",
+        teamPhone: "",
+        callStatus: "no-answer",
+        callTimestamp: new Date().toISOString(),
+        missedCallReason: "No one picked up the customer call.",
+        appointmentService: appointmentService.trim() || "General Consultation"
       }
-      : hasSmsFlow
-        ? {
-          input: {
-            callerNumber: normalizedCallerNumber,
-            callerName: callerName.trim(),
-            businessName: normalizedBusinessName,
-            businessType: "Service Business",
-            businessPhoneNumber: "",
-            calendarId: "primary",
-            timeZone: "America/New_York",
-            services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-            faqs: [
-              "Pricing depends on the service and business policy.",
-              "Urgent calls should be escalated to the team."
-            ],
-            knowledge: [
-              "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-            ],
-            bookingUrl: "https://example.com/book",
-            teamPhone: "",
-            callStatus: "no-answer",
-            callTimestamp: new Date().toISOString(),
-            missedCallReason: "No one picked up the customer call.",
-            appointmentService: "Consultation"
-          }
-        }
-        : {};
+    };
 
     const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
 

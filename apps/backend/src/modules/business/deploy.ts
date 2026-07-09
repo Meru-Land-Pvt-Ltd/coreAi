@@ -2,7 +2,8 @@ import {
   DEFAULT_CALENDAR_BOOKING_RULES,
   RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
   VOICE_NODE_TYPES,
-  buildSilencePolicy
+  buildSilencePolicy,
+  formatBuyerAnswerValue
 } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -218,7 +219,9 @@ function readCustomFields(configJson: unknown): Array<{ label: string; value: st
       const record = recordOf(item);
       return {
         label: cleanString(record.label) ?? cleanString(record.key) ?? "",
-        value: cleanString(record.value) ?? ""
+        // Answers may be text, string arrays (multiselect), booleans, or
+        // numbers — rendered human-readable ("a, b", "Yes"/"No") for the prompt.
+        value: formatBuyerAnswerValue(record.value)
       };
     })
     .filter((field) => field.label && field.value);
@@ -358,7 +361,8 @@ export async function deployInstalledAgentVoiceAssistant(
     capabilities: {
       canCheckAvailability: capabilities.canCheckAvailability,
       canBook: capabilities.canBook,
-      canText: capabilities.canText
+      canText: capabilities.canText,
+      canEmail: capabilities.canEmail
     },
     nodeInstructions: nodeInstructions
       ? sanitizeLegacyFallbacks(nodeInstructions, { assistantName, businessName })

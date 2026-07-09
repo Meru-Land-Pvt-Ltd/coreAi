@@ -129,14 +129,18 @@ export function PricingSelector({
                 min={0}
                 step={0.01}
                 inputMode="decimal"
-                value={Number.isFinite(pricing.executionFee) ? String(pricing.executionFee) : ""}
+                placeholder="1.00"
+                value={Number.isFinite(pricing.executionFee) && pricing.executionFee !== 0 ? String(pricing.executionFee) : ""}
                 disabled={disabled}
                 onChange={(event) => onChange({ executionFee: Math.max(0, Number(event.target.value) || 0) })}
-                className="w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-8 pr-16 text-base font-bold text-slate-900 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                className="w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-8 pr-24 text-base font-bold text-slate-900 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
               />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-medium text-slate-400">/ run</span>
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-medium text-slate-400">/ execution</span>
             </div>
-            <p className="mt-1.5 text-xs text-slate-400">Optional per-run charge to cover API or compute costs.</p>
+            <p className="mt-1.5 text-xs text-slate-400">Optional extra charge per completed AI interaction.</p>
+            <p className="mt-1 text-xs text-slate-400">
+              1 execution = one completed AI voice interaction. Email follow-up inside that interaction is included.
+            </p>
           </div>
         </div>
       ) : null}
@@ -213,7 +217,7 @@ export function PricingSelector({
                 </span>
               </p>
               <p className="mt-2 text-xs text-slate-400">
-                Plus <span className="font-semibold text-slate-200">${pricing.executionFee.toFixed(2)}</span> per run in execution fees, paid straight to you.
+                Plus <span className="font-semibold text-slate-200">${pricing.executionFee.toFixed(2)}</span> per execution in fees, paid straight to you.
               </p>
             </div>
             <div className="text-right">
