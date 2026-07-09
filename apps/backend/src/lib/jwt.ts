@@ -7,16 +7,20 @@ export type AuthJwtPayload = {
   sub: string;
   email: string;
   role: JwtUserRole;
+  sid?: string;
   exp: number;
 };
 
 const JWT_ALGORITHM = "HS256";
 
-export async function createAuthToken(user: {
-  id: string;
-  email: string;
-  role: JwtUserRole;
-}) {
+export async function createAuthToken(
+  user: {
+    id: string;
+    email: string;
+    role: JwtUserRole;
+  },
+  sessionId?: string
+) {
   const expiresAt =
     Math.floor(Date.now() / 1000) + env.JWT_EXPIRES_IN_DAYS * 24 * 60 * 60;
 
@@ -25,6 +29,7 @@ export async function createAuthToken(user: {
       sub: user.id,
       email: user.email,
       role: user.role,
+      ...(sessionId ? { sid: sessionId } : {}),
       exp: expiresAt
     },
     env.JWT_SECRET,
@@ -39,6 +44,7 @@ export async function verifyAuthToken(token: string): Promise<AuthJwtPayload> {
     sub: String(payload.sub),
     email: String(payload.email),
     role: payload.role as JwtUserRole,
+    sid: payload.sid ? String(payload.sid) : undefined,
     exp: Number(payload.exp)
   };
 }

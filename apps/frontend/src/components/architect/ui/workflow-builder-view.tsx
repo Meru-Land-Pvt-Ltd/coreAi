@@ -1073,14 +1073,33 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
         {activeTab === "configure" ? (
           <ConfigurePanel
+            workflowId={currentWorkflowId}
+            architectName={architectName}
             agentName={agentName}
             tagline={tagline}
             price={price}
+            workflowFlow={{ nodes, edges }}
             saving={saving}
             statusMessage={message}
+            locked={isPublishLocked}
+            lockedMessage={
+              isLive
+                ? "This agent is live on the marketplace. Configuration is locked."
+                : isUnderReview
+                  ? "This agent is under review. Configuration is locked until the review completes."
+                  : ""
+            }
             onAgentNameChange={setAgentName}
             onTaglineChange={setTagline}
             onPriceChange={setPrice}
+            ensureWorkflowId={async () => {
+              const saved = await saveAgent(false);
+              return saved ? currentWorkflowIdRef.current : null;
+            }}
+            onSubmitted={() => {
+              setMessage("Submitted for review");
+              void loadWorkflow();
+            }}
             onSave={() => void saveAgent()}
           />
         ) : null}

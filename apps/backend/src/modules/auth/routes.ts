@@ -8,6 +8,7 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth } from "../../middleware/auth";
 import { sendBuyerWelcomeEmail, sendVerificationEmail } from "../../lib/mailer";
 import { getFirebaseAdminAuth } from "../../lib/firebase-admin";
+import { issueAuthSession } from "../../lib/user-session";
 import {
   loginSchema,
   sendVerificationCodeSchema,
@@ -309,11 +310,15 @@ authRoutes.post("/verify-code", async (c) => {
       architectProfile: user.architectProfile
     };
 
-    const token = await createAuthToken({
-      id: user.id,
-      email: user.email,
-      role: user.role as JwtUserRole
-    });
+    const { tokenSid } = await issueAuthSession(user.id, c);
+    const token = await createAuthToken(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role as JwtUserRole
+      },
+      tokenSid
+    );
 
     return successResponse(
       c,
@@ -461,11 +466,15 @@ authRoutes.post("/firebase-login", async (c) => {
       architectProfile: user.architectProfile
     };
 
-    const token = await createAuthToken({
-      id: user.id,
-      email: user.email,
-      role: user.role as JwtUserRole
-    });
+    const { tokenSid } = await issueAuthSession(user.id, c);
+    const token = await createAuthToken(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role as JwtUserRole
+      },
+      tokenSid
+    );
 
     console.log("Firebase login success:", {
       userId: user.id,
@@ -584,11 +593,15 @@ authRoutes.post("/login", async (c) => {
       architectProfile: user.architectProfile
     };
 
-    const token = await createAuthToken({
-      id: user.id,
-      email: user.email,
-      role: user.role as JwtUserRole
-    });
+    const { tokenSid } = await issueAuthSession(user.id, c);
+    const token = await createAuthToken(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role as JwtUserRole
+      },
+      tokenSid
+    );
 
     return successResponse(
       c,

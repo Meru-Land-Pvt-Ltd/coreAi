@@ -2,6 +2,7 @@ import type { Context, Next } from "hono";
 import { prisma } from "../lib/prisma";
 import { verifyAuthToken, type JwtUserRole } from "../lib/jwt";
 import { errorResponse } from "../lib/api-response";
+import { assertActiveSession } from "../lib/user-session";
 
 export type AuthUser = {
   id: string;
@@ -47,6 +48,11 @@ export async function requireAuth(c: Context, next: Next) {
 
     if (user.isSuspended) {
       return errorResponse(c, "Account suspended", 403, "ACCOUNT_SUSPENDED");
+    }
+
+    const sessionValid = await assertActiveSession(user.id, payload.sid);
+    if (!sessionValid) {
+      return errorResponse(c, "Session revoked or expired", 401, "SESSION_REVOKED");
     }
 
     c.set("authUser", {

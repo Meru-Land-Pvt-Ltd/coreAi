@@ -2,14 +2,16 @@ import { serve } from "@hono/node-server";
 import { env } from "./config/env";
 import { app } from "./app";
 import { prisma } from "./lib/prisma";
+import { initProviderEngine } from "./modules/ai-provider-engine/provider-engine";
 
 const server = serve(
   {
     fetch: app.fetch,
     port: env.PORT
   },
-  (info) => {
+  async (info) => {
     console.log(`CoreAI backend running on http://localhost:${info.port}`);
+    await initProviderEngine();
   }
 );
 

@@ -18,6 +18,14 @@ import {
   handleTwilioVoiceAction,
   handleVapiWebhook
 } from "./twilio-business-routing";
+import {
+  getWorkflowConfigure,
+  getWorkflowMarketplacePreview,
+  patchWorkflowConfigure,
+  publishWorkflowListing,
+  saveWorkflowConfigureDraft,
+  submitWorkflowForReview
+} from "./configure";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
   getPhoneRoutingStatus,
@@ -30,6 +38,7 @@ import {
   getTemplateBySlug,
   listTemplateCards
 } from "./templates";
+import { loadArchitectEarnings, countSalesByListingIds } from "./payout-earnings";
 import {
   getArchitectTestDeploymentStatus,
   startArchitectTestDeployment,
@@ -41,6 +50,8 @@ import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoiceP
 import { runWorkflowTest } from "./workflow-runner";
 import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
+import { architectPayoutRoutes } from "./payout-routes";
+import { architectSettingsRoutes } from "./settings-routes";
 
 const voicePreviewSchema = z.object({
   presetId: z.string().trim().optional(),
@@ -120,17 +131,17 @@ async function listPublicMarketplaceListings(c: Context) {
   });
 
   const seenWorkflowIds = new Set<string>();
-  const listings = allListings
-    .filter((listing) => {
-      if (!listing.workflowId) return true;
-      if (seenWorkflowIds.has(listing.workflowId)) return false;
-      seenWorkflowIds.add(listing.workflowId);
-      return true;
-    })
-    .map(({ _count, ...listing }) => ({
-      ...listing,
-      installCount: _count.installedAgents
-    }));
+  const filtered = allListings.filter((listing) => {
+    if (!listing.workflowId) return true;
+    if (seenWorkflowIds.has(listing.workflowId)) return false;
+    seenWorkflowIds.add(listing.workflowId);
+    return true;
+  });
+  const installCountByListing = await countSalesByListingIds(filtered.map((listing) => listing.id));
+  const listings = filtered.map(({ _count, ...listing }) => ({
+    ...listing,
+    installCount: installCountByListing.get(listing.id) ?? 0
+  }));
 
   return successResponse(c, { listings });
 }
@@ -175,11 +186,12 @@ async function getPublicMarketplaceListingById(c: Context) {
   }
 
   const { _count, ...rest } = listing;
+  const installCountByListing = await countSalesByListingIds([listing.id]);
 
   return successResponse(c, {
     listing: {
       ...rest,
-      installCount: _count.installedAgents
+      installCount: installCountByListing.get(listing.id) ?? 0
     }
   });
 }
@@ -210,6 +222,9 @@ architectRoutes.post("/voices/preview", requireAuth, async (c) => {
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));
+
+architectRoutes.route("/payouts", architectPayoutRoutes);
+architectRoutes.route("/settings", architectSettingsRoutes);
 
 const profileSchema = z.object({
   title: z.string().trim().min(2).optional().or(z.literal("")),
@@ -1362,6 +1377,17 @@ architectRoutes.post("/workflows/:workflowId/run-live", async (c) => {
   }
 });
 
+// ---- Architect Configure flow (marketplace template metadata) ----
+// Draft lives on WorkflowDefinition.configureJson; submit-review maps it onto
+// the AgentListing the marketplace reads. Architect-only (registered after the
+// requireAuth + requireRole("ARCHITECT") guards above).
+architectRoutes.get("/workflows/:workflowId/configure", getWorkflowConfigure);
+architectRoutes.patch("/workflows/:workflowId/configure", patchWorkflowConfigure);
+architectRoutes.post("/workflows/:workflowId/configure/save-draft", saveWorkflowConfigureDraft);
+architectRoutes.post("/workflows/:workflowId/submit-review", submitWorkflowForReview);
+architectRoutes.post("/workflows/:workflowId/publish", publishWorkflowListing);
+architectRoutes.get("/workflows/:workflowId/marketplace-preview", getWorkflowMarketplacePreview);
+
 architectRoutes.get("/listings", async (c) => {
   const authUser = c.get("authUser");
   const statusFilter = c.req.query("status");
@@ -1380,6 +1406,11 @@ architectRoutes.get("/listings", async (c) => {
       createdAt: "desc"
     }
   });
+  const sales = await loadArchitectEarnings(authUser.id);
+  const installCountByListing = new Map<string, number>();
+  for (const sale of sales) {
+    installCountByListing.set(sale.listingId, (installCountByListing.get(sale.listingId) ?? 0) + 1);
+  }
   const seenWorkflowIds = new Set<string>();
   const listings = allListings
     .filter((listing) => {
@@ -1390,7 +1421,7 @@ architectRoutes.get("/listings", async (c) => {
     })
     .map(({ _count, ...listing }) => ({
       ...listing,
-      installCount: _count.installedAgents
+      installCount: installCountByListing.get(listing.id) ?? 0
     }));
 
   // Workflows the architect saved or imported (builder/template) but hasn't

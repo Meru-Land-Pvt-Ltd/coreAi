@@ -13,6 +13,9 @@ model User {
   passwordHash         String?
   role                 UserRole
   fullName             String?
+  phone                String?
+  location             String?
+  timezone             String?
   isSuspended          Boolean               @default(false)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
@@ -24,6 +27,10 @@ model User {
   proposals            ProjectProposal[]
   templateRequests     TemplateRequest[]
   workflows            WorkflowDefinition[]
+  payoutMethod         ArchitectPayoutMethod?
+  payouts              ArchitectPayout[]
+  loginHistory         UserLoginHistory[]
+  activeSessions       UserActiveSession[]
   workflowRuns         WorkflowRun[]
 
   // Same email may exist once per role (e.g. BUSINESS + ARCHITECT), but not twice
@@ -34,59 +41,104 @@ model User {
 }
 
 model ArchitectProfile {
-  id              String          @id @default(cuid())
-  userId          String          @unique
-  title           String?
-  bio             String?
-  portfolioUrl    String?
-  skills          String[]
-  approvalStatus  ArchitectStatus @default(PENDING)
-  rating          Float           @default(0)
-  completedJobs   Int             @default(0)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  hourlyRateCents Int?
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String          @id @default(cuid())
+  userId           String          @unique
+  title            String?
+  displayName      String?
+  tagline          String?
+  bio              String?
+  portfolioUrl     String?
+  githubUrl        String?
+  linkedinUrl      String?
+  twitterHandle    String?
+  experienceBand   String?
+  skills           String[]
+  approvalStatus   ArchitectStatus @default(PENDING)
+  rating           Float           @default(0)
+  completedJobs    Int             @default(0)
+  notificationPrefs Json?
+  privacyPrefs     Json?
+  agentsPaused     Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  hourlyRateCents  Int?
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([approvalStatus])
 }
 
 model WorkflowDefinition {
-  id              String           @id @default(cuid())
-  name            String
-  description     String?
-  workflowJson    Json
-  isTemplate      Boolean          @default(false)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  architectUserId String
-  listings        AgentListing[]
-  installedAgents InstalledAgent[]
+  id                   String               @id @default(cuid())
+  name                 String
+  description          String?
+  workflowJson         Json
+  // Architect Configure flow (marketplace template metadata) — optional so
+  // existing workflows keep working with safe defaults.
+  configureJson        Json?
+  marketplaceJson      Json?
+  requiredIntegrations Json?
+  buyerSetupSchema     Json?
+  publishChecklist     Json?
+  reviewStatus         ListingReviewStatus  @default(DRAFT)
+  publishStatus        ListingPublishStatus @default(DRAFT)
+  isTemplate           Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  architectUserId      String
+  listings             AgentListing[]
+  installedAgents      InstalledAgent[]
   workflowRuns    WorkflowRun[]
-  architect       User             @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
   @@index([createdAt])
 }
 
 model AgentListing {
-  id                 String              @id @default(cuid())
-  name               String
-  shortDescription   String
-  description        String?
-  priceCents         Int                 @default(0)
-  status             ListingStatus       @default(DRAFT)
-  requiredConnectors String[]
-  supportedLlms      String[]
-  tags               String[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  architectUserId    String
-  workflowId         String?
-  architect          User                @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  workflow           WorkflowDefinition? @relation(fields: [workflowId], references: [id])
-  installedAgents    InstalledAgent[]
-  payments           Payment[]
+  id                     String               @id @default(cuid())
+  name                   String
+  shortDescription       String
+  description            String?
+  priceCents             Int                  @default(0)
+  status                 ListingStatus        @default(DRAFT)
+  requiredConnectors     String[]
+  supportedLlms          String[]
+  tags                   String[]
+  // Marketplace configure/publish metadata (Architect Configure flow). All
+  // optional or defaulted so pre-existing listings stay valid.
+  tagline                String?
+  category               String?
+  industryTags           String[]             @default([])
+  iconUrl                String?
+  fullDescription        String?
+  includedFeatures       String[]             @default([])
+  screenshotUrls         String[]             @default([])
+  demoVideoUrl           String?
+  pricingModel           PricingModel         @default(SUBSCRIPTION)
+  executionFeeCents      Int                  @default(0)
+  freeTrialEnabled       Boolean              @default(false)
+  trialDays              Int                  @default(0)
+  setupTimeEstimate      String?
+  requiredIntegrations   Json?
+  requiredBuyerSetup     Json?
+  buyerSetupInstructions String?
+  installInstructions    String?
+  dataHandling           Json?
+  complianceChecks       Json?
+  reviewStatus           ListingReviewStatus  @default(DRAFT)
+  publishStatus          ListingPublishStatus @default(DRAFT)
+  rejectionReason        String?
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  publishedAt            DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  architectUserId        String
+  workflowId             String?
+  architect              User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  workflow               WorkflowDefinition?  @relation(fields: [workflowId], references: [id])
+  installedAgents        InstalledAgent[]
+  payments               Payment[]
 
   @@index([architectUserId])
   @@index([workflowId])
@@ -459,6 +511,82 @@ model Country {
   @@index([name])
 }
 
+model ArchitectPayoutMethod {
+  id                String   @id @default(cuid())
+  architectUserId   String   @unique
+  bankName          String
+  accountHolderName String
+  accountNumber     String
+  ifscCode          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  architect         User     @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@index([ifscCode])
+}
+
+model ArchitectPayout {
+  id              String                @id @default(cuid())
+  architectUserId String
+  amountCents     Int
+  status          ArchitectPayoutStatus @default(COMPLETED)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  architect       User                  @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@index([architectUserId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UserLoginHistory {
+  id          String              @id @default(cuid())
+  userId      String
+  deviceLabel String
+  location    String?
+  ipMasked    String?
+  userAgent   String?
+  status      LoginHistoryStatus  @default(SUCCESS)
+  createdAt   DateTime            @default(now())
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model UserActiveSession {
+  id          String    @id @default(cuid())
+  userId      String
+  tokenSid    String    @unique
+  deviceLabel String
+  location    String?
+  ipMasked    String?
+  userAgent   String?
+  lastActiveAt DateTime @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([revokedAt])
+  @@index([expiresAt])
+}
+
+model ArchitectRefundSettlement {
+  id              String                      @id @default(cuid())
+  architectUserId String
+  action          ArchitectRefundAction
+  amountCents     Int
+  status          RefundSettlementStatus      @default(PENDING)
+  breakdown       Json
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  @@index([architectUserId])
+  @@index([status])
+}
+
 enum UserRole {
   ADMIN
   BUSINESS
@@ -494,6 +622,49 @@ enum ListingStatus {
   APPROVED
   REJECTED
   SUSPENDED
+}
+
+enum ArchitectPayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum LoginHistoryStatus {
+  SUCCESS
+  BLOCKED
+}
+
+enum ArchitectRefundAction {
+  PAUSE_ALL_AGENTS
+  DELETE_ACCOUNT
+}
+
+enum RefundSettlementStatus {
+  PENDING
+  PAID
+}
+
+enum ListingReviewStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum ListingPublishStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum PricingModel {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
 }
 
 enum ConnectorProvider {
