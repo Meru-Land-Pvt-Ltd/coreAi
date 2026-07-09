@@ -59,17 +59,22 @@ export class MemoryBroker {
   /** Direct parent in execution order (forward chain, not a back-link). */
   async getPreviousNodeMemory(
     workflowRunId: string,
-    nodeId: string
+    nodeId: string,
+    executionOrder?: number
   ): Promise<NodeMemoryRecord | null> {
-    const current = await prisma.nodeRun.findFirst({
-      where: { workflowRunId, nodeId },
-      orderBy: { executionOrder: "desc" },
-    });
-    if (!current) return null;
+    let beforeOrder = executionOrder;
+    if (beforeOrder === undefined) {
+      const current = await prisma.nodeRun.findFirst({
+        where: { workflowRunId, nodeId },
+        orderBy: { executionOrder: "desc" },
+      });
+      if (!current) return null;
+      beforeOrder = current.executionOrder;
+    }
     const previous = await prisma.nodeRun.findFirst({
       where: {
         workflowRunId,
-        executionOrder: { lt: current.executionOrder },
+        executionOrder: { lt: beforeOrder },
       },
       orderBy: { executionOrder: "desc" },
     });
@@ -101,7 +106,11 @@ export class MemoryBroker {
 
   /** Builds the full context bundle before an AI node runs. */
   async buildContextBundle(input: BuildContextBundleInput): Promise<ContextBundle> {
-    const previousMemory = await this.getPreviousNodeMemory(input.workflowRunId, input.nodeId);
+    const previousMemory = await this.getPreviousNodeMemory(
+      input.workflowRunId,
+      input.nodeId,
+      input.executionOrder
+    );
     const { memories: backLinkedMemories, links } = await resolveBackLinkedMemories({
       workflowRunId: input.workflowRunId,
       targetNodeId: input.nodeId,

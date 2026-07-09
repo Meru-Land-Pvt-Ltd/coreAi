@@ -13,6 +13,14 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
+import {
+  createWorkflowRun,
+  completeWorkflowRun,
+  failWorkflowRun,
+  runAiBrainNode,
+  memoryBroker,
+  type AiBrainNodeConfig,
+} from "../memory";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -114,6 +122,12 @@ type RunnerNodeData = {
   dentistPhone?: unknown;
   patientTemplate?: unknown;
   dentistTemplate?: unknown;
+  provider?: unknown;
+  instructions?: unknown;
+  temperature?: unknown;
+  maxTokens?: unknown;
+  outputFormat?: unknown;
+  backlinkNodeIds?: unknown;
 };
 
 type RunnerNode = {
@@ -352,6 +366,25 @@ function createLog(
     message,
     output
   };
+}
+
+function toAiBrainNodeConfig(node: RunnerNode): AiBrainNodeConfig {
+  return {
+    id: node.id,
+    nodeType: asString(node.data?.type, "ai.context_reply"),
+    nodeLabel: asString(node.data?.title ?? node.data?.label),
+    data: node.data,
+  };
+}
+
+/** Test runs use Provider Engine for builder AI nodes; live receptionist keeps legacy SMS logic without provider. */
+function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boolean {
+  const type = asString(node.data?.type);
+  if (type === VOICE_NODE_TYPES.voiceConversation) return false;
+  if (type === "ai.brain") return true;
+  if (Boolean(asString(node.data?.provider))) return true;
+  if (type === "ai.context_reply" && mode === "test") return true;
+  return false;
 }
 
 function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
@@ -1495,56 +1528,129 @@ export async function runWorkflowTest({
     };
   }
 
-  for (const node of sortNodesForRun(parsedWorkflow.nodes)) {
-    const nodeKind = asString(node.data?.nodeKind);
+  const { workflowRunId, threadId } = await createWorkflowRun({
+    workflowId,
+    triggeredByUserId: userId,
+    businessId: input?.businessId,
+    installedAgentId: input?.installedAgentId,
+    mode,
+    inputJson: input as Record<string, unknown> | undefined,
+  });
 
-    try {
-      if (nodeKind === "trigger") {
-        runTriggerNode(node, context, logs);
-        continue;
+  let executionOrder = 0;
+  let runFailed = false;
+
+  try {
+    for (const node of sortNodesForRun(parsedWorkflow.nodes)) {
+      const nodeKind = asString(node.data?.nodeKind);
+
+      try {
+        if (nodeKind === "trigger") {
+          runTriggerNode(node, context, logs);
+          await memoryBroker.saveNodeMemory({
+            workflowRunId,
+            nodeId: node.id,
+            nodeType: asString(node.data?.type, "trigger"),
+            nodeLabel: asString(node.data?.title ?? node.data?.label),
+            status: "success",
+            executionOrder: executionOrder++,
+            threadId,
+            input: input as Record<string, unknown> | undefined,
+            output: {
+              callerNumber: context.caller_number,
+              inboundSms: context.inboundSms,
+              missedCall: context.missedCall,
+            },
+            summary: "Trigger fired",
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          });
+          continue;
+        }
+
+        if (nodeKind === "connector") {
+          await runConnectorNode({
+            userId,
+            node,
+            context,
+            logs,
+            mode,
+            chain
+          });
+          continue;
+        }
+
+        if (nodeKind === "ai") {
+          if (shouldUseProviderEngine(node, mode)) {
+            const result = await runAiBrainNode({
+              workflowRunId,
+              threadId,
+              executionOrder: executionOrder++,
+              node: toAiBrainNodeConfig(node),
+            });
+
+            context.ai = { output: result.text ?? "" };
+
+            logs.push(
+              createLog(
+                node,
+                result.status === "success" ? "success" : "error",
+                result.error ?? "AI Brain node completed.",
+                {
+                  text: result.text,
+                  providerId: result.providerId,
+                  modelName: result.modelName,
+                  nodeRunId: result.nodeRunId,
+                }
+              )
+            );
+
+            if (result.status === "error") runFailed = true;
+          } else {
+            runAiNode(node, context, logs);
+          }
+          continue;
+        }
+
+        if (nodeKind === "condition") {
+          runConditionNode(node, context, logs);
+          continue;
+        }
+
+        if (nodeKind === "output") {
+          runOutputNode(node, context, logs);
+          continue;
+        }
+
+        logs.push(createLog(node, "error", `Unknown node kind: ${nodeKind}`));
+      } catch (error) {
+        runFailed = true;
+        logs.push(
+          createLog(
+            node,
+            "error",
+            error instanceof Error ? error.message : "Node execution failed"
+          )
+        );
       }
-
-      if (nodeKind === "connector") {
-        await runConnectorNode({
-          userId,
-          node,
-          context,
-          logs,
-          mode,
-          chain
-        });
-        continue;
-      }
-
-      if (nodeKind === "ai") {
-        runAiNode(node, context, logs);
-        continue;
-      }
-
-      if (nodeKind === "condition") {
-        runConditionNode(node, context, logs);
-        continue;
-      }
-
-      if (nodeKind === "output") {
-        runOutputNode(node, context, logs);
-        continue;
-      }
-
-      logs.push(createLog(node, "error", `Unknown node kind: ${nodeKind}`));
-    } catch (error) {
-      logs.push(
-        createLog(
-          node,
-          "error",
-          error instanceof Error ? error.message : "Node execution failed"
-        )
-      );
     }
+  } catch (error) {
+    await failWorkflowRun(
+      workflowRunId,
+      error instanceof Error ? error.message : "Workflow run failed"
+    );
+    throw error;
+  }
+
+  if (runFailed) {
+    await failWorkflowRun(workflowRunId, "One or more nodes failed");
+  } else {
+    await completeWorkflowRun(workflowRunId);
   }
 
   return {
     workflowId,
+    workflowRunId,
     logs,
     context
   };
