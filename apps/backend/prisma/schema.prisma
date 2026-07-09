@@ -257,6 +257,7 @@ model BusinessProfile {
   serviceArea       String?
   bookingUrl        String?
   teamPhone         String?
+  businessSize      String?
   hoursJson         Json?
   tone              String   @default("friendly")
   escalationRules   String?
@@ -482,6 +483,9 @@ model Payment {
   amountCents Int           @default(0)
   currency    String        @default("usd")
   status      PaymentStatus @default(PENDING)
+  architectEarningStatus ArchitectEarningStatus @default(PENDING)
+  architectEarningReviewedAt DateTime?
+  architectEarningReviewedByUserId String?
 
   stripeCustomerId     String?
   stripeSessionId      String?
@@ -657,6 +661,7 @@ enum ListingStatus {
   APPROVED
   REJECTED
   SUSPENDED
+  PAUSED
 }
 
 enum ListingReviewStatus {
@@ -702,27 +707,6 @@ enum RefundSettlementStatus {
   PAID
 }
 
-enum ListingReviewStatus {
-  DRAFT
-  SUBMITTED
-  APPROVED
-  REJECTED
-  CHANGES_REQUESTED
-}
-
-enum ListingPublishStatus {
-  DRAFT
-  IN_REVIEW
-  PUBLISHED
-  UNPUBLISHED
-}
-
-enum PricingModel {
-  FREE
-  ONE_TIME
-  SUBSCRIPTION
-}
-
 enum ConnectorProvider {
   GMAIL
   TWILIO
@@ -753,6 +737,12 @@ enum PaymentStatus {
   FAILED
   CANCELED
   REFUNDED
+}
+
+enum ArchitectEarningStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // Brain Memory — stores what each workflow run and node actually did.

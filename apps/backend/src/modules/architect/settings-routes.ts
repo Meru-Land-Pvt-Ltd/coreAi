@@ -171,6 +171,15 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
   }
 
   const obligations = await getArchitectLiveRefundObligations(userId);
+  const listings = await prisma.agentListing.findMany({
+    where: { architectUserId: userId },
+    select: { status: true }
+  });
+  const hasPausableAgents = listings.some(
+    (listing) => listing.status === "APPROVED" || listing.status === "PENDING_REVIEW"
+  );
+  const allAgentsPaused =
+    listings.length > 0 && listings.every((listing) => listing.status === "PAUSED");
 
   return {
     profile: {
@@ -205,7 +214,9 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
     payouts: payoutSummary,
     danger: {
       obligations,
-      agentsPaused: profile?.agentsPaused ?? false
+      agentsPaused: profile?.agentsPaused ?? false,
+      allAgentsPaused,
+      hasPausableAgents
     }
   };
 }
@@ -653,18 +664,6 @@ architectSettingsRoutes.post("/danger/pay-obligations", async (c) => {
 architectSettingsRoutes.post("/danger/pause-agents", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const obligations = await getArchitectLiveRefundObligations(authUser.id);
-
-    if (obligations.requiresPayment) {
-      const settled = await hasPaidRefundSettlement(authUser.id, "PAUSE_ALL_AGENTS");
-      if (!settled) {
-        return successResponse(c, {
-          paused: false,
-          requiresPayment: true,
-          obligations
-        }, "Buyer refund payment required before pausing agents");
-      }
-    }
 
     await prisma.$transaction([
       prisma.agentListing.updateMany({
@@ -672,7 +671,7 @@ architectSettingsRoutes.post("/danger/pause-agents", async (c) => {
           architectUserId: authUser.id,
           status: { in: ["APPROVED", "PENDING_REVIEW"] }
         },
-        data: { status: "SUSPENDED" }
+        data: { status: "PAUSED" }
       }),
       prisma.architectProfile.upsert({
         where: { userId: authUser.id },
@@ -684,6 +683,34 @@ architectSettingsRoutes.post("/danger/pause-agents", async (c) => {
     return successResponse(c, { paused: true }, "All agents paused");
   } catch {
     return errorResponse(c, "Could not pause agents", 500, "PAUSE_AGENTS_FAILED");
+  }
+});
+
+architectSettingsRoutes.post("/danger/reactivate-agents", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+
+    const reactivated = await prisma.$transaction(async (tx) => {
+      const result = await tx.agentListing.updateMany({
+        where: {
+          architectUserId: authUser.id,
+          status: "PAUSED"
+        },
+        data: { status: "APPROVED" }
+      });
+
+      await tx.architectProfile.upsert({
+        where: { userId: authUser.id },
+        update: { agentsPaused: false },
+        create: { userId: authUser.id, agentsPaused: false }
+      });
+
+      return result.count;
+    });
+
+    return successResponse(c, { reactivated: reactivated > 0 }, "All agents are live again");
+  } catch {
+    return errorResponse(c, "Could not reactivate agents", 500, "REACTIVATE_AGENTS_FAILED");
   }
 });
 

@@ -132,6 +132,70 @@ export function getAdminContactSubmissions(
   return apiGet<AdminPaged<AdminContactSubmission>>(`/admin/contact-submissions${query(params)}`);
 }
 
+export type AdminPayoutSummary = {
+  pendingSalesCount: number;
+  pendingEarningsCents: number;
+  approvedSalesCount: number;
+  approvedEarningsCents: number;
+  rejectedSalesCount: number;
+  rejectedEarningsCents: number;
+  architectSharePercent: number;
+};
+
+export type AdminPayoutSale = {
+  paymentId: string;
+  listingId: string;
+  installId: string | null;
+  date: string;
+  listingName: string;
+  businessName: string;
+  buyerEmail: string;
+  grossCents: number;
+  earningsCents: number;
+  architectSharePercent: number;
+  purchaseStatus: string;
+  architectEarningStatus: "PENDING" | "APPROVED" | "REJECTED";
+  reviewedAt: string | null;
+  architect: {
+    id: string;
+    email: string;
+    fullName: string | null;
+    payoutMethod: {
+      bankName: string;
+      accountHolderName: string;
+      accountLast4: string;
+      ifscCode: string;
+    } | null;
+  };
+};
+
+export type AdminPayoutSaleStatus = "APPROVED" | "REJECTED";
+
+export function getAdminPayoutSummary() {
+  return apiGet<AdminPayoutSummary>("/admin/payouts/summary");
+}
+
+export function getAdminPayoutSales(
+  params: { search?: string; status?: string; page?: number; limit?: number } = {}
+) {
+  return apiGet<AdminPaged<AdminPayoutSale>>(`/admin/payouts/sales${query(params)}`);
+}
+
+export function updateAdminPayoutSaleStatus(paymentId: string, status: AdminPayoutSaleStatus) {
+  return apiPatch<{
+    payment: {
+      id: string;
+      architectEarningStatus: AdminPayoutSale["architectEarningStatus"];
+      reviewedAt: string | null;
+    };
+    sale: unknown;
+    architectTotals: {
+      approvedEarningsCents: number;
+      pendingEarningsCents: number;
+    };
+  }>(`/admin/payouts/sales/${paymentId}/status`, { status });
+}
+
 /* ------------------------- Platform phone numbers ------------------------- */
 
 export type PhoneNumberStatus = "AVAILABLE" | "ASSIGNED" | "DISABLED" | "ARCHIVED" | "RELEASED" | "ERROR";

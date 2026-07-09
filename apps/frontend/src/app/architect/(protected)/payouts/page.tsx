@@ -19,6 +19,25 @@ function formatUsd(cents: number) {
   })}`;
 }
 
+function formatChartAxisUsd(cents: number) {
+  const dollars = cents / 100;
+  if (dollars >= 1000) {
+    return `$${(dollars / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 })}k`;
+  }
+  if (dollars >= 100) {
+    return `$${Math.round(dollars).toLocaleString("en-US")}`;
+  }
+  return `$${dollars.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function buildChartAxisTicks(maxCents: number) {
+  const max = Math.max(maxCents, 1);
+  return [1, 0.75, 0.5, 0.25, 0].map((ratio) => ({
+    ratio,
+    valueCents: Math.round(max * ratio)
+  }));
+}
+
 function formatSignedUsd(cents: number) {
   const prefix = cents >= 0 ? "+" : "-";
   return `${prefix}$${Math.abs(cents / 100).toLocaleString("en-US", {
@@ -38,7 +57,8 @@ function formatPayoutDate(value: string) {
 function statusBadgeClass(status: string) {
   if (status === "Pending") return "bg-amber-50 text-amber-700";
   if (status === "Available") return "bg-blue-50 text-blue-700";
-  if (status === "Completed" || status === "Paid out") return "bg-green-50 text-green-700";
+  if (status === "Completed" || status === "Paid" || status === "Paid out") return "bg-green-50 text-green-700";
+  if (status === "Rejected") return "bg-red-50 text-red-700";
   if (status === "Processed" || status === "Processing") return "bg-red-50 text-red-700";
   return "bg-gray-100 text-slate-600";
 }
@@ -121,9 +141,16 @@ export default function ArchitectPayoutsPage() {
   }
 
   const chartMax = useMemo(() => {
-    const values = summary?.chart.points.map((point) => point.confirmedCents) ?? [0];
+    const points = summary?.chart.points ?? [];
+    const values = points.map((point) => point.confirmedCents + point.pendingCents);
     return Math.max(...values, 1);
   }, [summary]);
+
+  const chartHasData = useMemo(() => {
+    return (summary?.chart.points ?? []).some((point) => point.confirmedCents + point.pendingCents > 0);
+  }, [summary]);
+
+  const pendingCents = useMemo(() => summary?.pendingCents ?? 0, [summary]);
 
   if (loading && !summary) {
     return (
@@ -191,8 +218,8 @@ export default function ArchitectPayoutsPage() {
             />
             <MetricCard
               label="Pending"
-              value={formatUsd(data.pendingCents)}
-              hint="Clears in 7 days"
+              value={formatUsd(pendingCents)}
+              hint="Paid in 7 days"
               testId="architect-payouts-pending"
             />
             <MetricCard
@@ -204,36 +231,11 @@ export default function ArchitectPayoutsPage() {
           </div>
         </section>
 
-        <section aria-label="Earnings over time" data-testid="architect-payouts-chart">
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-bold text-slate-900">Earnings over time</h2>
-              <span className="rounded-full bg-gray-50 px-3 py-1 text-xs font-semibold text-slate-600">12M</span>
-            </div>
-            <div className="mt-6 flex h-48 items-end gap-2">
-              {data.chart.points.map((point) => (
-                <div key={point.label} className="group relative flex flex-1 flex-col items-center justify-end">
-                  <div
-                    className="w-full rounded-t-md bg-amber-500 transition hover:opacity-80"
-                    style={{ height: `${Math.max(8, (point.confirmedCents / chartMax) * 100)}%` }}
-                    title={`${point.label}: ${formatUsd(point.confirmedCents)}`}
-                  />
-                  <span className="mt-2 text-[10px] font-medium text-slate-400">{point.label}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 flex items-center gap-5 text-xs text-slate-500">
-              <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded-sm bg-amber-500" />
-                Confirmed
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded-sm bg-amber-100" />
-                Pending
-              </span>
-            </div>
-          </div>
-        </section>
+        <EarningsOverTimeChart
+          points={data.chart.points}
+          chartMax={chartMax}
+          hasData={chartHasData}
+        />
 
         <section aria-label="Payout schedule and bank account" data-testid="architect-payouts-next-payout">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -336,6 +338,125 @@ export default function ArchitectPayoutsPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+type ChartPoint = {
+  label: string;
+  confirmedCents: number;
+  pendingCents: number;
+};
+
+function EarningsOverTimeChart({
+  points,
+  chartMax,
+  hasData
+}: {
+  points: ChartPoint[];
+  chartMax: number;
+  hasData: boolean;
+}) {
+  const axisTicks = useMemo(() => buildChartAxisTicks(chartMax), [chartMax]);
+
+  return (
+    <section aria-label="Earnings over time" data-testid="architect-payouts-chart">
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-bold text-slate-900">Earnings over time</h2>
+          <span className="rounded-full bg-gray-50 px-3 py-1 text-xs font-semibold text-slate-600">12M</span>
+        </div>
+
+        {hasData ? (
+          <div className="mt-6 flex gap-3">
+            <div
+              className="flex h-52 w-11 shrink-0 flex-col justify-between pb-7 text-right text-[10px] font-medium text-slate-400"
+              data-testid="architect-payouts-chart-y-axis"
+            >
+              {axisTicks.map((tick) => (
+                <span key={tick.ratio}>{formatChartAxisUsd(tick.valueCents)}</span>
+              ))}
+            </div>
+
+            <div className="relative min-w-0 flex-1">
+              <div className="pointer-events-none absolute inset-x-0 top-0 bottom-7 flex flex-col justify-between">
+                {axisTicks.map((tick) => (
+                  <div key={`grid-${tick.ratio}`} className="border-t border-dashed border-gray-100" />
+                ))}
+              </div>
+
+              <div className="relative flex h-52 items-end gap-2 pb-7">
+                {points.map((point) => {
+                  const totalCents = point.confirmedCents + point.pendingCents;
+                  const barHeight = totalCents > 0 ? Math.max(8, (totalCents / chartMax) * 100) : 0;
+
+                  return (
+                    <div key={point.label} className="group relative flex h-full flex-1 flex-col items-center justify-end">
+                      {totalCents > 0 ? (
+                        <>
+                          <div
+                            className="pointer-events-none absolute bottom-7 left-1/2 z-20 mb-2 w-max max-w-[9rem] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+                            data-testid={`architect-payouts-chart-tooltip-${point.label}`}
+                          >
+                            <p className="font-semibold">{point.label}</p>
+                            <p className="mt-1 font-mono">Total: {formatUsd(totalCents)}</p>
+                            {point.confirmedCents > 0 ? (
+                              <p className="font-mono text-amber-300">Confirmed: {formatUsd(point.confirmedCents)}</p>
+                            ) : null}
+                            {point.pendingCents > 0 ? (
+                              <p className="font-mono text-amber-100">Pending: {formatUsd(point.pendingCents)}</p>
+                            ) : null}
+                          </div>
+
+                          <div
+                            className="flex w-full cursor-pointer flex-col justify-end overflow-hidden rounded-t-md"
+                            style={{ height: `${barHeight}%` }}
+                            data-testid={`architect-payouts-chart-bar-${point.label}`}
+                          >
+                            {point.confirmedCents > 0 ? (
+                              <div
+                                className="w-full bg-amber-500 transition group-hover:brightness-110"
+                                style={{ flexGrow: point.confirmedCents }}
+                              />
+                            ) : null}
+                            {point.pendingCents > 0 ? (
+                              <div
+                                className="w-full bg-amber-100 transition group-hover:brightness-95"
+                                style={{ flexGrow: point.pendingCents }}
+                              />
+                            ) : null}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full" aria-hidden="true" />
+                      )}
+                      <span className="mt-2 text-[10px] font-medium text-slate-400">{point.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div
+            className="mt-6 flex h-52 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-sm text-slate-400"
+            data-testid="architect-payouts-chart-empty"
+          >
+            No earnings yet. Sales will appear here once agents are purchased.
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-5 text-xs text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-sm bg-amber-500" />
+            Confirmed
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-sm bg-amber-100" />
+            Pending
+          </span>
+        </div>
+      </div>
+    </section>
   );
 }
 

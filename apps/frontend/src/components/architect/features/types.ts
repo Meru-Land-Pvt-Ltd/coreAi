@@ -16,7 +16,8 @@ export type ArchitectListingStatus =
   | "PENDING_REVIEW"
   | "APPROVED"
   | "REJECTED"
-  | "SUSPENDED";
+  | "SUSPENDED"
+  | "PAUSED";
 
 export type ArchitectWorkflowListing = {
   id: string;
@@ -46,7 +47,7 @@ export type ArchitectListing = {
   shortDescription: string;
   description: string | null;
   priceCents: number;
-  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
   tags: string[];
   requiredConnectors: string[];
   supportedLlms: string[];

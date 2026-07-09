@@ -10,6 +10,7 @@ const LINKS: { label: string; href: Route }[] = [
   { label: "Businesses", href: "/admin/businesses" as Route },
   { label: "Architects", href: "/admin/architects" as Route },
   { label: "Agents", href: "/admin/agents" as Route },
+  { label: "Payouts", href: "/admin/payout" as Route },
   { label: "Phone Numbers", href: "/admin/phone-numbers" as Route },
   { label: "Template requests", href: "/admin/templetrequests" as Route },
   { label: "Contact us", href: "/admin/contactus" as Route }
