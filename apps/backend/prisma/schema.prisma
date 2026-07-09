@@ -246,6 +246,8 @@ model Business {
   leads           Lead[]
   vapiCalls       VapiCall[]
   workflowRuns    WorkflowRun[]
+  emailAliases    BusinessEmailAlias[]
+  emailMessages   EmailMessage[]
 
   @@index([ownerId])
   @@index([type])
@@ -868,4 +870,102 @@ model ContextLink {
   @@index([fromNodeRunId])
   @@index([toNodeRunId])
   @@index([linkStatus])
+}
+// ---- Proxy email (Amazon SES on reply.triven.ai) ----
+
+enum EmailAliasStatus {
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
+enum EmailReplyHandlingMode {
+  TRIVEN_INBOX
+  FORWARD_ONLY
+  TRIVEN_AND_FORWARD
+}
+
+enum EmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum EmailMessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+  BOUNCED
+  COMPLAINED
+}
+
+enum EmailPurpose {
+  CUSTOMER_FOLLOW_UP
+  BOOKING_CONFIRMATION
+  CALL_SUMMARY
+  INTERNAL_NOTIFICATION
+  REPLY
+  TEST
+}
+
+/// One buyer-branded proxy sender identity (<business-slug>@reply.triven.ai).
+model BusinessEmailAlias {
+  id                String                 @id @default(cuid())
+  businessId        String
+  installedAgentId  String?
+  buyerUserId       String
+  localPart         String
+  domain            String                 @default("reply.triven.ai")
+  emailAddress      String                 @unique
+  displayName       String
+  forwardToEmail    String?
+  replyHandlingMode EmailReplyHandlingMode @default(TRIVEN_AND_FORWARD)
+  status            EmailAliasStatus       @default(ACTIVE)
+  provider          String                 @default("SES")
+  sesIdentityStatus String?
+  lastVerifiedAt    DateTime?
+  lastError         String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages EmailMessage[]
+
+  @@index([businessId])
+  @@index([status])
+}
+
+/// Every proxy email in or out — audit trail, threading, and suppression source.
+model EmailMessage {
+  id                String             @id @default(cuid())
+  businessId        String?
+  installedAgentId  String?
+  aliasId           String?
+  direction         EmailDirection
+  fromEmail         String
+  toEmail           String
+  replyToEmail      String?
+  subject           String
+  textBody          String?
+  htmlBody          String?
+  providerMessageId String?
+  sesMessageId      String?
+  threadKey         String?
+  inReplyTo         String?
+  status            EmailMessageStatus @default(QUEUED)
+  purpose           EmailPurpose       @default(CUSTOMER_FOLLOW_UP)
+  metadata          Json?
+  sentAt            DateTime?
+  receivedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  business Business?           @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  alias    BusinessEmailAlias? @relation(fields: [aliasId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([aliasId])
+  @@index([sesMessageId])
+  @@index([toEmail, status])
 }

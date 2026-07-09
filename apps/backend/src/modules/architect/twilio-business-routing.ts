@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { escapeXml, sendTwilioSms } from "./twilio-connector";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
+import { sendCustomerFollowUpEmail, sendInternalNotificationEmail } from "../email/ses-mail-service";
 import {
   createGoogleCalendarAppointment,
   getDefaultAppointmentWindow,
@@ -1710,6 +1711,10 @@ const PHONE_ARG_KEYS = [
   "customer_phone", "patient_phone", "phone", "callback_phone", "caller_phone",
   "customerPhone", "patientPhone", "callbackPhone", "callerPhone"
 ];
+const EMAIL_ARG_KEYS = [
+  "customer_email", "patient_email", "guest_email", "client_email", "email",
+  "customerEmail", "patientEmail", "guestEmail", "clientEmail"
+];
 
 /** Collect ALL tool calls in a Vapi webhook (one webhook can carry several). */
 function getAllToolCalls(body: Record<string, unknown>): Array<{ id: string; name: string; parameters: Record<string, unknown> }> {
@@ -2148,6 +2153,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   let customerSmsSent = false;
   let teamSmsSent = false;
+  let customerEmailSent = false;
+  let teamEmailSent = false;
 
   const service = argStr(args, ["service", "service_type"]) || ctx.dental?.bookingLabel || "appointment";
   const teamName =
@@ -2228,12 +2235,59 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
         console.error("[vapi-webhook] team SMS failed (non-fatal)", error);
       }
     }
+
+    // Email-first MVP follow-up via the buyer's proxy alias (reply.triven.ai).
+    // Runs alongside legacy SMS; every failure is non-fatal so the live call
+    // continues, and nothing sends unless the buyer completed Mail Setup.
+    const customerEmail = argStr(args, EMAIL_ARG_KEYS);
+    const appointmentDate = argStr(args, ["appointment_date", "date"]) || "";
+    const appointmentTime = argStr(args, ["appointment_time", "time"]) || "";
+    const appointmentWhen = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || null;
+
+    if (customerEmail) {
+      try {
+        const emailResult = await sendCustomerFollowUpEmail({
+          businessId: ctx.business.businessId,
+          customerEmail,
+          customerName: customerName || null,
+          businessName: ctx.business.businessName,
+          serviceName: service,
+          appointmentTime: appointmentWhen
+        });
+        customerEmailSent = emailResult.ok;
+        if (!emailResult.ok) console.log(`[vapi-webhook] customer email skipped: ${emailResult.error}`);
+      } catch (error) {
+        console.error("[vapi-webhook] customer email failed (non-fatal)", error);
+      }
+    }
+
+    try {
+      const internalResult = await sendInternalNotificationEmail({
+        businessId: ctx.business.businessId,
+        businessName: ctx.business.businessName,
+        purpose: "INTERNAL_NOTIFICATION",
+        fields: {
+          caller: customerName || null,
+          phone: customerPhone || null,
+          email: customerEmail || null,
+          requestedService: service,
+          summary: ctx.summary || null,
+          nextAction: appointmentWhen ? `Booking confirmed for ${appointmentWhen}` : "Follow up with the caller"
+        }
+      });
+      teamEmailSent = internalResult.ok;
+      if (!internalResult.ok) console.log(`[vapi-webhook] internal email skipped: ${internalResult.error}`);
+    } catch (error) {
+      console.error("[vapi-webhook] internal email failed (non-fatal)", error);
+    }
   }
 
   return {
-    success: customerSmsSent || teamSmsSent,
+    success: customerSmsSent || teamSmsSent || customerEmailSent || teamEmailSent,
     customer_sms_sent: customerSmsSent,
     team_sms_sent: teamSmsSent,
+    customer_email_sent: customerEmailSent,
+    team_email_sent: teamEmailSent,
     patient_sms_sent: customerSmsSent,
     dentist_sms_sent: teamSmsSent
   };
@@ -2347,6 +2401,28 @@ export async function handleVapiWebhook(c: Context) {
 
     // Non-tool event (status update / end-of-call report).
     if (toolCalls.length === 0) {
+      // End-of-call: email the buyer a call summary via their proxy alias.
+      // Fire-and-forget — the webhook response never waits on SES.
+      if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
+        sendInternalNotificationEmail({
+          businessId: businessContext.businessId,
+          businessName: businessContext.businessName,
+          purpose: "CALL_SUMMARY",
+          fields: {
+            caller: null,
+            phone: customerPhone || null,
+            email: null,
+            requestedService: null,
+            summary: summary || transcript?.slice(0, 2000) || null,
+            nextAction: "Review the call summary and follow up if needed"
+          }
+        })
+          .then((result) => {
+            if (!result.ok) console.log(`[vapi-webhook] call summary email skipped: ${result.error}`);
+          })
+          .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
+      }
+
       console.log("[vapi-webhook] response status", 200, "(non-tool event)");
       return c.json({ ok: true });
     }

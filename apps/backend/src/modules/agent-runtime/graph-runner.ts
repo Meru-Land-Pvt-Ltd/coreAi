@@ -442,6 +442,7 @@ export type WorkflowCapabilities = {
   canCheckAvailability: boolean;
   canBook: boolean;
   canText: boolean;
+  canEmail: boolean;
   hasEnd: boolean;
   hasAi: boolean;
 };
@@ -455,6 +456,7 @@ export function workflowCapabilities(workflowJson: unknown, channel: AgentChanne
     canCheckAvailability: hasCapability(tools, "calendar.check_availability"),
     canBook: hasCapability(tools, "calendar.book_appointment"),
     canText: hasCapability(tools, "sms.send"),
+    canEmail: hasCapability(tools, "email.send"),
     hasEnd: hasCapability(tools, "flow.end"),
     hasAi: Boolean(findAiNode(graph))
   };

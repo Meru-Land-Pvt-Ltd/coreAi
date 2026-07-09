@@ -85,6 +85,8 @@ export type AgentPromptCapabilities = {
   canCheckAvailability: boolean;
   canBook: boolean;
   canText: boolean;
+  /** Workflow has a Send Email node — follow-ups go out via the Triven proxy alias. */
+  canEmail?: boolean;
 };
 
 export type AgentPromptInput = {
@@ -180,7 +182,13 @@ Booking rules:
     : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
 - ${capabilities.canText
     ? "You can send text messages. You may mention details will be sent by text after a confirmed action."
-    : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}
+    : capabilities.canEmail
+      ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer an email confirmation and collect the caller's email address if they want one."
+      : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}${
+      capabilities.canEmail && capabilities.canText
+        ? "\n- You can also send email follow-ups — offer email confirmation when the caller prefers it, and collect their email address."
+        : ""
+    }
 - After a booking is complete, answer whatever the caller asks next — do not keep repeating the confirmation.`.trim());
 
   sections.push(`
@@ -204,7 +212,7 @@ ${knowledgeList}`.trim());
     .filter((field) => field.label && field.value)
     .map((field) => `- ${field.label}: ${field.value}`);
   if (customFieldLines.length) {
-    sections.push(`Industry-specific setup details:\n${customFieldLines.join("\n")}`);
+    sections.push(`Business-specific setup details:\n${customFieldLines.join("\n")}`);
   }
 
   sections.push(`

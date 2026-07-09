@@ -27,15 +27,21 @@ export type RequiredIntegrationDef = {
   description: string;
 };
 
+// Display order: the MVP follow-up channel is Email, so it leads; SMS sits
+// after telephony and is only surfaced when a workflow actually sends SMS.
 export const REQUIRED_INTEGRATION_DEFS: RequiredIntegrationDef[] = [
   { key: "phone", label: "Phone number", description: "A line to receive and place calls" },
-  { key: "sms", label: "SMS messaging", description: "Send and receive text messages" },
+  {
+    key: "email",
+    label: "Email proxy",
+    description: "Send confirmations, follow-ups, and internal notifications using the buyer's proxy email"
+  },
   { key: "calendar", label: "Calendar access", description: "To read and book appointments" },
-  { key: "email", label: "Email account", description: "For confirmations and follow-ups" },
-  { key: "crm", label: "CRM connection", description: "Sync captured leads automatically" },
-  { key: "webhook", label: "Custom webhook", description: "Send events to the buyer's systems" },
   { key: "vapi", label: "AI voice (Vapi)", description: "AI voice conversations with callers" },
-  { key: "twilio", label: "Telephony (Twilio)", description: "Call forwarding and missed-call detection" }
+  { key: "twilio", label: "Telephony (Twilio)", description: "Call forwarding and missed-call detection" },
+  { key: "sms", label: "SMS messaging", description: "Send and receive text messages" },
+  { key: "crm", label: "CRM connection", description: "Sync captured leads automatically" },
+  { key: "webhook", label: "Custom webhook", description: "Send events to the buyer's systems" }
 ];
 
 export const AGENT_CATEGORIES = [
@@ -128,14 +134,354 @@ export const COMPLIANCE_CHECK_DEFS: { key: ComplianceCheckKey; label: string }[]
   { key: "terms", label: "I agree to Triven's Architect Terms of Service" }
 ];
 
+/** Every input type an architect can ask a buyer to fill in during setup. */
+export const BUYER_SETUP_FIELD_TYPES = [
+  "text",
+  "textarea",
+  "select",
+  "multiselect",
+  "phone",
+  "email",
+  "url",
+  "number",
+  "boolean",
+  "date",
+  "time"
+] as const;
+
+export type BuyerSetupFieldType = (typeof BUYER_SETUP_FIELD_TYPES)[number];
+
+export type BuyerSetupFieldValidation = {
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  pattern?: string;
+};
+
 /** One field the buyer must fill in during their own setup (no secrets here). */
 export type BuyerSetupField = {
   key: string;
   label: string;
-  type: "text" | "phone" | "url" | "select" | "textarea";
+  type: BuyerSetupFieldType;
   required: boolean;
+  placeholder?: string;
+  /** Buyer-facing help text shown under the field. */
   helper?: string;
+  /** Choices for select/multiselect fields. */
+  options?: string[];
+  defaultValue?: string | string[] | boolean | number | null;
+  validation?: BuyerSetupFieldValidation;
 };
+
+/** A buyer's answer to one architect-defined setup field. */
+export type BuyerSetupAnswer = {
+  key: string;
+  label?: string;
+  value: string | string[] | boolean | number;
+};
+
+export type BuyerSetupAnswerIssue = { key: string; label: string; message: string };
+
+/**
+ * Normalize a label into a safe camelCase key ("Room types" → "roomTypes").
+ * Digit-leading labels get a "setup" prefix ("24/7 availability" →
+ * "setup247Availability") so keys never start with a digit. Only NEW keys are
+ * generated here — existing stored keys are preserved by normalizeBuyerSetupField.
+ */
+export function normalizeBuyerSetupKey(raw: string): string {
+  const words = raw
+    .trim()
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (words.length === 0) return "";
+  const camel = words[0] + words.slice(1).map((word) => word[0].toUpperCase() + word.slice(1)).join("");
+  return /^\d/.test(camel) ? `setup${camel[0].toUpperCase()}${camel.slice(1)}` : camel;
+}
+
+// Digit-leading keys are accepted here on purpose: keys like "247availability"
+// were stored by older schema versions, and rewriting them would orphan the
+// buyers' saved answers. Only brand-new keys go through normalizeBuyerSetupKey.
+function isSafeBuyerSetupKey(key: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(key) && key.length <= 80;
+}
+
+function cleanOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** Sanitize one persisted/unknown buyer setup field record into a safe shape. */
+export function normalizeBuyerSetupField(raw: Record<string, unknown>): BuyerSetupField {
+  const rawKey = typeof raw.key === "string" ? raw.key.trim() : "";
+  const label = typeof raw.label === "string" ? raw.label : "";
+  // Existing keys are kept verbatim when safe (answers are stored by key);
+  // anything unusable is re-derived from the label.
+  const key = isSafeBuyerSetupKey(rawKey) ? rawKey : normalizeBuyerSetupKey(rawKey || label);
+
+  const type = (BUYER_SETUP_FIELD_TYPES as readonly string[]).includes(raw.type as string)
+    ? (raw.type as BuyerSetupFieldType)
+    : "text";
+
+  const options = Array.isArray(raw.options)
+    ? raw.options.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+    : undefined;
+
+  const rawValidation = isRecord(raw.validation) ? raw.validation : undefined;
+  const validation: BuyerSetupFieldValidation | undefined = rawValidation
+    ? {
+        minLength: cleanOptionalNumber(rawValidation.minLength),
+        maxLength: cleanOptionalNumber(rawValidation.maxLength),
+        min: cleanOptionalNumber(rawValidation.min),
+        max: cleanOptionalNumber(rawValidation.max),
+        pattern: typeof rawValidation.pattern === "string" ? rawValidation.pattern : undefined
+      }
+    : undefined;
+
+  const defaultValue =
+    typeof raw.defaultValue === "string" ||
+    typeof raw.defaultValue === "boolean" ||
+    typeof raw.defaultValue === "number"
+      ? raw.defaultValue
+      : Array.isArray(raw.defaultValue)
+        ? raw.defaultValue.filter((item): item is string => typeof item === "string")
+        : undefined;
+
+  return {
+    key,
+    label,
+    type,
+    required: typeof raw.required === "boolean" ? raw.required : true,
+    placeholder: typeof raw.placeholder === "string" ? raw.placeholder : undefined,
+    // `helper` is the historical stored name; accept `helpText` as an alias.
+    helper:
+      typeof raw.helper === "string" ? raw.helper : typeof raw.helpText === "string" ? raw.helpText : undefined,
+    ...(options && (type === "select" || type === "multiselect") ? { options } : {}),
+    ...(defaultValue !== undefined ? { defaultValue } : {}),
+    ...(validation ? { validation } : {})
+  };
+}
+
+/** Parse an unknown persisted JSON value (listing.requiredBuyerSetup) into fields. */
+export function normalizeBuyerSetupFields(raw: unknown): BuyerSetupField[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isRecord).map(normalizeBuyerSetupField);
+}
+
+export type BuyerSetupFieldIssue = { index: number; key: string; message: string };
+
+/** Architect-side schema validation: labels, unique keys, select options. */
+export function validateBuyerSetupFields(fields: BuyerSetupField[]): BuyerSetupFieldIssue[] {
+  const issues: BuyerSetupFieldIssue[] = [];
+  const seenKeys = new Map<string, number>();
+
+  fields.forEach((field, index) => {
+    if (!field.label.trim()) {
+      issues.push({ index, key: field.key, message: `Buyer setup field ${index + 1} needs a label.` });
+    }
+
+    const key = field.key.trim();
+    if (key) {
+      const firstIndex = seenKeys.get(key);
+      if (firstIndex !== undefined) {
+        issues.push({
+          index,
+          key,
+          message: `Buyer setup fields ${firstIndex + 1} and ${index + 1} have the same key ("${key}") — make the labels distinct.`
+        });
+      } else {
+        seenKeys.set(key, index);
+      }
+    }
+
+    if ((field.type === "select" || field.type === "multiselect") && !(field.options ?? []).some((option) => option.trim())) {
+      issues.push({
+        index,
+        key: field.key,
+        message: `"${field.label.trim() || `Field ${index + 1}`}" is a ${field.type === "select" ? "dropdown" : "multi-select"} — add at least one option.`
+      });
+    }
+  });
+
+  return issues;
+}
+
+/** True when a buyer answer counts as "not provided". */
+export function isBuyerAnswerEmpty(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length === 0;
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string" && item.trim()).length === 0;
+  if (typeof value === "boolean") return false;
+  if (typeof value === "number") return !Number.isFinite(value);
+  return true;
+}
+
+/**
+ * Human-readable, single-line form of a buyer answer for prompt injection:
+ * arrays comma-separated, booleans Yes/No, multiline textarea answers joined
+ * with commas ("Consultation\nEmergency visit" → "Consultation, Emergency visit"),
+ * repeated whitespace collapsed. Empty values return "".
+ */
+export function formatBuyerAnswerValue(value: unknown): string {
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.replace(/\s+/g, " ").trim())
+      .join(", ");
+  }
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+  if (typeof value === "string") {
+    return value
+      .split(/[\r\n]+/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return "";
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_PATTERN = /^[+()\-.\s\d]{5,25}$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^(?:[01]?\d|2[0-3]):[0-5]\d$|^(?:1[0-2]|0?[1-9]):[0-5]\d\s?(?:am|pm)$/i;
+
+function isValidUrlAnswer(value: string): boolean {
+  for (const candidate of [value, `https://${value}`]) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.hostname.includes(".")) return true;
+    } catch {
+      /* try next */
+    }
+  }
+  return false;
+}
+
+/**
+ * Validate buyer answers against the listing's buyer setup schema.
+ * `requireMissing: false` skips required-field checks (incremental saves)
+ * while still rejecting values that are present but invalid.
+ */
+export function validateBuyerSetupAnswers(
+  fields: BuyerSetupField[],
+  answers: BuyerSetupAnswer[],
+  opts: { requireMissing?: boolean } = {}
+): BuyerSetupAnswerIssue[] {
+  const requireMissing = opts.requireMissing ?? true;
+  const issues: BuyerSetupAnswerIssue[] = [];
+  const answerByKey = new Map(answers.map((answer) => [answer.key, answer.value]));
+
+  for (const field of fields) {
+    const label = field.label.trim() || field.key;
+    const value = answerByKey.get(field.key);
+    const empty = isBuyerAnswerEmpty(value);
+
+    if (empty) {
+      if (field.required && requireMissing) {
+        issues.push({ key: field.key, label, message: `${label} is required.` });
+      }
+      continue;
+    }
+
+    const text = typeof value === "string" ? value.trim() : "";
+
+    switch (field.type) {
+      case "email":
+        if (!text || !EMAIL_PATTERN.test(text)) {
+          issues.push({ key: field.key, label, message: `${label} must be a valid email address.` });
+        }
+        break;
+      case "phone":
+        if (!text || !PHONE_PATTERN.test(text)) {
+          issues.push({ key: field.key, label, message: `${label} must be a valid phone number.` });
+        }
+        break;
+      case "url":
+        if (!text || !isValidUrlAnswer(text)) {
+          issues.push({ key: field.key, label, message: `${label} must be a valid URL.` });
+        }
+        break;
+      case "number":
+        if (typeof value !== "number" && (!text || Number.isNaN(Number(text)))) {
+          issues.push({ key: field.key, label, message: `${label} must be a valid number.` });
+        } else {
+          const num = typeof value === "number" ? value : Number(text);
+          if (field.validation?.min !== undefined && num < field.validation.min) {
+            issues.push({ key: field.key, label, message: `${label} must be at least ${field.validation.min}.` });
+          }
+          if (field.validation?.max !== undefined && num > field.validation.max) {
+            issues.push({ key: field.key, label, message: `${label} must be at most ${field.validation.max}.` });
+          }
+        }
+        break;
+      case "boolean":
+        if (typeof value !== "boolean" && !/^(yes|no|true|false)$/i.test(text)) {
+          issues.push({ key: field.key, label, message: `${label} must be Yes or No.` });
+        }
+        break;
+      case "date":
+        if (!text || !(DATE_PATTERN.test(text) || !Number.isNaN(Date.parse(text)))) {
+          issues.push({ key: field.key, label, message: `${label} must be a valid date.` });
+        }
+        break;
+      case "time":
+        if (!text || !TIME_PATTERN.test(text)) {
+          issues.push({ key: field.key, label, message: `${label} must be a valid time (e.g. 15:00 or 3:00 PM).` });
+        }
+        break;
+      case "select": {
+        const options = field.options ?? [];
+        if (options.length > 0 && !options.includes(text)) {
+          issues.push({ key: field.key, label, message: `Selected option is not allowed for ${label}.` });
+        }
+        break;
+      }
+      case "multiselect": {
+        const options = field.options ?? [];
+        const selected = Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          : text
+            ? text.split(",").map((item) => item.trim()).filter(Boolean)
+            : [];
+        if (options.length > 0 && selected.some((item) => !options.includes(item))) {
+          issues.push({ key: field.key, label, message: `Selected option is not allowed for ${label}.` });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+
+    // Generic string-length / pattern rules for text-like answers.
+    if (typeof value === "string" && field.validation) {
+      if (field.validation.minLength !== undefined && text.length < field.validation.minLength) {
+        issues.push({
+          key: field.key,
+          label,
+          message: `${label} must be at least ${field.validation.minLength} characters.`
+        });
+      }
+      if (field.validation.maxLength !== undefined && text.length > field.validation.maxLength) {
+        issues.push({
+          key: field.key,
+          label,
+          message: `${label} must be at most ${field.validation.maxLength} characters.`
+        });
+      }
+      if (field.validation.pattern) {
+        try {
+          if (!new RegExp(field.validation.pattern).test(text)) {
+            issues.push({ key: field.key, label, message: `${label} has an invalid format.` });
+          }
+        } catch {
+          /* bad architect-supplied pattern — never block the buyer on it */
+        }
+      }
+    }
+  }
+
+  return issues;
+}
 
 export type AgentConfigureBasics = {
   agentName: string;
@@ -214,6 +560,7 @@ const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
   "action.google_calendar_create_appointment": "Google Calendar appointment scheduling",
   "communication.send_sms": "Automated SMS confirmation and follow-up",
   "action.send_sms": "Automated SMS confirmation and follow-up",
+  "communication.send_email": "Automated email confirmation and follow-up",
   "integration.gmail_send_email": "Automated email confirmation and follow-up",
   "integration.gmail_create_draft": "Automated email confirmation and follow-up",
   "integration.gmail_read_emails": "Incoming email monitoring",
@@ -231,9 +578,10 @@ const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
 /** Keyword fallback for node types/connectors without an exact mapping. */
 function includedFeatureFallback(nodeType: string, connector: string): string | null {
   const haystack = `${nodeType} ${connector}`.toLowerCase();
-  if (haystack.includes("twilio")) return "Phone and SMS communication support";
-  if (haystack.includes("vapi") || haystack.includes("voice")) return "Voice AI call handling";
+  // SMS is only claimed when the node itself is SMS — telephony alone is calls.
   if (haystack.includes("sms")) return "Automated SMS confirmation and follow-up";
+  if (haystack.includes("twilio")) return "Phone call handling and telephony support";
+  if (haystack.includes("vapi") || haystack.includes("voice")) return "Voice AI call handling";
   if (haystack.includes("calendar")) return "Google Calendar appointment scheduling";
   if (haystack.includes("gmail") || haystack.includes("email")) return "Automated email confirmation and follow-up";
   if (haystack.includes("crm") || haystack.includes("lead") || haystack.includes("webhook")) {
@@ -331,6 +679,68 @@ export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): str
   return features;
 }
 
+/** Every node type in the graph, lowercased ("" entries filtered). */
+function workflowNodeTypes(workflowJson: unknown): string[] {
+  if (!isRecord(workflowJson) || !Array.isArray(workflowJson.nodes)) return [];
+  return workflowJson.nodes
+    .filter(isRecord)
+    .map((node) => {
+      const data = isRecord(node.data) ? node.data : {};
+      const type = typeof data.type === "string" ? data.type : typeof data.kind === "string" ? data.kind : "";
+      const connector = typeof data.connector === "string" ? data.connector : "";
+      return `${type} ${connector}`.toLowerCase();
+    })
+    .filter(Boolean);
+}
+
+/** True when the workflow graph actually sends or receives SMS. */
+export function workflowUsesSms(workflowJson: unknown): boolean {
+  return workflowNodeTypes(workflowJson).some((type) => type.includes("sms"));
+}
+
+/** True when the workflow is a voice/call agent (Vapi, phone call, voice conversation). */
+export function workflowUsesVoice(workflowJson: unknown): boolean {
+  return workflowNodeTypes(workflowJson).some(
+    (type) => type.includes("voice") || type.includes("phone_call") || type.includes("vapi")
+  );
+}
+
+/* ---- Marketplace copy defaults (MVP follow-up channel is Email, not SMS) ---- */
+
+export const RECEPTIONIST_DEFAULT_TAGLINE =
+  "AI voice receptionist that answers calls, checks availability, books appointments, and sends email follow-ups.";
+
+export const RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION =
+  "Automate inbound calls with an AI receptionist that answers questions, checks calendar availability, books appointments, and sends email follow-ups to customers and staff.";
+
+export const RECEPTIONIST_DEFAULT_FULL_DESCRIPTION =
+  "This AI voice receptionist helps service businesses handle inbound calls automatically. It can greet callers, understand their request, check calendar availability, book appointments, answer common questions, and send email follow-ups after the call. Buyers can customize business details, services, working hours, booking rules, escalation contacts, and policies during setup.";
+
+/**
+ * Collapse immediately-repeated sentences ("…end call.Incoming call →…" pasted
+ * twice) and whole-string doubling. Keeps single occurrences untouched.
+ */
+export function dedupeAdjacentSentences(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return text;
+
+  // Whole-string doubling with no separator ("abcabc" → "abc").
+  if (trimmed.length % 2 === 0) {
+    const half = trimmed.slice(0, trimmed.length / 2);
+    if (half === trimmed.slice(trimmed.length / 2) && half.trim()) return half.trim();
+  }
+
+  const sentences = trimmed.split(/(?<=[.!?])\s*/);
+  if (sentences.length < 2) return text;
+
+  const kept: string[] = [];
+  for (const sentence of sentences) {
+    if (sentence.trim() && sentence.trim() === kept[kept.length - 1]?.trim()) continue;
+    kept.push(sentence);
+  }
+  return kept.length === sentences.length ? text : kept.join(" ").trim();
+}
+
 export function emptyRequiredIntegrations(): RequiredIntegrations {
   return {
     phone: false,
@@ -368,15 +778,23 @@ export function defaultAgentConfigure(seed?: {
   for (const connector of seed?.requiredConnectors ?? []) {
     const key = connector.trim().toLowerCase();
     if (key.includes("twilio")) {
+      // Telephony alone does not imply SMS — the MVP follow-up channel is
+      // Email. SMS is only required when an SMS connector/node is present.
       integrations.twilio = true;
       integrations.phone = true;
-      integrations.sms = true;
     }
     if (key.includes("vapi") || key.includes("voice")) integrations.vapi = true;
     if (key.includes("calendar")) integrations.calendar = true;
-    if (key.includes("gmail") || key.includes("email")) integrations.email = true;
+    if (key.includes("gmail") || key.includes("email") || key.includes("mail")) integrations.email = true;
     if (key.includes("sms")) integrations.sms = true;
     if (key.includes("phone")) integrations.phone = true;
+  }
+
+  // SMS is required only when the graph itself sends/receives SMS (connector
+  // keys are too coarse — Twilio telephony alone must not imply SMS).
+  if (seed?.workflowJson && workflowUsesSms(seed.workflowJson)) {
+    integrations.sms = true;
+    integrations.phone = true;
   }
 
   return {
@@ -468,17 +886,7 @@ export function normalizeAgentConfigure(
   }
 
   const requiredBuyerSetup: BuyerSetupField[] = Array.isArray(template.requiredBuyerSetup)
-    ? template.requiredBuyerSetup.filter(isRecord).map((field) => ({
-        key: cleanString(field.key, ""),
-        label: cleanString(field.label, ""),
-        type: (["text", "phone", "url", "select", "textarea"] as const).includes(
-          field.type as BuyerSetupField["type"]
-        )
-          ? (field.type as BuyerSetupField["type"])
-          : "text",
-        required: cleanBoolean(field.required, true),
-        helper: typeof field.helper === "string" ? field.helper : undefined
-      }))
+    ? normalizeBuyerSetupFields(template.requiredBuyerSetup)
     : base.template.requiredBuyerSetup;
 
   const pricingModel = (["free", "one_time", "subscription"] as const).includes(
@@ -491,15 +899,15 @@ export function normalizeAgentConfigure(
     version: 1,
     basics: {
       agentName: cleanString(basics.agentName, base.basics.agentName),
-      tagline: cleanString(basics.tagline, base.basics.tagline),
+      tagline: dedupeAdjacentSentences(cleanString(basics.tagline, base.basics.tagline)),
       category: cleanString(basics.category, base.basics.category),
       industryTags: normalizeIndustryTags(cleanStringArray(basics.industryTags, base.basics.industryTags)),
       iconUrl: cleanString(basics.iconUrl, base.basics.iconUrl),
       visibility: basics.visibility === "private" ? "private" : "public",
-      shortDescription: cleanString(basics.shortDescription, base.basics.shortDescription)
+      shortDescription: dedupeAdjacentSentences(cleanString(basics.shortDescription, base.basics.shortDescription))
     },
     media: {
-      fullDescription: cleanString(media.fullDescription, base.media.fullDescription),
+      fullDescription: dedupeAdjacentSentences(cleanString(media.fullDescription, base.media.fullDescription)),
       // A stored-but-blank list falls back to the workflow-generated bullets;
       // anything the architect actually typed always wins.
       includedFeatures: cleanStringArray(media.includedFeatures, base.media.includedFeatures).some((f) => f.trim())
@@ -584,6 +992,10 @@ export function validateConfigureForSubmit(data: AgentConfigureData): ConfigureV
   // Step 3 is Pricing in the Configure flow; step 4 is Requirements & Compliance.
   if (data.pricing.pricingModel !== "free" && data.pricing.price <= 0) {
     issues.push({ step: 3, field: "price", message: "Set a price greater than $0 for paid agents." });
+  }
+
+  for (const fieldIssue of validateBuyerSetupFields(data.template.requiredBuyerSetup)) {
+    issues.push({ step: 4, field: `requiredBuyerSetup.${fieldIssue.index}`, message: fieldIssue.message });
   }
 
   const checks = data.compliance.complianceChecks;

@@ -103,7 +103,9 @@ architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoi
 async function listPublicMarketplaceListings(c: Context) {
   const allListings = await prisma.agentListing.findMany({
     where: {
-      status: { in: ["APPROVED", "PENDING_REVIEW"] }
+      // Buyer-facing marketplace shows APPROVED only — PENDING_REVIEW stays
+      // visible to the architect (own listings) and the admin review queue.
+      status: "APPROVED"
     },
     include: {
       workflow: true,
@@ -156,7 +158,8 @@ async function getPublicMarketplaceListingById(c: Context) {
   const listing = await prisma.agentListing.findFirst({
     where: {
       id,
-      status: { in: ["APPROVED", "PENDING_REVIEW"] }
+      // Same rule as the public list: buyers only ever see APPROVED listings.
+      status: "APPROVED"
     },
     include: {
       workflow: true,

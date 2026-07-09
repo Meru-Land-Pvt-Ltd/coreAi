@@ -75,8 +75,23 @@ export const VOICE_NODE_TYPES = {
   calendarAvailability: "calendar.availability",
   bookAppointment: "calendar.book_appointment",
   sendSms: "communication.send_sms",
+  sendEmail: "communication.send_email",
   endFlow: "flow.end"
 } as const;
+
+/**
+ * The default voice-booking template chain. Email follow-up is the MVP
+ * default; the SMS node stays available in the palette (A2P/10DLC add-on)
+ * but is no longer part of new receptionist templates.
+ */
+export const VOICE_TEMPLATE_NODE_ORDER: string[] = [
+  VOICE_NODE_TYPES.phoneCallTrigger,
+  VOICE_NODE_TYPES.voiceConversation,
+  VOICE_NODE_TYPES.calendarAvailability,
+  VOICE_NODE_TYPES.bookAppointment,
+  VOICE_NODE_TYPES.sendEmail,
+  VOICE_NODE_TYPES.endFlow
+];
 
 export const BROWSER_CALL_START_MESSAGE = "__browser_call_start__";
 
@@ -571,7 +586,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     type: VOICE_NODE_TYPES.sendSms,
     label: "Send SMS",
     category: "action",
-    description: "Send SMS to the customer and/or team via Twilio.",
+    description:
+      "Optional add-on: send SMS to the customer and/or team via Twilio. May require A2P/10DLC registration — for MVP use Send Email instead.",
     requiredConfig: [],
     backendExecutable: false,
     launchCritical: false,
@@ -590,6 +606,31 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     capability: "sms.send",
     requiredVariables: ["customer.phone"],
     producedVariables: ["sms.status", "sms.body"]
+  }),
+  def({
+    type: VOICE_NODE_TYPES.sendEmail,
+    label: "Send Email",
+    category: "action",
+    description: "Send confirmations, follow-ups, and internal notifications from the buyer's Triven proxy email.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: {
+      nodeKind: "connector",
+      connector: "EMAIL",
+      connectorAction: VOICE_TOOL_NAMES.sendNotification
+    },
+    defaultConfig: {
+      recipientType: "customer",
+      subjectTemplate: "",
+      bodyTemplate: "",
+      includeCallSummary: "false",
+      includeBookingDetails: "true"
+    },
+    capability: "email.send",
+    requiredVariables: [],
+    producedVariables: ["email.status", "email.subject"]
   }),
   def({
     type: VOICE_NODE_TYPES.endFlow,
@@ -700,6 +741,13 @@ const REQ = {
     ownedBy: "platform",
     optional: true,
     note: "Optional ElevenLabs voice delivered through the platform Vapi account."
+  },
+  trivenMail: {
+    connector: "triven_mail",
+    label: "Triven proxy email",
+    ownedBy: "platform",
+    config: ["emailAlias", "forwardToEmail"],
+    note: "Sends from the buyer's <alias>@reply.triven.ai proxy address — the buyer picks the alias in Mail Setup."
   }
 } satisfies Record<string, ConnectorRequirement>;
 
@@ -724,7 +772,8 @@ export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]>
   [VOICE_NODE_TYPES.voiceConversation]: [REQ.vapi, REQ.elevenlabs],
   [VOICE_NODE_TYPES.calendarAvailability]: [REQ.googleCalendarRead],
   [VOICE_NODE_TYPES.bookAppointment]: [REQ.googleCalendarWrite],
-  [VOICE_NODE_TYPES.sendSms]: [REQ.twilioSms]
+  [VOICE_NODE_TYPES.sendSms]: [REQ.twilioSms],
+  [VOICE_NODE_TYPES.sendEmail]: [REQ.trivenMail]
 };
 
 /** Connector requirements declared by a single node type (empty when none). */
@@ -807,6 +856,7 @@ export const VOICE_NODE_PRESENTATION: Record<string, { kind: string; icon: strin
   [VOICE_NODE_TYPES.calendarAvailability]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.bookAppointment]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.sendSms]: { kind: "TWILIO SMS", icon: "message", accent: "green" },
+  [VOICE_NODE_TYPES.sendEmail]: { kind: "TRIVEN MAIL", icon: "mail", accent: "green" },
   [VOICE_NODE_TYPES.endFlow]: { kind: "END FLOW", icon: "capture", accent: "slate" }
 };
 
@@ -819,7 +869,10 @@ export function buildVoiceBookingWorkflow(): {
   nodes: Array<{ id: string; type: "coreNode"; position: { x: number; y: number }; data: Record<string, unknown> }>;
   edges: Array<{ id: string; source: string; target: string }>;
 } {
-  const defs = voiceNodes();
+  // Template chain uses the email-first order — SMS stays a manual add-on node.
+  const defs = VOICE_TEMPLATE_NODE_ORDER.map((type) => getNodeDefinition(type)).filter(
+    (node): node is NodeDefinition => Boolean(node)
+  );
   const nodes = defs.map((def, index) => ({
     id: def.type,
     type: "coreNode" as const,
