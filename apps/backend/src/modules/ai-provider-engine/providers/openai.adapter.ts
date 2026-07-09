@@ -38,6 +38,7 @@ class OpenAIAdapter implements AIProviderAdapter {
     code: 9,
     image: 9,
   };
+  readonly models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"];
 
   private get client(): OpenAI {
     return new OpenAI({ apiKey: env.OPENAI_API_KEY });

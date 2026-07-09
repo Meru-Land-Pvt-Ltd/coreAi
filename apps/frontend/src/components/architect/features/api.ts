@@ -867,3 +867,15 @@ export function deleteArchitectAccount(confirmation: "DELETE") {
     };
   }>("/architect/settings/danger/delete-account", { confirmation });
 }
+
+export type LLMProviderResponse = {
+  providers: Array<{
+    id: string;
+    displayName: string;
+    models: string[];
+  }>;
+};
+
+export function getLLMProviders() {
+  return apiGet<LLMProviderResponse>("/architect/ai/providers");
+}

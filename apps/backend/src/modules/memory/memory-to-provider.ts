@@ -22,6 +22,16 @@ export type AiBrainNodeConfig = {
     maxTokens?: unknown;
     outputFormat?: unknown;
     backlinkNodeIds?: unknown;
+    // LLM Call node fields (ai.llm_call) — mapped before reaching here,
+    // but kept for reference / direct fallback
+    llmProvider?: unknown;
+    llmModel?: unknown;
+    llmSystemPrompt?: unknown;
+    llmPrompt?: unknown;
+    llmTemperature?: unknown;
+    llmMaxTokens?: unknown;
+    llmOutputFormat?: unknown;
+    llmOutputKey?: unknown;
   };
 };
 
@@ -59,14 +69,24 @@ export function contextBundleToExecuteRequest(
   node: AiBrainNodeConfig
 ): AIExecuteRequest {
   const data = node.data ?? {};
+
+  // For LLM Call nodes: llmPrompt is the user message; fallback to prompt/instructions.
   const userPrompt =
+    asString(data.llmPrompt) ||
     asString(data.prompt) ||
     asString(data.instructions) ||
     asString(bundle.merged.originalPrompt) ||
     "Execute this workflow step using the provided context.";
 
+  // For LLM Call nodes: llmSystemPrompt is the persona/rules. For other AI nodes,
+  // the memory broker's compressed context prompt is used.
+  const systemPrompt =
+    asString(data.llmSystemPrompt) ||
+    asString(data.instructions) ||
+    bundle.compressedPrompt;
+
   return {
-    systemPrompt: bundle.compressedPrompt,
+    systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     model: asString(data.model) || undefined,
     temperature: asNumber(data.temperature),

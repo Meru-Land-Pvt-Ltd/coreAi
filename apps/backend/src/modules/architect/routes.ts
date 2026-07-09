@@ -52,6 +52,7 @@ import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { architectPayoutRoutes } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
+import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 
 const voicePreviewSchema = z.object({
   presetId: z.string().trim().optional(),
@@ -222,6 +223,17 @@ architectRoutes.post("/voices/preview", requireAuth, async (c) => {
 
 architectRoutes.use("*", requireAuth);
 architectRoutes.use("*", requireRole(["ARCHITECT"]));
+
+architectRoutes.get("/ai/providers", async (c) => {
+  const registry = getProviderRegistry();
+  const adapters = registry.all();
+  const providers = adapters.map((adapter) => ({
+    id: adapter.providerId,
+    displayName: adapter.displayName,
+    models: adapter.models
+  }));
+  return successResponse(c, { providers });
+});
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
