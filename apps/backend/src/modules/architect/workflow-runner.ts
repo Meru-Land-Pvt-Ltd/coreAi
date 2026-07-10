@@ -71,6 +71,11 @@ export type WorkflowRunInput = {
   installedAgentId?: string;
   listingId?: string;
   latestMessage?: string;
+  attachments?: Array<{
+    name: string;
+    mimeType: string;
+    data: string; // base64 string
+  }>;
 };
 
 type RunnerNodeData = {
@@ -139,6 +144,7 @@ type RunnerNodeData = {
   llmMaxTokens?: unknown;
   llmOutputFormat?: unknown;
   llmOutputKey?: unknown;
+  attachments?: unknown;
 };
 
 type RunnerNode = {
@@ -181,6 +187,7 @@ type RunnerContext = {
   };
   inboundSms?: {
     body: string;
+    attachments?: any[];
   };
   missedCall?: {
     callerNumber: string;
@@ -339,18 +346,66 @@ export function parseRunnerWorkflowJson(value: unknown) {
   };
 }
 
-function sortNodesForRun(nodes: RunnerNode[]) {
-  return [...nodes].sort((a, b) => {
-    const ax = typeof a.position?.x === "number" ? a.position.x : 0;
-    const bx = typeof b.position?.x === "number" ? b.position.x : 0;
+function sortNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[]) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
 
+  for (const edge of edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue;
+    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
+    incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source]);
+  }
+
+  // Find start nodes (triggers or nodes with no incoming edges)
+  const triggers = nodes.filter((node) => asString(node.data?.nodeKind) === "trigger");
+  triggers.sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0));
+
+  const startNodes = triggers.length > 0
+    ? triggers
+    : nodes.filter((node) => !incoming.has(node.id));
+  startNodes.sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0));
+
+  const executionOrder: RunnerNode[] = [];
+  const visited = new Set<string>();
+  const queue: string[] = startNodes.map(n => n.id);
+
+  for (const id of queue) {
+    visited.add(id);
+  }
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId) break;
+
+    const current = nodeById.get(currentId);
+    if (current) {
+      executionOrder.push(current);
+    }
+
+    const nextIds = outgoing.get(currentId) ?? [];
+    nextIds.sort((aId, bId) => {
+      const aNode = nodeById.get(aId);
+      const bNode = nodeById.get(bId);
+      return (aNode?.position?.x ?? 0) - (bNode?.position?.x ?? 0);
+    });
+
+    for (const targetId of nextIds) {
+      if (visited.has(targetId)) continue;
+      visited.add(targetId);
+      queue.push(targetId);
+    }
+  }
+
+  const disconnected = nodes.filter((node) => !visited.has(node.id));
+  disconnected.sort((a, b) => {
+    const ax = a.position?.x ?? 0;
+    const bx = b.position?.x ?? 0;
     if (ax !== bx) return ax - bx;
-
-    const ay = typeof a.position?.y === "number" ? a.position.y : 0;
-    const by = typeof b.position?.y === "number" ? b.position.y : 0;
-
-    return ay - by;
+    return (a.position?.y ?? 0) - (b.position?.y ?? 0);
   });
+
+  return [...executionOrder, ...disconnected];
 }
 
 function resolveContextPath(context: RunnerContext, path: string): unknown {
@@ -475,8 +530,11 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 
   if (callerNumber) context.caller_number = callerNumber;
   if (callerName) context.caller_name = callerName;
-  if (optionalString(input?.inboundSmsBody)) {
-    context.inboundSms = { body: optionalString(input?.inboundSmsBody)! };
+  if (optionalString(input?.inboundSmsBody) || Array.isArray(input?.attachments)) {
+    context.inboundSms = {
+      body: optionalString(input?.inboundSmsBody) || "",
+      attachments: input?.attachments
+    };
   }
   if (input?.appointmentStartAt) context.appointmentStartAt = input.appointmentStartAt;
   if (input?.appointmentEndAt) context.appointmentEndAt = input.appointmentEndAt;
@@ -491,6 +549,16 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 }
 
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  if (asString(node.data?.type) === "trigger.manual") {
+    logs.push(
+      createLog(node, "success", "Manual trigger fired.", {
+        message: context.inboundSms?.body || context.latestMessage || "No custom message",
+        attachmentsCount: Array.isArray(context.inboundSms?.attachments) ? context.inboundSms.attachments.length : 0
+      })
+    );
+    return;
+  }
+
   // Voice booking: Phone Call Trigger simulates an inbound call (no missed-call wording).
   if (asString(node.data?.type) === VOICE_NODE_TYPES.phoneCallTrigger) {
     logs.push(
@@ -1611,12 +1679,20 @@ export async function runWorkflowTest({
   let runFailed = false;
 
   try {
-    for (const node of sortNodesForRun(parsedWorkflow.nodes)) {
+    for (const node of sortNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges)) {
       const nodeKind = asString(node.data?.nodeKind);
 
       try {
         if (nodeKind === "trigger") {
           runTriggerNode(node, context, logs);
+          const triggerFiles = Array.isArray(input?.attachments)
+            ? input.attachments.map((att: any) => ({
+                name: att.name,
+                url: att.data,
+                mimeType: att.mimeType,
+              }))
+            : undefined;
+
           await memoryBroker.saveNodeMemory({
             workflowRunId,
             nodeId: node.id,
@@ -1631,6 +1707,7 @@ export async function runWorkflowTest({
               inboundSms: context.inboundSms,
               missedCall: context.missedCall,
             },
+            files: triggerFiles,
             summary: "Trigger fired",
             startedAt: new Date().toISOString(),
             finishedAt: new Date().toISOString(),

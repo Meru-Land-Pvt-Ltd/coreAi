@@ -61,6 +61,13 @@ export type BuilderNodeData = Record<string, unknown> & {
   llmMaxTokens?: string;
   llmOutputFormat?: string;
   llmOutputKey?: string;
+  attachments?: AIAttachment[];
+};
+
+export type AIAttachment = {
+  name?: string;
+  mimeType: string;
+  data: string;
 };
 
 export type BuilderNode = Node<BuilderNodeData, "coreNode">;

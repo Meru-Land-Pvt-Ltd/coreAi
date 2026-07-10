@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getLLMProviders, type LLMProviderResponse } from "../../features/api";
 import { BuilderIcon } from "./icons";
-import type { BuilderNode, BuilderNodeData } from "./types";
+import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { Section, Label, TextInput, TextArea, SelectBox } from "./node-inspector";
 
 type NodePropsPanel = {
@@ -22,6 +22,36 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
+
+  const handleRemoveAttachment = (indexToRemove: number) => {
+    const updated = attachments.filter((_, idx) => idx !== indexToRemove);
+    onUpdateNodeData("attachments", updated);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File is too large. Maximum size is 5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Data = event.target?.result as string;
+      const newAttachment: AIAttachment = {
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        data: base64Data,
+      };
+      onUpdateNodeData("attachments", [...attachments, newAttachment]);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   useEffect(() => {
     async function fetchProviders() {
@@ -144,6 +174,16 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14.5h-2v-2h2v2zm0-4h-2v-4h2v4z" />
                 </svg>
               );
+            } else if (p.id === "gemini") {
+              themeClass = isSelected
+                ? "border-indigo-500 bg-indigo-50 text-indigo-950 ring-2 ring-indigo-500/20"
+                : "border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30";
+              logoColor = isSelected ? "text-indigo-600" : "text-slate-500";
+              logoSvg = (
+                <svg viewBox="0 0 24 24" className={`h-5 w-5 ${logoColor}`} fill="currentColor">
+                  <path d="M12 2l2.8 7.2L22 12l-7.2 2.8L12 22l-2.8-7.2L2 12l7.2-2.8L12 2z" />
+                </svg>
+              );
             } else {
               themeClass = isSelected
                 ? "border-violet-500 bg-violet-50 text-violet-950 ring-2 ring-violet-500/20"
@@ -199,17 +239,85 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
           </div>
         </div>
       </Section>
-      <Section title="Context / Knowledge">
-        <Label>Additional Context Block (Optional)</Label>
-        <TextArea
-          value={str("llmContext")}
-          onChange={set("llmContext")}
-          height="h-24"
-          placeholder="e.g. Business FAQ:\n- Hours: 9 AM - 5 PM\n- Price: $50\n..."
-        />
-        <p className="mt-1 text-[10px] text-slate-400">
-          This content is injected into the LLM system context to give it domain knowledge.
-        </p>
+
+      <Section title="Attachments">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between mb-1">
+            <Label>Files (Images / PDFs / Docs)</Label>
+            <span className="text-[10px] text-slate-400 font-medium">Multimodal context</span>
+          </div>
+
+          {attachments.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {attachments.map((att, idx) => {
+                const isImage = att.mimeType.startsWith("image/");
+                const isPdf = att.mimeType === "application/pdf";
+                
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-violet-100 hover:bg-violet-50/10"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
+                        {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
+                          {att.name || `attachment-${idx + 1}`}
+                        </p>
+                        <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
+                          {att.mimeType}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(idx)}
+                      className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
+                      aria-label="Remove attachment"
+                    >
+                      <BuilderIcon name="x" className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="relative">
+            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-violet-50/20 hover:border-violet-300 transition-all duration-200 group">
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <svg
+                  className="w-6 h-6 mb-2 text-slate-400 group-hover:text-violet-500 transition-colors"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  ></path>
+                </svg>
+                <p className="text-[11px] font-semibold text-slate-500 group-hover:text-violet-600 transition-colors">
+                  Click or drag file to attach
+                </p>
+                <p className="text-[9px] text-slate-400 mt-1">
+                  Supports Images, PDFs, Docs (Max 5MB)
+                </p>
+              </div>
+              <input
+                type="file"
+                className="hidden"
+                accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={handleFileChange}
+              />
+            </label>
+          </div>
+        </div>
       </Section>
 
       <Section title="Output configuration">

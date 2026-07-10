@@ -202,6 +202,7 @@ async function getPublicMarketplaceListingById(c: Context) {
 
 architectRoutes.get("/listings/public", listPublicMarketplaceListings);
 architectRoutes.get("/listings/public/:id", getPublicMarketplaceListingById);
+architectRoutes.get("/listings/completed", requireAuth, listPublicMarketplaceListings);
 
 architectRoutes.get("/voices", requireAuth, (c) => successResponse(c, listVoicePresets()));
 architectRoutes.get("/voices/debug", requireAuth, (c) => successResponse(c, voicePreviewDiagnostics()));
@@ -318,7 +319,16 @@ const workflowRunInputSchema = z.object({
   inboundSmsBody: z.string().trim().optional(),
   appointmentStartAt: z.string().trim().optional(),
   appointmentEndAt: z.string().trim().optional(),
-  appointmentService: z.string().trim().optional()
+  appointmentService: z.string().trim().optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        mimeType: z.string(),
+        data: z.string()
+      })
+    )
+    .optional()
 });
 
 const workflowRunTestSchema = z.object({

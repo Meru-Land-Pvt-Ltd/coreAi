@@ -57,7 +57,7 @@ import { PublishPanel } from "./workflow-builder/publish-panel";
 import { TestPanel } from "./workflow-builder/test-panel";
 import { isMeaningfulWorkflow, useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
-import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind } from "./workflow-builder/types";
+import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind, AIAttachment } from "./workflow-builder/types";
 
 const REVIEW_LOCK_MESSAGE = "Agent is under review";
 const LIVE_PUBLISH_LOCK_MESSAGE = "Agent is live — publishing is locked";
@@ -96,6 +96,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [appointmentService, setAppointmentService] = useState("");
   const [callerNumber, setCallerNumber] = useState("");
   const [callerName, setCallerName] = useState("");
+  const [triggerMessage, setTriggerMessage] = useState("");
+  const [triggerAttachments, setTriggerAttachments] = useState<AIAttachment[]>([]);
   const [testDeployment, setTestDeployment] = useState<ArchitectTestDeploymentStatus | null>(null);
   const [startingLive, setStartingLive] = useState(false);
   const [stoppingLive, setStoppingLive] = useState(false);
@@ -820,7 +822,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         callStatus: "no-answer",
         callTimestamp: new Date().toISOString(),
         missedCallReason: "No one picked up the customer call.",
-        appointmentService: appointmentService.trim() || "General Consultation"
+        appointmentService: appointmentService.trim() || "General Consultation",
+        inboundSmsBody: triggerMessage.trim() || undefined,
+        latestMessage: triggerMessage.trim() || undefined,
+        attachments: triggerAttachments.length > 0 ? triggerAttachments : undefined
       }
     };
 
@@ -1034,6 +1039,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             conversationLogs={conversationLogs}
             conversationToolCalls={conversationToolCalls}
             chatting={chatting}
+            triggerMessage={triggerMessage}
+            triggerAttachments={triggerAttachments}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onRefreshConnections={() => void refreshConnections()}
@@ -1050,6 +1057,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onCalendarIdChange={setCalendarId}
             onTimeZoneChange={setTimeZone}
             onAppointmentServiceChange={setAppointmentService}
+            onTriggerMessageChange={setTriggerMessage}
+            onTriggerAttachmentsChange={setTriggerAttachments}
           />
         ) : null}
 

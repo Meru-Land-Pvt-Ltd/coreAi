@@ -653,7 +653,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
 
   // ---- B. Near-term marketplace nodes (coming soon) ----
-  def({ type: "trigger.manual", label: "Manual Trigger", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
+  def({ type: "trigger.manual", label: "Manual Trigger", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.webhook", label: "Webhook Trigger", category: "trigger", description: "Start from an inbound webhook.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.schedule", label: "Schedule Trigger", category: "trigger", description: "Start on a schedule.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.gmail_new_email", label: "Gmail New Email", category: "trigger", description: "Start when a new email arrives.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),

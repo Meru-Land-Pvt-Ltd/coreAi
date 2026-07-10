@@ -22,7 +22,7 @@ function paletteItem(
     nodeKind: (def?.runtime.nodeKind ?? "connector") as NodeKind,
     connector: def?.runtime.connector,
     connectorAction: def?.runtime.connectorAction,
-    kind: presentation.kind ?? pres?.kind ?? (def?.label ?? type).toUpperCase(),
+    kind: presentation.kind ?? pres?.kind ?? (def?.label ?? type ?? "").toUpperCase(),
     title: def?.label,
     subtitle: def?.description,
     ...(def?.defaultConfig ?? {})
@@ -46,7 +46,8 @@ export const libraryGroups: LibraryGroup[] = [
     items: [
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
-      paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" })
+      paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
+      paletteItem("trigger.manual", { icon: "play", accent: "amber" })
     ]
   },
   {

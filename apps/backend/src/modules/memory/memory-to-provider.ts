@@ -34,6 +34,7 @@ export type AiBrainNodeConfig = {
     llmMaxTokens?: unknown;
     llmOutputFormat?: unknown;
     llmOutputKey?: unknown;
+    attachments?: unknown;
   };
 };
 
@@ -144,6 +145,27 @@ export function contextBundleToExecuteRequest(
     temperature: asNumber(data.temperature),
     maxTokens: asNumber(data.maxTokens),
     outputFormat,
+    attachments: [
+      ...(Array.isArray(data.attachments) ? data.attachments : []),
+      ...(Array.isArray(bundle.merged.files)
+        ? bundle.merged.files.map((file) => ({
+            name: file.name,
+            mimeType: file.mimeType || "application/octet-stream",
+            data: file.url,
+          }))
+        : []),
+    ].length > 0
+      ? [
+          ...(Array.isArray(data.attachments) ? data.attachments : []),
+          ...(Array.isArray(bundle.merged.files)
+            ? bundle.merged.files.map((file) => ({
+                name: file.name,
+                mimeType: file.mimeType || "application/octet-stream",
+                data: file.url,
+              }))
+            : []),
+        ]
+      : undefined,
     workflowContext: {
       workflowRunId: bundle.workflowRunId,
       nodeId: bundle.nodeId,
@@ -212,6 +234,16 @@ export function providerResponseToNodeMemory(params: {
     startedAt,
     finishedAt,
     durationMs,
+    files: [
+      ...(Array.isArray(bundle.merged.files) ? bundle.merged.files : []),
+      ...(Array.isArray(node.data?.attachments)
+        ? node.data.attachments.map((att: any) => ({
+            name: att.name,
+            url: att.data,
+            mimeType: att.mimeType,
+          }))
+        : []),
+    ],
     errorMessage: response.status === "error" ? response.error ?? "Provider execution failed" : undefined,
   };
 }
