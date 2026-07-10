@@ -200,9 +200,57 @@ async function getPublicMarketplaceListingById(c: Context) {
   });
 }
 
+async function listCompletedMarketplaceListings(c: Context) {
+  const allListings = await prisma.agentListing.findMany({
+    where: {
+      status: {
+        in: ["APPROVED", "PENDING_REVIEW"]
+      }
+    },
+    include: {
+      workflow: true,
+      architect: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          architectProfile: {
+            select: {
+              title: true,
+              rating: true,
+              completedJobs: true
+            }
+          }
+        }
+      },
+      _count: {
+        select: { installedAgents: true }
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  const seenWorkflowIds = new Set<string>();
+  const filtered = allListings.filter((listing) => {
+    if (!listing.workflowId) return true;
+    if (seenWorkflowIds.has(listing.workflowId)) return false;
+    seenWorkflowIds.add(listing.workflowId);
+    return true;
+  });
+  const installCountByListing = await countSalesByListingIds(filtered.map((listing) => listing.id));
+  const listings = filtered.map(({ _count, ...listing }) => ({
+    ...listing,
+    installCount: installCountByListing.get(listing.id) ?? 0
+  }));
+
+  return successResponse(c, { listings });
+}
+
 architectRoutes.get("/listings/public", listPublicMarketplaceListings);
 architectRoutes.get("/listings/public/:id", getPublicMarketplaceListingById);
-architectRoutes.get("/listings/completed", requireAuth, listPublicMarketplaceListings);
+architectRoutes.get("/listings/completed", requireAuth, listCompletedMarketplaceListings);
 
 architectRoutes.get("/voices", requireAuth, (c) => successResponse(c, listVoicePresets()));
 architectRoutes.get("/voices/debug", requireAuth, (c) => successResponse(c, voicePreviewDiagnostics()));
