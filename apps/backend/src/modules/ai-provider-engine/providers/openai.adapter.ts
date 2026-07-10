@@ -9,6 +9,7 @@ import type {
   ValidationResult,
   AIIntent,
   AIMessage,
+  ProviderCapability,
 } from "../types";
 import {
   checkEnvKey,
@@ -21,30 +22,47 @@ import {
   type PricingTable,
 } from "./base-adapter";
 
-// Pricing per 1M tokens — https://openai.com/api/pricing
-const PRICING: PricingTable = {
-  "gpt-4o":        { input: 2.50,  output: 10.00 },
-  "gpt-4o-mini":   { input: 0.15,  output: 0.60  },
-  "gpt-4-turbo":   { input: 10.00, output: 30.00 },
-  "gpt-3.5-turbo": { input: 0.50,  output: 1.50  },
-};
-
 class OpenAIAdapter implements AIProviderAdapter {
   readonly providerId = "openai";
   readonly displayName = "OpenAI";
+  readonly capabilities: ProviderCapability[] = ["llm"];
   readonly scores: Partial<Record<AIIntent, number>> = {
     chat: 8,
     reasoning: 8,
     code: 9,
     image: 9,
   };
-  readonly models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"];
 
-  private get client(): OpenAI {
-    return new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  private dynamicModels: string[] | null = null;
+  private dynamicPricing: PricingTable | null = null;
+
+  get models(): string[] {
+    return this.dynamicModels ?? ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"];
   }
 
-  private get defaultModel(): string {
+  get pricing(): PricingTable {
+    return this.dynamicPricing ?? {
+      "gpt-4o":        { input: 2.50,  output: 10.00 },
+      "gpt-4o-mini":   { input: 0.15,  output: 0.60  },
+      "gpt-4-turbo":   { input: 10.00, output: 30.00 },
+      "gpt-3.5-turbo": { input: 0.50,  output: 1.50  },
+    };
+  }
+
+  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
+    this.dynamicModels = models;
+    this.dynamicPricing = pricing;
+  }
+
+  private _client: OpenAI | null = null;
+  private get client(): OpenAI {
+    if (!this._client) {
+      this._client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    }
+    return this._client;
+  }
+
+  private get defaultModel() {
     return env.OPENAI_DEFAULT_MODEL;
   }
 
@@ -75,17 +93,14 @@ class OpenAIAdapter implements AIProviderAdapter {
         totalTokens: completion.usage?.total_tokens ?? 0,
       };
 
-      // LLM always returns text; convert to JSON only when caller requested it
-      const structuredOutput =
-        request.outputFormat === "json" ? parseJsonFromText(rawText) : null;
-
       return {
         status: "success",
+        capability: "llm",
         text: rawText,
-        structuredOutput,
+        structuredOutput: request.outputFormat === "json" ? parseJsonFromText(rawText) : null,
         attachments: [],
         usage,
-        cost: buildCostEstimate(request, PRICING, this.defaultModel, usage),
+        cost: buildCostEstimate(request, this.pricing, this.defaultModel, usage),
         conversationId: null,
         providerMetadata: {
           model,
@@ -98,12 +113,7 @@ class OpenAIAdapter implements AIProviderAdapter {
         error: null,
       };
     } catch (err) {
-      return errorResponse(
-        this.providerId,
-        model,
-        err instanceof Error ? err.message : String(err),
-        Date.now() - startMs
-      );
+      return errorResponse(this.providerId, model, err instanceof Error ? err.message : String(err), Date.now() - startMs);
     }
   }
 
@@ -112,19 +122,17 @@ class OpenAIAdapter implements AIProviderAdapter {
   }
 
   async estimateCost(request: AIExecuteRequest): Promise<CostEstimate> {
-    return buildCostEstimate(request, PRICING, this.defaultModel);
+    return buildCostEstimate(request, this.pricing, this.defaultModel);
   }
 
   private buildMessages(request: AIExecuteRequest): OpenAI.Chat.ChatCompletionMessageParam[] {
     const result: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 
-    if (request.systemPrompt) {
-      result.push({ role: "system", content: request.systemPrompt });
-    }
+    if (request.systemPrompt) result.push({ role: "system", content: request.systemPrompt });
 
     const history: AIMessage[] = [
       ...(request.conversationHistory ?? []),
-      ...request.messages,
+      ...(request.messages ?? []),
     ];
 
     for (let i = 0; i < history.length; i++) {
@@ -132,29 +140,19 @@ class OpenAIAdapter implements AIProviderAdapter {
       const isLast = i === history.length - 1;
 
       if (msg.role === "system") {
-        // System messages mid-history are folded into content (OpenAI accepts system role)
         result.push({ role: "system", content: msg.content });
       } else if (msg.role === "assistant") {
         result.push({ role: "assistant", content: msg.content });
-      } else {
-        if (isLast && request.attachments && request.attachments.length > 0) {
-          const contentParts: OpenAI.Chat.ChatCompletionContentPart[] = [
-            { type: "text", text: msg.content },
-          ];
-
-          for (const att of request.attachments) {
-            if (att.mimeType.startsWith("image/")) {
-              const url = ensureDataUri(att.data, att.mimeType);
-              contentParts.push({
-                type: "image_url",
-                image_url: { url },
-              });
-            }
+      } else if (isLast && request.attachments?.length) {
+        const parts: OpenAI.Chat.ChatCompletionContentPart[] = [{ type: "text", text: msg.content }];
+        for (const att of request.attachments) {
+          if (att.mimeType.startsWith("image/")) {
+            parts.push({ type: "image_url", image_url: { url: ensureDataUri(att.data, att.mimeType) } });
           }
-          result.push({ role: "user", content: contentParts });
-        } else {
-          result.push({ role: "user", content: msg.content });
         }
+        result.push({ role: "user", content: parts });
+      } else {
+        result.push({ role: "user", content: msg.content });
       }
     }
 

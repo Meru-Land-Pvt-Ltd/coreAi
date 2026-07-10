@@ -53,6 +53,7 @@ export type BuilderNodeData = Record<string, unknown> & {
   nextWorkflowId?: string;
   llmProvider?: string;
   llmModel?: string;
+  llmRequirements?: string;
   llmSystemPrompt?: string;
   llmPrompt?: string;
   llmContext?: string;

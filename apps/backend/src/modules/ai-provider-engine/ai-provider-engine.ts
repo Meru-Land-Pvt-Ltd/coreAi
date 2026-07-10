@@ -19,6 +19,8 @@ export type {
   CostEstimate,
   ValidationResult,
   AIIntent,
+  ProviderCapability,
+  ModelInfo,
   SelectionExplanation,
 } from "./types";
 
@@ -28,4 +30,5 @@ export {
   ProviderValidationError,
   ProviderDiscoveryError,
   NoAvailableProviderError,
+  CapabilityNotSupportedError,
 } from "./errors";

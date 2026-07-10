@@ -9,6 +9,7 @@ import type {
   ValidationResult,
   AIIntent,
   AIMessage,
+  ProviderCapability,
 } from "../types";
 import {
   checkEnvKey,
@@ -21,38 +22,55 @@ import {
   type PricingTable,
 } from "./base-adapter";
 
-// Pricing per 1M tokens — https://www.anthropic.com/pricing
-const PRICING: PricingTable = {
-  "claude-opus-4-5":   { input: 15.00,  output: 75.00  },
-  "claude-sonnet-4-5": { input: 3.00,   output: 15.00  },
-  "claude-haiku-3-5":  { input: 0.80,   output: 4.00   },
-  "claude-3-opus":     { input: 15.00,  output: 75.00  },
-  "claude-3-sonnet":   { input: 3.00,   output: 15.00  },
-  "claude-3-haiku":    { input: 0.25,   output: 1.25   },
-};
-
 class ClaudeAdapter implements AIProviderAdapter {
   readonly providerId = "claude";
   readonly displayName = "Anthropic Claude";
+  readonly capabilities: ProviderCapability[] = ["llm"];
   readonly scores: Partial<Record<AIIntent, number>> = {
     chat: 9,
     reasoning: 10,
     code: 8,
   };
-  readonly models = [
-    "claude-opus-4-5",
-    "claude-sonnet-4-5",
-    "claude-haiku-3-5",
-    "claude-3-opus",
-    "claude-3-sonnet",
-    "claude-3-haiku",
-  ];
 
-  private get client(): Anthropic {
-    return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  private dynamicModels: string[] | null = null;
+  private dynamicPricing: PricingTable | null = null;
+
+  get models(): string[] {
+    return this.dynamicModels ?? [
+      "claude-opus-4-5",
+      "claude-sonnet-4-5",
+      "claude-haiku-3-5",
+      "claude-3-opus",
+      "claude-3-sonnet",
+      "claude-3-haiku",
+    ];
   }
 
-  private get defaultModel(): string {
+  get pricing(): PricingTable {
+    return this.dynamicPricing ?? {
+      "claude-opus-4-5":   { input: 15.00, output: 75.00 },
+      "claude-sonnet-4-5": { input: 3.00,  output: 15.00 },
+      "claude-haiku-3-5":  { input: 0.80,  output: 4.00  },
+      "claude-3-opus":     { input: 15.00, output: 75.00 },
+      "claude-3-sonnet":   { input: 3.00,  output: 15.00 },
+      "claude-3-haiku":    { input: 0.25,  output: 1.25  },
+    };
+  }
+
+  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
+    this.dynamicModels = models;
+    this.dynamicPricing = pricing;
+  }
+
+  private _client: Anthropic | null = null;
+  private get client(): Anthropic {
+    if (!this._client) {
+      this._client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    }
+    return this._client;
+  }
+
+  private get defaultModel() {
     return env.ANTHROPIC_DEFAULT_MODEL;
   }
 
@@ -77,44 +95,30 @@ class ClaudeAdapter implements AIProviderAdapter {
         })
       );
 
-      // Extract text from the first content block
-      const rawText =
-        response.content.find((b) => b.type === "text")?.text ?? "";
-
+      const rawText = response.content.find((b) => b.type === "text")?.text ?? "";
       const usage = {
         promptTokens: response.usage.input_tokens,
         completionTokens: response.usage.output_tokens,
         totalTokens: response.usage.input_tokens + response.usage.output_tokens,
       };
 
-      const structuredOutput =
-        request.outputFormat === "json" ? parseJsonFromText(rawText) : null;
-
       return {
         status: "success",
+        capability: "llm",
         text: rawText,
-        structuredOutput,
+        structuredOutput: request.outputFormat === "json" ? parseJsonFromText(rawText) : null,
         attachments: [],
         usage,
-        cost: buildCostEstimate(request, PRICING, this.defaultModel, usage),
+        cost: buildCostEstimate(request, this.pricing, this.defaultModel, usage),
         conversationId: null,
-        providerMetadata: {
-          model,
-          stopReason: response.stop_reason ?? null,
-          anthropicId: response.id,
-        },
+        providerMetadata: { model, stopReason: response.stop_reason ?? null, anthropicId: response.id },
         providerId: this.providerId,
         modelName: model,
         durationMs: Date.now() - startMs,
         error: null,
       };
     } catch (err) {
-      return errorResponse(
-        this.providerId,
-        model,
-        err instanceof Error ? err.message : String(err),
-        Date.now() - startMs
-      );
+      return errorResponse(this.providerId, model, err instanceof Error ? err.message : String(err), Date.now() - startMs);
     }
   }
 
@@ -123,7 +127,7 @@ class ClaudeAdapter implements AIProviderAdapter {
   }
 
   async estimateCost(request: AIExecuteRequest): Promise<CostEstimate> {
-    return buildCostEstimate(request, PRICING, this.defaultModel);
+    return buildCostEstimate(request, this.pricing, this.defaultModel);
   }
 
   private buildPayload(request: AIExecuteRequest): {
@@ -132,10 +136,9 @@ class ClaudeAdapter implements AIProviderAdapter {
   } {
     const history: AIMessage[] = [
       ...(request.conversationHistory ?? []),
-      ...request.messages,
+      ...(request.messages ?? []),
     ];
 
-    // Collect system messages (including any from history) and the explicit systemPrompt
     const systemParts: string[] = [];
     if (request.systemPrompt) systemParts.push(request.systemPrompt);
 
@@ -152,41 +155,33 @@ class ClaudeAdapter implements AIProviderAdapter {
 
       const role = msg.role === "assistant" ? "assistant" : "user";
 
-      if (role === "user" && isLast && request.attachments && request.attachments.length > 0) {
-        const contentParts: any[] = [
-          { type: "text", text: msg.content }
-        ];
+      if (role === "user" && isLast && request.attachments?.length) {
+        const parts: Anthropic.ContentBlockParam[] = [{ type: "text", text: msg.content }];
 
         for (const att of request.attachments) {
-          const base64Data = getCleanBase64(att.data);
-
+          const data = getCleanBase64(att.data);
           if (att.mimeType.startsWith("image/")) {
-            contentParts.push({
+            parts.push({
               type: "image",
               source: {
                 type: "base64",
-                media_type: att.mimeType,
-                data: base64Data,
-              }
+                media_type: att.mimeType as Anthropic.Base64ImageSource["media_type"],
+                data,
+              },
             });
           } else if (att.mimeType === "application/pdf") {
-            contentParts.push({
+            parts.push({
               type: "document",
-              source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: base64Data,
-              }
+              source: { type: "base64", media_type: "application/pdf", data },
             });
           }
         }
-        anthropicMessages.push({ role, content: contentParts as any });
+        anthropicMessages.push({ role, content: parts });
       } else {
         anthropicMessages.push({ role, content: msg.content });
       }
     }
 
-    // Anthropic requires alternating user/assistant turns; ensure the last message is from user
     return {
       system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
       messages: anthropicMessages,

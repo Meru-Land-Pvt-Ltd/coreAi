@@ -1,11 +1,10 @@
 import fs from "fs";
 import path from "path";
-import type { AIProviderAdapter } from "./types";
+import type { AIProviderAdapter, ProviderCapability } from "./types";
 import { ProviderNotFoundError, ProviderDiscoveryError } from "./errors";
 
 const PROVIDERS_DIR = path.join(__dirname, "providers");
 
-// Methods every valid adapter must implement
 const REQUIRED_METHODS = ["execute", "validate", "continueConversation", "estimateCost"] as const;
 
 type AdapterModule = { default?: unknown; adapter?: unknown };
@@ -23,7 +22,6 @@ export class ProviderRegistry {
 
   private async discover(): Promise<void> {
     let files: string[];
-
     try {
       files = fs.readdirSync(PROVIDERS_DIR);
     } catch {
@@ -31,9 +29,7 @@ export class ProviderRegistry {
       return;
     }
 
-    const adapterFiles = files.filter(
-      (f) => f.endsWith(".adapter.ts") || f.endsWith(".adapter.js")
-    );
+    const adapterFiles = files.filter((f) => f.endsWith(".adapter.ts") || f.endsWith(".adapter.js"));
 
     if (adapterFiles.length === 0) {
       console.warn("[AIProviderEngine] No *.adapter files found in providers/.");
@@ -43,8 +39,7 @@ export class ProviderRegistry {
     for (const file of adapterFiles) {
       const filePath = path.join(PROVIDERS_DIR, file);
       try {
-        const fileUrl = new URL(`file://${filePath}`).href;
-        const mod = await import(fileUrl) as AdapterModule;
+        const mod = await import(new URL(`file://${filePath}`).href) as AdapterModule;
         const adapter = mod.default ?? mod.adapter;
 
         if (!isValidAdapter(adapter)) {
@@ -60,7 +55,6 @@ export class ProviderRegistry {
     }
   }
 
-  // Overwrites an existing adapter with the same providerId — useful in tests
   register(adapter: AIProviderAdapter): void {
     if (this.adapters.has(adapter.providerId)) {
       console.warn(`[AIProviderEngine] Provider '${adapter.providerId}' already registered. Overwriting.`);
@@ -85,6 +79,10 @@ export class ProviderRegistry {
   all(): AIProviderAdapter[] {
     return Array.from(this.adapters.values());
   }
+
+  allWithCapability(capability: ProviderCapability): AIProviderAdapter[] {
+    return this.all().filter((a) => a.capabilities.includes(capability));
+  }
 }
 
 function isValidAdapter(value: unknown): value is AIProviderAdapter {
@@ -94,6 +92,7 @@ function isValidAdapter(value: unknown): value is AIProviderAdapter {
     typeof c["providerId"] === "string" &&
     c["providerId"].length > 0 &&
     typeof c["displayName"] === "string" &&
+    Array.isArray(c["capabilities"]) &&
     REQUIRED_METHODS.every((method) => typeof c[method] === "function")
   );
 }

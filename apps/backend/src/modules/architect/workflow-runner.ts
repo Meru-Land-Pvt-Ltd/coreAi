@@ -131,6 +131,7 @@ type RunnerNodeData = {
   // LLM Call node fields (ai.llm_call) — set from the workflow builder inspector
   llmProvider?: unknown;
   llmModel?: unknown;
+  llmRequirements?: unknown;
   llmSystemPrompt?: unknown;
   llmPrompt?: unknown;
   llmContext?: unknown;

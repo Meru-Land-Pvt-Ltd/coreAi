@@ -56,7 +56,7 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
       {
         nodeKind: "ai",
-        label: "LLM Call",
+        label: "AI Brain",
         helper: "Generate text or JSON using a select LLM model",
         icon: "sparkles",
         accent: "violet",
@@ -64,8 +64,8 @@ export const libraryGroups: LibraryGroup[] = [
         overrides: {
           type: "ai.llm_call",
           nodeKind: "ai",
-          kind: "LLM",
-          title: "LLM Call",
+          kind: "AI Brain",
+          title: "AI Brain",
           subtitle: "Generate text or JSON using a select LLM model"
         }
       }

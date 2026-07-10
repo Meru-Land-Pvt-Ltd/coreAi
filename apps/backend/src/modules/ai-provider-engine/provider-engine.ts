@@ -1,7 +1,8 @@
 import { ProviderRegistry } from "./provider-registry";
-import { ProviderExecutionError } from "./errors";
+import { ProviderExecutionError, CapabilityNotSupportedError } from "./errors";
 import { ProviderSelector } from "./provider-selector";
-import type {AIProviderAdapter, AIExecuteRequest, AIContinueRequest, AIExecuteResponse, CostEstimate, ValidationResult, SelectionExplanation, } from "./types";
+import type { AIProviderAdapter, AIExecuteRequest, AIContinueRequest, AIExecuteResponse, CostEstimate, ValidationResult, SelectionExplanation, ProviderCapability } from "./types";
+import { ModelCacheManager } from "./model-cache-manager";
 
 export class AIProviderEngine {
   private readonly validProviderIds = new Set<string>();
@@ -33,10 +34,13 @@ export class AIProviderEngine {
     return this.callAdapter(adapter, (a) => a.execute(enriched));
   }
 
-  // Backdoor/explicit override interface for admin/testing
   async executeWithProvider(providerId: string, request: AIExecuteRequest): Promise<AIExecuteResponse> {
     const enriched = this.enrichRequestWithContext(request);
     const adapter = this.registry.resolve(providerId);
+    const capability: ProviderCapability = enriched.capability ?? "llm";
+    if (!adapter.capabilities.includes(capability)) {
+      throw new CapabilityNotSupportedError(capability, providerId);
+    }
     return this.callAdapter(adapter, (a) => a.execute(enriched));
   }
 
@@ -160,6 +164,7 @@ export async function initProviderEngine(): Promise<void> {
   }
   _registry = await ProviderRegistry.create();
   _engine = new AIProviderEngine(_registry);
+  await ModelCacheManager.sync(_registry);
   await _engine.populateValidationCache();
   console.info(`[AIProviderEngine] Ready. Registered: [${_registry.list().join(", ")}], Active: [${_engine.listActiveProviders().join(", ")}]`);
 }

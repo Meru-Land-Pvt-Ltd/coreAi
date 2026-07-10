@@ -7,29 +7,34 @@ export class ProviderSelector {
     adapters: AIProviderAdapter[],
     validProviderIds: Set<string>
   ): AIProviderAdapter {
+    const capability = request.capability ?? "llm";
+
+    // filter to providers that are active and support the requested capability
+    const capable = adapters.filter(
+      (a) => validProviderIds.has(a.providerId) && a.capabilities.includes(capability)
+    );
+
+    if (capable.length === 0) {
+      throw new NoAvailableProviderError(`No active provider supports capability '${capability}'.`);
+    }
+
+    // non-LLM capabilities don't use intent scoring — pick first available
+    if (capability !== "llm") return capable[0]!;
+
     const intent = this.classifyIntent(request);
-    let bestAdapter: AIProviderAdapter | null = null;
+    let best: AIProviderAdapter | null = null;
     let bestScore = -1;
 
-    for (const adapter of adapters) {
-      if (!validProviderIds.has(adapter.providerId)) continue;
-
+    for (const adapter of capable) {
       const score = adapter.scores[intent] ?? 0;
-
-      // Skip unsupported intents
-      if (score <= 0) continue;
-
-      if (score > bestScore) {
+      if (score > 0 && score > bestScore) {
         bestScore = score;
-        bestAdapter = adapter;
+        best = adapter;
       }
     }
 
-    if (!bestAdapter) {
-      throw new NoAvailableProviderError(`No active provider supports intent '${intent}'.`);
-    }
-
-    return bestAdapter;
+    if (!best) throw new NoAvailableProviderError(`No active provider supports intent '${intent}'.`);
+    return best;
   }
 
   static explain(
@@ -50,11 +55,10 @@ export class ProviderSelector {
       selectedProviderId: selected.providerId,
       scores,
       intent,
-      reason: `Selected '${selected.providerId}' (score: ${scores[selected.providerId]}) for classified intent '${intent}'.`,
+      reason: `Selected '${selected.providerId}' (score: ${scores[selected.providerId]}) for intent '${intent}'.`,
     };
   }
 
-  // Simple intent classification based on prompt/message keywords
   private static classifyIntent(request: AIExecuteRequest): AIIntent {
     const task = request.task?.toLowerCase();
     if (task === "image" || task === "image-generation") return "image";
@@ -63,20 +67,14 @@ export class ProviderSelector {
 
     const content = [
       request.systemPrompt ?? "",
-      ...request.messages.map((m) => m.content),
+      ...(request.messages ?? []).map((m) => m.content),
     ]
       .join(" ")
       .toLowerCase();
 
-    if (content.includes("image") || content.includes("draw") || content.includes("paint") || content.includes("picture")) {
-      return "image";
-    }
-    if (content.includes("code") || content.includes("function") || content.includes("bug") || content.includes("script")) {
-      return "code";
-    }
-    if (content.includes("solve") || content.includes("explain step") || content.includes("logic") || content.includes("analyze")) {
-      return "reasoning";
-    }
+    if (content.includes("image") || content.includes("draw") || content.includes("picture")) return "image";
+    if (content.includes("code") || content.includes("function") || content.includes("bug")) return "code";
+    if (content.includes("solve") || content.includes("explain step") || content.includes("analyze")) return "reasoning";
 
     return "chat";
   }

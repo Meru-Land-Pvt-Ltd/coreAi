@@ -184,27 +184,14 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         <div className="space-y-4">
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <Label>System Prompt</Label>
-              <span className="text-[10px] text-slate-400 font-medium">Persona & Rules</span>
+              <Label>What should this AI step do?</Label>
+              <span className="text-[10px] text-slate-400 font-medium">Plain-language requirements</span>
             </div>
             <TextArea
-              value={str("llmSystemPrompt")}
-              onChange={set("llmSystemPrompt")}
+              value={str("llmRequirements")}
+              onChange={set("llmRequirements")}
               height="h-32"
-              placeholder="e.g. You are a professional assistant. Be polite, concise, and helpful..."
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <Label>User Prompt Template</Label>
-              <span className="text-[10px] text-slate-400 font-medium">Main Request</span>
-            </div>
-            <TextArea
-              value={str("llmPrompt")}
-              onChange={set("llmPrompt")}
-              height="h-28"
-              placeholder="e.g. Please reply to this customer message: {{trigger.message}}"
+              placeholder="e.g. Reply to the customer nicely and include the booking link if they want an appointment."
             />
             <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">
               💡 Use double curly braces like <code className="font-mono text-violet-600 bg-violet-50 px-1 py-0.5 rounded">{"{{trigger.body}}"}</code> to reference variables from previous steps.
@@ -212,7 +199,6 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
           </div>
         </div>
       </Section>
-
       <Section title="Context / Knowledge">
         <Label>Additional Context Block (Optional)</Label>
         <TextArea

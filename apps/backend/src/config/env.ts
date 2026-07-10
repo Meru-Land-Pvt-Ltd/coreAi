@@ -84,6 +84,12 @@ const envSchema = z.object({
 
   ELEVENLABS_API_KEY: z.string().optional(),
 
+  MISTRAL_API_KEY: z.string().optional(),
+  MISTRAL_DEFAULT_MODEL: z.string().default("mistral-tiny"),
+  STABILITY_API_KEY: z.string().optional(),
+  LLAMA_BASE_URL: z.string().default("http://localhost:11434/v1"),
+  LLAMA_DEFAULT_MODEL: z.string().default("llama3"),
+
   VAPI_ANSWER_INBOUND: booleanFromEnv.default(false),
 
   STRIPE_SECRET_KEY: z.string().optional(),

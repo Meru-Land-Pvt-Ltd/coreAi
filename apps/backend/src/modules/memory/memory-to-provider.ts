@@ -1,11 +1,11 @@
 /**
- * Maps Memory Engine output → Provider Engine input, and provider response → NodeMemoryPayload.
+ * Maps Memory Engine output -> Provider Engine input, and provider response -> NodeMemoryPayload.
  * This is the integration contract between Gaurav (memory) and Akhil (provider).
  */
 import type { AIExecuteRequest, AIExecuteResponse } from "../ai-provider-engine/types";
 import type { ContextBundle, NodeMemoryPayload } from "./types";
 
-/** Minimal node shape from workflow-runner — avoids importing the whole runner module. */
+/** Minimal node shape from workflow-runner - avoids importing the whole runner module. */
 export type AiBrainNodeConfig = {
   id: string;
   nodeType: string;
@@ -22,12 +22,14 @@ export type AiBrainNodeConfig = {
     maxTokens?: unknown;
     outputFormat?: unknown;
     backlinkNodeIds?: unknown;
-    // LLM Call node fields (ai.llm_call) — mapped before reaching here,
+    // LLM Call node fields (ai.llm_call) - mapped before reaching here,
     // but kept for reference / direct fallback
     llmProvider?: unknown;
     llmModel?: unknown;
+    llmRequirements?: unknown;
     llmSystemPrompt?: unknown;
     llmPrompt?: unknown;
+    llmContext?: unknown;
     llmTemperature?: unknown;
     llmMaxTokens?: unknown;
     llmOutputFormat?: unknown;
@@ -63,27 +65,77 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-/** ContextBundle + node config → request for getProviderEngine().executeWithProvider() */
+function buildWorkflowLlmSystemPrompt(params: {
+  bundle: ContextBundle;
+  legacySystemPrompt: string;
+  outputFormat: "text" | "json";
+}): string {
+  const { bundle, legacySystemPrompt, outputFormat } = params;
+  const sections = [
+    "You are executing one AI step inside a CoreAI workflow.",
+    "The workflow author may write rough, non-technical requirements. Convert those requirements into the best useful output for this step.",
+    "Use the workflow context, previous-node memory, and any additional context provided with the request.",
+    "Do not ask follow-up questions unless the workflow author explicitly asks you to ask one.",
+    "Preserve template variables exactly as written, including values like {{business.name}}, {{customer.phone}}, and {{ai.output}}.",
+    outputFormat === "json"
+      ? "Return only valid JSON. Do not wrap it in markdown fences or add explanatory text."
+      : "Return concise plain text unless the workflow author asks for another format.",
+  ];
+
+  if (legacySystemPrompt) {
+    sections.push(`Legacy workflow instructions:\n${legacySystemPrompt}`);
+  }
+
+  sections.push(`Memory context prepared for this node:\n${bundle.compressedPrompt}`);
+
+  return sections.join("\n\n");
+}
+
+function buildWorkflowLlmUserPrompt(params: {
+  requirements: string;
+  context: string;
+}): string {
+  const sections = [`Workflow author's rough requirements:\n${params.requirements}`];
+
+  if (params.context) {
+    sections.push(`Additional context / knowledge:\n${params.context}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+/** ContextBundle + node config -> request for getProviderEngine().executeWithProvider() */
 export function contextBundleToExecuteRequest(
   bundle: ContextBundle,
   node: AiBrainNodeConfig
 ): AIExecuteRequest {
   const data = node.data ?? {};
+  const outputFormat = data.outputFormat === "json" ? "json" : "text";
 
-  // For LLM Call nodes: llmPrompt is the user message; fallback to prompt/instructions.
-  const userPrompt =
+  // Workflow authors write plain-language requirements. Legacy prompt fields
+  // remain fallbacks so existing saved workflows continue to execute.
+  const requirements =
+    asString(data.llmRequirements) ||
     asString(data.llmPrompt) ||
     asString(data.prompt) ||
     asString(data.instructions) ||
     asString(bundle.merged.originalPrompt) ||
     "Execute this workflow step using the provided context.";
 
-  // For LLM Call nodes: llmSystemPrompt is the persona/rules. For other AI nodes,
-  // the memory broker's compressed context prompt is used.
-  const systemPrompt =
+  const legacySystemPrompt =
     asString(data.llmSystemPrompt) ||
-    asString(data.instructions) ||
-    bundle.compressedPrompt;
+    asString(data.instructions);
+
+  const systemPrompt = buildWorkflowLlmSystemPrompt({
+    bundle,
+    legacySystemPrompt,
+    outputFormat,
+  });
+
+  const userPrompt = buildWorkflowLlmUserPrompt({
+    requirements,
+    context: asString(data.llmContext),
+  });
 
   return {
     systemPrompt,
@@ -91,7 +143,7 @@ export function contextBundleToExecuteRequest(
     model: asString(data.model) || undefined,
     temperature: asNumber(data.temperature),
     maxTokens: asNumber(data.maxTokens),
-    outputFormat: data.outputFormat === "json" ? "json" : "text",
+    outputFormat,
     workflowContext: {
       workflowRunId: bundle.workflowRunId,
       nodeId: bundle.nodeId,
@@ -116,7 +168,7 @@ export function contextBundleToExecuteRequest(
   };
 }
 
-/** Provider response → payload for memoryBroker.saveNodeMemory() */
+/** Provider response -> payload for memoryBroker.saveNodeMemory() */
 export function providerResponseToNodeMemory(params: {
   bundle: ContextBundle;
   node: AiBrainNodeConfig;
@@ -140,7 +192,7 @@ export function providerResponseToNodeMemory(params: {
     executionOrder,
     threadId: bundle.threadId,
     input: {
-      prompt: node.data?.prompt ?? node.data?.instructions,
+      prompt: node.data?.llmRequirements ?? node.data?.prompt ?? node.data?.instructions,
       provider: normalizeProviderId(node.data?.provider),
       model: node.data?.model,
       compressedPrompt: bundle.compressedPrompt,

@@ -1,4 +1,3 @@
-// @google/genai is ESM-only; dynamic import() is required in this CJS project
 import { env } from "../../../config/env";
 import type {
   AIProviderAdapter,
@@ -9,6 +8,7 @@ import type {
   ValidationResult,
   AIIntent,
   AIMessage,
+  ProviderCapability,
 } from "../types";
 import {
   checkEnvKey,
@@ -21,40 +21,60 @@ import {
   type PricingTable,
 } from "./base-adapter";
 
-// Pricing per 1M tokens — https://ai.google.dev/pricing
-const PRICING: PricingTable = {
-  "gemini-3.5-flash":      { input: 0.075,  output: 0.30  },
-  "gemini-2.0-flash":      { input: 0.075,  output: 0.30  },
-  "gemini-2.0-flash-lite": { input: 0.0375, output: 0.15  },
-  "gemini-1.5-pro":        { input: 1.25,   output: 5.00  },
-  "gemini-1.5-flash":      { input: 0.075,  output: 0.30  },
-  "gemini-1.0-pro":        { input: 0.50,   output: 1.50  },
-};
-
-/** Lazily import the ESM-only @google/genai package */
+// cached after first call — avoids re-importing the ESM-only package on every request
+let genAiClient: unknown = null;
 async function getClient() {
-  const { GoogleGenAI } = await import("@google/genai");
-  return new GoogleGenAI({ apiKey: env.GOOGLE_AI_API_KEY });
+  if (!genAiClient) {
+    const { GoogleGenAI } = await import("@google/genai");
+    genAiClient = new GoogleGenAI({ apiKey: env.GOOGLE_AI_API_KEY });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return genAiClient as any;
 }
+
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
 
 class GeminiAdapter implements AIProviderAdapter {
   readonly providerId = "gemini";
   readonly displayName = "Google Gemini";
+  readonly capabilities: ProviderCapability[] = ["llm"];
   readonly scores: Partial<Record<AIIntent, number>> = {
     chat: 8,
     reasoning: 7,
     code: 8,
   };
-  readonly models = [
-    "gemini-3.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
-    "gemini-1.0-pro",
-  ];
 
-  private get defaultModel(): string {
+  private dynamicModels: string[] | null = null;
+  private dynamicPricing: PricingTable | null = null;
+
+  get models(): string[] {
+    return this.dynamicModels ?? [
+      "gemini-3.5-flash",
+      "gemini-2.0-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-1.5-pro",
+      "gemini-1.5-flash",
+      "gemini-1.0-pro",
+    ];
+  }
+
+  get pricing(): PricingTable {
+    return this.dynamicPricing ?? {
+      "gemini-3.5-flash":      { input: 0.075,  output: 0.30  },
+      "gemini-2.0-flash":      { input: 0.075,  output: 0.30  },
+      "gemini-3.1-flash-lite": { input: 0.0375, output: 0.15  },
+      "gemini-1.5-pro":        { input: 1.25,   output: 5.00  },
+      "gemini-1.5-flash":      { input: 0.075,  output: 0.30  },
+      "gemini-1.0-pro":        { input: 0.50,   output: 1.50  },
+    };
+  }
+
+  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
+    this.dynamicModels = models;
+    this.dynamicPricing = pricing;
+  }
+
+  private get defaultModel() {
     return env.GEMINI_DEFAULT_MODEL;
   }
 
@@ -91,33 +111,23 @@ class GeminiAdapter implements AIProviderAdapter {
         totalTokens: meta?.totalTokenCount ?? 0,
       };
 
-      const structuredOutput =
-        request.outputFormat === "json" ? parseJsonFromText(rawText) : null;
-
       return {
         status: "success",
+        capability: "llm",
         text: rawText,
-        structuredOutput,
+        structuredOutput: request.outputFormat === "json" ? parseJsonFromText(rawText) : null,
         attachments: [],
         usage,
-        cost: buildCostEstimate(request, PRICING, this.defaultModel, usage),
+        cost: buildCostEstimate(request, this.pricing, this.defaultModel, usage),
         conversationId: null,
-        providerMetadata: {
-          model,
-          finishReason: response.candidates?.[0]?.finishReason ?? null,
-        },
+        providerMetadata: { model, finishReason: response.candidates?.[0]?.finishReason ?? null },
         providerId: this.providerId,
         modelName: model,
         durationMs: Date.now() - startMs,
         error: null,
       };
     } catch (err) {
-      return errorResponse(
-        this.providerId,
-        model,
-        err instanceof Error ? err.message : String(err),
-        Date.now() - startMs
-      );
+      return errorResponse(this.providerId, model, err instanceof Error ? err.message : String(err), Date.now() - startMs);
     }
   }
 
@@ -126,43 +136,36 @@ class GeminiAdapter implements AIProviderAdapter {
   }
 
   async estimateCost(request: AIExecuteRequest): Promise<CostEstimate> {
-    return buildCostEstimate(request, PRICING, this.defaultModel);
+    return buildCostEstimate(request, this.pricing, this.defaultModel);
   }
 
   private buildPayload(request: AIExecuteRequest): {
     history: Array<{ role: string; parts: Array<{ text: string }> }>;
-    latestMessage: any;
+    latestMessage: string | GeminiPart[];
   } {
     const allMessages: AIMessage[] = [
       ...(request.conversationHistory ?? []),
-      ...request.messages,
+      ...(request.messages ?? []),
     ];
 
     const nonSystem = allMessages.filter((m) => m.role !== "system");
     const lastMsg = nonSystem[nonSystem.length - 1];
-    const latestMessageText = lastMsg?.content ?? "";
+    const latestText = lastMsg?.content ?? "";
 
     const history = nonSystem.slice(0, -1).map((msg) => ({
       role: msg.role === "assistant" ? "model" : "user",
       parts: [{ text: msg.content }],
     }));
 
-    let latestMessage: any = latestMessageText;
-    if (request.attachments && request.attachments.length > 0) {
-      const parts: any[] = [{ text: latestMessageText }];
-      for (const att of request.attachments) {
-        const base64Data = getCleanBase64(att.data);
-        parts.push({
-          inlineData: {
-            mimeType: att.mimeType,
-            data: base64Data,
-          },
-        });
-      }
-      latestMessage = parts;
+    if (!request.attachments?.length) {
+      return { history, latestMessage: latestText };
     }
 
-    return { history, latestMessage };
+    const parts: GeminiPart[] = [{ text: latestText }];
+    for (const att of request.attachments) {
+      parts.push({ inlineData: { mimeType: att.mimeType, data: getCleanBase64(att.data) } });
+    }
+    return { history, latestMessage: parts };
   }
 }
 

@@ -62,3 +62,16 @@ export class NoAvailableProviderError extends Error {
     Error.captureStackTrace(this, this.constructor);
   }
 }
+
+export class CapabilityNotSupportedError extends Error {
+  public readonly capability: string;
+  public readonly providerId: string;
+
+  constructor(capability: string, providerId: string) {
+    super(`Provider '${providerId}' does not support capability '${capability}'.`);
+    this.name = "CapabilityNotSupportedError";
+    this.capability = capability;
+    this.providerId = providerId;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
