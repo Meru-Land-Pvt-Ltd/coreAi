@@ -2,7 +2,7 @@ import { buildVoiceBookingWorkflow, VOICE_NODE_TYPES } from "@coreai/shared";
 
 export const RECEPTIONIST_WORKFLOW_NAME = "AI Receptionist Template";
 export const RECEPTIONIST_WORKFLOW_DESCRIPTION =
-  "Answers inbound calls, uses buyer-provided business context, checks calendar availability, books appointments, sends SMS follow-up, and ends the call cleanly.";
+  "Answers inbound calls, uses buyer-provided business context, checks calendar availability, books appointments, sends email follow-up, and ends the call cleanly.";
 
 export function buildReceptionistWorkflowJson() {
   const base = buildVoiceBookingWorkflow();
@@ -37,10 +37,15 @@ export function buildReceptionistWorkflowJson() {
       eventTitleFormat: "[Service] - [Customer Name]",
       confirmationMessage: "Perfect, you are all set for [Service] on [Date] at [Time]."
     },
-    [VOICE_NODE_TYPES.sendSms]: {
-      sendToCustomer: "true",
-      customerTemplate: "Confirmed: [Service] on [Date] at [Time]. Reply if you need to change it.",
-      teamTemplate: "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]"
+    // Email-first MVP: the template ships with Send Email (proxy alias) —
+    // Send SMS stays a manual add-on node in the builder palette.
+    [VOICE_NODE_TYPES.sendEmail]: {
+      recipientType: "customer",
+      subjectTemplate: "Appointment confirmation with [Business Name]",
+      bodyTemplate:
+        "Hi [Customer Name],\nYour appointment with [Business Name] is confirmed for [Date] at [Time].\nIf you need to reply, just respond to this email.",
+      includeCallSummary: "false",
+      includeBookingDetails: "true"
     },
     [VOICE_NODE_TYPES.endFlow]: {
       closingMessage: "Thank you for calling. Have a great day.",

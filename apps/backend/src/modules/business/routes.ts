@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { normalizeTimeZone, requiredConnectorsForWorkflow, type ConnectorRequirement } from "@coreai/shared";
+import {
+  isBuyerAnswerEmpty,
+  normalizeBuyerSetupFields,
+  normalizeTimeZone,
+  requiredConnectorsForWorkflow,
+  validateBuyerSetupAnswers,
+  type ConnectorRequirement
+} from "@coreai/shared";
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { errorMessage, isRecord } from "../../lib/error-utils";
@@ -23,6 +30,17 @@ import {
 } from "./billing";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
+import {
+  createOrUpdateBusinessEmailAlias,
+  generateSuggestedAlias,
+  getBusinessEmailAlias,
+  isLocalPartAvailable,
+  isSesConfigured,
+  isValidEmailAddress,
+  normalizeEmailAliasLocalPart,
+  sendBusinessEmail,
+  validateLocalPart
+} from "../email/ses-mail-service";
 import { isBillingEnabled } from "../../lib/stripe";
 import {
   buildDashboardActivities,
@@ -230,13 +248,19 @@ const businessSetupSchema = z.object({
     .optional(),
 
   // Architect-defined buyer setup answers (the listing's requiredBuyerSetup
-  // fields) — industry-specific facts injected into the live system prompt.
+  // fields) — business-specific facts injected into the live system prompt.
+  // Values may be text, a multiselect list, a yes/no toggle, or a number.
   customFields: z
     .array(
       z.object({
         key: z.string().trim().min(1).max(80),
         label: z.string().trim().min(1).max(120),
-        value: z.string().trim().max(2000)
+        value: z.union([
+          z.string().trim().max(2000),
+          z.array(z.string().trim().max(200)).max(50),
+          z.boolean(),
+          z.number()
+        ])
       })
     )
     .max(40)
@@ -769,10 +793,18 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
           .map((item) => ({
             key: typeof item.key === "string" ? item.key : "",
             label: typeof item.label === "string" ? item.label : "",
-            value: typeof item.value === "string" ? item.value : ""
+            value:
+              typeof item.value === "string" || typeof item.value === "boolean" || typeof item.value === "number"
+                ? item.value
+                : Array.isArray(item.value)
+                  ? item.value.filter((entry): entry is string => typeof entry === "string")
+                  : ""
           }))
           .filter((item) => item.key)
       : [],
+    // Buyer setup schema snapshot saved at install time — lets the setup form
+    // re-render the agent-specific fields without re-fetching the listing.
+    buyerSetupSchema: normalizeBuyerSetupFields(config?.buyerSetupSchema),
     silence: silenceConfig
       ? {
           repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
@@ -783,6 +815,119 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
       : null
   };
 }
+
+/* ---- Mail Setup (proxy email alias on reply.triven.ai) ---- */
+
+const mailSetupSchema = z.object({
+  localPart: z.string().trim().min(1, "Email alias is required").max(50),
+  displayName: z.string().trim().min(1, "Sender name is required").max(120),
+  forwardToEmail: z.string().trim().optional().or(z.literal("")),
+  replyHandlingMode: z.enum(["TRIVEN_INBOX", "FORWARD_ONLY", "TRIVEN_AND_FORWARD"]).default("TRIVEN_AND_FORWARD")
+});
+
+function serializeAlias(alias: NonNullable<Awaited<ReturnType<typeof getBusinessEmailAlias>>>) {
+  return {
+    id: alias.id,
+    localPart: alias.localPart,
+    domain: alias.domain,
+    emailAddress: alias.emailAddress,
+    displayName: alias.displayName,
+    forwardToEmail: alias.forwardToEmail,
+    replyHandlingMode: alias.replyHandlingMode,
+    status: alias.status
+  };
+}
+
+businessRoutes.get("/mail-setup", async (c) => {
+  const authUser = c.get("authUser");
+  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
+
+  const alias = business ? await getBusinessEmailAlias(business.id) : null;
+  const suggestedLocalPart = alias
+    ? alias.localPart
+    : await generateSuggestedAlias(business?.name || "business");
+
+  return successResponse(c, {
+    alias: alias ? serializeAlias(alias) : null,
+    suggestedLocalPart,
+    domain: env.SES_FROM_DOMAIN,
+    sesConfigured: isSesConfigured()
+  });
+});
+
+businessRoutes.get("/mail-setup/check", async (c) => {
+  const authUser = c.get("authUser");
+  const raw = c.req.query("localPart") ?? "";
+  const localPart = normalizeEmailAliasLocalPart(raw);
+  const issue = validateLocalPart(localPart);
+
+  if (issue) return successResponse(c, { localPart, available: false, reason: issue.message });
+
+  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, select: { id: true } });
+  const available = await isLocalPartAvailable(localPart, business?.id);
+  return successResponse(c, { localPart, available, reason: available ? null : "This alias is already taken." });
+});
+
+businessRoutes.post("/mail-setup", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = mailSetupSchema.parse(await c.req.json());
+
+    const business = await prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      include: { installedAgents: { orderBy: { createdAt: "desc" }, take: 1 } }
+    });
+    if (!business) {
+      return errorResponse(c, "Create your business profile first (Step 1 of setup).", 404, "BUSINESS_NOT_FOUND");
+    }
+
+    const result = await createOrUpdateBusinessEmailAlias({
+      businessId: business.id,
+      buyerUserId: authUser.id,
+      installedAgentId: business.installedAgents[0]?.id ?? null,
+      localPart: input.localPart,
+      displayName: input.displayName,
+      forwardToEmail: input.forwardToEmail || null,
+      replyHandlingMode: input.replyHandlingMode
+    });
+
+    if (!result.ok) return errorResponse(c, result.error, 422, "MAIL_SETUP_INVALID");
+    return successResponse(c, { alias: serializeAlias(result.alias) }, "Mail setup saved");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid input", 422, "VALIDATION_ERROR");
+    }
+    throw error;
+  }
+});
+
+businessRoutes.post("/mail-setup/test-email", async (c) => {
+  const authUser = c.get("authUser");
+  const body = (await c.req.json().catch(() => ({}))) as { to?: string };
+
+  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
+  if (!business) return errorResponse(c, "Business not found.", 404, "BUSINESS_NOT_FOUND");
+
+  const alias = await getBusinessEmailAlias(business.id);
+  if (!alias) return errorResponse(c, "Save your mail setup first.", 422, "MAIL_SETUP_MISSING");
+
+  const to = body.to?.trim() || alias.forwardToEmail;
+  if (!to || !isValidEmailAddress(to)) {
+    return errorResponse(c, "Add a valid forward-to email (or pass one) for the test.", 422, "INVALID_TEST_RECIPIENT");
+  }
+
+  const result = await sendBusinessEmail({
+    businessId: business.id,
+    to,
+    subject: `Test email from ${alias.displayName} via Triven`,
+    textBody: `This is a test email from your Triven proxy address.\n\nFrom: ${alias.displayName} via Triven <${alias.emailAddress}>\nReplies go to: ${alias.emailAddress}\n\nIf you received this, your mail setup works.`,
+    purpose: "TEST"
+  });
+
+  if (!result.ok) return errorResponse(c, result.error, 422, "TEST_EMAIL_FAILED");
+  return successResponse(c, { messageId: result.messageId, dryRun: result.dryRun }, "Test email sent");
+});
 
 businessRoutes.get("/setup", async (c) => {
   const authUser = c.get("authUser");
@@ -865,6 +1010,39 @@ businessRoutes.post("/setup", async (c) => {
       listingId: input.listingId || undefined
     });
 
+    // Validate buyer answers against the listing's architect-defined setup
+    // schema. Required fields are only enforced on the final deploy so
+    // incremental "save progress" calls still succeed; invalid values
+    // (bad email/URL/number, options outside the allowed list) always fail.
+    const setupListingId = input.listingId || existing?.installedAgents?.[0]?.listingId || resolved.listingId || null;
+    const setupListing = setupListingId
+      ? await prisma.agentListing.findUnique({
+          where: { id: setupListingId },
+          select: { requiredBuyerSetup: true }
+        })
+      : null;
+    const buyerSetupFields = normalizeBuyerSetupFields(setupListing?.requiredBuyerSetup);
+
+    if (buyerSetupFields.length > 0) {
+      // Only keys defined in the listing's schema are accepted — anything else
+      // is rejected so answers can't be smuggled past validation. Agents
+      // without a schema (older installs) keep the previous open behavior.
+      const allowedKeys = new Set(buyerSetupFields.map((field) => field.key));
+      const unknownField = input.customFields.find((field) => !allowedKeys.has(field.key));
+
+      if (unknownField) {
+        return errorResponse(c, `Unknown setup field: ${unknownField.key}`, 422, "BUYER_SETUP_UNKNOWN_FIELD");
+      }
+
+      const answerIssues = validateBuyerSetupAnswers(buyerSetupFields, input.customFields, {
+        requireMissing: input.deploy
+      });
+
+      if (answerIssues.length > 0) {
+        return errorResponse(c, answerIssues.map((issue) => issue.message).join(" "), 422, "BUYER_SETUP_INVALID");
+      }
+    }
+
     const timeZone = normalizeTimeZone(input.timeZone);
     const assistantName = cleanAssistantName(input.assistantName);
     const answeringMode = input.answeringMode || "AI_FIRST";
@@ -932,8 +1110,11 @@ businessRoutes.post("/setup", async (c) => {
       customInstructions: cleanOptional(input.customInstructions),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
       ...(input.customFields.length > 0
-        ? { customFields: input.customFields.filter((field) => field.value.trim()) }
+        ? { customFields: input.customFields.filter((field) => !isBuyerAnswerEmpty(field.value)) }
         : {}),
+      // Snapshot of the listing's buyer setup schema at save time, so the
+      // installed agent stays renderable/validatable even if the listing changes.
+      ...(buyerSetupFields.length > 0 ? { buyerSetupSchema: buyerSetupFields } : {}),
       businessDetails: {
         assistantName,
         businessName: input.businessName,

@@ -81,6 +81,8 @@ export const libraryGroups: LibraryGroup[] = [
   {
     title: "Communication",
     items: [
+      // Email-first MVP: Send Email (Triven proxy) leads; SMS stays an optional add-on.
+      paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
       paletteItem("integration.gmail_send_email", { icon: "mail", accent: "green" }),
       paletteItem("integration.gmail_create_draft", { icon: "mail", accent: "blue" })

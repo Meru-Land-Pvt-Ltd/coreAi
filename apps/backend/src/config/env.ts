@@ -40,6 +40,17 @@ const envSchema = z.object({
   TWILIO_TEST_MODE: booleanFromEnv.default(false),
   TWILIO_VALIDATE_SIGNATURE: booleanFromEnv.default(false),
 
+  SES_REGION: z.string().optional(),
+  SES_FROM_DOMAIN: z.string().default("reply.triven.ai"),
+  SES_MAIL_FROM_DOMAIN: z.string().default("bounce.reply.triven.ai"),
+  SES_INBOUND_BUCKET: z.string().optional(),
+  SES_INBOUND_TOPIC_ARN: z.string().optional(),
+  SES_CONFIGURATION_SET: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  /** Force dry-run (store + log instead of calling SES) even when configured. */
+  SES_DRY_RUN: booleanFromEnv.default(false),
+
   TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
   TWILIO_FORWARD_TO_PHONE: z.string().optional(),
   TWILIO_FORWARD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(20),

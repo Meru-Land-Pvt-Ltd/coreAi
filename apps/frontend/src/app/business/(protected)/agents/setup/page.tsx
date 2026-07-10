@@ -1,22 +1,30 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   CUSTOM_INSTRUCTION_SUGGESTIONS,
   DEFAULT_SILENCE,
+  isBuyerAnswerEmpty,
+  normalizeBuyerSetupFields,
   normalizeTimeZone,
+  validateBuyerSetupAnswers,
   VOICE_PRESETS
 } from "@coreai/shared";
 import { VoicePicker } from "@/components/common/voice-picker";
 import {
+  checkMailAliasAvailability,
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
+  getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
+  saveBusinessMailSetup,
   saveBusinessSetup,
+  sendMailSetupTestEmail,
   testCallRouting,
+  type BusinessEmailAliasData,
   type BusinessFaq,
   type BusinessHoursItem,
   type BusinessKnowledgeItem,
@@ -295,12 +303,16 @@ function SetupWizard() {
 
   const [requiredKeys, setRequiredKeys] = useState<string[]>([]);
 
+  // Proxy email alias (Mail Setup) — drives the checklist and Step 2 section.
+  const [mailAlias, setMailAlias] = useState<BusinessEmailAliasData | null>(null);
+
   // Architect-defined setup fields from the listing (requiredBuyerSetup) and
   // the buyer's answers to them. Answers persist in InstalledAgent.configJson.
   const [buyerSetupFields, setBuyerSetupFields] = useState<BuyerSetupFieldDef[]>([]);
+  const [buyerSetupInstructions, setBuyerSetupInstructions] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<BuyerCustomFieldValue[]>([]);
 
-  const setCustomFieldValue = useCallback((key: string, label: string, value: string) => {
+  const setCustomFieldValue = useCallback((key: string, label: string, value: string | string[] | boolean) => {
     setCustomFieldValues((current) => {
       const existing = current.find((item) => item.key === key);
       if (existing) {
@@ -312,6 +324,11 @@ function SetupWizard() {
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
+
+    // Mail Setup status feeds the checklist — non-blocking if it fails.
+    void getBusinessMailSetup().then((mailRes) => {
+      if (mailRes.success && mailRes.data) setMailAlias(mailRes.data.alias);
+    });
 
     const res = await getBusinessSetup();
 
@@ -396,6 +413,12 @@ function SetupWizard() {
         setCustomFieldValues(data.customFields);
       }
 
+      // Schema snapshot saved with the installed agent — keeps the dynamic
+      // fields rendering when the page is revisited without a listingId.
+      if (Array.isArray(data.buyerSetupSchema) && data.buyerSetupSchema.length > 0) {
+        setBuyerSetupFields(data.buyerSetupSchema.filter((field) => field && field.key && field.label));
+      }
+
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
 
       if (listingId) {
@@ -406,10 +429,11 @@ function SetupWizard() {
             keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
           }
 
-          const setupFields = (listingRes.data.listing.requiredBuyerSetup ?? []).filter(
-            (field) => field && field.key && field.label
+          const setupFields = normalizeBuyerSetupFields(listingRes.data.listing.requiredBuyerSetup).filter(
+            (field) => field.key && field.label
           );
           setBuyerSetupFields(setupFields);
+          setBuyerSetupInstructions((listingRes.data.listing.buyerSetupInstructions ?? "").trim());
         }
       }
 
@@ -514,8 +538,17 @@ function SetupWizard() {
       silenceRepromptMessage2: silenceMessage2.trim(),
       goodbyeMessage: goodbyeMessage.trim(),
       customFields: customFieldValues
-        .map((field) => ({ key: field.key, label: field.label, value: field.value.trim() }))
-        .filter((field) => field.key && field.label && field.value),
+        .map((field) => ({
+          key: field.key,
+          label: field.label,
+          value: typeof field.value === "string" ? field.value.trim() : field.value
+        }))
+        .filter((field) => field.key && field.label && !isBuyerAnswerEmpty(field.value))
+        // When the schema is known, drop answers for keys no longer in it
+        // (e.g. the architect removed a field) — the backend rejects unknowns.
+        .filter((field) =>
+          buyerSetupFields.length === 0 || buyerSetupFields.some((schemaField) => schemaField.key === field.key)
+        ),
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
       ...(listingId ? { listingId } : {})
@@ -641,6 +674,12 @@ function SetupWizard() {
       return;
     }
 
+    if (buyerSetupIssues.length > 0) {
+      setStep(1);
+      setError(buyerSetupIssues[0].message);
+      return;
+    }
+
     if (assistantName.trim().length < 2) {
       setStep(3);
       setError("Add your AI assistant name.");
@@ -707,6 +746,11 @@ function SetupWizard() {
 
   const needs = new Set(requiredKeys);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
+
+  // Required + format validation of the agent-specific (architect-defined)
+  // setup fields — mirrors the backend's 422 validation on deploy.
+  const buyerSetupIssues = validateBuyerSetupAnswers(buyerSetupFields, customFieldValues, { requireMissing: true });
+  const buyerSetupComplete = buyerSetupIssues.length === 0;
   const assistantNameComplete = assistantName.trim().length >= 2;
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
   const forwardRequired = answeringMode !== "AI_FIRST";
@@ -718,6 +762,8 @@ function SetupWizard() {
   const needsPhone = needs.has("phone_provider") || needs.has("twilio");
   const needsSms = needs.has("twilio");
   const needsVoice = needs.has("vapi");
+  const needsMail = needs.has("triven_mail");
+  const mailComplete = mailAlias?.status === "ACTIVE";
 
   const checklist: ChecklistRow[] = [
     {
@@ -727,6 +773,17 @@ function SetupWizard() {
       complete: businessComplete,
       blocker: businessComplete ? undefined : "Add your business name and type."
     },
+    ...(buyerSetupFields.length > 0
+      ? [
+          {
+            key: "agent_setup",
+            label: "Agent setup details",
+            required: buyerSetupFields.some((field) => field.required) || !buyerSetupComplete,
+            complete: buyerSetupComplete,
+            blocker: buyerSetupComplete ? undefined : buyerSetupIssues[0]?.message
+          }
+        ]
+      : []),
     ...(needsCalendar
       ? [
           {
@@ -774,6 +831,17 @@ function SetupWizard() {
             required: true,
             complete: phoneSelected,
             blocker: phoneSelected ? undefined : "Select a Triven phone number for SMS notifications."
+          }
+        ]
+      : []),
+    ...(needsMail
+      ? [
+          {
+            key: "mail_setup",
+            label: "Mail Setup",
+            required: true,
+            complete: mailComplete,
+            blocker: mailComplete ? undefined : "Choose your proxy email alias in Step 2 (Mail Setup)."
           }
         ]
       : []),
@@ -916,6 +984,7 @@ function SetupWizard() {
             faqs={faqs}
             checklist={checklist}
             setupFields={buyerSetupFields}
+            setupInstructions={buyerSetupInstructions}
             customValues={customFieldValues}
             onBusinessName={setBusinessName}
             onBusinessType={setBusinessType}
@@ -928,6 +997,8 @@ function SetupWizard() {
 
         {step === 2 ? (
           <StepPhoneCalendar
+            businessName={businessName}
+            onMailAliasChange={setMailAlias}
             phoneNumbers={phoneNumbers}
             selectedPhoneId={selectedPhoneId}
             assignedNumber={assignedNumber}
@@ -1078,6 +1149,7 @@ function StepBusiness({
   faqs,
   checklist,
   setupFields,
+  setupInstructions,
   customValues,
   onBusinessName,
   onBusinessType,
@@ -1093,13 +1165,14 @@ function StepBusiness({
   faqs: BusinessFaq[];
   checklist: ChecklistRow[];
   setupFields: BuyerSetupFieldDef[];
+  setupInstructions: string;
   customValues: BuyerCustomFieldValue[];
   onBusinessName: (v: string) => void;
   onBusinessType: (v: string) => void;
   onContactName: (v: string) => void;
   onServices: (v: string) => void;
   onFaqs: (v: BusinessFaq[]) => void;
-  onCustomField: (key: string, label: string, value: string) => void;
+  onCustomField: (key: string, label: string, value: string | string[] | boolean) => void;
 }) {
   return (
     <div className={CARD}>
@@ -1171,40 +1244,24 @@ function StepBusiness({
           <p className="mt-1 text-sm text-slate-400">
             This agent asks for a few extra details so it can answer callers accurately.
           </p>
+          {setupInstructions ? (
+            <p
+              className="mt-2 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
+              data-testid="business-setup-buyer-instructions"
+            >
+              {setupInstructions}
+            </p>
+          ) : null}
 
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            {setupFields.map((field) => {
-              const saved = customValues.find((item) => item.key === field.key)?.value ?? "";
-              const inputId = `custom-field-${field.key}`;
-
-              return (
-                <div key={field.key} className={field.type === "textarea" ? "sm:col-span-2" : undefined}>
-                  <label className={LABEL} htmlFor={inputId}>
-                    {field.label} {field.required ? "" : "optional"}
-                  </label>
-                  {field.type === "textarea" ? (
-                    <textarea
-                      data-testid={`business-setup-custom-field-${field.key}`}
-                      id={inputId}
-                      value={saved}
-                      onChange={(e) => onCustomField(field.key, field.label, e.target.value)}
-                      rows={3}
-                      className={FIELD}
-                    />
-                  ) : (
-                    <input
-                      data-testid={`business-setup-custom-field-${field.key}`}
-                      id={inputId}
-                      type={field.type === "phone" ? "tel" : field.type === "url" ? "url" : "text"}
-                      value={saved}
-                      onChange={(e) => onCustomField(field.key, field.label, e.target.value)}
-                      className={FIELD}
-                    />
-                  )}
-                  {field.helper ? <p className="mt-1 text-xs text-slate-400">{field.helper}</p> : null}
-                </div>
-              );
-            })}
+            {setupFields.map((field) => (
+              <BuyerSetupFieldControl
+                key={field.key}
+                field={field}
+                value={customValues.find((item) => item.key === field.key)?.value}
+                onChange={(value) => onCustomField(field.key, field.label, value)}
+              />
+            ))}
           </div>
         </div>
       ) : null}
@@ -1266,6 +1323,156 @@ function StepBusiness({
   );
 }
 
+/* ------------------- Architect-defined buyer setup field ------------------- */
+
+/** Wide controls that should span both grid columns. */
+const FULL_WIDTH_FIELD_TYPES = new Set(["textarea", "multiselect"]);
+
+const HTML_INPUT_TYPE_BY_FIELD_TYPE: Record<string, string> = {
+  phone: "tel",
+  email: "email",
+  url: "url",
+  number: "number",
+  date: "date",
+  time: "time"
+};
+
+function BuyerSetupFieldControl({
+  field,
+  value,
+  onChange
+}: {
+  field: BuyerSetupFieldDef;
+  value: string | string[] | boolean | undefined;
+  onChange: (value: string | string[] | boolean) => void;
+}) {
+  const inputId = `custom-field-${field.key}`;
+  const testId = `business-setup-custom-field-${field.key}`;
+  const options = (field.options ?? []).filter((option) => option.trim());
+
+  // Format-only inline validation — required/missing is surfaced by the
+  // checklist and the deploy gate, not while the buyer is still typing.
+  const inlineIssue =
+    value !== undefined && !isBuyerAnswerEmpty(value)
+      ? validateBuyerSetupAnswers([field], [{ key: field.key, label: field.label, value }], {
+          requireMissing: false
+        })[0]
+      : undefined;
+
+  const textValue = typeof value === "string" ? value : "";
+  const selectedOptions = Array.isArray(value)
+    ? value
+    : typeof value === "string" && value
+      ? value.split(",").map((item) => item.trim()).filter(Boolean)
+      : [];
+  const booleanValue = value === true || (typeof value === "string" && /^(yes|true)$/i.test(value));
+
+  let control: ReactNode;
+
+  if (field.type === "textarea") {
+    control = (
+      <textarea
+        data-testid={testId}
+        id={inputId}
+        value={textValue}
+        placeholder={field.placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        rows={3}
+        className={FIELD}
+      />
+    );
+  } else if (field.type === "select") {
+    control = (
+      <select
+        data-testid={testId}
+        id={inputId}
+        value={textValue}
+        onChange={(e) => onChange(e.target.value)}
+        className={FIELD}
+      >
+        <option value="">{field.placeholder || "Select an option…"}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  } else if (field.type === "multiselect") {
+    control = (
+      <div data-testid={testId} className="mt-1 flex flex-wrap gap-2">
+        {options.map((option, optionIndex) => {
+          const checked = selectedOptions.includes(option);
+          return (
+            <label
+              key={option}
+              className={`pick flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
+                checked ? "selected border-amber-400" : "border-gray-200"
+              }`}
+            >
+              <input
+                type="checkbox"
+                data-testid={`${testId}-option-${optionIndex}`}
+                checked={checked}
+                onChange={(e) =>
+                  onChange(
+                    e.target.checked
+                      ? [...selectedOptions, option]
+                      : selectedOptions.filter((item) => item !== option)
+                  )
+                }
+                className="h-3.5 w-3.5 accent-amber-500"
+              />
+              <span className="font-medium text-slate-700">{option}</span>
+            </label>
+          );
+        })}
+      </div>
+    );
+  } else if (field.type === "boolean") {
+    control = (
+      <label className="mt-1 flex cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-700">
+        <input
+          type="checkbox"
+          data-testid={testId}
+          id={inputId}
+          checked={booleanValue}
+          onChange={(e) => onChange(e.target.checked)}
+          className="h-4 w-4 accent-amber-500"
+        />
+        Yes
+      </label>
+    );
+  } else {
+    control = (
+      <input
+        data-testid={testId}
+        id={inputId}
+        type={HTML_INPUT_TYPE_BY_FIELD_TYPE[field.type] ?? "text"}
+        value={textValue}
+        placeholder={field.placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className={FIELD}
+      />
+    );
+  }
+
+  return (
+    <div className={FULL_WIDTH_FIELD_TYPES.has(field.type) ? "sm:col-span-2" : undefined}>
+      <label className={LABEL} htmlFor={inputId}>
+        {field.label} {field.required ? "" : "optional"}
+      </label>
+      {control}
+      {field.helper ? <p className="mt-1 text-xs text-slate-400">{field.helper}</p> : null}
+      {inlineIssue ? (
+        <p className="mt-1 text-xs text-red-500" data-testid={`business-setup-custom-field-error-${field.key}`}>
+          {inlineIssue.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /* -------------------------------- Step 2 -------------------------------- */
 
 function StepPhoneCalendar({
@@ -1286,8 +1493,12 @@ function StepPhoneCalendar({
   onConnectCalendar,
   onDisconnectCalendar,
   onCalendarId,
-  onTimeZone
+  onTimeZone,
+  businessName,
+  onMailAliasChange
 }: {
+  businessName: string;
+  onMailAliasChange: (alias: BusinessEmailAliasData | null) => void;
   phoneNumbers: PlatformPhoneOption[];
   selectedPhoneId: string;
   assignedNumber: string | null;
@@ -1540,6 +1751,252 @@ function StepPhoneCalendar({
             <p className="mt-1 text-xs text-slate-400">All availability, bookings, and “today/tomorrow” use this timezone.</p>
           </div>
         </div>
+      </div>
+
+      <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} />
+    </div>
+  );
+}
+
+/* ------------------------- Mail Setup (proxy email) ------------------------ */
+
+const REPLY_MODE_OPTIONS: { value: BusinessEmailAliasData["replyHandlingMode"]; label: string }[] = [
+  { value: "TRIVEN_AND_FORWARD", label: "Triven inbox + forward to my email" },
+  { value: "FORWARD_ONLY", label: "Forward to my email only" },
+  { value: "TRIVEN_INBOX", label: "Keep replies in my Triven inbox" }
+];
+
+function MailSetupSection({
+  businessName,
+  onAliasChange
+}: {
+  businessName: string;
+  onAliasChange: (alias: BusinessEmailAliasData | null) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [savedAlias, setSavedAlias] = useState<BusinessEmailAliasData | null>(null);
+  const [domain, setDomain] = useState("reply.triven.ai");
+  const [displayName, setDisplayName] = useState("");
+  const [localPart, setLocalPart] = useState("");
+  const [forwardToEmail, setForwardToEmail] = useState("");
+  const [replyMode, setReplyMode] = useState<BusinessEmailAliasData["replyHandlingMode"]>("TRIVEN_AND_FORWARD");
+  const [availability, setAvailability] = useState<{ available: boolean; reason: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"ok" | "error">("ok");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getBusinessMailSetup().then((res) => {
+      if (cancelled || !res.success || !res.data) return;
+      setDomain(res.data.domain);
+      if (res.data.alias) {
+        setSavedAlias(res.data.alias);
+        setDisplayName(res.data.alias.displayName);
+        setLocalPart(res.data.alias.localPart);
+        setForwardToEmail(res.data.alias.forwardToEmail ?? "");
+        setReplyMode(res.data.alias.replyHandlingMode);
+        onAliasChange(res.data.alias);
+      } else {
+        setLocalPart(res.data.suggestedLocalPart);
+        setDisplayName(businessName.trim());
+      }
+      setLoaded(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
+  }, []);
+
+  // Debounced availability check while the buyer edits the alias.
+  useEffect(() => {
+    if (!loaded || !localPart.trim() || localPart === savedAlias?.localPart) {
+      setAvailability(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void checkMailAliasAvailability(localPart).then((res) => {
+        if (res.success && res.data) setAvailability({ available: res.data.available, reason: res.data.reason });
+      });
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [loaded, localPart, savedAlias?.localPart]);
+
+  async function handleSave() {
+    setMessage("");
+    if (savedAlias && localPart !== savedAlias.localPart) {
+      const proceed = window.confirm(
+        `Change your email alias from ${savedAlias.emailAddress} to ${localPart}@${domain}? Customers will see the new address; your old email history is kept.`
+      );
+      if (!proceed) return;
+    }
+
+    setBusy(true);
+    const res = await saveBusinessMailSetup({
+      localPart,
+      displayName,
+      forwardToEmail: forwardToEmail.trim() || undefined,
+      replyHandlingMode: replyMode
+    });
+    setBusy(false);
+
+    if (res.success && res.data) {
+      setSavedAlias(res.data.alias);
+      setLocalPart(res.data.alias.localPart);
+      onAliasChange(res.data.alias);
+      setMessageTone("ok");
+      setMessage("Mail setup saved.");
+    } else {
+      setMessageTone("error");
+      setMessage(res.error ?? "Could not save mail setup.");
+    }
+  }
+
+  async function handleTestEmail() {
+    setMessage("");
+    setBusy(true);
+    const res = await sendMailSetupTestEmail();
+    setBusy(false);
+
+    if (res.success && res.data) {
+      setMessageTone("ok");
+      setMessage(res.data.dryRun ? "Test email recorded (dry run — SES not configured yet)." : "Test email sent — check your inbox.");
+    } else {
+      setMessageTone("error");
+      setMessage(res.error ?? "Could not send the test email.");
+    }
+  }
+
+  const previewName = displayName.trim() || businessName.trim() || "Your business";
+  const previewAddress = `${localPart.trim() || "your-alias"}@${domain}`;
+
+  return (
+    <div className={SECTION} data-testid="business-setup-mail">
+      <h3 className={SECTION_TITLE}>Mail Setup</h3>
+      <p className="mt-0.5 text-sm text-slate-500">
+        Choose the email address customers will see when your AI assistant sends confirmations, summaries, and follow-ups.
+      </p>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className={LABEL} htmlFor="mail-display-name">
+            Sender name
+          </label>
+          <input
+            data-testid="business-setup-mail-display-name"
+            id="mail-display-name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder={businessName.trim() || "Smile Dental"}
+            className={FIELD}
+          />
+        </div>
+
+        <div>
+          <label className={LABEL} htmlFor="mail-alias">
+            Email alias
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              data-testid="business-setup-mail-alias"
+              id="mail-alias"
+              value={localPart}
+              onChange={(e) => setLocalPart(e.target.value.toLowerCase())}
+              placeholder="smile-dental"
+              className={FIELD}
+            />
+            <span className="whitespace-nowrap text-sm font-semibold text-slate-500">@ {domain}</span>
+          </div>
+          {availability ? (
+            <p
+              data-testid="business-setup-mail-availability"
+              className={`mt-1 text-xs font-semibold ${availability.available ? "text-green-600" : "text-red-500"}`}
+            >
+              {availability.available ? "Alias is available" : availability.reason ?? "Alias is not available"}
+            </p>
+          ) : null}
+          {savedAlias && localPart !== savedAlias.localPart ? (
+            <p className="mt-1 text-xs font-semibold text-amber-600" data-testid="business-setup-mail-change-warning">
+              Changing your alias changes the address customers see. Old email history is kept.
+            </p>
+          ) : null}
+        </div>
+
+        <div>
+          <label className={LABEL} htmlFor="mail-forward">
+            Forward replies to
+          </label>
+          <input
+            data-testid="business-setup-mail-forward"
+            id="mail-forward"
+            type="email"
+            value={forwardToEmail}
+            onChange={(e) => setForwardToEmail(e.target.value)}
+            placeholder="frontdesk@yourbusiness.com"
+            className={FIELD}
+          />
+        </div>
+
+        <div>
+          <label className={LABEL} htmlFor="mail-reply-mode">
+            Reply handling
+          </label>
+          <select
+            data-testid="business-setup-mail-reply-mode"
+            id="mail-reply-mode"
+            value={replyMode}
+            onChange={(e) => setReplyMode(e.target.value as BusinessEmailAliasData["replyHandlingMode"])}
+            className={FIELD}
+          >
+            {REPLY_MODE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5" data-testid="business-setup-mail-preview">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Customers will receive emails from</p>
+        <p className="mt-1 text-sm font-semibold text-slate-800">
+          {previewName} via Triven &lt;{previewAddress}&gt;
+        </p>
+        <p className="mt-1.5 text-xs text-slate-500">
+          Replies will go to: <span className="font-semibold text-slate-700">{previewAddress}</span>
+        </p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          data-testid="business-setup-mail-save"
+          onClick={() => void handleSave()}
+          disabled={busy || !localPart.trim() || !displayName.trim()}
+          className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
+        >
+          {busy ? "Working…" : savedAlias ? "Update mail setup" : "Save mail setup"}
+        </button>
+        <button
+          type="button"
+          data-testid="business-setup-mail-test"
+          onClick={() => void handleTestEmail()}
+          disabled={busy || !savedAlias}
+          className="btn rounded-full border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
+        >
+          Send test email
+        </button>
+        {message ? (
+          <p
+            data-testid="business-setup-mail-message"
+            className={`text-xs font-semibold ${messageTone === "ok" ? "text-green-600" : "text-red-500"}`}
+          >
+            {message}
+          </p>
+        ) : null}
       </div>
     </div>
   );
