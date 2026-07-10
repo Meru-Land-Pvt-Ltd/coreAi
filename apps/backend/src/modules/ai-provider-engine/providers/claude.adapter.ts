@@ -37,23 +37,21 @@ class ClaudeAdapter implements AIProviderAdapter {
 
   get models(): string[] {
     return this.dynamicModels ?? [
-      "claude-opus-4-5",
-      "claude-sonnet-4-5",
-      "claude-haiku-3-5",
-      "claude-3-opus",
-      "claude-3-sonnet",
-      "claude-3-haiku",
+      "claude-3-5-sonnet-latest",
+      "claude-3-5-haiku-latest",
+      "claude-3-opus-latest",
+      "claude-3-sonnet-20240229",
+      "claude-3-haiku-20240307",
     ];
   }
 
   get pricing(): PricingTable {
     return this.dynamicPricing ?? {
-      "claude-opus-4-5":   { input: 15.00, output: 75.00 },
-      "claude-sonnet-4-5": { input: 3.00,  output: 15.00 },
-      "claude-haiku-3-5":  { input: 0.80,  output: 4.00  },
-      "claude-3-opus":     { input: 15.00, output: 75.00 },
-      "claude-3-sonnet":   { input: 3.00,  output: 15.00 },
-      "claude-3-haiku":    { input: 0.25,  output: 1.25  },
+      "claude-3-5-sonnet-latest": { input: 3.00,  output: 15.00 },
+      "claude-3-5-haiku-latest":  { input: 0.80,  output: 4.00  },
+      "claude-3-opus-latest":     { input: 15.00, output: 75.00 },
+      "claude-3-sonnet-20240229": { input: 3.00,  output: 15.00 },
+      "claude-3-haiku-20240307":  { input: 0.25,  output: 1.25  },
     };
   }
 
@@ -71,7 +69,7 @@ class ClaudeAdapter implements AIProviderAdapter {
   }
 
   private get defaultModel() {
-    return env.ANTHROPIC_DEFAULT_MODEL;
+    return "claude-3-5-sonnet-latest";
   }
 
   async validate(): Promise<ValidationResult> {

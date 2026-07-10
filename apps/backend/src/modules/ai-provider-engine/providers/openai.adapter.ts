@@ -63,7 +63,7 @@ class OpenAIAdapter implements AIProviderAdapter {
   }
 
   private get defaultModel() {
-    return env.OPENAI_DEFAULT_MODEL;
+    return "gpt-4o-mini";
   }
 
   async validate(): Promise<ValidationResult> {

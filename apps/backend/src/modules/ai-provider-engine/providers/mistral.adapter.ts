@@ -52,7 +52,7 @@ class MistralAdapter implements AIProviderAdapter {
   }
 
   private get defaultModel() {
-    return env.MISTRAL_DEFAULT_MODEL;
+    return "mistral-tiny";
   }
 
   async validate(): Promise<ValidationResult> {

@@ -37,7 +37,7 @@ class LlamaAdapter implements AIProviderAdapter {
   }
 
   private get defaultModel() {
-    return env.LLAMA_DEFAULT_MODEL;
+    return "llama3";
   }
 
   async validate(): Promise<ValidationResult> {

@@ -80,10 +80,6 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_AI_API_KEY: z.string().optional(),
 
-  OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o-mini"),
-  ANTHROPIC_DEFAULT_MODEL: z.string().default("claude-sonnet-4-5"),
-  GEMINI_DEFAULT_MODEL: z.string().default("gemini-2.0-flash"),
-
   ARCHITECT_TEST_LLM_MODEL: z.string().default("gpt-4o-mini"),
 
   ELEVENLABS_VOICE_RUBY_ID: z.string().optional(),
@@ -96,10 +92,8 @@ const envSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional(),
 
   MISTRAL_API_KEY: z.string().optional(),
-  MISTRAL_DEFAULT_MODEL: z.string().default("mistral-tiny"),
   STABILITY_API_KEY: z.string().optional(),
   LLAMA_BASE_URL: z.string().default("http://localhost:11434/v1"),
-  LLAMA_DEFAULT_MODEL: z.string().default("llama3"),
 
   VAPI_ANSWER_INBOUND: booleanFromEnv.default(false),
 
