@@ -1680,6 +1680,10 @@ export async function runWorkflowTest({
 
   try {
     for (const node of sortNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges)) {
+      if (runFailed) {
+        break;
+      }
+
       const nodeKind = asString(node.data?.nodeKind);
 
       try {
@@ -1816,6 +1820,13 @@ export async function runWorkflowTest({
             error instanceof Error ? error.message : "Node execution failed"
           )
         );
+      }
+
+      // Check if this node execution produced an error log
+      const hasErrorLog = logs.some(l => l.nodeId === node.id && l.status === "error");
+      if (hasErrorLog || runFailed) {
+        runFailed = true;
+        break;
       }
     }
   } catch (error) {

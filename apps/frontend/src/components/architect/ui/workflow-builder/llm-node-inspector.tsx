@@ -223,29 +223,20 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
       <Section title="Prompts">
         <div className="space-y-4">
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <Label>What should this AI step do?</Label>
-              <span className="text-[10px] text-slate-400 font-medium">Plain-language requirements</span>
-            </div>
+            <Label>What should this AI step do?</Label>
             <TextArea
               value={str("llmRequirements")}
               onChange={set("llmRequirements")}
               height="h-32"
               placeholder="e.g. Reply to the customer nicely and include the booking link if they want an appointment."
             />
-            <p className="mt-1.5 text-[10px] text-slate-400 leading-normal">
-              💡 Use double curly braces like <code className="font-mono text-violet-600 bg-violet-50 px-1 py-0.5 rounded">{"{{trigger.body}}"}</code> to reference variables from previous steps.
-            </p>
           </div>
         </div>
       </Section>
 
       <Section title="Attachments">
         <div className="space-y-3">
-          <div className="flex items-center justify-between mb-1">
-            <Label>Files (Images / PDFs / Docs)</Label>
-            <span className="text-[10px] text-slate-400 font-medium">Multimodal context</span>
-          </div>
+          <Label>Files (Images / PDFs / Docs)</Label>
 
           {attachments.length > 0 && (
             <div className="space-y-2 mb-3">
@@ -316,34 +307,6 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                 onChange={handleFileChange}
               />
             </label>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Output configuration">
-        <div className="space-y-4">
-          <div>
-            <Label>Output variable key</Label>
-            <TextInput
-              value={str("llmOutputKey", "ai.output")}
-              onChange={set("llmOutputKey")}
-              placeholder="ai.output"
-            />
-            <p className="mt-1 text-[10px] text-slate-400">
-              The workflow variable name where the LLM response text or parsed JSON will be saved.
-            </p>
-          </div>
-
-          <div>
-            <Label>Output Format</Label>
-            <SelectBox
-              value={str("llmOutputFormat", "text")}
-              onChange={set("llmOutputFormat")}
-              options={["text", "json"]}
-            />
-            <p className="mt-1 text-[10px] text-slate-400">
-              Select <strong>json</strong> if you expect a structured JSON response from the LLM and want it parsed automatically.
-            </p>
           </div>
         </div>
       </Section>

@@ -143,7 +143,10 @@ export function contextBundleToExecuteRequest(
     messages: [{ role: "user", content: userPrompt }],
     model: asString(data.model) || undefined,
     temperature: asNumber(data.temperature),
-    maxTokens: asNumber(data.maxTokens),
+    maxTokens: (() => {
+      const tokens = asNumber(data.maxTokens);
+      return (tokens === undefined || tokens <= 250) ? 2048 : tokens;
+    })(),
     outputFormat,
     attachments: [
       ...(Array.isArray(data.attachments) ? data.attachments : []),

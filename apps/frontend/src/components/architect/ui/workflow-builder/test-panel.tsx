@@ -10,6 +10,17 @@ import { BuilderIcon } from "./icons";
 import { logColor } from "./run-context";
 import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
+import { marked } from "marked";
+
+function Markdown({ content, className = "" }: { content: string; className?: string }) {
+  const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
+  return (
+    <div
+      className={`markdown-content ${className}`}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
 
 export function TestPanel({
   hasGmailFlow,
@@ -38,6 +49,7 @@ export function TestPanel({
   chatting,
   triggerMessage,
   triggerAttachments,
+  isManualTriggerWorkflow = false,
   onConnectGmail,
   onDisconnectGoogle,
   onRefreshConnections,
@@ -83,6 +95,7 @@ export function TestPanel({
   chatting: boolean;
   triggerMessage: string;
   triggerAttachments: AIAttachment[];
+  isManualTriggerWorkflow?: boolean;
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
   onRefreshConnections: () => void;
@@ -328,49 +341,53 @@ export function TestPanel({
             {isVoiceWorkflow ? "Simulate an inbound call" : "Simulate a customer event"}
           </h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">
-                {isVoiceWorkflow ? "Caller phone" : "Caller number"}
-              </span>
-              <input data-testid="builder-test-caller-number-input"
-                type="text"
-                value={callerNumber}
-                onChange={(event) => onCallerNumberChange(event.target.value)}
-                placeholder="+1 (555) 000-0000"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-              />
-            </label>
-            <label data-testid="architect-ui-workflow-builder-test-panel-caller-on-caller-change-event-placeholder-jordan-label">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-text">Caller name</span>
-              <input data-testid="builder-test-caller-name-input"
-                type="text"
-                value={callerName}
-                onChange={(event) => onCallerNameChange(event.target.value)}
-                placeholder={isVoiceWorkflow ? "Test Customer" : "Jordan Lee"}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-              />
-            </label>
-            {isVoiceWorkflow ? (
-              <label data-testid="builder-test-business-type-label">
-                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Business type</span>
-                <input data-testid="builder-test-business-type-input"
-                  type="text"
-                  value={businessType}
-                  onChange={(event) => onBusinessTypeChange(event.target.value)}
-                  placeholder="Service Business"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-                />
-              </label>
-            ) : (
-              <label data-testid="architect-ui-workflow-builder-test-panel-time-of-call-label">
-                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-time-of-call-text">Time of call</span>
-                <input data-testid="builder-test-message-input"
-                  type="text"
-                  value="Today - 2:14 PM"
-                  readOnly
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-                />
-              </label>
+            {!isManualTriggerWorkflow && (
+              <>
+                <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">
+                    {isVoiceWorkflow ? "Caller phone" : "Caller number"}
+                  </span>
+                  <input data-testid="builder-test-caller-number-input"
+                    type="text"
+                    value={callerNumber}
+                    onChange={(event) => onCallerNumberChange(event.target.value)}
+                    placeholder="+1 (555) 000-0000"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                  />
+                </label>
+                <label data-testid="architect-ui-workflow-builder-test-panel-caller-on-caller-change-event-placeholder-jordan-label">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-caller-text">Caller name</span>
+                  <input data-testid="builder-test-caller-name-input"
+                    type="text"
+                    value={callerName}
+                    onChange={(event) => onCallerNameChange(event.target.value)}
+                    placeholder={isVoiceWorkflow ? "Test Customer" : "Jordan Lee"}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                  />
+                </label>
+                {isVoiceWorkflow ? (
+                  <label data-testid="builder-test-business-type-label">
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Business type</span>
+                    <input data-testid="builder-test-business-type-input"
+                      type="text"
+                      value={businessType}
+                      onChange={(event) => onBusinessTypeChange(event.target.value)}
+                      placeholder="Service Business"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                    />
+                  </label>
+                ) : (
+                  <label data-testid="architect-ui-workflow-builder-test-panel-time-of-call-label">
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-time-of-call-text">Time of call</span>
+                    <input data-testid="builder-test-message-input"
+                      type="text"
+                      value="Today - 2:14 PM"
+                      readOnly
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                    />
+                  </label>
+                )}
+              </>
             )}
             <label className="col-span-1 sm:col-span-2">
               <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Trigger message / Text input</span>
@@ -459,52 +476,56 @@ export function TestPanel({
                 />
               </label>
             </div>
-            <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-business-text">
-                {isVoiceWorkflow ? "Test business" : "Business"}
-              </span>
-              <input data-testid="builder-test-business-name-input"
-                type="text"
-                value={businessName}
-                onChange={(event) => onBusinessNameChange(event.target.value)}
-                placeholder={isVoiceWorkflow ? "Sample Business" : "Your business name"}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-              />
-            </label>
-            {isVoiceWorkflow ? (
+            {!isManualTriggerWorkflow && (
               <>
-                <label data-testid="builder-test-appointment-service-label">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Appointment service</span>
-                  <input data-testid="builder-test-appointment-service-input"
+                <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-business-text">
+                    {isVoiceWorkflow ? "Test business" : "Business"}
+                  </span>
+                  <input data-testid="builder-test-business-name-input"
                     type="text"
-                    value={appointmentService}
-                    onChange={(event) => onAppointmentServiceChange(event.target.value)}
-                    placeholder="General Consultation"
+                    value={businessName}
+                    onChange={(event) => onBusinessNameChange(event.target.value)}
+                    placeholder={isVoiceWorkflow ? "Sample Business" : "Your business name"}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
                   />
                 </label>
-                <label data-testid="builder-test-timezone-label">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar timezone</span>
-                  <input data-testid="builder-test-timezone-input"
-                    type="text"
-                    value={timeZone}
-                    onChange={(event) => onTimeZoneChange(event.target.value)}
-                    placeholder="America/Los_Angeles"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-                  />
-                </label>
-                <label data-testid="builder-test-calendar-id-label">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar ID</span>
-                  <input data-testid="builder-test-calendar-id-input"
-                    type="text"
-                    value={calendarId}
-                    onChange={(event) => onCalendarIdChange(event.target.value)}
-                    placeholder="primary"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-                  />
-                </label>
+                {isVoiceWorkflow ? (
+                  <>
+                    <label data-testid="builder-test-appointment-service-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Appointment service</span>
+                      <input data-testid="builder-test-appointment-service-input"
+                        type="text"
+                        value={appointmentService}
+                        onChange={(event) => onAppointmentServiceChange(event.target.value)}
+                        placeholder="General Consultation"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      />
+                    </label>
+                    <label data-testid="builder-test-timezone-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar timezone</span>
+                      <input data-testid="builder-test-timezone-input"
+                        type="text"
+                        value={timeZone}
+                        onChange={(event) => onTimeZoneChange(event.target.value)}
+                        placeholder="America/Los_Angeles"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      />
+                    </label>
+                    <label data-testid="builder-test-calendar-id-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar ID</span>
+                      <input data-testid="builder-test-calendar-id-input"
+                        type="text"
+                        value={calendarId}
+                        onChange={(event) => onCalendarIdChange(event.target.value)}
+                        placeholder="primary"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      />
+                    </label>
+                  </>
+                ) : null}
               </>
-            ) : null}
+            )}
           </div>
         </div>
 
@@ -550,7 +571,9 @@ export function TestPanel({
                               {step.providerId} ({step.modelName})
                             </span>
                           </div>
-                          <p className="mt-2 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">{step.output}</p>
+                          <div className="mt-2 text-sm leading-relaxed text-slate-700">
+                            <Markdown content={step.output} />
+                          </div>
                           <p className="mt-2 font-mono text-[9px] text-slate-400">Variable: <code className="text-violet-600 font-bold">{step.outputKey}</code></p>
                         </div>
                       ))}
@@ -591,7 +614,11 @@ export function TestPanel({
                 ) : (
                   <>
                     <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-                      {sentSms?.body ?? "Run a test to preview the outgoing message."}
+                      {sentSms?.body ? (
+                        <Markdown content={sentSms.body} />
+                      ) : (
+                        "Run a test to preview the outgoing message."
+                      )}
                     </div>
                     <p className="mt-2 font-mono text-xs text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-sent-sms-provider-called-sent-sms-twilio-text">
                       {sentSms?.providerCalled ? (sentSms.twilioTestMode ? "Twilio test accepted" : "Delivered") : "Dry run"} - {sentSms?.body?.length ?? 142} characters - est. cost $0.15
@@ -623,7 +650,9 @@ function EmailResult({
       <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
         <p className="font-bold" data-testid="architect-ui-workflow-builder-test-panel-sent-email-subject-text">Sent: {sentEmail.subject}</p>
         <p className="mt-1 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-to-sent-email-to-text">To: {sentEmail.to}</p>
-        <p className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-sent-email-body-text">{sentEmail.body}</p>
+        <div className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-sent-email-body-text">
+          <Markdown content={sentEmail.body} />
+        </div>
       </div>
     );
   }
@@ -632,7 +661,9 @@ function EmailResult({
       <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
         <p className="font-bold" data-testid="architect-ui-workflow-builder-test-panel-draft-email-subject-text">Draft: {draftEmail.subject}</p>
         <p className="mt-1 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-to-draft-email-to-text">To: {draftEmail.to}</p>
-        <p className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-draft-email-body-text">{draftEmail.body}</p>
+        <div className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-draft-email-body-text">
+          <Markdown content={draftEmail.body} />
+        </div>
       </div>
     );
   }
@@ -641,7 +672,9 @@ function EmailResult({
       <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
         <p className="font-bold" data-testid="architect-ui-workflow-builder-test-panel-read-gmail-read-subject-text">Read: {gmailRead.subject}</p>
         <p className="mt-1 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-from-gmail-read-sender-email-text">From: {gmailRead.senderEmail}</p>
-        <p className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-gmail-read-body-text">{gmailRead.body}</p>
+        <div className="mt-2" data-testid="architect-ui-workflow-builder-test-panel-gmail-read-body-text">
+          <Markdown content={gmailRead.body} />
+        </div>
       </div>
     );
   }

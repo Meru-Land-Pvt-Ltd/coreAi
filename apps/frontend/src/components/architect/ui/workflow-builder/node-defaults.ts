@@ -65,6 +65,7 @@ export function defaultNodeData(
       accent: "violet",
       subtitle: "Understand the customer and decide the next response",
       prompt: "",
+      maxTokens: "2048",
       ...overrides
     };
   }

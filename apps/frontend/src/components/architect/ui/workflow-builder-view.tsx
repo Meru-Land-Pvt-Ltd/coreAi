@@ -189,6 +189,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return isVoiceWorkflow && name.includes("dental");
   }, [agentName, workflow?.name, isVoiceWorkflow]);
 
+  const isManualTriggerWorkflow = useMemo(() => {
+    return nodes.some((node) => ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")));
+  }, [nodes]);
+
   // Generic test-tab-only defaults. These never change the workflow nodes themselves.
   useEffect(() => {
     if (!isVoiceWorkflow) return;
@@ -768,7 +772,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const normalizedCallerNumber = callerNumber.trim();
     const normalizedBusinessName = businessName.trim();
 
-    if (hasSmsFlow) {
+    if (hasSmsFlow && !isManualTriggerWorkflow) {
       if (!normalizedCallerNumber) {
         setActiveTab("test");
         setMessage("Enter a caller phone number first");
@@ -800,10 +804,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
+    // For manual trigger workflows, auto-inject a dummy message when the user
+    // hasn't typed anything, so downstream AI nodes have non-empty context.
+    const effectiveTriggerMessage =
+      triggerMessage.trim() ||
+      (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
+
     const payload = {
       input: {
-        callerNumber: normalizedCallerNumber,
-        callerName: callerName.trim(),
+        callerNumber: normalizedCallerNumber || (isManualTriggerWorkflow ? "test-user" : ""),
+        callerName: callerName.trim() || (isManualTriggerWorkflow ? "Test User" : ""),
         businessName: normalizedBusinessName || "Sample Business",
         businessType: businessType.trim() || "Service Business",
         businessPhoneNumber: "",
@@ -823,8 +833,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         callTimestamp: new Date().toISOString(),
         missedCallReason: "No one picked up the customer call.",
         appointmentService: appointmentService.trim() || "General Consultation",
-        inboundSmsBody: triggerMessage.trim() || undefined,
-        latestMessage: triggerMessage.trim() || undefined,
+        inboundSmsBody: effectiveTriggerMessage,
+        latestMessage: effectiveTriggerMessage,
         attachments: triggerAttachments.length > 0 ? triggerAttachments : undefined
       }
     };
@@ -1041,6 +1051,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             chatting={chatting}
             triggerMessage={triggerMessage}
             triggerAttachments={triggerAttachments}
+            isManualTriggerWorkflow={isManualTriggerWorkflow}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onRefreshConnections={() => void refreshConnections()}

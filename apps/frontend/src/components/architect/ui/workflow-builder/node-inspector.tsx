@@ -2,7 +2,7 @@ import { VOICE_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
 import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
-import type { BuilderNode, BuilderNodeData } from "./types";
+import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
 
 export type ConnectorOwnership = "architect" | "buyer";
@@ -1191,6 +1191,128 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const isManual = selectedNode.data.type === "trigger.manual";
+
+  if (isManual) {
+    const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
+
+    const handleRemoveAttachment = (indexToRemove: number) => {
+      const updated = attachments.filter((_, idx) => idx !== indexToRemove);
+      onUpdateNodeData("attachments", updated);
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (file.size > 5 * 1024 * 1024) {
+        alert("File is too large. Maximum size is 5MB.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Data = event.target?.result as string;
+        const newAttachment: AIAttachment = {
+          name: file.name,
+          mimeType: file.type || "application/octet-stream",
+          data: base64Data,
+        };
+        onUpdateNodeData("attachments", [...attachments, newAttachment]);
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
+    };
+
+    return (
+      <>
+        <Section title="Manual Trigger Config">
+          <Label>Input</Label>
+          <TextArea
+            value={str("input")}
+            onChange={set("input")}
+            height="h-32"
+            placeholder="Enter manual trigger text input..."
+          />
+        </Section>
+
+        <Section title="Attachments" last>
+          <div className="space-y-3">
+            {attachments.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {attachments.map((att, idx) => {
+                  const isImage = att.mimeType.startsWith("image/");
+                  const isPdf = att.mimeType === "application/pdf";
+                  
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-amber-100 hover:bg-amber-50/10"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
+                          {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
+                            {att.name || `attachment-${idx + 1}`}
+                          </p>
+                          <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
+                            {att.mimeType}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(idx)}
+                        className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
+                        aria-label="Remove attachment"
+                      >
+                        <BuilderIcon name="x" className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="relative">
+              <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-amber-50/20 hover:border-amber-300 transition-all duration-200 group">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <svg
+                    className="w-6 h-6 mb-2 text-slate-400 group-hover:text-amber-500 transition-colors"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    ></path>
+                  </svg>
+                  <p className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-600 transition-colors">
+                    Click or drag file to attach
+                  </p>
+                  <p className="text-[9px] text-slate-400 mt-1">
+                    Supports Images, PDFs, Docs (Max 5MB)
+                  </p>
+                </div>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={handleFileChange}
+                />
+              </label>
+            </div>
+          </div>
+        </Section>
+      </>
+    );
+  }
 
   return (
     <>
@@ -1252,7 +1374,7 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
         <div className="mt-4">
           <Label>Max tokens</Label>
-          <NumberInput testId="node-inspector-delay-input" value={str("maxTokens", "200")} onChange={set("maxTokens")} />
+          <NumberInput testId="node-inspector-delay-input" value={str("maxTokens", "2048")} onChange={set("maxTokens")} />
         </div>
       </Section>
 

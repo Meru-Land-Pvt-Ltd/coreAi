@@ -124,7 +124,7 @@ async function openAiComplete(input: LlmCompleteInput): Promise<string | null> {
       body: JSON.stringify({
         model: env.ARCHITECT_TEST_LLM_MODEL,
         temperature: 0.2,
-        max_tokens: 180,
+        max_tokens: 1024,
         messages: [
           { role: "system", content: input.systemPrompt },
           ...input.history.map((item) => ({ role: item.role, content: item.content })),
