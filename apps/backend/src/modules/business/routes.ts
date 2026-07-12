@@ -32,6 +32,11 @@ import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import {
+  autoProvisionPhoneNumber,
+  findBuyerPlatformNumber,
+  workflowNeedsPhoneNumber
+} from "./phone-provisioning";
+import {
   createOrUpdateBusinessEmailAlias,
   generateSuggestedAlias,
   getBusinessEmailAlias,
@@ -1002,8 +1007,12 @@ businessRoutes.post("/setup", async (c) => {
     if (
       targetPlatform &&
       targetPlatform.status === "ASSIGNED" &&
-      targetPlatform.businessId &&
-      targetPlatform.businessId !== (existing?.id ?? null)
+      ((targetPlatform.businessId && targetPlatform.businessId !== (existing?.id ?? null)) ||
+        // Reserved at purchase time by another buyer (no business yet) —
+        // just as taken as an assigned one.
+        (!targetPlatform.businessId &&
+          targetPlatform.buyerUserId &&
+          targetPlatform.buyerUserId !== authUser.id))
     ) {
       return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
     }
@@ -1161,15 +1170,51 @@ businessRoutes.post("/setup", async (c) => {
     const forward = normalizePhoneNumber(input.forwardToPhone || "");
     let businessPhone: Awaited<ReturnType<typeof prisma.businessPhoneNumber.findFirst>> = null;
 
+    // Automatic number allotment: when the buyer didn't (and no longer needs
+    // to) pick a number, adopt the one reserved/assigned at purchase time; if
+    // none exists and the workflow needs a phone, provision one now.
+    if (!targetPlatform && !existingPhone) {
+      const adopted = await findBuyerPlatformNumber({
+        buyerUserId: authUser.id,
+        businessId: business.id
+      });
+
+      if (adopted) {
+        targetPlatform = adopted;
+      } else if (workflowNeedsPhoneNumber(resolved.workflow.workflowJson)) {
+        try {
+          const provisioned = await autoProvisionPhoneNumber({
+            buyerUserId: authUser.id,
+            businessId: business.id,
+            installedAgentId: installedAgent.id,
+            forwardToPhone: forward || null
+          });
+          if (provisioned) {
+            targetPlatform = await prisma.platformPhoneNumber.findUnique({
+              where: { id: provisioned.platformPhoneNumberId }
+            });
+          }
+        } catch (error) {
+          // Setup must still save; the deploy checklist reports the missing number.
+          console.error("[phone-provision] setup-time provisioning failed (non-fatal)", {
+            businessId: business.id,
+            error
+          });
+        }
+      }
+    }
+
     if (targetPlatform) {
       const targetNumber = normalizePhoneNumber(targetPlatform.phoneNumber);
 
-      // Guard against a stale mapping owned by another business.
+      // Guard against a mapping actively owned by another business. Inactive
+      // rows are history kept by unassignment (recycled pool numbers) and are
+      // safely taken over by the upsert below.
       const conflicting = await prisma.businessPhoneNumber.findUnique({
         where: { phoneNumber: targetNumber },
-        select: { id: true, businessId: true, phoneNumber: true }
+        select: { id: true, businessId: true, phoneNumber: true, isActive: true }
       });
-      if (conflicting && conflicting.businessId !== business.id) {
+      if (conflicting && conflicting.isActive && conflicting.businessId !== business.id) {
         return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
       }
 
@@ -1179,14 +1224,25 @@ businessRoutes.post("/setup", async (c) => {
             where: { id: targetPlatform.id }
           });
 
-          if (!fresh || (fresh.businessId && fresh.businessId !== business.id)) {
+          if (
+            !fresh ||
+            (fresh.businessId && fresh.businessId !== business.id) ||
+            // Reserved for a different buyer at purchase time.
+            (!fresh.businessId && fresh.buyerUserId && fresh.buyerUserId !== authUser.id)
+          ) {
             throw new Error("PHONE_NUMBER_TAKEN");
           }
 
           if (existingPhone && existingPhone.phoneNumber !== targetNumber) {
             await tx.platformPhoneNumber.updateMany({
               where: { phoneNumber: existingPhone.phoneNumber, businessId: business.id },
-              data: { status: "AVAILABLE", businessId: null, assignedAt: null }
+              data: {
+                status: "AVAILABLE",
+                businessId: null,
+                buyerUserId: null,
+                assignedAt: null,
+                feeBilledAt: null
+              }
             });
 
             await tx.businessPhoneNumber.update({
@@ -1222,6 +1278,25 @@ businessRoutes.post("/setup", async (c) => {
               status: "ASSIGNED",
               businessId: business.id,
               assignedAt: fresh.assignedAt ?? new Date()
+            }
+          });
+
+          // Release any other number still reserved for this buyer at
+          // purchase time (businessId null) — they went with a different one,
+          // and unadopted reservations would leak provider rent forever.
+          await tx.platformPhoneNumber.updateMany({
+            where: {
+              buyerUserId: authUser.id,
+              businessId: null,
+              status: "ASSIGNED",
+              NOT: { id: targetPlatform.id }
+            },
+            data: {
+              status: "AVAILABLE",
+              buyerUserId: null,
+              installedAgentId: null,
+              assignedAt: null,
+              feeBilledAt: null
             }
           });
 

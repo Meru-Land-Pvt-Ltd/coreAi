@@ -286,6 +286,8 @@ export type InvoiceData = {
   billingAddress?: string | null;
   paymentMethod?: string | null;
   transactionId?: string;
+  /** Fee breakdown rows (agent price + number fee); single description row when absent. */
+  lineItems?: Array<{ label: string; amountCents: number }>;
 };
 
 type InvoiceStatusView = {
@@ -380,6 +382,27 @@ export function buildInvoiceCardHtml(
     : "—";
   const transactionId = escapeHtml(invoice.transactionId || "—");
 
+  // Itemized rows when a fee breakdown exists (agent price + number fee);
+  // otherwise the single description row shown historically.
+  const lineItems =
+    invoice.lineItems && invoice.lineItems.length > 0
+      ? invoice.lineItems.map((item) => ({
+          label: escapeHtml(item.label),
+          amount: formatMoney(item.amountCents, invoice.currency)
+        }))
+      : [{ label: description, amount: displayAmount }];
+  const lineItemRows = lineItems
+    .map(
+      (item, index) => `<tr style="border-bottom:1px solid #f1f5f9;">
+<td style="padding:12px;color:#64748b;">${index + 1}</td>
+<td style="padding:12px;color:#0f172a;">${item.label}</td>
+<td align="right" style="padding:12px;color:#0f172a;">1</td>
+<td align="right" style="padding:12px;color:#0f172a;">${item.amount}</td>
+<td align="right" style="padding:12px;font-weight:600;color:#0f172a;">${item.amount}</td>
+</tr>`
+    )
+    .join("\n");
+
   const paymentInfoPaid = status.isPaid
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;">
 <tr>
@@ -434,13 +457,7 @@ ${businessEmail ? `<p style="margin:0;font-size:14px;color:#475569;">${businessE
 </tr>
 </thead>
 <tbody>
-<tr style="border-bottom:1px solid #f1f5f9;">
-<td style="padding:12px;color:#64748b;">1</td>
-<td style="padding:12px;color:#0f172a;">${description}</td>
-<td align="right" style="padding:12px;color:#0f172a;">1</td>
-<td align="right" style="padding:12px;color:#0f172a;">${displayAmount}</td>
-<td align="right" style="padding:12px;font-weight:600;color:#0f172a;">${displayAmount}</td>
-</tr>
+${lineItemRows}
 </tbody>
 </table>
 

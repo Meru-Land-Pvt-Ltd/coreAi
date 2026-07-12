@@ -1,4 +1,5 @@
 import type { ArchitectEarningStatus, Payment, PaymentStatus } from "@prisma/client";
+import { paymentAgentGrossCents } from "../../lib/billing-invoices";
 import { prisma } from "../../lib/prisma";
 
 export const ARCHITECT_SHARE = 0.7;
@@ -128,7 +129,10 @@ export async function loadArchitectEarnings(
     const active = resolveActivePayment(bucket);
     if (!active?.listing || !active.listingId) continue;
 
-    const grossCents = active.amountCents > 0 ? active.amountCents : active.listing.priceCents;
+    // Architect earnings are computed on the agent price only — the payment
+    // total may include the platform's phone-number fee.
+    const agentGrossCents = paymentAgentGrossCents(active);
+    const grossCents = agentGrossCents > 0 ? agentGrossCents : active.listing.priceCents;
     const installKey = `${active.listingId}:${active.userId}`;
 
     sales.push({

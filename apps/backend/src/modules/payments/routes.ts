@@ -9,8 +9,17 @@ import {
   buildBillingInvoices,
   invoiceDateForPayment,
   invoiceDisplayAmountCents,
+  parsePaymentLineItems,
   type PaymentWithListing
 } from "../../lib/billing-invoices";
+import {
+  autoProvisionPhoneNumberForPurchase,
+  buildAgentPurchaseLineItems,
+  getPhoneNumberFee,
+  listingNeedsPhoneNumber,
+  markPhoneNumberFeeBilled,
+  resolveUnbilledPhoneFee
+} from "../business/phone-provisioning";
 import {
   buildInvoiceDocumentHtml,
   buildInvoicePdfBuffer,
@@ -98,23 +107,33 @@ async function chargeAgentOnce({
   customerId,
   paymentMethodId,
   listing,
-  userId
+  userId,
+  amountCents,
+  phoneFeeCents
 }: {
   stripe: NonNullable<ReturnType<typeof getStripeClient>>;
   customerId: string;
   paymentMethodId: string;
   listing: { id: string; name: string; priceCents: number };
   userId: string;
+  /** Total to charge — agent price plus any number fee. Defaults to the agent price. */
+  amountCents?: number;
+  phoneFeeCents?: number;
 }) {
   return stripe.paymentIntents.create({
-    amount: listing.priceCents,
+    amount: amountCents ?? listing.priceCents,
     currency: "usd",
     customer: customerId,
     payment_method: paymentMethodId,
     confirm: true,
     off_session: true,
     description: `One-time purchase of ${listing.name}`,
-    metadata: { userId, listingId: listing.id, chargeType: "agent_purchase" }
+    metadata: {
+      userId,
+      listingId: listing.id,
+      chargeType: "agent_purchase",
+      ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
+    }
   });
 }
 
@@ -175,6 +194,7 @@ type PaymentForInvoice = PaymentWithListing & {
   billingName?: string | null;
   billingEmail?: string | null;
   billingAddress?: string | null;
+  lineItemsJson?: unknown;
 };
 
 async function resolvePaymentMethodLabel(payment: PaymentForInvoice): Promise<string | null> {
@@ -262,7 +282,8 @@ async function buildInvoiceData(
     status: payment.status,
     billingAddress: billTo.billingAddress,
     paymentMethod,
-    transactionId: payment.id
+    transactionId: payment.id,
+    lineItems: parsePaymentLineItems(payment.lineItemsJson) ?? undefined
   };
 }
 
@@ -571,10 +592,18 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     .filter((service) => service.unit === "PER_MINUTE")
     .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);
 
+  // One-time number fee billed with the agent price when this agent's
+  // workflow needs a dedicated phone number.
+  const needsPhone = await listingNeedsPhoneNumber(listing.id);
+  const phoneFee = needsPhone ? await getPhoneNumberFee() : null;
+
   return successResponse(c, {
     listingId: listing.id,
     listingName: listing.name,
     amountCents: listing.priceCents,
+    phoneNumberFee: phoneFee
+      ? { label: phoneFee.label, amountCents: phoneFee.amountCents }
+      : null,
     currency: "usd",
     usagePricing: {
       perMinuteUsd: perMinuteMicroUsd / 1_000_000,
@@ -731,6 +760,7 @@ paymentRoutes.post("/start-trial", async (c) => {
   const payment = await prisma.payment.create({
     data: {
       userId: authUser.id,
+      businessId,
       listingId: listing.id,
       amountCents: listing.priceCents,
       currency: "usd",
@@ -749,6 +779,24 @@ paymentRoutes.post("/start-trial", async (c) => {
       }
     }
   });
+
+  // Allot the buyer's dedicated number at trial start (agents with a phone
+  // node only). The fee is billed with the agent price after the trial; a
+  // provisioning failure must never break the purchase — setup retries later.
+  let assignedPhoneNumber: string | null = null;
+  try {
+    const provisioned = await autoProvisionPhoneNumberForPurchase({
+      buyerUserId: authUser.id,
+      businessId,
+      listingId: listing.id
+    });
+    assignedPhoneNumber = provisioned?.phoneNumber ?? null;
+  } catch (error) {
+    console.error("[phone-provision] trial-start provisioning failed (non-fatal)", {
+      listingId: listing.id,
+      error
+    });
+  }
 
   // Send a purchase-confirmation email with the invoice attached. Best-effort:
   // a mail failure must never break the purchase.
@@ -770,6 +818,7 @@ paymentRoutes.post("/start-trial", async (c) => {
     {
       payment,
       subscriptionId: null,
+      assignedPhoneNumber,
       trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     },
     "Trial started",
@@ -866,12 +915,41 @@ paymentRoutes.post("/purchase", async (c) => {
   });
 
   if (activePayment?.status === "TRIALING") {
+    // The number was allotted at trial start; ensure it exists (idempotent)
+    // and bill its fee together with the agent price, as an invoice line —
+    // but only if this number's fee was never billed before.
+    try {
+      await autoProvisionPhoneNumberForPurchase({
+        buyerUserId: authUser.id,
+        businessId,
+        listingId: listing.id
+      });
+    } catch (error) {
+      console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
+        listingId: listing.id,
+        error
+      });
+    }
+
+    const unbilledPhoneFee = await resolveUnbilledPhoneFee({
+      buyerUserId: authUser.id,
+      businessId
+    });
+    const lineItems = buildAgentPurchaseLineItems({
+      agentLabel: listing.name,
+      agentPriceCents: listing.priceCents,
+      phoneFee: unbilledPhoneFee?.fee ?? null
+    });
+    const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+
     const intent = await chargeAgentOnce({
       stripe,
       customerId,
       paymentMethodId: attachedPaymentMethodId,
       listing,
-      userId: authUser.id
+      userId: authUser.id,
+      amountCents: totalCents,
+      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
     });
     if (intent.status !== "succeeded") {
       return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
@@ -886,12 +964,13 @@ paymentRoutes.post("/purchase", async (c) => {
         userId: authUser.id,
         businessId,
         listingId: listing.id,
-        amountCents: listing.priceCents,
+        amountCents: totalCents,
         currency: "usd",
         status: "SUCCEEDED",
         stripeCustomerId: customerId,
         stripePaymentId: attachedPaymentMethodId,
         description: `Purchase of ${listing.name}`,
+        lineItemsJson: lineItems as never,
         ...paymentBillingData(billingDetails)
       },
       include: {
@@ -908,6 +987,10 @@ paymentRoutes.post("/purchase", async (c) => {
       where: { id: activePayment.id },
       data: { status: "CANCELED" }
     });
+
+    if (unbilledPhoneFee) {
+      await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
+    }
 
     try {
       const invoice = await buildInvoiceData(payment, authUser);
@@ -940,12 +1023,41 @@ paymentRoutes.post("/purchase", async (c) => {
     });
   }
 
+  // Direct purchase (no trial): allot the number first, then charge the agent
+  // price plus the number fee (only if never billed for this number) in one
+  // payment with an itemized breakdown.
+  try {
+    await autoProvisionPhoneNumberForPurchase({
+      buyerUserId: authUser.id,
+      businessId,
+      listingId: listing.id
+    });
+  } catch (error) {
+    console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
+      listingId: listing.id,
+      error
+    });
+  }
+
+  const unbilledPhoneFee = await resolveUnbilledPhoneFee({
+    buyerUserId: authUser.id,
+    businessId
+  });
+  const lineItems = buildAgentPurchaseLineItems({
+    agentLabel: listing.name,
+    agentPriceCents: listing.priceCents,
+    phoneFee: unbilledPhoneFee?.fee ?? null
+  });
+  const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+
   const intent = await chargeAgentOnce({
     stripe,
     customerId,
     paymentMethodId: attachedPaymentMethodId,
     listing,
-    userId: authUser.id
+    userId: authUser.id,
+    amountCents: totalCents,
+    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
   });
   if (intent.status !== "succeeded") {
     return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
@@ -956,12 +1068,13 @@ paymentRoutes.post("/purchase", async (c) => {
       userId: authUser.id,
       businessId,
       listingId: listing.id,
-      amountCents: listing.priceCents,
+      amountCents: totalCents,
       currency: "usd",
       status: "SUCCEEDED",
       stripeCustomerId: customerId,
       stripePaymentId: attachedPaymentMethodId,
       description: `Purchase of ${listing.name}`,
+      lineItemsJson: lineItems as never,
       ...paymentBillingData(billingDetails)
     },
     include: {
@@ -973,6 +1086,18 @@ paymentRoutes.post("/purchase", async (c) => {
       }
     }
   });
+
+  // Cancel any stale TRIALING rows for this listing (an expired trial paid
+  // manually lands here) so the hourly trial-conversion job cannot charge the
+  // same buyer a second time.
+  await prisma.payment.updateMany({
+    where: { userId: authUser.id, listingId: listing.id, status: "TRIALING", NOT: { id: payment.id } },
+    data: { status: "CANCELED" }
+  });
+
+  if (unbilledPhoneFee) {
+    await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
+  }
 
   try {
     const invoice = await buildInvoiceData(payment, authUser);

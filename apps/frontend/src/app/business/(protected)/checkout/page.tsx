@@ -68,6 +68,7 @@ type ListingAccess = {
     trialUsed: boolean;
     canPayNow?: boolean;
     amountCents: number;
+    phoneNumberFee?: { label: string; amountCents: number } | null;
     purchaseStatus: string | null;
     usagePricing?: {
         perMinuteUsd: number;
@@ -660,19 +661,25 @@ export default function BusinessCheckoutPage() {
         zip: isZipValid(countryCode, zip)
     };
 
-    const futureAmount = basePrice;
+    // One-time dedicated number fee for phone-capable agents — charged with
+    // the agent price, shown as its own summary row.
+    const phoneFee = usageMode ? null : listingAccess?.phoneNumberFee ?? null;
+    const phoneFeeAmount = (phoneFee?.amountCents ?? 0) / 100;
+    const payTotal = basePrice + phoneFeeAmount;
+
+    const futureAmount = payTotal;
     const canPayNow = listingAccess?.canPayNow ?? (
         listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false
     );
     const isPurchaseMode = usageMode || canPayNow;
     const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
     const checkoutBlocked = !usageMode && hasActiveAccess && !canPayNow;
-    const dueTodayAmount = isPurchaseMode ? basePrice : 0;
+    const dueTodayAmount = isPurchaseMode ? payTotal : 0;
     const checkoutButtonLabel = isPurchaseMode
-        ? `Pay $${basePrice}`
+        ? `Pay $${payTotal.toFixed(2)}`
         : "Start 7-day free trial";
     const mobileCheckoutButtonLabel = isPurchaseMode
-        ? `Pay $${basePrice}`
+        ? `Pay $${payTotal.toFixed(2)}`
         : "Start free trial";
 
     const formReady =
@@ -886,7 +893,7 @@ export default function BusinessCheckoutPage() {
             router.push(
                 businessPaymentSuccessPath({
                     agent: listingName,
-                    amount: basePrice,
+                    amount: isPurchaseMode ? payTotal : basePrice,
                     email,
                     mode: isPurchaseMode ? "purchase" : "trial"
                 })
@@ -923,7 +930,7 @@ export default function BusinessCheckoutPage() {
                     businessPaymentFailedPath({
                         listingId,
                         agent: listingName,
-                        amount: basePrice,
+                        amount: isPurchaseMode ? payTotal : basePrice,
                         mode: isPurchaseMode ? "purchase" : "trial"
                     })
                 );
@@ -934,7 +941,7 @@ export default function BusinessCheckoutPage() {
                 businessPaymentSuccessPath({
                     listingId,
                     agent: listingName,
-                    amount: basePrice,
+                    amount: isPurchaseMode ? payTotal : basePrice,
                     email,
                     mode: isPurchaseMode ? "purchase" : "trial"
                 })
@@ -945,7 +952,7 @@ export default function BusinessCheckoutPage() {
                 businessPaymentFailedPath({
                     listingId,
                     agent: listingName,
-                    amount: basePrice,
+                    amount: isPurchaseMode ? payTotal : basePrice,
                     mode: isPurchaseMode ? "purchase" : "trial"
                 })
             );
@@ -1275,6 +1282,8 @@ export default function BusinessCheckoutPage() {
                                     dueTodayAmount={dueTodayAmount}
                                     postpaidRate={postpaidRate}
                                     isUsageMode={usageMode}
+                                    phoneFeeLabel={phoneFee?.label ?? null}
+                                    phoneFeeAmount={phoneFeeAmount}
                                 />
                             </aside>
                         </div>
@@ -1549,7 +1558,9 @@ function OrderSummary({
     isPurchaseMode = false,
     dueTodayAmount = 0,
     postpaidRate = null,
-    isUsageMode = false
+    isUsageMode = false,
+    phoneFeeLabel = null,
+    phoneFeeAmount = 0
 }: {
     trialDate: string;
     includedItems: string[];
@@ -1561,9 +1572,13 @@ function OrderSummary({
     dueTodayAmount?: number;
     postpaidRate?: number | null;
     isUsageMode?: boolean;
+    phoneFeeLabel?: string | null;
+    phoneFeeAmount?: number;
 }) {
     const priceLabel = price.toFixed(2);
     const dueTodayLabel = dueTodayAmount.toFixed(2);
+    // Trial discounts everything charged later (agent price + number fee).
+    const trialDiscountLabel = (price + phoneFeeAmount).toFixed(2);
 
     return (
         <div className="lg:sticky lg:top-28">
@@ -1601,8 +1616,14 @@ function OrderSummary({
                 <div className="px-6 py-5">
                     <div className="space-y-3">
                         <PriceRow label={isUsageMode ? "Usage amount" : "Agent price"} value={`$${priceLabel}`} />
+                        {phoneFeeAmount > 0 ? (
+                            <PriceRow
+                                label={phoneFeeLabel ?? "AI Receptionist No."}
+                                value={`$${phoneFeeAmount.toFixed(2)}`}
+                            />
+                        ) : null}
                         {isPurchaseMode ? null : (
-                            <PriceRow label="7-day free trial" value={`−$${priceLabel}`} green />
+                            <PriceRow label="7-day free trial" value={`−$${trialDiscountLabel}`} green />
                         )}
                         <PriceRow
                             label="Post-paid execution fees"

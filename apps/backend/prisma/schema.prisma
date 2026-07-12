@@ -465,6 +465,9 @@ model PlatformPhoneNumber {
   buyerUserId      String?
   installedAgentId String?
   assignedAt       DateTime?
+  /// When the one-time number fee was billed to the buyer (once per number;
+  /// cleared when the number returns to AVAILABLE).
+  feeBilledAt      DateTime?
   /// Admin provisioning metadata (numbers purchased through the admin panel).
   purchasedByAdminId String?
   purchasedAt        DateTime?
@@ -521,6 +524,9 @@ model Payment {
   billingAddress String?
 
   description String?
+  /// Buyer-facing fee breakdown: [{ label, amountCents }] — agent price plus
+  /// the "AI Receptionist No." number fee when one was provisioned.
+  lineItemsJson Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

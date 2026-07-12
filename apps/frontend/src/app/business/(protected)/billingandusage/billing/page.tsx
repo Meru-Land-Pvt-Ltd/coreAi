@@ -29,6 +29,7 @@ type BillingInvoice = {
     billingName?: string | null;
     billingEmail?: string | null;
     billingAddress?: string | null;
+    lineItems?: Array<{ label: string; amountCents: number }> | null;
 };
 
 function invoiceDisplayAmount(invoice: BillingInvoice) {
@@ -648,6 +649,16 @@ function InvoiceCard({
     const amountPaid = status.isPaid ? formatCurrencyCents(invoice.amountCents) : amount;
     const balanceDue = status.isPaid ? "$0.00" : amount;
 
+    // Itemized rows when the payment carries a fee breakdown (agent price +
+    // AI Receptionist No.); otherwise the single description row as before.
+    const lineItems =
+        invoice.lineItems && invoice.lineItems.length > 0
+            ? invoice.lineItems.map((item) => ({
+                  label: item.label,
+                  amount: formatCurrencyCents(item.amountCents)
+              }))
+            : [{ label: invoice.description || "Agent purchase", amount }];
+
     return (
         <div
             id="invoice-card"
@@ -723,13 +734,20 @@ function InvoiceCard({
                             </tr>
                         </thead>
                         <tbody>
-                            <tr className="border-b border-slate-100 bg-white">
-                                <td className="px-3 py-3 text-slate-500">1</td>
-                                <td className="px-3 py-3" data-testid="invoice-line-description">{invoice.description || "Agent purchase"}</td>
-                                <td className="px-3 py-3 text-right">1</td>
-                                <td className="px-3 py-3 text-right">{amount}</td>
-                                <td className="px-3 py-3 text-right font-medium">{amount}</td>
-                            </tr>
+                            {lineItems.map((item, index) => (
+                                <tr key={`${item.label}-${index}`} className="border-b border-slate-100 bg-white">
+                                    <td className="px-3 py-3 text-slate-500">{index + 1}</td>
+                                    <td
+                                        className="px-3 py-3"
+                                        data-testid={index === 0 ? "invoice-line-description" : `invoice-line-description-${index + 1}`}
+                                    >
+                                        {item.label}
+                                    </td>
+                                    <td className="px-3 py-3 text-right">1</td>
+                                    <td className="px-3 py-3 text-right">{item.amount}</td>
+                                    <td className="px-3 py-3 text-right font-medium" data-testid={index === 0 ? undefined : `invoice-line-amount-${index + 1}`}>{item.amount}</td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                 </div>

@@ -4,6 +4,14 @@ import { mailTransporter, isSmtpConfigured } from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
+import { parsePaymentLineItems, type PaymentLineItem } from "../../lib/billing-invoices";
+import {
+  buildAgentPurchaseLineItems,
+  findBuyerPlatformNumber,
+  listingNeedsPhoneNumber,
+  markPhoneNumberFeeBilled,
+  resolveUnbilledPhoneFee
+} from "./phone-provisioning";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -225,17 +233,74 @@ async function convertExpiredTrials(now: Date) {
   let failed = 0;
   for (const trial of trials) {
     if (!trial.listing || !trial.stripeCustomerId || !trial.stripePaymentId) continue;
+
+    // Pin the charge breakdown on the trial row BEFORE touching Stripe: the
+    // fixed idempotency key requires byte-identical params on retry, so the
+    // amount must not drift between runs (fee appearing/disappearing, admin
+    // price edits). A transient failure here skips the trial until the next
+    // hourly run — it must never mark a never-charged trial FAILED.
+    let businessId: string | null = null;
+    let lineItems: PaymentLineItem[];
+    try {
+      businessId =
+        trial.businessId ??
+        (
+          await prisma.business.findFirst({
+            where: { ownerId: trial.userId },
+            orderBy: { createdAt: "desc" },
+            select: { id: true }
+          })
+        )?.id ??
+        null;
+
+      const pinned = parsePaymentLineItems(trial.lineItemsJson);
+      if (pinned) {
+        lineItems = pinned;
+      } else {
+        // The number was allotted (free) at trial start — now that the agent
+        // is being paid for, bill its fee as a second invoice line, once per
+        // number.
+        const unbilledFee =
+          (await listingNeedsPhoneNumber(trial.listing.id))
+            ? await resolveUnbilledPhoneFee({ buyerUserId: trial.userId, businessId })
+            : null;
+        lineItems = buildAgentPurchaseLineItems({
+          agentLabel: trial.listing.name,
+          agentPriceCents: trial.listing.priceCents,
+          phoneFee: unbilledFee?.fee ?? null
+        });
+        await prisma.payment.update({
+          where: { id: trial.id },
+          data: { lineItemsJson: lineItems as never }
+        });
+      }
+    } catch (error) {
+      console.error("[billing-cycle] conversion pre-charge step failed — retrying next run", {
+        trialId: trial.id,
+        error
+      });
+      continue;
+    }
+
+    const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+    const phoneFeeCents = lineItems.length > 1 ? lineItems[1]!.amountCents : 0;
+
     try {
       const intent = await stripe.paymentIntents.create(
         {
-          amount: trial.listing.priceCents,
+          amount: totalCents,
           currency: "usd",
           customer: trial.stripeCustomerId,
           payment_method: trial.stripePaymentId,
           confirm: true,
           off_session: true,
           description: `One-time purchase of ${trial.listing.name} after trial`,
-          metadata: { userId: trial.userId, listingId: trial.listing.id, trialPaymentId: trial.id }
+          metadata: {
+            userId: trial.userId,
+            listingId: trial.listing.id,
+            trialPaymentId: trial.id,
+            ...(phoneFeeCents > 0 ? { phoneFeeCents: String(phoneFeeCents) } : {})
+          }
         },
         { idempotencyKey: `trial-conversion-${trial.id}` }
       );
@@ -246,9 +311,9 @@ async function convertExpiredTrials(now: Date) {
         prisma.payment.create({
           data: {
             userId: trial.userId,
-            businessId: trial.businessId,
+            businessId,
             listingId: trial.listing.id,
-            amountCents: trial.listing.priceCents,
+            amountCents: totalCents,
             currency: "usd",
             status: "SUCCEEDED",
             stripeCustomerId: trial.stripeCustomerId,
@@ -256,10 +321,20 @@ async function convertExpiredTrials(now: Date) {
             billingName: trial.billingName,
             billingEmail: trial.billingEmail,
             billingAddress: trial.billingAddress,
-            description: `Purchase of ${trial.listing.name}`
+            description: `Purchase of ${trial.listing.name}`,
+            lineItemsJson: lineItems as never
           }
         })
       ]);
+
+      // The fee line was charged — stamp the buyer's number so no later
+      // purchase re-bills it. Best-effort: markPhoneNumberFeeBilled is
+      // idempotent and a miss here only risks a duplicate fee, never a crash.
+      if (phoneFeeCents > 0) {
+        const number = await findBuyerPlatformNumber({ buyerUserId: trial.userId, businessId });
+        if (number) await markPhoneNumberFeeBilled(number.id);
+      }
+
       converted += 1;
     } catch (error) {
       console.error("[billing-cycle] trial conversion failed", { trialId: trial.id, error });

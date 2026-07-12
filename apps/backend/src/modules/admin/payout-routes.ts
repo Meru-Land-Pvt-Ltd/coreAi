@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { paymentAgentGrossCents } from "../../lib/billing-invoices";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
@@ -110,7 +111,10 @@ async function loadAdminPayoutSales(options?: {
 
     if (!active?.listing || !active.listingId) continue;
 
-    const grossCents = active.amountCents > 0 ? active.amountCents : active.listing.priceCents;
+    // Agent price only — the payment total may include the platform's
+    // phone-number fee, which never feeds architect earnings.
+    const agentGrossCents = paymentAgentGrossCents(active);
+    const grossCents = agentGrossCents > 0 ? agentGrossCents : active.listing.priceCents;
     const earningsCents = Math.round(grossCents * ARCHITECT_SHARE);
     const businessName =
       active.user.businesses[0]?.name ?? active.user.fullName ?? active.user.email;
