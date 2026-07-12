@@ -46,10 +46,19 @@ const envSchema = z.object({
   SES_INBOUND_BUCKET: z.string().optional(),
   SES_INBOUND_TOPIC_ARN: z.string().optional(),
   SES_CONFIGURATION_SET: z.string().optional(),
+  AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   /** Force dry-run (store + log instead of calling SES) even when configured. */
   SES_DRY_RUN: booleanFromEnv.default(false),
+
+  /** Purpose-based platform senders (all transactional mail goes through SES). */
+  SES_FROM_SUPPORT: z.string().optional(),
+  SES_FROM_CONFIRM: z.string().optional(),
+  SES_FROM_BILLING: z.string().optional(),
+  SES_FROM_NO_REPLY: z.string().optional(),
+  /** Reply-To for platform mail sent from no-reply-style senders. */
+  SES_REPLY_TO: z.string().optional(),
 
   TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
   TWILIO_FORWARD_TO_PHONE: z.string().optional(),

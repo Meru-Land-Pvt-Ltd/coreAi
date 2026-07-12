@@ -1,11 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import nodemailer from "nodemailer";
+import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import MailComposer from "nodemailer/lib/mail-composer";
 import PDFDocument from "pdfkit";
 import { env, isProduction } from "../config/env";
-
-const smtpPort = Number(process.env.SMTP_PORT ?? 587);
-const smtpSecure = process.env.SMTP_SECURE === "true";
 
 const verificationCodeExpirationMinutes = Number(
   process.env.VERIFICATION_CODE_EXPIRATION_MINUTES ?? 10
@@ -26,15 +24,105 @@ const logoUrl =
   process.env.TRIVEN_LOGO_URL ??
   `${appUrl}/triven.ai%20word%20logo%20transparent%20bg.PNG`;
 
-export const mailTransporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: smtpPort,
-  secure: smtpSecure,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
+/**
+ * All platform email goes out through Amazon SES. Every message picks its
+ * sender identity by purpose; nodemailer is used only as a MIME composer so
+ * attachments (invoice PDFs) ride along in a single SES raw send.
+ *
+ * otp            → SES_FROM_NO_REPLY  (verification codes, no-reply)
+ * billing        → SES_FROM_BILLING   (payments, invoices, reminders)
+ * confirmation   → SES_FROM_CONFIRM   (assignment links & similar notices)
+ * support        → SES_FROM_SUPPORT   (support conversations)
+ * notification   → SES_FROM_NO_REPLY  (lifecycle mail: welcome, tips, ROI)
+ */
+export type PlatformEmailPurpose = "otp" | "billing" | "confirmation" | "support" | "notification";
+
+type PlatformEmailAttachment = {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string;
+};
+
+export type PlatformEmailInput = {
+  purpose: PlatformEmailPurpose;
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  attachments?: PlatformEmailAttachment[];
+};
+
+let sesClient: SESv2Client | null = null;
+
+function getSesClient(): SESv2Client {
+  if (!sesClient) {
+    sesClient = new SESv2Client({
+      region: env.SES_REGION ?? env.AWS_REGION,
+      credentials: {
+        accessKeyId: env.AWS_ACCESS_KEY_ID as string,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string
+      }
+    });
   }
-});
+  return sesClient;
+}
+
+/** Sender identity per purpose; legacy SMTP_FROM is the last-resort fallback. */
+export function fromAddressFor(purpose: PlatformEmailPurpose): string | undefined {
+  const noReply = env.SES_FROM_NO_REPLY ?? process.env.SMTP_FROM ?? process.env.SMTP_USER;
+  switch (purpose) {
+    case "billing":
+      return env.SES_FROM_BILLING ?? noReply;
+    case "confirmation":
+      return env.SES_FROM_CONFIRM ?? noReply;
+    case "support":
+      return env.SES_FROM_SUPPORT ?? noReply;
+    default:
+      return noReply;
+  }
+}
+
+export function isPlatformMailConfigured(): boolean {
+  return Boolean(
+    (env.SES_REGION ?? env.AWS_REGION) &&
+      env.AWS_ACCESS_KEY_ID &&
+      env.AWS_SECRET_ACCESS_KEY &&
+      fromAddressFor("notification") &&
+      !env.SES_DRY_RUN
+  );
+}
+
+export async function sendPlatformEmail(input: PlatformEmailInput): Promise<void> {
+  const from = fromAddressFor(input.purpose);
+
+  if (!isPlatformMailConfigured() || !from) {
+    console.warn(
+      `[mailer] SES is not configured — skipped "${input.subject}" to ${input.to} (${input.purpose}).`
+    );
+    if (isProduction) {
+      throw new Error("Email delivery is not configured on the server");
+    }
+    return;
+  }
+
+  // Raw MIME so attachments and the display-name From header survive intact.
+  const mime = new MailComposer({
+    from,
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+    ...(input.html ? { html: input.html } : {}),
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+    // OTP mail is intentionally no-reply; everything else offers a reply path.
+    ...(input.purpose !== "otp" && env.SES_REPLY_TO ? { replyTo: env.SES_REPLY_TO } : {})
+  }).compile();
+
+  const raw = await new Promise<Buffer>((resolve, reject) => {
+    mime.build((error, buffer) => (error ? reject(error) : resolve(buffer)));
+  });
+
+  await getSesClient().send(new SendEmailCommand({ Content: { Raw: { Data: raw } } }));
+}
 
 type VerificationEmailPurpose = "sign_in" | "email_update";
 
@@ -69,14 +157,6 @@ function verificationEmailCopy({
   };
 }
 
-export function isSmtpConfigured() {
-  return Boolean(
-    process.env.SMTP_HOST?.trim() &&
-      process.env.SMTP_USER?.trim() &&
-      process.env.SMTP_PASS?.trim()
-  );
-}
-
 export async function sendVerificationEmail({
   to,
   code,
@@ -92,9 +172,9 @@ export async function sendVerificationEmail({
   const subject = copy.subject.replace("{code}", code);
   const text = copy.bodyText.replace("{code}", code);
 
-  if (!isSmtpConfigured()) {
+  if (!isPlatformMailConfigured()) {
     console.warn(
-      `[mailer] SMTP is not configured. ${purpose === "email_update" ? "Email update" : "Sign-in"} verification code for ${to} (${roleLabel}): ${code}`
+      `[mailer] SES is not configured. ${purpose === "email_update" ? "Email update" : "Sign-in"} verification code for ${to} (${roleLabel}): ${code}`
     );
 
     if (isProduction) {
@@ -104,8 +184,8 @@ export async function sendVerificationEmail({
     return;
   }
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "otp",
     to,
     subject,
     text,
@@ -802,8 +882,8 @@ export async function sendPaymentSuccessEmail({
 }: SendPaymentSuccessEmailInput) {
   const pdfBuffer = await buildInvoicePdfBuffer(invoice);
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "billing",
     to,
     subject: `Your ${brandName} purchase: ${invoice.agentName}`,
     text: `Thanks for your purchase on ${brandName}. ${invoice.agentName} is now in your account. Amount: ${formatMoney(invoice.amountCents, invoice.currency)}. Invoice #${invoice.invoiceNumber}. Your invoice PDF is attached.`,
@@ -928,8 +1008,8 @@ export async function sendPaymentFailedEmail({
   const retry = retryUrl?.trim() || checkoutUrl;
   const reason = failureReason?.trim() || "Payment was declined";
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "billing",
     to,
     subject: `Payment failed — please update your payment method`,
     text: `We couldn't process your most recent payment${
@@ -997,8 +1077,8 @@ export async function sendFreeAssignmentEmail({
   assignmentLink,
   name
 }: SendFreeAssignmentEmailInput) {
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "confirmation",
     to,
     subject: `Your free ${brandName} AI assessment link`,
     text: `Your free ${brandName} AI assessment is ready. Open this link to continue: ${assignmentLink}`,
@@ -1177,8 +1257,8 @@ export async function sendBuyerWelcomeEmail({
   const name = buyerName?.trim() || "there";
   const onboarding = onboardingLink?.trim() || marketplaceLink;
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "notification",
     to,
     subject: `Welcome to ${brandName}, ${name}! Let's get started`,
     text: `Welcome aboard, ${name}. Your ${brandName} account is ready. Browse the marketplace and pick an agent, connect your tools, and run your first task. Start here: ${onboarding}`,
@@ -1244,8 +1324,8 @@ export async function sendBuyerPopularAgentsEmail({
 }: SendBuyerPopularAgentsEmailInput) {
   const name = buyerName?.trim() || "there";
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "notification",
     to,
     subject: `Discover the most popular agents on ${brandName}`,
     text: `Hi ${name}, now that you're set up, here are some of the most popular agents on ${brandName} right now. Browse them here: ${browseLink?.trim() || marketplaceLink}`,
@@ -1307,8 +1387,8 @@ export async function sendBuyerRoiEmail({
   const name = buyerName?.trim() || "there";
   const industryLabel = industry?.trim() || "service";
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "notification",
     to,
     subject: `See the ROI: ${name}, here's what other ${industryLabel} teams achieve`,
     text: `Hi ${name}, a week in is a good time to look at what's possible. Teams in ${industryLabel} are seeing measurable results with ${brandName} agents. Explore your dashboard or schedule a demo: ${demoLink?.trim() || contactLink}`,

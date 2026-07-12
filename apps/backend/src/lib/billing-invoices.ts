@@ -113,7 +113,8 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
         listingName: payment.listing?.name ?? null,
         billingName: payment.billingName ?? null,
         billingEmail: payment.billingEmail ?? null,
-        billingAddress: payment.billingAddress ?? null
+        billingAddress: payment.billingAddress ?? null,
+        lineItems: null
       });
       continue;
     }

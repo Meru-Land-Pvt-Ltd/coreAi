@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
-import { mailTransporter, isSmtpConfigured } from "../../lib/mailer";
+import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
@@ -198,13 +198,13 @@ async function sendInvoiceReminder(invoice: {
   const amount = (invoice.totalMicroUsd / 1_000_000).toFixed(2);
   const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
 
-  if (!isSmtpConfigured()) {
-    console.warn(`[billing-cycle] reminder skipped: SMTP not configured (${invoice.invoiceNumber}, ${to})`);
+  if (!isPlatformMailConfigured()) {
+    console.warn(`[billing-cycle] reminder skipped: email not configured (${invoice.invoiceNumber}, ${to})`);
     return false;
   }
 
-  await mailTransporter.sendMail({
-    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+  await sendPlatformEmail({
+    purpose: "billing",
     to,
     subject: `Usage invoice ${invoice.invoiceNumber} — $${amount} due by the 7th`,
     text: `Your ${invoice.billingMonth} Triven.ai usage invoice is $${amount}. Please pay by the end of the 7th to avoid service suspension. ${billingUrl}`,
