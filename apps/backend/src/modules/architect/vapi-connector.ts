@@ -133,6 +133,51 @@ export async function ensureBusinessVapiAssistant(businessId: string): Promise<s
   return legacyFallbackAssistantId ?? null;
 }
 
+export type VapiCallDetails = {
+  id: string;
+  status: string | null;
+  durationSeconds: number | null;
+  durationMinutes: number | null;
+  durationMs: number | null;
+  costUsd: number | null;
+  costBreakdown: Record<string, unknown> | null;
+};
+
+export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails | null> {
+  if (!isVapiConfigured() || !isRealId(callId)) return null;
+
+  const response = await fetch(`${env.VAPI_BASE_URL.replace(/\/$/, "")}/call/${encodeURIComponent(callId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${env.VAPI_API_KEY}`
+    },
+    signal: AbortSignal.timeout(15000)
+  });
+
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    throw new Error(vapiErrorMessage(payload, response.status, "Vapi call lookup failed"));
+  }
+
+  const cost = Number(payload.cost);
+  const durationSeconds = Number(payload.durationSeconds);
+  const durationMinutes = Number(payload.durationMinutes);
+  const durationMs = Number(payload.durationMs);
+
+  return {
+    id: stringField(payload, "id") ?? callId,
+    status: stringField(payload, "status") ?? null,
+    durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
+    durationMinutes: Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : null,
+    durationMs: Number.isFinite(durationMs) && durationMs > 0 ? durationMs : null,
+    costUsd: Number.isFinite(cost) && cost >= 0 ? cost : null,
+    costBreakdown:
+      typeof payload.costBreakdown === "object" && payload.costBreakdown !== null
+        ? (payload.costBreakdown as Record<string, unknown>)
+        : null
+  };
+}
+
 export type VapiCallResult = {
   id: string | null;
   status: string | null;

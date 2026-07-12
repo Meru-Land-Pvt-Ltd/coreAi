@@ -5,6 +5,7 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { adminPhoneNumberRoutes } from "./phone-numbers";
 import { adminPayoutRoutes } from "./payout-routes";
+import { adminPricingRoutes } from "./pricing-routes";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 
 export const adminRoutes = new Hono();
@@ -15,6 +16,7 @@ adminRoutes.use("*", requireRole(["ADMIN"]));
 // Platform Twilio phone-number management (inherits the guards above).
 adminRoutes.route("/phone-numbers", adminPhoneNumberRoutes);
 adminRoutes.route("/payouts", adminPayoutRoutes);
+adminRoutes.route("/pricing", adminPricingRoutes);
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {
   const page = Math.max(1, Number(c.req.query("page")) || 1);

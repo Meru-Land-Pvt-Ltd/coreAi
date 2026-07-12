@@ -1,34 +1,37 @@
--- CreateEnum
-CREATE TYPE "ContextLinkStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'FAILED');
+-- Email proxy models only. ContextLink / WorkflowRun columns are in 20260708062525_memory_block.
+-- Guarded so re-apply is safe if objects already exist.
 
--- CreateEnum
-CREATE TYPE "EmailAliasStatus" AS ENUM ('ACTIVE', 'DISABLED', 'ARCHIVED');
+DO $$ BEGIN
+  CREATE TYPE "EmailAliasStatus" AS ENUM ('ACTIVE', 'DISABLED', 'ARCHIVED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "EmailReplyHandlingMode" AS ENUM ('TRIVEN_INBOX', 'FORWARD_ONLY', 'TRIVEN_AND_FORWARD');
+DO $$ BEGIN
+  CREATE TYPE "EmailReplyHandlingMode" AS ENUM ('TRIVEN_INBOX', 'FORWARD_ONLY', 'TRIVEN_AND_FORWARD');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "EmailDirection" AS ENUM ('INBOUND', 'OUTBOUND');
+DO $$ BEGIN
+  CREATE TYPE "EmailDirection" AS ENUM ('INBOUND', 'OUTBOUND');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "EmailMessageStatus" AS ENUM ('QUEUED', 'SENT', 'DELIVERED', 'FAILED', 'RECEIVED', 'BOUNCED', 'COMPLAINED');
+DO $$ BEGIN
+  CREATE TYPE "EmailMessageStatus" AS ENUM ('QUEUED', 'SENT', 'DELIVERED', 'FAILED', 'RECEIVED', 'BOUNCED', 'COMPLAINED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "EmailPurpose" AS ENUM ('CUSTOMER_FOLLOW_UP', 'BOOKING_CONFIRMATION', 'CALL_SUMMARY', 'INTERNAL_NOTIFICATION', 'REPLY', 'TEST');
+DO $$ BEGIN
+  CREATE TYPE "EmailPurpose" AS ENUM ('CUSTOMER_FOLLOW_UP', 'BOOKING_CONFIRMATION', 'CALL_SUMMARY', 'INTERNAL_NOTIFICATION', 'REPLY', 'TEST');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- AlterTable
-ALTER TABLE "ContextLink" ADD COLUMN     "linkStatus" "ContextLinkStatus" NOT NULL DEFAULT 'ACTIVE';
-
--- AlterTable
-ALTER TABLE "WorkflowRun" ADD COLUMN     "currentNodeId" TEXT,
-ADD COLUMN     "durationMs" INTEGER,
-ADD COLUMN     "metadataJson" JSONB,
-ADD COLUMN     "totalCostCents" INTEGER DEFAULT 0,
-ADD COLUMN     "totalTokenInput" INTEGER DEFAULT 0,
-ADD COLUMN     "totalTokenOutput" INTEGER DEFAULT 0;
-
--- CreateTable
-CREATE TABLE "BusinessEmailAlias" (
+CREATE TABLE IF NOT EXISTS "BusinessEmailAlias" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
     "installedAgentId" TEXT,
@@ -50,8 +53,7 @@ CREATE TABLE "BusinessEmailAlias" (
     CONSTRAINT "BusinessEmailAlias_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "EmailMessage" (
+CREATE TABLE IF NOT EXISTS "EmailMessage" (
     "id" TEXT NOT NULL,
     "businessId" TEXT,
     "installedAgentId" TEXT,
@@ -78,39 +80,34 @@ CREATE TABLE "EmailMessage" (
     CONSTRAINT "EmailMessage_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "BusinessEmailAlias_emailAddress_key" ON "BusinessEmailAlias"("emailAddress");
+CREATE UNIQUE INDEX IF NOT EXISTS "BusinessEmailAlias_emailAddress_key" ON "BusinessEmailAlias"("emailAddress");
+CREATE INDEX IF NOT EXISTS "BusinessEmailAlias_businessId_idx" ON "BusinessEmailAlias"("businessId");
+CREATE INDEX IF NOT EXISTS "BusinessEmailAlias_status_idx" ON "BusinessEmailAlias"("status");
+CREATE INDEX IF NOT EXISTS "EmailMessage_businessId_createdAt_idx" ON "EmailMessage"("businessId", "createdAt");
+CREATE INDEX IF NOT EXISTS "EmailMessage_aliasId_idx" ON "EmailMessage"("aliasId");
+CREATE INDEX IF NOT EXISTS "EmailMessage_sesMessageId_idx" ON "EmailMessage"("sesMessageId");
+CREATE INDEX IF NOT EXISTS "EmailMessage_toEmail_status_idx" ON "EmailMessage"("toEmail", "status");
 
--- CreateIndex
-CREATE INDEX "BusinessEmailAlias_businessId_idx" ON "BusinessEmailAlias"("businessId");
+DO $$ BEGIN
+  ALTER TABLE "BusinessEmailAlias"
+    ADD CONSTRAINT "BusinessEmailAlias_businessId_fkey"
+    FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateIndex
-CREATE INDEX "BusinessEmailAlias_status_idx" ON "BusinessEmailAlias"("status");
+DO $$ BEGIN
+  ALTER TABLE "EmailMessage"
+    ADD CONSTRAINT "EmailMessage_businessId_fkey"
+    FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateIndex
-CREATE INDEX "EmailMessage_businessId_createdAt_idx" ON "EmailMessage"("businessId", "createdAt");
-
--- CreateIndex
-CREATE INDEX "EmailMessage_aliasId_idx" ON "EmailMessage"("aliasId");
-
--- CreateIndex
-CREATE INDEX "EmailMessage_sesMessageId_idx" ON "EmailMessage"("sesMessageId");
-
--- CreateIndex
-CREATE INDEX "EmailMessage_toEmail_status_idx" ON "EmailMessage"("toEmail", "status");
-
--- CreateIndex
-CREATE INDEX "ContextLink_linkStatus_idx" ON "ContextLink"("linkStatus");
-
--- CreateIndex
-CREATE INDEX "WorkflowRun_currentNodeId_idx" ON "WorkflowRun"("currentNodeId");
-
--- AddForeignKey
-ALTER TABLE "BusinessEmailAlias" ADD CONSTRAINT "BusinessEmailAlias_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "EmailMessage" ADD CONSTRAINT "EmailMessage_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "EmailMessage" ADD CONSTRAINT "EmailMessage_aliasId_fkey" FOREIGN KEY ("aliasId") REFERENCES "BusinessEmailAlias"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
+DO $$ BEGIN
+  ALTER TABLE "EmailMessage"
+    ADD CONSTRAINT "EmailMessage_aliasId_fkey"
+    FOREIGN KEY ("aliasId") REFERENCES "BusinessEmailAlias"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

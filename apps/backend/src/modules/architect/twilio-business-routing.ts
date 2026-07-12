@@ -13,6 +13,7 @@ import {
   zonedWallClockToUtc
 } from "./google-calendar-connector";
 import { parseRequestedAppointment } from "./appointment-parser";
+import { recordVapiCallUsage } from "../business/usage-billing";
 
 type TwilioBody = Record<string, unknown>;
 
@@ -739,7 +740,9 @@ async function maybeStartVapiAfterMissedCall({
       businessId: agent.business.businessId,
       businessOwnerId: agent.business.ownerId,
       conversationId,
-      workflowId: agent.workflowId
+      workflowId: agent.workflowId,
+      installedAgentId: agent.business.installedAgentId,
+      assignedPhoneNumber: agent.business.businessPhoneNumber
     }
   });
 
@@ -885,7 +888,8 @@ async function buildVapiAnswerTwiml({
       businessId: business.businessId,
       businessOwnerId: business.ownerId,
       installedAgentId: business.installedAgentId,
-      workflowId: agent.workflowId
+      workflowId: agent.workflowId,
+      assignedPhoneNumber: calledNumber || business.businessPhoneNumber
     }
   });
 }
@@ -2401,6 +2405,25 @@ export async function handleVapiWebhook(c: Context) {
 
     // Non-tool event (status update / end-of-call report).
     if (toolCalls.length === 0) {
+      // End-of-call: record per-execution usage for monthly buyer billing.
+      if (businessContext?.businessId && callId && /end-of-call-report|end|ended|report/i.test(messageType ?? "")) {
+        const metadataInstalledAgentId =
+          typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
+        const installedAgent = metadataInstalledAgentId
+          ? await prisma.installedAgent.findFirst({
+              where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
+              select: { id: true }
+            })
+          : await latestActiveInstalledAgent(businessContext.businessId);
+        recordVapiCallUsage({
+          businessId: businessContext.businessId,
+          installedAgentId: installedAgent?.id,
+          callId,
+          customerPhone,
+          webhookBody: body
+        }).catch((error) => console.error("[vapi-webhook] usage billing failed (non-fatal)", error));
+      }
+
       // End-of-call: email the buyer a call summary via their proxy alias.
       // Fire-and-forget — the webhook response never waits on SES.
       if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {

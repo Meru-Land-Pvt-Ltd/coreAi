@@ -28,6 +28,7 @@ import {
   getBillingStatus,
   handleStripeWebhook
 } from "./billing";
+import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice } from "./usage-billing";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import {
@@ -82,6 +83,9 @@ businessRoutes.use("*", requireRole(["BUSINESS"]));
 
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
+businessRoutes.get("/billing/usage", getBusinessUsageBill);
+businessRoutes.get("/billing/usage-invoices", getBusinessUsageInvoices);
+businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessUsageInvoice);
 businessRoutes.route("/settings", businessSettingsRoutes);
 
 businessRoutes.get("/dashboard", async (c) => {

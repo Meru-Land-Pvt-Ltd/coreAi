@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { app } from "./app";
 import { prisma } from "./lib/prisma";
 import { initProviderEngine } from "./modules/ai-provider-engine/provider-engine";
+import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
 
 const server = serve(
   {
@@ -12,6 +13,7 @@ const server = serve(
   async (info) => {
     console.log(`CoreAI backend running on http://localhost:${info.port}`);
     await initProviderEngine();
+    startBillingScheduler();
   }
 );
 
@@ -33,3 +35,4 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   void shutdown("SIGTERM");
 });
+  stopBillingScheduler();

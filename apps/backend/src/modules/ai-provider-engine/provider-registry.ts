@@ -32,7 +32,10 @@ export class ProviderRegistry {
     }
 
     const adapterFiles = files.filter(
-      (f) => f.endsWith(".adapter.ts") || f.endsWith(".adapter.js")
+      (f) =>
+        !f.startsWith("._") &&
+        !f.startsWith(".") &&
+        (f.endsWith(".adapter.ts") || f.endsWith(".adapter.js"))
     );
 
     if (adapterFiles.length === 0) {

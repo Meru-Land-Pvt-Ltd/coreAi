@@ -308,3 +308,64 @@ export function syncTwilioPhoneNumbers(dryRun: boolean) {
 export function releasePhoneNumber(id: string) {
   return apiDelete<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/release`);
 }
+
+/* ------------------------- Platform usage service pricing ------------------------- */
+
+export type UsageServiceUnit = "PER_MINUTE" | "PER_SMS" | "PER_CALL" | "PER_UNIT";
+
+export type AdminUsageService = {
+  id: string;
+  code: string;
+  name: string;
+  role: string | null;
+  unit: UsageServiceUnit;
+  actualCostUsd: number;
+  updatedCostUsd: number;
+  actualCostMicroUsd: number;
+  updatedCostMicroUsd: number;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminPricingServicesResponse = {
+  services: AdminUsageService[];
+  totals: {
+    perMinuteActualUsd: number;
+    perMinuteUpdatedUsd: number;
+  };
+};
+
+export function getAdminPricingServices(includeInactive = false) {
+  return apiGet<AdminPricingServicesResponse>(
+    `/admin/pricing/services${includeInactive ? "?includeInactive=true" : ""}`
+  );
+}
+
+export function createAdminPricingService(body: {
+  code: string;
+  name: string;
+  role?: string;
+  unit?: UsageServiceUnit;
+  actualCostUsd: number;
+  updatedCostUsd: number;
+  sortOrder?: number;
+}) {
+  return apiPost<{ service: AdminUsageService }>("/admin/pricing/services", body);
+}
+
+export function updateAdminPricingService(
+  id: string,
+  body: Partial<{
+    name: string;
+    role: string | null;
+    unit: UsageServiceUnit;
+    actualCostUsd: number;
+    updatedCostUsd: number;
+    isActive: boolean;
+    sortOrder: number;
+  }>
+) {
+  return apiPatch<{ service: AdminUsageService }>(`/admin/pricing/services/${id}`, body);
+}
