@@ -635,6 +635,7 @@ async function createBusinessAppointment({
       endAt: new Date(calendarEvent.endAt),
       timeZone: calendarEvent.timeZone,
       calendarEventId: calendarEvent.id,
+      calendarEventLink: calendarEvent.htmlLink ?? undefined,
       notes: notes ?? undefined
     }
   });

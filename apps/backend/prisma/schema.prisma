@@ -391,6 +391,8 @@ model Appointment {
   endAt           DateTime
   timeZone        String?
   calendarEventId String?
+  /// Google Calendar event htmlLink — lets the buyer open the booking on the calendar.
+  calendarEventLink String?
   status          String   @default("BOOKED")
   notes           String?
   createdAt       DateTime @default(now())

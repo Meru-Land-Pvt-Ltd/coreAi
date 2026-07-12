@@ -10,6 +10,10 @@ type ApiPurchasedAgent = {
     purchaseId: string;
     purchasedAt: string;
     purchaseStatus: string;
+    stats?: {
+        runsThisMonth: number;
+        costThisMonthMicroUsd: number;
+    };
     listing: {
         id: string;
         name: string;
@@ -23,12 +27,53 @@ type MyAgentsResponse = {
     agents?: ApiPurchasedAgent[];
 };
 
+type DashboardBooking = {
+    id: string;
+    customerName: string | null;
+    customerPhone: string;
+    service: string | null;
+    startAt: string;
+    endAt: string;
+    timeZone: string | null;
+    status: string;
+    onCalendar: boolean;
+    calendarEventLink?: string | null;
+    createdAt: string;
+};
+
+type ActivityChartDay = {
+    date: string;
+    executions: number;
+    bookings: number;
+    costMicroUsd: number;
+};
+
+type DashboardBookings = {
+    month: string;
+    total: number;
+    upcoming: number;
+    agentName?: string | null;
+    calendarConnected?: boolean;
+    items: DashboardBooking[];
+};
+
+type DashboardMonthlyMetrics = {
+    callsHandled: number;
+    callsHandledPrevMonth: number;
+    bookings: number;
+    bookingsPrevMonth: number;
+};
+
 type DashboardOverview = {
     installedAgent: { name: string; status: string } | null;
     phoneNumber: { phoneNumber: string; forwardToPhone: string | null } | null;
     subscription: { status: string; active: boolean };
     counts: { leads: number; conversations: number; appointments: number };
+    monthlyMetrics?: DashboardMonthlyMetrics;
     recentMissedCalls: { id: string; phoneNumber: string; name: string | null; status: string }[];
+    bookings?: DashboardBookings;
+    activityChart?: { days: ActivityChartDay[] };
+    agentActivity?: DashboardActivityApi[];
     calendarConnected: boolean;
     totalSpendCents?: number;
     activities?: DashboardActivityApi[];
@@ -158,13 +203,7 @@ function getFullDate() {
 }
 
 const metrics: MetricCard[] = [
-    {
-        label: "Revenue Saved",
-        value: "$0",
-        subtitle: "this month · vs last month",
-        trend: "0%",
-        icon: "dollar"
-    },
+  
     {
         label: "Calls Handled",
         value: "0",
@@ -212,6 +251,12 @@ function formatCurrencyCents(cents: number) {
     return `$${(cents / 100).toFixed(2)}`;
 }
 
+function formatTrend(current: number, previous: number) {
+    if (previous === 0) return current > 0 ? "+100%" : "0%";
+    const change = Math.round(((current - previous) / previous) * 100);
+    return `${change > 0 ? "+" : ""}${change}%`;
+}
+
 function formatRelativeTime(iso: string) {
     const timestamp = new Date(iso).getTime();
     if (Number.isNaN(timestamp)) return "Recently";
@@ -231,13 +276,28 @@ function formatRelativeTime(iso: string) {
     return formatPurchasedDate(iso);
 }
 
-const chartData: Record<ChartMetric, number[]> = {
-    executions: [6, 8, 7, 9, 4, 3, 7, 5, 2, 6, 8, 5, 4, 9, 6, 3, 8, 10, 6, 5, 11, 9, 12, 10, 13, 7, 6, 14, 11, 15],
-    revenue: [120, 180, 90, 340, 60, 0, 210, 150, 0, 130, 280, 90, 60, 360, 120, 0, 240, 420, 150, 90, 480, 300, 390, 330, 540, 180, 120, 620, 450, 680],
-    cost: [0.9, 1.2, 1.05, 1.35, 0.6, 0.45, 1.05, 0.75, 0.3, 0.9, 1.2, 0.75, 0.6, 1.35, 0.9, 0.45, 1.2, 1.5, 0.9, 0.75, 1.65, 1.35, 1.8, 1.5, 1.95, 1.05, 0.9, 2.1, 1.65, 2.25]
-};
+const CHART_DAYS = 30;
 
-const chartLabels = ["Dec 17", "Dec 23", "Dec 29", "Jan 4", "Jan 10", "Jan 15"];
+function fallbackChartDays(): ActivityChartDay[] {
+    const today = new Date();
+    return Array.from({ length: CHART_DAYS }, (_, index) => {
+        const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - (CHART_DAYS - 1 - index)));
+        return { date: day.toISOString().slice(0, 10), executions: 0, bookings: 0, costMicroUsd: 0 };
+    });
+}
+
+function chartMetricValue(day: ActivityChartDay, metric: ChartMetric) {
+    if (metric === "executions") return day.executions;
+    if (metric === "cost") return day.costMicroUsd / 1_000_000;
+    // Revenue saved has no data source yet (needs an average job value setting).
+    return 0;
+}
+
+function formatChartDate(isoDate: string) {
+    const date = new Date(`${isoDate}T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) return isoDate;
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+}
 
 function formatPurchasedDate(value: string) {
     return new Intl.DateTimeFormat("en-US", {
@@ -266,17 +326,23 @@ function isActivePurchaseStatus(status: string) {
     return value === "SUCCEEDED" || value === "TRIALING";
 }
 
+function formatUsageCostUsd(microUsd: number): string {
+    if (microUsd <= 0) return "$0.00";
+    return `$${(microUsd / 1_000_000).toFixed(2)}`;
+}
+
 function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
     const { listing } = entry;
-    const priceCents = listing.priceCents ?? 0;
+    const runsThisMonth = entry.stats?.runsThisMonth ?? 0;
+    const costMicroUsd = entry.stats?.costThisMonthMicroUsd ?? 0;
 
     return {
         id: entry.purchaseId,
         listingId: listing.id,
         name: listing.name,
         since: `Purchased ${formatPurchasedDate(entry.purchasedAt)}`,
-        runs: "0",
-        cost: priceCents > 0 ? `$${(priceCents / 100).toFixed(0)}/mo` : "0",
+        runs: String(runsThisMonth),
+        cost: formatUsageCostUsd(costMicroUsd),
         icon: pickAgentIcon(listing.name, listing.tags ?? []),
         purchaseStatus: entry.purchaseStatus,
         isActive: isActivePurchaseStatus(entry.purchaseStatus)
@@ -294,24 +360,55 @@ export default function BusinessDashboardPage() {
     const [agents, setAgents] = useState<Agent[]>([]);
     const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
 
-    const currentData = chartData[chartMetric];
-    const maxValue = Math.max(...currentData);
-    const avgValue = currentData.reduce((sum, value) => sum + value, 0) / currentData.length;
+    const chartDays = useMemo(() => {
+        const days = overview?.activityChart?.days ?? [];
+        return days.length > 0 ? days : fallbackChartDays();
+    }, [overview?.activityChart?.days]);
+
+    const currentData = useMemo(
+        () => chartDays.map((day) => chartMetricValue(day, chartMetric)),
+        [chartDays, chartMetric]
+    );
+    const maxValue = Math.max(...currentData, 1);
+
+    const chartLabels = useMemo(() => {
+        if (chartDays.length === 0) return [];
+        const labelCount = 6;
+        return Array.from({ length: labelCount }, (_, index) => {
+            const dayIndex = Math.round((index * (chartDays.length - 1)) / (labelCount - 1));
+            return formatChartDate(chartDays[dayIndex]?.date ?? "");
+        });
+    }, [chartDays]);
 
     const yAxis = useMemo(() => getYAxis(maxValue, chartMetric), [maxValue, chartMetric]);
 
     const dashboardMetrics = useMemo(() => {
         const totalSpendCents = overview?.totalSpendCents ?? 0;
+        const monthly = overview?.monthlyMetrics;
+        const bookingsThisMonth = monthly?.bookings ?? overview?.bookings?.total ?? 0;
+        const callsHandled = monthly?.callsHandled ?? 0;
 
-        return metrics.map((metric) =>
-            metric.label === "Total Spend"
-                ? {
-                      ...metric,
-                      value: formatCurrencyCents(totalSpendCents)
-                  }
-                : metric
-        );
-    }, [overview?.totalSpendCents]);
+        return metrics.map((metric) => {
+            if (metric.label === "Total Spend") {
+                return { ...metric, value: formatCurrencyCents(totalSpendCents) };
+            }
+            if (metric.label === "Appointments Booked") {
+                return {
+                    ...metric,
+                    value: String(bookingsThisMonth),
+                    trend: formatTrend(bookingsThisMonth, monthly?.bookingsPrevMonth ?? 0)
+                };
+            }
+            if (metric.label === "Calls Handled") {
+                return {
+                    ...metric,
+                    value: String(callsHandled),
+                    trend: formatTrend(callsHandled, monthly?.callsHandledPrevMonth ?? 0)
+                };
+            }
+            return metric;
+        });
+    }, [overview?.totalSpendCents, overview?.bookings?.total, overview?.monthlyMetrics]);
 
     const liveActivities = useMemo(
         () =>
@@ -420,7 +517,7 @@ export default function BusinessDashboardPage() {
                 </div>
             </div>
 
-            <section aria-label="Key metrics" className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            <section aria-label="Key metrics" className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {dashboardMetrics.map((metric) => (
                     <MetricCard key={metric.label} metric={metric} />
                 ))}
@@ -488,6 +585,69 @@ export default function BusinessDashboardPage() {
                         )}
                     </section>
 
+                    <section
+                        id="bookings"
+                        className="scroll-mt-24 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
+                        data-testid="dashboard-bookings-section"
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-4">
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-900" data-testid="dashboard-bookings-heading">
+                                    Bookings{" "}
+                                    <span className="font-medium text-slate-400" data-testid="dashboard-bookings-month-label">
+                                        {formatBookingsMonth(overview?.bookings?.month)}
+                                    </span>
+                                </h2>
+                                {overview?.bookings?.agentName ? (
+                                    <p className="mt-0.5 text-xs text-slate-400" data-testid="dashboard-bookings-agent-name">
+                                        Booked by {overview.bookings.agentName} via Google Calendar
+                                    </p>
+                                ) : null}
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                    <p className="text-2xl font-black tracking-tight text-slate-900" data-testid="dashboard-bookings-total">
+                                        {overview?.bookings?.total ?? 0}
+                                    </p>
+                                    <p className="text-xs text-slate-400" data-testid="dashboard-bookings-total-label">total this month</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-2xl font-black tracking-tight text-green-600" data-testid="dashboard-bookings-upcoming">
+                                        {overview?.bookings?.upcoming ?? 0}
+                                    </p>
+                                    <p className="text-xs text-slate-400" data-testid="dashboard-bookings-upcoming-label">upcoming</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {overviewState === "loading" ? (
+                            <div className="divide-y divide-gray-50" data-testid="dashboard-bookings-loading">
+                                {Array.from({ length: 3 }).map((_, index) => (
+                                    <div key={index} className="flex animate-pulse items-center gap-4 px-6 py-4">
+                                        <div className="h-10 w-10 rounded-xl bg-gray-100" />
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-4 w-44 rounded bg-gray-100" />
+                                            <div className="h-3 w-32 rounded bg-gray-100" />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (overview?.bookings?.items?.length ?? 0) === 0 ? (
+                            <div className="px-6 py-10 text-center" data-testid="dashboard-bookings-empty">
+                                <p className="text-sm font-semibold text-slate-700">No bookings yet this month</p>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    When your agent books an appointment for a caller, it will appear here.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="max-h-96 divide-y divide-gray-50 overflow-y-auto" data-testid="dashboard-bookings-list">
+                                {(overview?.bookings?.items ?? []).map((booking) => (
+                                    <BookingRow key={booking.id} booking={booking} />
+                                ))}
+                            </div>
+                        )}
+                    </section>
+
                     <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
                         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                             <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agent-activity-last-30-days-heading">
@@ -517,8 +677,8 @@ export default function BusinessDashboardPage() {
 
                         <div className="flex gap-3">
                             <div className="flex h-64 w-12 flex-col justify-between py-0 text-right text-xs text-slate-400">
-                                {yAxis.map((label) => (
-                                    <span key={label} data-testid="business-protected-dashboard-label-text">{label}</span>
+                                {yAxis.map((label, index) => (
+                                    <span key={`${index}-${label}`} data-testid="business-protected-dashboard-label-text">{label}</span>
                                 ))}
                             </div>
 
@@ -529,27 +689,18 @@ export default function BusinessDashboardPage() {
                                     ))}
                                 </div>
 
-                                <div
-                                    className="pointer-events-none absolute right-0 rounded bg-white/90 px-1.5 text-[11px] font-medium text-slate-400 backdrop-blur-sm"
-                                    style={{
-                                        bottom: `${Math.max(6, Math.min(92, (avgValue / maxValue) * 100))}%`
-                                    }}
-                                >
-                                    avg: {formatAverage(avgValue, chartMetric)}
-                                </div>
-
                                 {currentData.map((value, index) => {
                                     const height = Math.max(2, (value / maxValue) * 100);
 
                                     return (
-                                        <div key={`${chartMetric}-${index}`} className="group relative z-10 flex flex-1 items-end">
+                                        <div key={`${chartMetric}-${index}`} className="group relative z-10 flex h-full flex-1 items-end">
                                             <div
                                                 className="w-full rounded-t bg-amber-300 transition-colors hover:bg-amber-500"
                                                 style={{ height: `${height}%` }}
                                             />
                                             <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden -translate-x-1/2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs text-white shadow-lg group-hover:block">
                                                 <div className="whitespace-nowrap text-[11px] text-slate-300">
-                                                    Day {index + 1}
+                                                    {formatChartDate(chartDays[index]?.date ?? "") || `Day ${index + 1}`}
                                                 </div>
                                                 <div className="whitespace-nowrap font-semibold">
                                                     {formatChartValue(value, chartMetric)}
@@ -564,11 +715,12 @@ export default function BusinessDashboardPage() {
                         <div className="mt-2 flex gap-3">
                             <div className="w-12" />
                             <div className="flex flex-1 justify-between text-xs text-slate-400">
-                                {chartLabels.map((label) => (
-                                    <span key={label} data-testid="business-protected-dashboard-label-text-2">{label}</span>
+                                {chartLabels.map((label, index) => (
+                                    <span key={`${index}-${label}`} data-testid="business-protected-dashboard-label-text-2">{label}</span>
                                 ))}
                             </div>
                         </div>
+
                     </section>
                 </div>
 
@@ -723,7 +875,7 @@ function AgentRow({
                 </div>
 
                 <div className="text-right">
-                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">$ 0</p>
+                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">{agent.cost}</p>
                     <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">cost</p>
                 </div>
             </div>
@@ -771,6 +923,123 @@ function AgentMenuButton({
             <Icon name={icon} className={`h-4 w-4 ${danger ? "" : "text-slate-400"}`} />
             {label}
         </button>
+    );
+}
+
+function formatBookingsMonth(month?: string) {
+    const source = month ? new Date(`${month}-01T00:00:00Z`) : new Date();
+    if (Number.isNaN(source.getTime())) return "This month";
+
+    return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(source);
+}
+
+function formatWithOptions(date: Date, options: Intl.DateTimeFormatOptions, timeZone?: string | null) {
+    try {
+        return new Intl.DateTimeFormat("en-US", { ...options, ...(timeZone ? { timeZone } : {}) }).format(date);
+    } catch {
+        return new Intl.DateTimeFormat("en-US", options).format(date);
+    }
+}
+
+function formatBookingDate(iso: string, timeZone?: string | null) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return formatWithOptions(date, { weekday: "short", month: "short", day: "numeric", year: "numeric" }, timeZone);
+}
+
+function formatBookingClock(iso: string, timeZone?: string | null) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "";
+    return formatWithOptions(date, { hour: "numeric", minute: "2-digit" }, timeZone);
+}
+
+/** Google Calendar day-view URL for the booking date (fallback when no event link is stored). */
+function calendarDayUrl(iso: string, timeZone?: string | null) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "https://calendar.google.com/calendar/u/0/r";
+
+    let parts: { year: string; month: string; day: string } | null = null;
+    try {
+        const formatted = new Intl.DateTimeFormat("en-CA", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            ...(timeZone ? { timeZone } : {})
+        }).formatToParts(date);
+        parts = {
+            year: formatted.find((part) => part.type === "year")?.value ?? "",
+            month: formatted.find((part) => part.type === "month")?.value ?? "",
+            day: formatted.find((part) => part.type === "day")?.value ?? ""
+        };
+    } catch {
+        parts = null;
+    }
+
+    if (!parts?.year || !parts.month || !parts.day) {
+        return "https://calendar.google.com/calendar/u/0/r";
+    }
+
+    return `https://calendar.google.com/calendar/u/0/r/day/${parts.year}/${Number(parts.month)}/${Number(parts.day)}`;
+}
+
+function bookingStatusTone(status: string) {
+    const value = status.toUpperCase();
+    if (value === "BOOKED" || value === "CONFIRMED") return "bg-green-50 text-green-700";
+    if (value === "CANCELLED" || value === "CANCELED") return "bg-red-50 text-red-600";
+    return "bg-slate-100 text-slate-600";
+}
+
+function BookingRow({ booking }: { booking: DashboardBooking }) {
+    const customer = booking.customerName?.trim() || booking.customerPhone;
+    const isUpcoming = new Date(booking.startAt).getTime() > Date.now();
+    const startClock = formatBookingClock(booking.startAt, booking.timeZone);
+    const endClock = formatBookingClock(booking.endAt, booking.timeZone);
+    const calendarUrl = booking.calendarEventLink || calendarDayUrl(booking.startAt, booking.timeZone);
+
+    return (
+        <div className="flex flex-wrap items-center gap-4 px-6 py-4 transition-colors hover:bg-gray-50" data-testid={`dashboard-booking-row-${booking.id}`}>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                <Icon name="calendar" className="h-5 w-5" />
+            </span>
+
+            <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-slate-900" data-testid="dashboard-booking-customer">
+                    {customer}
+                    {booking.service ? <span className="font-normal text-slate-500"> · {booking.service}</span> : null}
+                </p>
+                <p className="text-xs text-slate-500" data-testid="dashboard-booking-time">
+                    {formatBookingDate(booking.startAt, booking.timeZone)}
+                    {startClock ? ` · ${startClock}${endClock ? ` – ${endClock}` : ""}` : ""}
+                </p>
+                <p className="text-xs text-slate-400" data-testid="dashboard-booking-meta">
+                    {booking.customerName ? `${booking.customerPhone} · ` : ""}
+                    Booked {formatBookingDate(booking.createdAt, booking.timeZone)}
+                </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+                {isUpcoming ? (
+                    <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid="dashboard-booking-upcoming-badge">
+                        Upcoming
+                    </span>
+                ) : null}
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${bookingStatusTone(booking.status)}`} data-testid="dashboard-booking-status">
+                    {booking.status}
+                </span>
+                {booking.onCalendar ? (
+                    <a
+                        href={calendarUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+                        data-testid="dashboard-booking-open-calendar"
+                    >
+                        <Icon name="calendar" className="h-3 w-3" />
+                        Open calendar
+                    </a>
+                ) : null}
+            </div>
+        </div>
     );
 }
 
@@ -835,12 +1104,6 @@ function formatChartValue(value: number, metric: ChartMetric) {
     if (metric === "revenue") return `$${Math.round(value).toLocaleString()} saved`;
     if (metric === "cost") return `$${value.toFixed(2)}`;
     return `${Math.round(value)} executions`;
-}
-
-function formatAverage(value: number, metric: ChartMetric) {
-    if (metric === "revenue") return `$${Math.round(value)}/day`;
-    if (metric === "cost") return `$${value.toFixed(2)}/day`;
-    return `${Math.round(value)}/day`;
 }
 
 function TrendIcon() {
