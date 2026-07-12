@@ -122,7 +122,7 @@ type UsageInvoice = {
 };
 
 type UsageInvoicesResponse = { invoices: UsageInvoice[] };
-type InvoiceTab = "paid" | "overdue";
+type InvoiceTab = "trial" | "paid" | "overdue";
 
 const NA = "0";
 
@@ -146,6 +146,14 @@ function formatDate(iso: string) {
 function usageDueAt(month: string) {
     const [year, monthNumber] = month.split("-").map(Number);
     return new Date(Date.UTC(year, monthNumber, 8)).toISOString();
+}
+
+function isTrialPurchaseInvoice(status: string) {
+    return status.toUpperCase() === "TRIALING";
+}
+
+function isPaidPurchaseInvoice(status: string) {
+    return status.toUpperCase() === "SUCCEEDED";
 }
 
 function statusBadgeClass(status: string) {
@@ -236,10 +244,6 @@ export default function BusinessBillingUsagePage() {
         router.push(`/business/billingandusage/billing?invoiceId=${encodeURIComponent(invoiceId)}`);
     }
 
-    function openAgentBilling(agentId: string) {
-        router.push(`/business/billingandusage/billing?agentId=${encodeURIComponent(agentId)}`);
-    }
-
     function openUsageInvoice(invoice: UsageInvoice) {
         const agentId = invoice.agentBreakdown[0]?.agentId;
         const suffix = agentId ? `&agentId=${encodeURIComponent(agentId)}` : "";
@@ -302,7 +306,8 @@ export default function BusinessBillingUsagePage() {
 
     const agents = billing?.agents ?? [];
     const invoices = billing?.invoices ?? [];
-    const paidPurchaseInvoices = invoices.filter((invoice) => invoice.status.toUpperCase() === "SUCCEEDED");
+    const trialPurchaseInvoices = invoices.filter((invoice) => isTrialPurchaseInvoice(invoice.status));
+    const paidPurchaseInvoices = invoices.filter((invoice) => isPaidPurchaseInvoice(invoice.status));
     const paidUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "PAID");
     const currentUsageStatement: UsageInvoice | null = usage && usage.totalCalls > 0
         ? {
@@ -430,15 +435,10 @@ export default function BusinessBillingUsagePage() {
                         ) : (
                             usage!.agentRollup.map((agent) => (
                                 <div key={agent.agentId ?? agent.agentName} className="flex items-center justify-between gap-4 bg-white px-4 py-4">
-                                    <button
-                                        type="button"
-                                        disabled={!agent.agentId}
-                                        onClick={() => agent.agentId && openAgentBilling(agent.agentId)}
-                                        className="min-w-0 text-left disabled:cursor-default"
-                                    >
+                                    <div className="min-w-0">
                                         <p className="truncate text-sm font-semibold text-slate-900">{agent.agentName}</p>
                                         <p className="mt-1 text-xs text-slate-400">{agent.callCount} calls · {agent.durationMinutes.toFixed(1)} minutes</p>
-                                    </button>
+                                    </div>
                                     <div className="flex shrink-0 items-center gap-3">
                                         <span className="font-mono text-base font-bold text-amber-600">${agent.billedCostUsd.toFixed(2)}</span>
                                         <button
@@ -459,7 +459,10 @@ export default function BusinessBillingUsagePage() {
                 <section className="rounded-2xl border border-gray-100 bg-white shadow-sm" aria-label="Invoice history">
                     <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <h2 className="text-lg font-bold">Invoices</h2>
-                        <div className="flex rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Invoice status">
+                        <div className="flex flex-wrap rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Invoice status">
+                            <button type="button" role="tab" aria-selected={invoiceTab === "trial"} onClick={() => setInvoiceTab("trial")} className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${invoiceTab === "trial" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500"}`}>
+                                Trial ({trialPurchaseInvoices.length})
+                            </button>
                             <button type="button" role="tab" aria-selected={invoiceTab === "paid"} onClick={() => setInvoiceTab("paid")} className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${invoiceTab === "paid" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
                                 Paid ({paidPurchaseInvoices.length + paidUsageInvoices.length})
                             </button>
@@ -469,7 +472,9 @@ export default function BusinessBillingUsagePage() {
                         </div>
                     </div>
 
-                    {invoiceTab === "paid" && paidPurchaseInvoices.length + paidUsageInvoices.length === 0 ? (
+                    {invoiceTab === "trial" && trialPurchaseInvoices.length === 0 ? (
+                        <p className="px-6 py-8 text-center text-sm text-slate-400">No trial invoices yet.</p>
+                    ) : invoiceTab === "paid" && paidPurchaseInvoices.length + paidUsageInvoices.length === 0 ? (
                         <p className="px-6 py-8 text-center text-sm text-slate-400">No paid invoices yet.</p>
                     ) : invoiceTab === "overdue" && overdueUsageInvoices.length === 0 ? (
                         <p className="px-6 py-8 text-center text-sm text-slate-400">No overdue invoices.</p>
@@ -486,6 +491,45 @@ export default function BusinessBillingUsagePage() {
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    {invoiceTab === "trial" && trialPurchaseInvoices.map((invoice) => (
+                                        <tr
+                                            key={invoice.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => openInvoice(invoice.id)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    openInvoice(invoice.id);
+                                                }
+                                            }}
+                                            className="cursor-pointer border-b border-gray-50 transition last:border-0 hover:bg-amber-50/30 focus-visible:bg-amber-50/40 focus-visible:outline-none"
+                                        >
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">{formatDate(invoice.createdAt)}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-700">{invoice.description || NA}</td>
+                                            <td className="px-6 py-4 font-mono text-sm font-semibold tabular-nums text-slate-800">{formatCurrencyCents(invoiceDisplayAmount(invoice))}</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(invoice.status)}`}>
+                                                    {statusLabel(invoice.status)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void downloadInvoice(invoice);
+                                                    }}
+                                                    data-testid="billing-invoice-download"
+                                                    aria-label={`Download ${invoice.description || "invoice"} PDF`}
+                                                    className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
+                                                >
+                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinejoin="round" d="M7 3h7l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /><path strokeLinejoin="round" d="M14 3v4h4" /></svg>
+                                                    PDF
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
                                     {invoiceTab === "paid" && paidPurchaseInvoices.map((invoice) => (
                                         <tr
                                             key={invoice.id}

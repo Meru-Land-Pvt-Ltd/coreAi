@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
-import { downloadInvoicePdf, openInvoiceForPrint } from "@/lib/invoice-print";
+import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthToken, getAuthUser } from "@/lib/auth";
 import { BUSINESS_BILLING_PATH, BUSINESS_LOGIN_PATH } from "@/lib/routes";
 
@@ -95,9 +95,61 @@ const INVOICE_STYLES = `
 .invoice-toast { transform: translateY(12px); opacity: 0; transition: transform .28s cubic-bezier(.16,1,.3,1), opacity .28s ease; }
 .invoice-toast.show { transform: translateY(0); opacity: 1; }
 @media print {
-    .no-print { display: none !important; }
-    body { background: #fff !important; }
-    #invoice-card { box-shadow: none !important; border: none !important; border-radius: 0 !important; max-width: 100% !important; }
+    @page {
+        margin: 0.45in;
+        size: auto;
+    }
+
+    html,
+    body {
+        background: #fff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+    }
+
+    aside,
+    .no-print {
+        display: none !important;
+    }
+
+    /* Business layout mobile header */
+    .lg\\:ml-64 > .sticky {
+        display: none !important;
+    }
+
+    .min-h-screen,
+    .invoice-root,
+    .invoice-root main {
+        min-height: 0 !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+    }
+
+    .lg\\:ml-64 {
+        margin-left: 0 !important;
+    }
+
+    #invoice-card {
+        position: static !important;
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        overflow: visible !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    #invoice-card button {
+        display: none !important;
+    }
 }
 `;
 
@@ -164,7 +216,6 @@ export default function BusinessInvoiceDetailPage() {
     const [billing, setBilling] = useState<Billing | null>(null);
     const [usageInvoices, setUsageInvoices] = useState<UsageInvoice[]>([]);
     const [usage, setUsage] = useState<UsageBill | null>(null);
-    const [invoiceTab, setInvoiceTab] = useState<"paid" | "overdue">("paid");
     const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
     const [toast, setToast] = useState("");
 
@@ -251,16 +302,10 @@ export default function BusinessInvoiceDetailPage() {
         }
     }
 
-    async function printInvoice() {
-        if (!invoice) return;
-
-        showToast("Preparing invoice…");
-
-        try {
-            await openInvoiceForPrint(invoice.id);
-        } catch {
-            showToast("Could not open invoice for printing");
-        }
+    function printInvoice() {
+        const printable = document.getElementById("invoice-card");
+        if (!printable) return;
+        window.print();
     }
 
     async function payUsageInvoice(invoice: UsageInvoice) {
@@ -306,17 +351,6 @@ export default function BusinessInvoiceDetailPage() {
         ? scopedUsageInvoices.flatMap((item) => item.agentBreakdown).find((agent) => agent.agentId === agentId)?.agentName ?? "Agent"
         : null;
     const showAgentHistory = Boolean(agentId || selectedUsageInvoice);
-    const overdueInvoices = scopedUsageInvoices.filter((item) => item.status === "OPEN" || item.status === "OVERDUE");
-    const paidUsageInvoices = scopedUsageInvoices.filter((item) => item.status === "PAID");
-    const paidCount = showAgentHistory
-        ? paidUsageInvoices.length
-        : (billing?.invoices.filter((item) => item.status === "SUCCEEDED").length ?? 0) + paidUsageInvoices.length;
-
-    useEffect(() => {
-        if (selectedUsageInvoice?.status === "OPEN" || selectedUsageInvoice?.status === "OVERDUE") {
-            setInvoiceTab("overdue");
-        }
-    }, [selectedUsageInvoice?.id, selectedUsageInvoice?.status]);
 
     if (!authReady) {
         return <main className="min-h-screen bg-slate-100" />;
@@ -348,7 +382,7 @@ export default function BusinessInvoiceDetailPage() {
                         <span aria-hidden="true">←</span> Back to Billing History
                     </Link>
 
-                    {!showAgentHistory ? <div className="flex flex-col gap-2 sm:flex-row">
+                    {!showAgentHistory && (invoice || selectedUsageInvoice) ? <div className="flex flex-col gap-2 sm:flex-row">
                         <button
                             type="button"
                             onClick={downloadPdf}
@@ -371,29 +405,22 @@ export default function BusinessInvoiceDetailPage() {
                     </div> : null}
                 </div>
 
-                <div className="no-print mb-6 flex w-fit rounded-xl bg-slate-200/70 p-1" role="tablist" aria-label="Invoice status">
-                    <button type="button" role="tab" aria-selected={invoiceTab === "paid"} onClick={() => setInvoiceTab("paid")} className={`rounded-lg px-5 py-2 text-sm font-semibold ${invoiceTab === "paid" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>Paid ({paidCount})</button>
-                    <button type="button" role="tab" aria-selected={invoiceTab === "overdue"} onClick={() => setInvoiceTab("overdue")} className={`rounded-lg px-5 py-2 text-sm font-semibold ${invoiceTab === "overdue" ? "bg-white text-red-700 shadow-sm" : "text-slate-500"}`}>Overdue ({overdueInvoices.length})</button>
-                </div>
-
-                {invoiceTab === "overdue" || showAgentHistory ? (
-                    selectedUsageInvoice ? (
-                        <UsageInvoiceCard
-                            invoice={selectedUsageInvoice}
-                            agentId={agentId}
-                            billing={billing}
-                            paying={payingInvoiceId === selectedUsageInvoice.id}
-                            onPay={payUsageInvoice}
-                        />
-                    ) : (
-                        <AgentInvoiceList
-                            invoices={invoiceTab === "paid" ? paidUsageInvoices : overdueInvoices}
-                            agentId={agentId}
-                            agentName={selectedAgentName}
-                            payingInvoiceId={payingInvoiceId}
-                            onPay={payUsageInvoice}
-                        />
-                    )
+                {selectedUsageInvoice ? (
+                    <UsageInvoiceCard
+                        invoice={selectedUsageInvoice}
+                        agentId={agentId}
+                        billing={billing}
+                        paying={payingInvoiceId === selectedUsageInvoice.id}
+                        onPay={payUsageInvoice}
+                    />
+                ) : showAgentHistory ? (
+                    <AgentInvoiceList
+                        invoices={scopedUsageInvoices}
+                        agentId={agentId}
+                        agentName={selectedAgentName}
+                        payingInvoiceId={payingInvoiceId}
+                        onPay={payUsageInvoice}
+                    />
                 ) : isLoading ? (
                     <div className="mx-auto h-[600px] max-w-[800px] animate-pulse rounded-xl border border-slate-200 bg-white" />
                 ) : apiError ? (

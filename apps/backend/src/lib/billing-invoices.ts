@@ -91,9 +91,36 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
   const listingsWithTrialInvoice = new Set<string>();
 
   for (const payment of payments) {
+    if (!payment.listingId) continue;
+
+    if (payment.status === PaymentStatus.CANCELED) {
+      const description = (payment.description ?? "").toLowerCase();
+      if (!description.includes("trial")) continue;
+      if (listingsWithTrialInvoice.has(payment.listingId)) continue;
+
+      listingsWithTrialInvoice.add(payment.listingId);
+      const agentName = payment.listing?.name ?? "Agent";
+
+      invoices.push({
+        id: payment.id,
+        createdAt: payment.createdAt.toISOString(),
+        description: payment.description ?? `7-day trial for ${agentName}`,
+        amountCents: payment.amountCents,
+        displayAmountCents: 0,
+        currency: payment.currency,
+        status: PaymentStatus.TRIALING,
+        listingId: payment.listingId,
+        listingName: payment.listing?.name ?? null,
+        billingName: payment.billingName ?? null,
+        billingEmail: payment.billingEmail ?? null,
+        billingAddress: payment.billingAddress ?? null
+      });
+      continue;
+    }
+
     if (!INVOICE_HISTORY_STATUSES.includes(payment.status)) continue;
 
-    if (payment.status === PaymentStatus.TRIALING && payment.listingId) {
+    if (payment.status === PaymentStatus.TRIALING) {
       listingsWithTrialInvoice.add(payment.listingId);
     }
 

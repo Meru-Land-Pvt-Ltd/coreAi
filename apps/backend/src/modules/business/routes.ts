@@ -93,6 +93,131 @@ businessRoutes.get("/billing/usage-invoices", getBusinessUsageInvoices);
 businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessUsageInvoice);
 businessRoutes.route("/settings", businessSettingsRoutes);
 
+/** First moment of the current calendar month (UTC). */
+function currentMonthStart(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/** First moment of the previous calendar month (UTC). */
+function previousMonthStart(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+}
+
+/** Daily buckets (UTC dates) for the agent activity chart, oldest first. */
+function buildActivityChartDays(params: {
+  days: number;
+  appointments: Array<{ createdAt: Date }>;
+  missedCallLeads: Array<{ createdAt: Date }>;
+  vapiCalls: Array<{ createdAt: Date; billedCostMicroUsd: number | null }>;
+}) {
+  const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+  const today = new Date();
+  const buckets = new Map<
+    string,
+    { date: string; executions: number; bookings: number; costMicroUsd: number }
+  >();
+
+  for (let offset = params.days - 1; offset >= 0; offset -= 1) {
+    const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - offset));
+    const key = dayKey(day);
+    buckets.set(key, { date: key, executions: 0, bookings: 0, costMicroUsd: 0 });
+  }
+
+  for (const appointment of params.appointments) {
+    const bucket = buckets.get(dayKey(appointment.createdAt));
+    if (bucket) {
+      bucket.executions += 1;
+      bucket.bookings += 1;
+    }
+  }
+
+  for (const lead of params.missedCallLeads) {
+    const bucket = buckets.get(dayKey(lead.createdAt));
+    if (bucket) bucket.executions += 1;
+  }
+
+  for (const call of params.vapiCalls) {
+    const bucket = buckets.get(dayKey(call.createdAt));
+    if (bucket) {
+      bucket.executions += 1;
+      bucket.costMicroUsd += call.billedCostMicroUsd ?? 0;
+    }
+  }
+
+  return Array.from(buckets.values());
+}
+
+/** Agent-generated events (bookings, missed calls, AI calls) as activity items. */
+function buildAgentEventActivities(params: {
+  agentName: string;
+  appointments: Array<{
+    id: string;
+    customerName: string | null;
+    customerPhone: string;
+    service: string | null;
+    startAt: Date;
+    createdAt: Date;
+  }>;
+  missedCallLeads: Array<{ id: string; phoneNumber: string; name: string | null; createdAt: Date }>;
+  vapiCalls: Array<{ id: string; customerPhone: string; status: string; createdAt: Date }>;
+}) {
+  const activities: Array<{
+    id: string;
+    type: string;
+    text: string;
+    badge: string;
+    tone: "green" | "amber" | "slate";
+    check?: boolean;
+    createdAt: string;
+  }> = [];
+
+  for (const appointment of params.appointments) {
+    const who = appointment.customerName?.trim() || appointment.customerPhone;
+    const when = appointment.startAt.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+    activities.push({
+      id: `booking-${appointment.id}`,
+      type: "appointment_booked",
+      text: `${params.agentName} booked ${appointment.service?.trim() || "an appointment"} for ${who} — ${when}`,
+      badge: "Booking",
+      tone: "green",
+      check: true,
+      createdAt: appointment.createdAt.toISOString()
+    });
+  }
+
+  for (const lead of params.missedCallLeads) {
+    const who = lead.name?.trim() || lead.phoneNumber;
+    activities.push({
+      id: `missed-${lead.id}`,
+      type: "missed_call_captured",
+      text: `${params.agentName} captured a missed call from ${who}`,
+      badge: "Missed call",
+      tone: "amber",
+      createdAt: lead.createdAt.toISOString()
+    });
+  }
+
+  for (const call of params.vapiCalls) {
+    activities.push({
+      id: `aicall-${call.id}`,
+      type: "ai_call",
+      text: `${params.agentName} handled an AI voice call with ${call.customerPhone}`,
+      badge: "AI call",
+      tone: "slate",
+      createdAt: call.createdAt.toISOString()
+    });
+  }
+
+  return activities;
+}
+
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");
 
@@ -133,40 +258,142 @@ businessRoutes.get("/dashboard", async (c) => {
       recentLeads: [],
       recentAppointments: [],
       recentMissedCalls: [],
+      bookings: { month: new Date().toISOString().slice(0, 7), total: 0, upcoming: 0, items: [] },
+      monthlyMetrics: {
+        callsHandled: 0,
+        callsHandledPrevMonth: 0,
+        bookings: 0,
+        bookingsPrevMonth: 0
+      },
+      activityChart: { days: buildActivityChartDays({ days: 30, appointments: [], missedCallLeads: [], vapiCalls: [] }) },
+      agentActivity: [],
       calendarConnected: calendar.connected,
       totalSpendCents,
       activities
     });
   }
 
-  const [leadCount, conversationCount, appointmentCount, recentLeads, recentAppointments, recentMissedCalls] =
-    await Promise.all([
-      prisma.lead.count({ where: { businessId: business.id } }),
-      prisma.conversation.count({ where: { businessId: business.id } }),
-      prisma.appointment.count({ where: { businessId: business.id } }),
-      prisma.lead.findMany({
-        where: { businessId: business.id },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: { id: true, phoneNumber: true, name: true, source: true, status: true, createdAt: true }
-      }),
-      prisma.appointment.findMany({
-        where: { businessId: business.id },
-        orderBy: { startAt: "desc" },
-        take: 5,
-        select: { id: true, customerName: true, startAt: true, status: true, createdAt: true }
-      }),
-      prisma.lead.findMany({
-        where: { businessId: business.id, source: { contains: "MISSED_CALL" } },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: { id: true, phoneNumber: true, name: true, status: true, createdAt: true }
-      })
-    ]);
+  const monthStart = currentMonthStart();
+  const prevMonthStart = previousMonthStart();
+  const chartStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [
+    leadCount,
+    conversationCount,
+    appointmentCount,
+    recentLeads,
+    recentAppointments,
+    recentMissedCalls,
+    monthBookings,
+    chartAppointments,
+    chartMissedCallLeads,
+    chartVapiCalls,
+    monthVapiCallCount,
+    monthMissedCallCount,
+    prevMonthVapiCallCount,
+    prevMonthMissedCallCount,
+    prevMonthBookingCount
+  ] = await Promise.all([
+    prisma.lead.count({ where: { businessId: business.id } }),
+    prisma.conversation.count({ where: { businessId: business.id } }),
+    prisma.appointment.count({ where: { businessId: business.id } }),
+    prisma.lead.findMany({
+      where: { businessId: business.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, phoneNumber: true, name: true, source: true, status: true, createdAt: true }
+    }),
+    prisma.appointment.findMany({
+      where: { businessId: business.id },
+      orderBy: { startAt: "desc" },
+      take: 5,
+      select: { id: true, customerName: true, startAt: true, status: true, createdAt: true }
+    }),
+    prisma.lead.findMany({
+      where: { businessId: business.id, source: { contains: "MISSED_CALL" } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, phoneNumber: true, name: true, status: true, createdAt: true }
+    }),
+    // Bookings created this month by the agent (Google Calendar-backed appointments).
+    prisma.appointment.findMany({
+      where: { businessId: business.id, createdAt: { gte: monthStart } },
+      orderBy: { startAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        customerName: true,
+        customerPhone: true,
+        service: true,
+        startAt: true,
+        endAt: true,
+        timeZone: true,
+        status: true,
+        calendarEventId: true,
+        calendarEventLink: true,
+        notes: true,
+        createdAt: true
+      }
+    }),
+    // Last 30 days of raw agent events for the activity chart + agent activity feed.
+    prisma.appointment.findMany({
+      where: { businessId: business.id, createdAt: { gte: chartStart } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        customerName: true,
+        customerPhone: true,
+        service: true,
+        startAt: true,
+        createdAt: true
+      }
+    }),
+    prisma.lead.findMany({
+      where: { businessId: business.id, source: { contains: "MISSED_CALL" }, createdAt: { gte: chartStart } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, phoneNumber: true, name: true, createdAt: true }
+    }),
+    prisma.vapiCall.findMany({
+      where: { businessId: business.id, createdAt: { gte: chartStart } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, customerPhone: true, status: true, createdAt: true, billedCostMicroUsd: true }
+    }),
+    // Month-over-month metric counts (calls handled = AI voice calls + missed calls captured).
+    prisma.vapiCall.count({ where: { businessId: business.id, createdAt: { gte: monthStart } } }),
+    prisma.lead.count({
+      where: { businessId: business.id, source: { contains: "MISSED_CALL" }, createdAt: { gte: monthStart } }
+    }),
+    prisma.vapiCall.count({
+      where: { businessId: business.id, createdAt: { gte: prevMonthStart, lt: monthStart } }
+    }),
+    prisma.lead.count({
+      where: {
+        businessId: business.id,
+        source: { contains: "MISSED_CALL" },
+        createdAt: { gte: prevMonthStart, lt: monthStart }
+      }
+    }),
+    prisma.appointment.count({
+      where: { businessId: business.id, createdAt: { gte: prevMonthStart, lt: monthStart } }
+    })
+  ]);
 
   const installedAgent = business.installedAgents[0] ?? null;
   const phoneNumber = business.phoneNumbers[0] ?? null;
   const subscriptionStatus = business.subscriptionStatus ?? "inactive";
+
+  const now = new Date();
+  // Agent events over the last 30 days (matches the activity chart window).
+  const agentEventActivities = buildAgentEventActivities({
+    agentName: installedAgent?.name ?? "Your agent",
+    appointments: chartAppointments,
+    missedCallLeads: chartMissedCallLeads,
+    vapiCalls: chartVapiCalls
+  }).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+
+  const mergedActivities = [...agentEventActivities, ...activities]
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, 30);
 
   return successResponse(c, {
     business: { id: business.id, name: business.name, type: business.type },
@@ -182,12 +409,47 @@ businessRoutes.get("/dashboard", async (c) => {
       currentPeriodEnd: business.currentPeriodEnd
     },
     counts: { leads: leadCount, conversations: conversationCount, appointments: appointmentCount },
+    monthlyMetrics: {
+      callsHandled: monthVapiCallCount + monthMissedCallCount,
+      callsHandledPrevMonth: prevMonthVapiCallCount + prevMonthMissedCallCount,
+      bookings: monthBookings.length,
+      bookingsPrevMonth: prevMonthBookingCount
+    },
     recentLeads,
     recentAppointments,
     recentMissedCalls,
+    bookings: {
+      month: monthStart.toISOString().slice(0, 7),
+      total: monthBookings.length,
+      upcoming: monthBookings.filter((booking) => booking.startAt > now).length,
+      agentName: installedAgent?.name ?? null,
+      calendarConnected: calendar.connected,
+      items: monthBookings.map((booking) => ({
+        id: booking.id,
+        customerName: booking.customerName,
+        customerPhone: booking.customerPhone,
+        service: booking.service,
+        startAt: booking.startAt.toISOString(),
+        endAt: booking.endAt.toISOString(),
+        timeZone: booking.timeZone,
+        status: booking.status,
+        onCalendar: Boolean(booking.calendarEventId),
+        calendarEventLink: booking.calendarEventLink,
+        createdAt: booking.createdAt.toISOString()
+      }))
+    },
+    activityChart: {
+      days: buildActivityChartDays({
+        days: 30,
+        appointments: chartAppointments,
+        missedCallLeads: chartMissedCallLeads,
+        vapiCalls: chartVapiCalls
+      })
+    },
+    agentActivity: agentEventActivities.slice(0, 30),
     calendarConnected: calendar.connected,
     totalSpendCents,
-    activities
+    activities: mergedActivities
   });
 });
 
