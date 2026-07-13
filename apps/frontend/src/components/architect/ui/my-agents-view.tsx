@@ -29,6 +29,7 @@ const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
   executionsThisMonth: 0,
   executionsPrevMonth: 0,
   executionsChangePercent: null,
+  totalEarningsCents: 0,
   revenue30dCents: 0,
   revenuePrev30dCents: 0,
   revenueChangePercent: null
@@ -853,8 +854,6 @@ export function MyAgentsView() {
       : "No new agents this month";
   const executionsTrendDirection = getTrendDirection(stats.executionsChangePercent);
   const executionsTrendText = formatTrendPercentLabel(stats.executionsChangePercent);
-  const revenueTrendDirection = getTrendDirection(stats.revenueChangePercent);
-  const revenueTrendText = formatTrendPercentLabel(stats.revenueChangePercent);
 
   const visibleAgents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -1047,17 +1046,15 @@ export function MyAgentsView() {
             </TrendFooter>
           </div>
 
-          {/* Revenue (30d) */}
+          {/* Total approved earnings — same value as the Payouts page. */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-drafts-text">
-              Revenue (30d)
+              Revenue
             </p>
             <p className="mt-1 text-3xl font-bold text-orange-500" data-testid="architect-ui-my-agents-view-counts-draft-text">
-              <CountUp value={stats.revenue30dCents / 100} format="money" />
+              <CountUp value={stats.totalEarningsCents / 100} format="money" />
             </p>
-            <TrendFooter direction={revenueTrendDirection} testId="my-agents-stats-revenue-trend">
-              {revenueTrendText}
-            </TrendFooter>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Total approved earnings</p>
           </div>
         </div>
 
