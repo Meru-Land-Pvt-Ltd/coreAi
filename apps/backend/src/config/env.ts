@@ -91,6 +91,8 @@ const envSchema = z.object({
 
   ELEVENLABS_API_KEY: z.string().optional(),
 
+  DEEPGRAM_API_KEY: z.string().optional(),
+
   MISTRAL_API_KEY: z.string().optional(),
   STABILITY_API_KEY: z.string().optional(),
   LLAMA_BASE_URL: z.string().default("http://localhost:11434/v1"),
