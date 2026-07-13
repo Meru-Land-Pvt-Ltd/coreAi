@@ -389,93 +389,97 @@ export function TestPanel({
                 )}
               </>
             )}
-            <label className="col-span-1 sm:col-span-2">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Trigger message / Text input</span>
-              <textarea
-                value={triggerMessage}
-                onChange={(event) => onTriggerMessageChange(event.target.value)}
-                placeholder="Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
-                className="w-full h-24 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-              />
-            </label>
-            <div className="col-span-1 sm:col-span-2">
-              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Trigger attachments</span>
-              {triggerAttachments.length > 0 && (
-                <div className="space-y-2 mb-3">
-                  {triggerAttachments.map((att, idx) => {
-                    const isImage = att.mimeType.startsWith("image/");
-                    const isPdf = att.mimeType === "application/pdf";
-                    return (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5"
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
-                            {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
-                              {att.name || `attachment-${idx + 1}`}
-                            </p>
-                            <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
-                              {att.mimeType}
-                            </p>
+            {isManualTriggerWorkflow && (
+              <>
+                <label className="col-span-1 sm:col-span-2">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Trigger message / Text input</span>
+                  <textarea
+                    value={triggerMessage}
+                    onChange={(event) => onTriggerMessageChange(event.target.value)}
+                    placeholder="Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
+                    className="w-full h-24 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                  />
+                </label>
+                <div className="col-span-1 sm:col-span-2">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Trigger attachments</span>
+                  {triggerAttachments.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      {triggerAttachments.map((att, idx) => {
+                        const isImage = att.mimeType.startsWith("image/");
+                        const isPdf = att.mimeType === "application/pdf";
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
+                                {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
+                                  {att.name || `attachment-${idx + 1}`}
+                                </p>
+                                <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
+                                  {att.mimeType}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onTriggerAttachmentsChange(triggerAttachments.filter((_, i) => i !== idx));
+                              }}
+                              className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
+                              aria-label="Remove attachment"
+                            >
+                              <BuilderIcon name="x" className="h-4 w-4" />
+                            </button>
                           </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onTriggerAttachmentsChange(triggerAttachments.filter((_, i) => i !== idx));
-                          }}
-                          className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                          aria-label="Remove attachment"
-                        >
-                          <BuilderIcon name="x" className="h-4 w-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-amber-50/20 hover:border-amber-300 transition-all duration-200 group">
-                <div className="flex flex-col items-center justify-center pt-2 pb-3">
-                  <p className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-600 transition-colors">
-                    Click to add trigger file attachment (e.g. resume PDF)
-                  </p>
-                  <p className="text-[9px] text-slate-400 mt-1">
-                    Supports Images, PDFs, Docs (Max 5MB)
-                  </p>
-                </div>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    if (file.size > 5 * 1024 * 1024) {
-                      alert("File is too large. Maximum size is 5MB.");
-                      return;
-                    }
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                      const base64Data = event.target?.result as string;
-                      onTriggerAttachmentsChange([
-                        ...triggerAttachments,
-                        {
-                          name: file.name,
-                          mimeType: file.type || "application/octet-stream",
-                          data: base64Data,
+                        );
+                      })}
+                    </div>
+                  )}
+                  <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-amber-50/20 hover:border-amber-300 transition-all duration-200 group">
+                    <div className="flex flex-col items-center justify-center pt-2 pb-3">
+                      <p className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-600 transition-colors">
+                        Click to add trigger file attachment (e.g. resume PDF)
+                      </p>
+                      <p className="text-[9px] text-slate-400 mt-1">
+                        Supports Images, PDFs, Docs (Max 5MB)
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 5 * 1024 * 1024) {
+                          alert("File is too large. Maximum size is 5MB.");
+                          return;
                         }
-                      ]);
-                    };
-                    reader.readAsDataURL(file);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </div>
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const base64Data = event.target?.result as string;
+                          onTriggerAttachmentsChange([
+                            ...triggerAttachments,
+                            {
+                              name: file.name,
+                              mimeType: file.type || "application/octet-stream",
+                              data: base64Data,
+                            }
+                          ]);
+                        };
+                        reader.readAsDataURL(file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              </>
+            )}
             {!isManualTriggerWorkflow && (
               <>
                 <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
