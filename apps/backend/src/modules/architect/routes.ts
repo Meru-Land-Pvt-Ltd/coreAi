@@ -298,12 +298,16 @@ architectRoutes.get("/agents/stats", async (c) => {
     const cutoff30 = new Date(now.getTime() - 30 * dayMs);
     const cutoff60 = new Date(now.getTime() - 60 * dayMs);
 
-    // Buyer executions = LIVE runs of installs tied to this architect's marketplace listings.
-    // Excludes architect TEST panel runs and ARCHITECT_TEST sandbox installs (no listingId).
+    // LIVE buyer/production runs on this architect's agents.
+    // Exclude TEST panel runs and ARCHITECT_TEST sandbox installs.
     const buyerExecutionWhere = {
       mode: "LIVE" as const,
       workflow: { architectUserId: authUser.id },
-      installedAgent: { listingId: { not: null } }
+      NOT: {
+        installedAgent: {
+          configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" }
+        }
+      }
     };
 
     const [listings, workflows, sales, executionsThisMonth, executionsPrevMonth, executionsTotal] =
@@ -352,6 +356,7 @@ architectRoutes.get("/agents/stats", async (c) => {
       uniqueListings.filter((listing) => listing.createdAt >= monthStart).length +
       draftWorkflows.filter((workflow) => workflow.createdAt >= monthStart).length;
 
+    // Revenue (30d) = architect share of all non-rejected purchase earnings in the last 30 days.
     const revenue30dCents = sales
       .filter((sale) => sale.createdAt >= cutoff30 && effectiveEarningStatus(sale) !== "REJECTED")
       .reduce((sum, sale) => sum + sale.earningsCents, 0);
