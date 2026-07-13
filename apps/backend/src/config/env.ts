@@ -88,6 +88,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_AI_API_KEY: z.string().optional(),
+  OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o-mini"),
+  ANTHROPIC_DEFAULT_MODEL: z.string().default("claude-sonnet-4-5"),
+  GEMINI_DEFAULT_MODEL: z.string().default("gemini-2.0-flash"),
 
   ARCHITECT_TEST_LLM_MODEL: z.string().default("gpt-4o-mini"),
 
@@ -100,6 +103,8 @@ const envSchema = z.object({
 
   ELEVENLABS_API_KEY: z.string().optional(),
 
+  DEEPGRAM_API_KEY: z.string().optional(),
+
   MISTRAL_API_KEY: z.string().optional(),
   STABILITY_API_KEY: z.string().optional(),
   LLAMA_BASE_URL: z.string().default("http://localhost:11434/v1"),
@@ -109,6 +114,7 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional()
 });
 

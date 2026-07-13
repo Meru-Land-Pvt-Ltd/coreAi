@@ -50,7 +50,7 @@ import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoiceP
 import { runWorkflowTest } from "./workflow-runner";
 import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
-import { architectPayoutRoutes } from "./payout-routes";
+import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 
@@ -94,6 +94,8 @@ architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
+// Stripe signs this public Connect webhook; it must be registered before auth.
+architectRoutes.post("/payouts/stripe/webhook", handleStripeConnectWebhook);
 // Public GET probe: Vapi only POSTs here; this keeps curl diagnostics honest.
 architectRoutes.get("/connectors/vapi/webhook", (c) =>
   successResponse(c, { ok: true, note: "Vapi webhook is up. Tool calls arrive via POST." })
@@ -735,7 +737,11 @@ architectRoutes.get("/connectors/gmail/status", async (c) => {
 architectRoutes.get("/connectors/gmail/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const url = createGmailOAuthUrl(authUser.id);
+    // Same-app path only — the callback prefixes FRONTEND_URL, so a full URL
+    // or protocol-relative value can never leave the app.
+    const redirect = c.req.query("redirect");
+    const redirectPath = redirect && redirect.startsWith("/") ? redirect : undefined;
+    const url = createGmailOAuthUrl(authUser.id, redirectPath);
 
     return successResponse(c, {
       url

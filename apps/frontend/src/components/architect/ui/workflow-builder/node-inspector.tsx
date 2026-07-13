@@ -228,8 +228,16 @@ export function TextArea({
   );
 }
 
-export function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: string[] }) {
-  const allOptions = options.includes(value) || !value ? options : [value, ...options];
+export type SelectBoxOption = string | { value: string; label: string };
+
+export function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[] }) {
+  const normalized = options.map((option) =>
+    typeof option === "string" ? { value: option, label: option } : option
+  );
+  const allOptions =
+    normalized.some((option) => option.value === value) || !value
+      ? normalized
+      : [{ value, label: value }, ...normalized];
 
   return (
     <div className="relative">
@@ -240,8 +248,8 @@ export function SelectBox({ value, onChange, options }: { value: string; onChang
         className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
       >
         {allOptions.map((option) => (
-          <option key={option} value={option}>
-            {option}
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
@@ -746,7 +754,18 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
   const type = String(node.data.type ?? "");
   const definition = getNodeDefinition(type);
   const inputKeys = definition?.requiredVariables ?? [];
-  const outputKeys = definition?.producedVariables ?? [];
+  let outputKeys = definition?.producedVariables ?? [];
+  if (type === "ai.llm_call") {
+    const nodeLabel = String(node.data.title ?? node.data.label ?? node.id)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ".")
+      .replace(/(^\.|\.$)/g, "");
+    outputKeys = [
+      node.data.llmOutputKey || "ai.output",
+      `node.${node.id}.output`,
+      `node.${nodeLabel}.output`
+    ];
+  }
   const usedKeys = collectTemplateVariables(node);
   const connector = String(node.data.connector ?? "");
   const connectorAction = String(node.data.connectorAction ?? "");
@@ -980,9 +999,18 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
 
       </Section>
 
-      <Section title="Conversation">
+      {/* <Section title="Conversation">
         <Label>Language</Label>
-        <SelectBox value={str("language", "en-US")} onChange={set("language")} options={["en-US", "en-GB", "es", "hi"]} />
+        <SelectBox
+          value={str("language", "en-US")}
+          onChange={set("language")}
+          options={[
+            { value: "en-US", label: "English (US)" },
+            { value: "en-GB", label: "English (UK)" },
+            { value: "es", label: "Spanish" },
+            { value: "hi", label: "Hindi" }
+          ]}
+        />
 
         <div className="mt-4">
           <Label>Speaking speed</Label>
@@ -997,7 +1025,7 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
             placeholder="e.g. Thanks for calling {{business.name}} — how can I help?"
           />
         </div>
-      </Section>
+      </Section> */}
 
       <Section title="Intelligence">
         <Label>AI model</Label>

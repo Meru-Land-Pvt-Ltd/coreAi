@@ -1439,3 +1439,80 @@ ${primaryButton(safeDemo, "Schedule a demo")}
     inner
   );
 }
+
+// ---------------------------------------------------------------------------
+// Architect "new sale" notification — sent when a buyer starts using one of an
+// architect's agents (only when the architect has enabled the New sale email).
+// ---------------------------------------------------------------------------
+
+const architectDashboardLink = `${appUrl}/architect/payouts`;
+
+type SendArchitectNewSaleEmailInput = {
+  to: string;
+  architectName?: string | null;
+  agentName: string;
+  earningsCents?: number | null;
+  dashboardLink?: string | null;
+};
+
+export async function sendArchitectNewSaleEmail({
+  to,
+  architectName,
+  agentName,
+  earningsCents,
+  dashboardLink
+}: SendArchitectNewSaleEmailInput) {
+  const name = architectName?.trim() || "there";
+  const dashboard = dashboardLink?.trim() || architectDashboardLink;
+
+  await sendPlatformEmail({
+    purpose: "notification",
+    to,
+    subject: `Congrats! Another person is now using ${agentName} 🎉`,
+    text: `Great news, ${name} — someone just started using your agent "${agentName}" on ${brandName}. That's one more business putting your work to use.${
+      earningsCents && earningsCents > 0 ? ` Estimated earnings from this sale: ${formatMoney(earningsCents)}.` : ""
+    } View your earnings: ${dashboard}`,
+    html: buildArchitectNewSaleEmailHtml({ architectName: name, agentName, earningsCents, dashboardLink: dashboard })
+  });
+}
+
+function buildArchitectNewSaleEmailHtml({
+  architectName,
+  agentName,
+  earningsCents,
+  dashboardLink
+}: {
+  architectName: string;
+  agentName: string;
+  earningsCents?: number | null;
+  dashboardLink: string;
+}) {
+  const safeName = escapeHtml(architectName);
+  const safeAgentName = escapeHtml(agentName);
+  const safeDashboard = escapeHtml(dashboardLink);
+  const earningsRow =
+    earningsCents && earningsCents > 0
+      ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr>
+<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
+<td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#92400e;">Estimated earnings from this sale: <strong>${escapeHtml(formatMoney(earningsCents))}</strong></td>
+</tr>
+</table>`
+      : "";
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:18px;font-weight:700;line-height:1.4;color:#111827;">Congrats, ${safeName}! 🎉</p>
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">You have one more person using your agent. Someone just started using <strong>${safeAgentName}</strong> on ${brandName} — that's another business putting your work to good use.</p>
+${earningsRow}
+${primaryButton(safeDashboard, "View your earnings")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">Keep it up — every install grows your storefront.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    "You have one more person using your agent.",
+    `Congrats! Another person is now using ${safeAgentName}`,
+    inner
+  );
+}

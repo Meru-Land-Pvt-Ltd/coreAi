@@ -50,7 +50,10 @@ async function loadAdminPayoutSales(options?: {
                   bankName: true,
                   accountHolderName: true,
                   accountNumber: true,
-                  ifscCode: true
+                  accountLast4: true,
+                  country: true,
+                  routingLast4: true,
+                  verificationStatus: true
                 }
               }
             }
@@ -144,10 +147,13 @@ async function loadAdminPayoutSales(options?: {
         fullName: architect.fullName,
         payoutMethod: payoutMethod
           ? {
-              bankName: payoutMethod.bankName,
-              accountHolderName: payoutMethod.accountHolderName,
-              accountLast4: payoutMethod.accountNumber.slice(-4),
-              ifscCode: payoutMethod.ifscCode
+              bankName: payoutMethod.bankName ?? "Stripe bank account",
+              accountHolderName: payoutMethod.accountHolderName ?? "",
+              accountLast4: payoutMethod.accountLast4 ?? payoutMethod.accountNumber?.slice(-4) ?? "",
+              country: payoutMethod.country,
+              routingLabel: payoutMethod.country === "IN" ? "IFSC" : "ABA routing number",
+              routingLast4: payoutMethod.routingLast4,
+              verificationStatus: payoutMethod.verificationStatus
             }
           : null
       }

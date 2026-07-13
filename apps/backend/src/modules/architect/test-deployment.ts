@@ -338,6 +338,8 @@ export async function startArchitectTestDeployment(
     voice: str(ai, "voice", ""),
     voiceProvider: str(ai, "voiceProvider", ""),
     voiceId: str(ai, "voiceId", ""),
+    language: str(ai, "language", ""),
+    speakingSpeed: str(ai, "speakingSpeed", ""),
     serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
     existingAssistantId
   });

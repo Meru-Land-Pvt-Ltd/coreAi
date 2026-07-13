@@ -481,6 +481,33 @@ export function resolveVapiVoice(input: {
   };
 }
 
+const TRANSCRIBER_LANGUAGES = ["en-US", "en-GB", "es", "hi"] as const;
+
+export function resolveTranscriberLanguage(language?: string | null): string {
+  const requested = clean(language);
+  const supported = TRANSCRIBER_LANGUAGES.find(
+    (code) => code.toLowerCase() === requested.toLowerCase()
+  );
+
+  if (!supported) return "en-US";
+  if (supported.startsWith("en")) return supported;
+
+  const isNova3 =
+    env.VAPI_TRANSCRIBER_PROVIDER === "deepgram" && env.VAPI_TRANSCRIBER_MODEL.startsWith("nova-3");
+
+  return isNova3 ? "multi" : supported;
+}
+
+export function resolveVoiceSpeed(speakingSpeed?: string | null): number | undefined {
+  const parsed = Number.parseFloat(clean(speakingSpeed));
+
+  if (!Number.isFinite(parsed) || parsed < 0.7 || parsed > 1.2 || parsed === 1) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
 function resolveVapiModel(model?: string | null): {
   provider: string;
   model: string;
@@ -640,6 +667,10 @@ export type DeployVapiAssistantInput = {
   voice?: string | null;
   voiceProvider?: string | null;
   voiceId?: string | null;
+  /** BCP-47-ish node value ("en-US", "en-GB", "es", "hi"); mapped per transcriber model. */
+  language?: string | null;
+  /** ElevenLabs speed multiplier as node string ("0.8"–"1.2"); 11labs voices only. */
+  speakingSpeed?: string | null;
   serverUrl: string;
   existingAssistantId?: string | null;
   /** Assistant-level metadata echoed back on webhook calls (e.g. businessId). */
@@ -662,6 +693,8 @@ export async function deployVapiAssistant({
   voice,
   voiceProvider,
   voiceId,
+  language,
+  speakingSpeed,
   serverUrl,
   existingAssistantId,
   metadata,
@@ -700,7 +733,7 @@ export async function deployVapiAssistant({
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,
       model: env.VAPI_TRANSCRIBER_MODEL,
-      language: "en-US"
+      language: resolveTranscriberLanguage(language)
     },
     startSpeakingPlan: {
       waitSeconds: 0.4,
@@ -729,7 +762,12 @@ export async function deployVapiAssistant({
     voiceId
   });
 
-  body.voice = voiceResolution.config;
+  const voiceSpeed = resolveVoiceSpeed(speakingSpeed);
+
+  body.voice =
+    voiceResolution.config.provider === "11labs" && voiceSpeed !== undefined
+      ? { ...voiceResolution.config, speed: voiceSpeed }
+      : voiceResolution.config;
   console.log("[vapi-browser-test] final voice payload", JSON.stringify(body.voice));
 
   const base = env.VAPI_BASE_URL.replace(/\/$/, "");

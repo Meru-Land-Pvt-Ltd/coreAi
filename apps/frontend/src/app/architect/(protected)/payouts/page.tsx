@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   getArchitectPayoutSummary,
   getArchitectPayoutTransactions,
+  refreshArchitectStripeOnboarding,
   requestArchitectPayout,
   saveArchitectPayoutMethod,
+  syncArchitectStripePayoutMethod,
   verifyArchitectIfsc,
   type ArchitectPayoutSummary,
   type ArchitectPayoutTransaction
@@ -58,7 +60,7 @@ function statusBadgeClass(status: string) {
   if (status === "Pending") return "bg-amber-50 text-amber-700";
   if (status === "Available") return "bg-blue-50 text-blue-700";
   if (status === "Completed" || status === "Paid" || status === "Paid out") return "bg-green-50 text-green-700";
-  if (status === "Rejected") return "bg-red-50 text-red-700";
+  if (status === "Rejected" || status === "Failed") return "bg-red-50 text-red-700";
   if (status === "Processed" || status === "Processing") return "bg-red-50 text-red-700";
   return "bg-gray-100 text-slate-600";
 }
@@ -122,6 +124,34 @@ export default function ArchitectPayoutsPage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    const onboardingState = new URLSearchParams(window.location.search).get("stripe_onboarding");
+    if (!onboardingState) return;
+
+    async function finishStripeOnboarding() {
+      if (onboardingState === "refresh") {
+        const refreshed = await refreshArchitectStripeOnboarding();
+        if (refreshed.success && refreshed.data?.url) {
+          window.location.assign(refreshed.data.url);
+          return;
+        }
+        setToast(refreshed.error ?? "Could not reopen Stripe onboarding.");
+      } else {
+        const synced = await syncArchitectStripePayoutMethod();
+        await loadSummary();
+        setToast(
+          synced.data?.payoutMethod?.verified
+            ? "Bank account verified by Stripe."
+            : "Details received. Stripe verification is still in progress."
+        );
+      }
+
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    void finishStripeOnboarding();
+  }, [loadSummary]);
+
   async function handleRequestPayout() {
     if (!summary || summary.availableBalanceCents <= 0) return;
 
@@ -138,6 +168,15 @@ export default function ArchitectPayoutsPage() {
     }
 
     setSubmittingPayout(false);
+  }
+
+  async function handleContinueStripeVerification() {
+    const result = await refreshArchitectStripeOnboarding();
+    if (result.success && result.data?.url) {
+      window.location.assign(result.data.url);
+      return;
+    }
+    setToast(result.error ?? "Could not open Stripe verification.");
   }
 
   const chartMax = useMemo(() => {
@@ -263,7 +302,7 @@ export default function ArchitectPayoutsPage() {
                 </div>
               </div>
               <p className="mt-4 text-xs text-slate-500">Payout schedule: Bi-weekly (1st &amp; 15th)</p>
-              {data.payoutMethod && data.availableBalanceCents > 0 ? (
+              {data.payoutMethod?.verified && data.availableBalanceCents > 0 ? (
                 <button
                   type="button"
                   data-testid="architect-payouts-request-payout-button"
@@ -278,7 +317,13 @@ export default function ArchitectPayoutsPage() {
             <PayoutMethodCard
               payoutMethod={data.payoutMethod}
               onAdd={() => setMethodModalOpen(true)}
-              onChange={() => setMethodModalOpen(true)}
+              onChange={() => {
+                if (data.payoutMethod?.stripeConnected && !data.payoutMethod.verified) {
+                  void handleContinueStripeVerification();
+                } else {
+                  setMethodModalOpen(true);
+                }
+              }}
             />
           </div>
         </section>
@@ -310,10 +355,11 @@ export default function ArchitectPayoutsPage() {
 
       {methodModalOpen ? (
         <AddPayoutMethodModal
+          payoutMethod={data.payoutMethod}
           onClose={() => setMethodModalOpen(false)}
           onSaved={async () => {
             setMethodModalOpen(false);
-            setToast("Payout method saved.");
+            setToast("Payout method saved. Stripe verification may still be required.");
             await loadSummary();
           }}
         />
@@ -513,13 +559,33 @@ function PayoutMethodCard({
             </div>
             <div className="leading-tight">
               <p className="text-base font-bold text-slate-900">{payoutMethod.bankName}</p>
-              <p className="font-mono text-sm text-slate-500">Checking •••• {payoutMethod.accountLast4}</p>
+              <p className="font-mono text-sm text-slate-500">
+                {payoutMethod.country === "IN" ? "India" : "United States"} bank
+                {payoutMethod.accountLast4 ? ` •••• ${payoutMethod.accountLast4}` : ""}
+              </p>
+              {payoutMethod.routingLast4 ? (
+                <p className="mt-0.5 font-mono text-xs text-slate-400">
+                  {payoutMethod.routingLabel} •••• {payoutMethod.routingLast4}
+                </p>
+              ) : null}
               <p className="mt-0.5 text-xs text-slate-400">Added {formatDate(payoutMethod.createdAt)}</p>
             </div>
           </div>
-          <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-600">
-            <CheckIcon className="h-3 w-3" />
-            Verified
+          <span
+            className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+              payoutMethod.verified
+                ? "bg-green-50 text-green-600"
+                : payoutMethod.verificationStatus === "FAILED"
+                  ? "bg-red-50 text-red-600"
+                  : "bg-amber-50 text-amber-700"
+            }`}
+          >
+            {payoutMethod.verified ? <CheckIcon className="h-3 w-3" /> : null}
+            {payoutMethod.verified
+              ? "Verified by Stripe"
+              : payoutMethod.verificationStatus === "FAILED"
+                ? "Verification needs attention"
+                : "Stripe verification pending"}
           </span>
           <div className="mt-5">
             <button
@@ -528,7 +594,7 @@ function PayoutMethodCard({
               onClick={onChange}
               className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
             >
-              Change bank
+              {payoutMethod.verified ? "Change bank" : "Continue verification"}
             </button>
           </div>
         </>
@@ -725,63 +791,73 @@ function TaxDocumentsSection({ totalEarningsCents }: { totalEarningsCents: numbe
 }
 
 function AddPayoutMethodModal({
+  payoutMethod,
   onClose,
   onSaved
 }: {
+  payoutMethod: ArchitectPayoutSummary["payoutMethod"];
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
+  const [country, setCountry] = useState<"US" | "IN">(payoutMethod?.country ?? "US");
+  const [accountHolderName, setAccountHolderName] = useState(payoutMethod?.accountHolderName ?? "");
   const [bankName, setBankName] = useState("");
-  const [accountHolderName, setAccountHolderName] = useState("");
+  const [routingNumber, setRoutingNumber] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [confirmAccountNumber, setConfirmAccountNumber] = useState("");
-  const [ifscCode, setIfscCode] = useState("");
-  const [ifscStatus, setIfscStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
-  const [ifscMessage, setIfscMessage] = useState("");
+  const [routingStatus, setRoutingStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [routingMessage, setRoutingMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  async function validateIfsc(code: string) {
-    const normalized = code.trim().toUpperCase();
+  function isValidAba(value: string) {
+    if (!/^\d{9}$/.test(value)) return false;
+    const digits = value.split("").map(Number);
+    return (3 * (digits[0] + digits[3] + digits[6]) + 7 * (digits[1] + digits[4] + digits[7]) + digits[2] + digits[5] + digits[8]) % 10 === 0;
+  }
+
+  async function validateRouting(value: string) {
+    const normalized = value.trim().toUpperCase();
     if (!normalized) {
-      setIfscStatus("idle");
-      setIfscMessage("");
+      setRoutingStatus("idle");
+      setRoutingMessage("");
+      return;
+    }
+
+    if (country === "US") {
+      const valid = isValidAba(normalized);
+      setRoutingStatus(valid ? "valid" : "invalid");
+      setRoutingMessage(valid ? "Valid ABA routing number format." : "Enter a valid 9-digit ABA routing number.");
       return;
     }
 
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalized)) {
-      setIfscStatus("invalid");
-      setIfscMessage("Enter a valid IFSC code (e.g. HDFC0001234).");
+      setRoutingStatus("invalid");
+      setRoutingMessage("Enter a valid IFSC code (e.g. HDFC0001234).");
       return;
     }
 
-    setIfscStatus("checking");
-    setIfscMessage("Verifying IFSC code…");
-
+    setRoutingStatus("checking");
+    setRoutingMessage("Verifying IFSC code…");
     const result = await verifyArchitectIfsc(normalized);
-
     if (result.success && result.data?.valid) {
-      setIfscStatus("valid");
-      setIfscMessage(`${result.data.bankName}${result.data.branch ? ` · ${result.data.branch}` : ""}`);
-      if (!bankName.trim() && result.data.bankName) {
-        setBankName(result.data.bankName);
-      }
-      return;
+      setRoutingStatus("valid");
+      setRoutingMessage(`${result.data.bankName}${result.data.branch ? ` · ${result.data.branch}` : ""}`);
+      if (!bankName.trim() && result.data.bankName) setBankName(result.data.bankName);
+    } else {
+      setRoutingStatus("invalid");
+      setRoutingMessage(result.error ?? "IFSC code not found.");
     }
-
-    setIfscStatus("invalid");
-    setIfscMessage(result.error ?? "IFSC code not found.");
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
 
-    if (ifscStatus !== "valid") {
-      setError("Verify a valid IFSC code before saving.");
+    if (routingStatus !== "valid") {
+      setError(`Verify a valid ${country === "IN" ? "IFSC code" : "ABA routing number"} before saving.`);
       return;
     }
-
     if (accountNumber !== confirmAccountNumber) {
       setError("Account numbers do not match.");
       return;
@@ -789,11 +865,12 @@ function AddPayoutMethodModal({
 
     setSaving(true);
     const result = await saveArchitectPayoutMethod({
+      country,
       bankName,
       accountHolderName,
       accountNumber,
       confirmAccountNumber,
-      ifscCode: ifscCode.trim().toUpperCase()
+      routingNumber: routingNumber.trim().toUpperCase()
     });
 
     if (result.success) {
@@ -807,7 +884,7 @@ function AddPayoutMethodModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" data-testid="architect-payouts-method-modal">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl" data-testid="architect-payouts-method-modal">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-bold text-slate-900">Add payout method</h3>
@@ -824,6 +901,22 @@ function AddPayoutMethodModal({
         </div>
 
         <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+          <Field label="Bank country">
+            <select
+              value={country}
+              onChange={(event) => {
+                setCountry(event.target.value as "US" | "IN");
+                setRoutingNumber("");
+                setRoutingStatus("idle");
+                setRoutingMessage("");
+              }}
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+            >
+              <option value="US">United States</option>
+              <option value="IN">India</option>
+            </select>
+          </Field>
+
           <Field label="Account holder name" testId="architect-payouts-account-holder">
             <input
               value={accountHolderName}
@@ -837,43 +930,25 @@ function AddPayoutMethodModal({
             <input value={bankName} onChange={(event) => setBankName(event.target.value)} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20" required />
           </Field>
 
-          <Field label="IFSC code" testId="architect-payouts-ifsc">
+          <Field label={country === "IN" ? "IFSC code" : "ABA routing number"} testId="architect-payouts-routing-number">
             <input
-              value={ifscCode}
-              onChange={(event) => setIfscCode(event.target.value.toUpperCase())}
-              onBlur={() => void validateIfsc(ifscCode)}
+              value={routingNumber}
+              onChange={(event) => setRoutingNumber(country === "IN" ? event.target.value.toUpperCase() : event.target.value.replace(/\D/g, ""))}
+              onBlur={() => void validateRouting(routingNumber)}
+              maxLength={country === "IN" ? 11 : 9}
               className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm uppercase text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-              placeholder="HDFC0001234"
+              placeholder={country === "IN" ? "HDFC0001234" : "110000000"}
               required
             />
-            {ifscMessage ? (
-              <p
-                className={`mt-1 text-xs ${ifscStatus === "valid" ? "text-green-600" : ifscStatus === "invalid" ? "text-red-600" : "text-slate-500"}`}
-                data-testid="architect-payouts-ifsc-message"
-              >
-                {ifscMessage}
-              </p>
-            ) : null}
+            {routingMessage ? <p className={`mt-1 text-xs ${routingStatus === "valid" ? "text-green-600" : routingStatus === "invalid" ? "text-red-600" : "text-slate-500"}`}>{routingMessage}</p> : null}
           </Field>
 
           <Field label="Account number" testId="architect-payouts-account-number">
-            <input
-              value={accountNumber}
-              onChange={(event) => setAccountNumber(event.target.value.replace(/\D/g, ""))}
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-              inputMode="numeric"
-              required
-            />
+            <input value={accountNumber} onChange={(event) => setAccountNumber(event.target.value.replace(/\D/g, ""))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20" inputMode="numeric" required />
           </Field>
 
           <Field label="Confirm account number" testId="architect-payouts-confirm-account-number">
-            <input
-              value={confirmAccountNumber}
-              onChange={(event) => setConfirmAccountNumber(event.target.value.replace(/\D/g, ""))}
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-              inputMode="numeric"
-              required
-            />
+            <input value={confirmAccountNumber} onChange={(event) => setConfirmAccountNumber(event.target.value.replace(/\D/g, ""))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20" inputMode="numeric" required />
           </Field>
 
           {error ? <p className="text-sm text-red-600" data-testid="architect-payouts-method-error">{error}</p> : null}
@@ -888,7 +963,7 @@ function AddPayoutMethodModal({
             </button>
             <button
               type="submit"
-              disabled={saving || ifscStatus !== "valid"}
+              disabled={saving || routingStatus !== "valid"}
               data-testid="architect-payouts-save-method-button"
               className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
             >

@@ -164,7 +164,10 @@ export type AdminPayoutSale = {
       bankName: string;
       accountHolderName: string;
       accountLast4: string;
-      ifscCode: string;
+      country: "US" | "IN";
+      routingLabel: "IFSC" | "ABA routing number";
+      routingLast4: string | null;
+      verificationStatus: string;
     } | null;
   };
 };

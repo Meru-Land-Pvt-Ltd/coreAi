@@ -443,7 +443,7 @@ export default function BusinessBillingUsagePage() {
                                         <span className="font-mono text-base font-bold text-amber-600">${agent.billedCostUsd.toFixed(2)}</span>
                                         <button
                                             type="button"
-                                            onClick={() => router.push(`/business/checkout?mode=usage&agentId=${encodeURIComponent(agent.agentId ?? "")}&amountCents=${agent.amountCents}&agent=${encodeURIComponent(agent.agentName)}`)}
+                                            onClick={() => router.push(`/business/checkout?mode=usage&agentId=${encodeURIComponent(agent.agentId ?? "")}`)}
                                             className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-amber-600"
                                         >
                                             Pay

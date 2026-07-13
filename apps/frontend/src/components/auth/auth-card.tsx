@@ -19,7 +19,8 @@ import {
   PRIVACY_PATH,
   TERM_PATH,
   HELP_PATH,
-  BUSINESS_MARKETPLACE_PATH
+  BUSINESS_MARKETPLACE_PATH,
+  BUSINESS_ONBOARDING_PATH
 } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -180,7 +181,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
       // everyone else goes to their dashboard.
       const destination =
         role === "BUSINESS" && data.isNewUser
-          ? BUSINESS_MARKETPLACE_PATH
+          ? BUSINESS_ONBOARDING_PATH
           : roleContent[role].dashboardPath;
 
       window.setTimeout(() => {
@@ -225,7 +226,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
 
       const destination =
         role === "BUSINESS" && data.isNewUser
-          ? BUSINESS_MARKETPLACE_PATH
+          ? BUSINESS_ONBOARDING_PATH
           : roleContent[role].dashboardPath;
 
       router.push(destination);

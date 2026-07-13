@@ -11,6 +11,7 @@ import {
   buildAgentFirstMessage,
   buildAgentSystemPrompt,
   resolveAssistantName,
+  resolveNodeTemplateVariables,
   resolveBusinessName,
   sanitizeLegacyFallbacks
 } from "../agent-runtime/prompt-builder";
@@ -365,7 +366,10 @@ export async function deployInstalledAgentVoiceAssistant(
       canEmail: capabilities.canEmail
     },
     nodeInstructions: nodeInstructions
-      ? sanitizeLegacyFallbacks(nodeInstructions, { assistantName, businessName })
+      ? sanitizeLegacyFallbacks(
+          resolveNodeTemplateVariables(nodeInstructions, installedAgent.workflow.workflowJson, { assistantName, businessName }),
+          { assistantName, businessName }
+        )
       : undefined,
     bookingLabel,
     customFields,
@@ -376,7 +380,10 @@ export async function deployInstalledAgentVoiceAssistant(
     assistantName,
     businessName,
     customFirstMessage: buyer.firstMessage
-      ? sanitizeLegacyFallbacks(buyer.firstMessage, { assistantName, businessName })
+      ? sanitizeLegacyFallbacks(
+          resolveNodeTemplateVariables(buyer.firstMessage, installedAgent.workflow.workflowJson, { assistantName, businessName }),
+          { assistantName, businessName }
+        )
       : undefined
   });
 
@@ -399,11 +406,11 @@ export async function deployInstalledAgentVoiceAssistant(
     firstMessage,
     systemPrompt,
     model: "gpt-4o-mini",
-    // Provider/voice fallbacks are handled by the force-safe resolver in the
-    // Vapi connector — never hardcode a provider or mix voice ID types here.
     voice: override.voice || "triven-default",
     voiceProvider: override.provider,
     voiceId: override.voiceId,
+    language: cleanString(voiceNode.language),
+    speakingSpeed: cleanString(voiceNode.speakingSpeed),
     serverUrl: webhookUrl,
     existingAssistantId
   });
