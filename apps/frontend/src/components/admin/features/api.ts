@@ -132,6 +132,70 @@ export function getAdminContactSubmissions(
   return apiGet<AdminPaged<AdminContactSubmission>>(`/admin/contact-submissions${query(params)}`);
 }
 
+export type AdminPayoutSummary = {
+  pendingSalesCount: number;
+  pendingEarningsCents: number;
+  approvedSalesCount: number;
+  approvedEarningsCents: number;
+  rejectedSalesCount: number;
+  rejectedEarningsCents: number;
+  architectSharePercent: number;
+};
+
+export type AdminPayoutSale = {
+  paymentId: string;
+  listingId: string;
+  installId: string | null;
+  date: string;
+  listingName: string;
+  businessName: string;
+  buyerEmail: string;
+  grossCents: number;
+  earningsCents: number;
+  architectSharePercent: number;
+  purchaseStatus: string;
+  architectEarningStatus: "PENDING" | "APPROVED" | "REJECTED";
+  reviewedAt: string | null;
+  architect: {
+    id: string;
+    email: string;
+    fullName: string | null;
+    payoutMethod: {
+      bankName: string;
+      accountHolderName: string;
+      accountLast4: string;
+      ifscCode: string;
+    } | null;
+  };
+};
+
+export type AdminPayoutSaleStatus = "APPROVED" | "REJECTED";
+
+export function getAdminPayoutSummary() {
+  return apiGet<AdminPayoutSummary>("/admin/payouts/summary");
+}
+
+export function getAdminPayoutSales(
+  params: { search?: string; status?: string; page?: number; limit?: number } = {}
+) {
+  return apiGet<AdminPaged<AdminPayoutSale>>(`/admin/payouts/sales${query(params)}`);
+}
+
+export function updateAdminPayoutSaleStatus(paymentId: string, status: AdminPayoutSaleStatus) {
+  return apiPatch<{
+    payment: {
+      id: string;
+      architectEarningStatus: AdminPayoutSale["architectEarningStatus"];
+      reviewedAt: string | null;
+    };
+    sale: unknown;
+    architectTotals: {
+      approvedEarningsCents: number;
+      pendingEarningsCents: number;
+    };
+  }>(`/admin/payouts/sales/${paymentId}/status`, { status });
+}
+
 /* ------------------------- Platform phone numbers ------------------------- */
 
 export type PhoneNumberStatus = "AVAILABLE" | "ASSIGNED" | "DISABLED" | "ARCHIVED" | "RELEASED" | "ERROR";
@@ -243,4 +307,65 @@ export function syncTwilioPhoneNumbers(dryRun: boolean) {
 
 export function releasePhoneNumber(id: string) {
   return apiDelete<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/release`);
+}
+
+/* ------------------------- Platform usage service pricing ------------------------- */
+
+export type UsageServiceUnit = "PER_MINUTE" | "PER_SMS" | "PER_CALL" | "PER_UNIT";
+
+export type AdminUsageService = {
+  id: string;
+  code: string;
+  name: string;
+  role: string | null;
+  unit: UsageServiceUnit;
+  actualCostUsd: number;
+  updatedCostUsd: number;
+  actualCostMicroUsd: number;
+  updatedCostMicroUsd: number;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminPricingServicesResponse = {
+  services: AdminUsageService[];
+  totals: {
+    perMinuteActualUsd: number;
+    perMinuteUpdatedUsd: number;
+  };
+};
+
+export function getAdminPricingServices(includeInactive = false) {
+  return apiGet<AdminPricingServicesResponse>(
+    `/admin/pricing/services${includeInactive ? "?includeInactive=true" : ""}`
+  );
+}
+
+export function createAdminPricingService(body: {
+  code: string;
+  name: string;
+  role?: string;
+  unit?: UsageServiceUnit;
+  actualCostUsd: number;
+  updatedCostUsd: number;
+  sortOrder?: number;
+}) {
+  return apiPost<{ service: AdminUsageService }>("/admin/pricing/services", body);
+}
+
+export function updateAdminPricingService(
+  id: string,
+  body: Partial<{
+    name: string;
+    role: string | null;
+    unit: UsageServiceUnit;
+    actualCostUsd: number;
+    updatedCostUsd: number;
+    isActive: boolean;
+    sortOrder: number;
+  }>
+) {
+  return apiPatch<{ service: AdminUsageService }>(`/admin/pricing/services/${id}`, body);
 }

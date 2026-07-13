@@ -27,13 +27,16 @@ const LOCAL_PART_PATTERN = /^[a-z0-9](?:[a-z0-9.-]{0,48}[a-z0-9])?$/;
 let sesClient: SESv2Client | null = null;
 
 export function isSesConfigured(): boolean {
-  return Boolean(env.SES_REGION && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) && !env.SES_DRY_RUN;
+  return (
+    Boolean((env.SES_REGION ?? env.AWS_REGION) && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) &&
+    !env.SES_DRY_RUN
+  );
 }
 
 function getSesClient(): SESv2Client {
   if (!sesClient) {
     sesClient = new SESv2Client({
-      region: env.SES_REGION,
+      region: env.SES_REGION ?? env.AWS_REGION,
       credentials: {
         accessKeyId: env.AWS_ACCESS_KEY_ID as string,
         secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string

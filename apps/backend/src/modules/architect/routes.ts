@@ -104,8 +104,6 @@ architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoi
 async function listPublicMarketplaceListings(c: Context) {
   const allListings = await prisma.agentListing.findMany({
     where: {
-      // Buyer-facing marketplace shows APPROVED only — PENDING_REVIEW stays
-      // visible to the architect (own listings) and the admin review queue.
       status: "APPROVED"
     },
     include: {
@@ -159,7 +157,6 @@ async function getPublicMarketplaceListingById(c: Context) {
   const listing = await prisma.agentListing.findFirst({
     where: {
       id,
-      // Same rule as the public list: buyers only ever see APPROVED listings.
       status: "APPROVED"
     },
     include: {
@@ -1612,18 +1609,81 @@ architectRoutes.post("/listings", async (c) => {
 });
 
 const listingStatusUpdateSchema = z.object({
-  status: z.enum(["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "SUSPENDED"])
+  status: z.enum(["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "SUSPENDED", "PAUSED"])
 });
 
 const architectListingStatusTransitions: Partial<
   Record<
-    "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED",
-    Array<"DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED">
+    "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED",
+    Array<"DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED">
   >
 > = {
   PENDING_REVIEW: ["DRAFT"],
-  REJECTED: ["DRAFT"]
+  REJECTED: ["DRAFT"],
+  PAUSED: ["APPROVED"]
 };
+
+const DELETABLE_LISTING_STATUSES = ["DRAFT", "REJECTED"] as const;
+
+architectRoutes.delete("/listings/:listingId", async (c) => {
+  const authUser = c.get("authUser");
+  const listingId = c.req.param("listingId");
+
+  const listing = await prisma.agentListing.findFirst({
+    where: {
+      id: listingId,
+      architectUserId: authUser.id
+    },
+    include: {
+      _count: {
+        select: { installedAgents: true }
+      }
+    }
+  });
+
+  if (!listing) {
+    return errorResponse(c, "Agent not found", 404, "LISTING_NOT_FOUND");
+  }
+
+  if (!DELETABLE_LISTING_STATUSES.includes(listing.status as (typeof DELETABLE_LISTING_STATUSES)[number])) {
+    return errorResponse(
+      c,
+      "This agent cannot be deleted in its current status.",
+      409,
+      "LISTING_NOT_DELETABLE"
+    );
+  }
+
+  if (listing._count.installedAgents > 0) {
+    return errorResponse(
+      c,
+      "This agent has active installs and cannot be deleted.",
+      409,
+      "LISTING_HAS_INSTALLS"
+    );
+  }
+
+  const workflowId = listing.workflowId;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.agentListing.delete({ where: { id: listingId } });
+
+    if (workflowId) {
+      const otherListing = await tx.agentListing.findFirst({ where: { workflowId } });
+      const installed = await tx.installedAgent.findFirst({ where: { workflowId } });
+      if (!otherListing && !installed) {
+        await tx.workflowDefinition.deleteMany({
+          where: {
+            id: workflowId,
+            architectUserId: authUser.id
+          }
+        });
+      }
+    }
+  });
+
+  return successResponse(c, { listingId, workflowId }, "Agent deleted");
+});
 
 architectRoutes.patch("/listings/:agentId/status", async (c) => {
   try {
@@ -1653,9 +1713,28 @@ architectRoutes.patch("/listings/:agentId/status", async (c) => {
       );
     }
 
-    const updatedListing = await prisma.agentListing.update({
-      where: { id: agentId },
-      data: { status: input.status }
+    const updatedListing = await prisma.$transaction(async (tx) => {
+      const nextListing = await tx.agentListing.update({
+        where: { id: agentId },
+        data: { status: input.status }
+      });
+
+      if (listing.status === "PAUSED" && input.status === "APPROVED") {
+        const remainingPaused = await tx.agentListing.count({
+          where: {
+            architectUserId: authUser.id,
+            status: "PAUSED"
+          }
+        });
+
+        await tx.architectProfile.upsert({
+          where: { userId: authUser.id },
+          update: { agentsPaused: remainingPaused > 0 },
+          create: { userId: authUser.id, agentsPaused: remainingPaused > 0 }
+        });
+      }
+
+      return nextListing;
     });
 
     return successResponse(c, { listing: updatedListing }, "Agent status updated");

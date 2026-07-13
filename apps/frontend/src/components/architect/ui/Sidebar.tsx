@@ -143,13 +143,15 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
 function SidebarContent({
   user,
   pathname,
-  onNavigate
+  onNavigate,
+  showMobileClose,
+  onMobileClose
 }: {
   user: AuthUser | null;
   pathname: string;
   onNavigate?: () => void;
-
-
+  showMobileClose?: boolean;
+  onMobileClose?: () => void;
 }) {
 
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -171,6 +173,21 @@ function SidebarContent({
         <span className="text-lg font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-brand-text">
           Triven.ai
         </span>
+
+        {showMobileClose ? (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            data-testid="architect-sidebar-mobile-close-button"
+            className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
+            aria-label="Close menu"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="M6 6l12 12" />
+            </svg>
+          </button>
+        ) : null}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -323,33 +340,61 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
       </aside>
 
       {mobileNavOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-          <button
-            data-testid="architect-sidebar-mobile-close"
-            type="button"
-            aria-label="Close navigation"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setMobileNavOpen(false)}
-          />
-          <aside className="relative flex h-full w-72 max-w-[84vw] flex-col bg-white shadow-2xl">
-            <SidebarContent user={user} pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
-          </aside>
-        </div>
+        <button
+          type="button"
+          aria-label="Close menu overlay"
+          data-testid="architect-sidebar-overlay"
+          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[1px] lg:hidden"
+          onClick={() => setMobileNavOpen(false)}
+        />
       ) : null}
 
-      <button
-        data-testid="architect-sidebar-mobile-open"
-        type="button"
-        onClick={() => setMobileNavOpen(true)}
-        className="fixed bottom-4 left-4 z-30 grid h-12 w-12 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-xl shadow-slate-900/10 lg:hidden"
-        aria-label="Open navigation"
-      >
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
+      {mobileNavOpen ? (
+        <aside className="fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[84vw] flex-col border-r border-gray-100 bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden">
+          <SidebarContent
+            user={user}
+            pathname={pathname}
+            onNavigate={() => setMobileNavOpen(false)}
+            showMobileClose
+            onMobileClose={() => setMobileNavOpen(false)}
+          />
+        </aside>
+      ) : null}
 
-      <div className="min-h-screen lg:pl-64">{children}</div>
+      <div className="min-h-screen lg:pl-64">
+        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 px-5 py-3 backdrop-blur lg:hidden">
+          {!mobileNavOpen ? (
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              data-testid="architect-sidebar-mobile-open"
+              className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
+              aria-label="Open menu"
+            >
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          ) : (
+            <span className="h-10 w-10" aria-hidden="true" />
+          )}
+
+          <Image
+            src={TRIVEN_LOGO_SRC}
+            alt="Triven"
+            width={120}
+            height={36}
+            priority
+            className="h-8 w-auto object-contain"
+          />
+
+          <span className="text-xl font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-mobile-brand-text">
+            Triven.ai
+          </span>
+        </div>
+
+        {children}
+      </div>
     </div>
   );
 }

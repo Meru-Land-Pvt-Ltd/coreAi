@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 
 type BillingPaymentMethod = {
@@ -62,6 +62,68 @@ type Billing = {
 
 type BillingResponse = { billing: Billing };
 
+type UsageBill = {
+    month: string;
+    totalCalls: number;
+    totalDurationMinutes: number;
+    totalBilledUsd: number;
+    updatedAt: string | null;
+    agentRollup: Array<{
+        agentId: string | null;
+        agentName: string;
+        callCount: number;
+        durationMinutes: number;
+        billedCostUsd: number;
+        amountCents: number;
+        serviceCosts: Array<{
+            serviceCode: string;
+            serviceName: string;
+            unit: string;
+            quantity: number;
+            billedCostUsd: number;
+            amountCents: number;
+        }>;
+    }>;
+    serviceRollup: Array<{
+        serviceCode: string;
+        serviceName: string;
+        quantity: number;
+        billedCostUsd: number;
+    }>;
+};
+
+type UsageInvoice = {
+    id: string;
+    invoiceNumber: string;
+    billingMonth: string;
+    status: "OPEN" | "OVERDUE" | "PAID" | "VOID";
+    amountCents: number;
+    issuedAt: string;
+    dueAt: string;
+    paidAt: string | null;
+    callCount: number;
+    isAccruing?: boolean;
+    agentBreakdown: Array<{
+        agentId: string | null;
+        agentName: string;
+        callCount: number;
+        durationMinutes: number;
+        billedCostUsd: number;
+        amountCents: number;
+        serviceCosts: Array<{
+            serviceCode: string;
+            serviceName: string;
+            unit: string;
+            quantity: number;
+            billedCostUsd: number;
+            amountCents: number;
+        }>;
+    }>;
+};
+
+type UsageInvoicesResponse = { invoices: UsageInvoice[] };
+type InvoiceTab = "trial" | "paid" | "overdue";
+
 const NA = "0";
 
 const ACCENTS = [
@@ -79,6 +141,19 @@ function formatDate(iso: string) {
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return NA;
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function usageDueAt(month: string) {
+    const [year, monthNumber] = month.split("-").map(Number);
+    return new Date(Date.UTC(year, monthNumber, 8)).toISOString();
+}
+
+function isTrialPurchaseInvoice(status: string) {
+    return status.toUpperCase() === "TRIALING";
+}
+
+function isPaidPurchaseInvoice(status: string) {
+    return status.toUpperCase() === "SUCCEEDED";
 }
 
 function statusBadgeClass(status: string) {
@@ -110,6 +185,10 @@ export default function BusinessBillingUsagePage() {
     const router = useRouter();
 
     const [billing, setBilling] = useState<Billing | null>(null);
+    const [usage, setUsage] = useState<UsageBill | null>(null);
+    const [usageInvoices, setUsageInvoices] = useState<UsageInvoice[]>([]);
+    const [invoiceTab, setInvoiceTab] = useState<InvoiceTab>("paid");
+    const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [apiError, setApiError] = useState("");
     const [toast, setToast] = useState("");
@@ -117,12 +196,16 @@ export default function BusinessBillingUsagePage() {
     useEffect(() => {
         let mounted = true;
 
-        async function loadBilling() {
+        async function loadBilling(initialLoad = true) {
             try {
-                setIsLoading(true);
+                if (initialLoad) setIsLoading(true);
                 setApiError("");
 
-                const response = await apiGet<BillingResponse>("/payments/billing");
+                const [response, usageResponse, invoiceResponse] = await Promise.all([
+                    apiGet<BillingResponse>("/payments/billing"),
+                    apiGet<UsageBill>("/business/billing/usage"),
+                    apiGet<UsageInvoicesResponse>("/business/billing/usage-invoices")
+                ]);
 
                 if (!mounted) return;
 
@@ -133,6 +216,12 @@ export default function BusinessBillingUsagePage() {
                 }
 
                 setBilling(response.data.billing);
+                setUsage(usageResponse.success && usageResponse.data ? usageResponse.data : null);
+                setUsageInvoices(
+                    invoiceResponse.success && invoiceResponse.data?.invoices
+                        ? invoiceResponse.data.invoices
+                        : []
+                );
             } catch (error) {
                 if (!mounted) return;
                 setApiError(error instanceof Error ? error.message : "Could not load billing information");
@@ -142,15 +231,23 @@ export default function BusinessBillingUsagePage() {
             }
         }
 
-        loadBilling();
+        void loadBilling();
+        const refreshTimer = window.setInterval(() => void loadBilling(false), 5 * 60 * 1000);
 
         return () => {
             mounted = false;
+            window.clearInterval(refreshTimer);
         };
     }, []);
 
     function openInvoice(invoiceId: string) {
         router.push(`/business/billingandusage/billing?invoiceId=${encodeURIComponent(invoiceId)}`);
+    }
+
+    function openUsageInvoice(invoice: UsageInvoice) {
+        const agentId = invoice.agentBreakdown[0]?.agentId;
+        const suffix = agentId ? `&agentId=${encodeURIComponent(agentId)}` : "";
+        router.push(`/business/billingandusage/billing?invoiceId=${encodeURIComponent(invoice.id)}${suffix}`);
     }
 
     function showToast(message: string) {
@@ -183,14 +280,54 @@ export default function BusinessBillingUsagePage() {
         }
     }
 
+    async function payUsageInvoice(invoice: UsageInvoice) {
+        if (payingInvoiceId) return;
+        setPayingInvoiceId(invoice.id);
+        try {
+            const response = await apiPost(`/business/billing/usage-invoices/${invoice.id}/pay`, {});
+            if (!response.success) {
+                showToast(response.error ?? "Could not pay invoice");
+                return;
+            }
+            setUsageInvoices((current) => current.map((item) =>
+                item.id === invoice.id ? { ...item, status: "PAID", paidAt: new Date().toISOString() } : item
+            ));
+            showToast("Invoice paid and services restored");
+        } catch (error) {
+            showToast(error instanceof Error ? error.message : "Could not pay invoice");
+        } finally {
+            setPayingInvoiceId(null);
+        }
+    }
+
     const totalAgentFees = formatCurrencyCents(billing?.summary.totalAgentFeesPaidCents);
     const nextCharge = formatCurrencyCents(billing?.summary.nextChargeCents ?? 0);
-    const currentMonthExecution = billing
-        ? formatCurrencyCents(billing.summary.currentMonthExecutionCostCents)
-        : NA;
+    const currentMonthExecution = formatCurrencyCents(Math.round((usage?.totalBilledUsd ?? 0) * 100));
 
     const agents = billing?.agents ?? [];
     const invoices = billing?.invoices ?? [];
+    const trialPurchaseInvoices = invoices.filter((invoice) => isTrialPurchaseInvoice(invoice.status));
+    const paidPurchaseInvoices = invoices.filter((invoice) => isPaidPurchaseInvoice(invoice.status));
+    const paidUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "PAID");
+    const currentUsageStatement: UsageInvoice | null = usage && usage.totalCalls > 0
+        ? {
+            id: `accrued-${usage.month}`,
+            invoiceNumber: `ACCRUED-${usage.month.replace("-", "")}`,
+            billingMonth: usage.month,
+            status: "OPEN",
+            amountCents: Math.round(usage.totalBilledUsd * 100),
+            issuedAt: usage.updatedAt ?? new Date().toISOString(),
+            dueAt: usageDueAt(usage.month),
+            paidAt: null,
+            callCount: usage.totalCalls,
+            agentBreakdown: usage.agentRollup,
+            isAccruing: true
+        }
+        : null;
+    const overdueUsageInvoices = [
+        ...usageInvoices.filter((invoice) => invoice.status === "OPEN" || invoice.status === "OVERDUE"),
+        ...(currentUsageStatement ? [currentUsageStatement] : [])
+    ];
 
     if (isLoading) {
         return (
@@ -246,59 +383,40 @@ export default function BusinessBillingUsagePage() {
                         </div>
                         <h2 className="mt-2 text-2xl font-bold">{billing?.plan.name ?? NA}</h2>
                         <p className="mt-1 text-sm text-slate-500">
-                            No monthly subscription. Pay once per agent, plus small per-execution fees.
+                            Agent access is purchased once. Ongoing billing is based only on actual usage.
                         </p>
-
-                        <div className="my-5 h-px bg-gray-100" />
-
-                        <div className="space-y-3">
+                        <div className="mt-5 divide-y divide-gray-100 rounded-xl border border-gray-100">
                             {agents.length === 0 ? (
-                                <p className="text-sm text-slate-400">No agents purchased yet.</p>
-                            ) : (
-                                agents.map((agent, index) => {
-                                    const accent = ACCENTS[index % ACCENTS.length];
-                                    return (
-                                        <div key={agent.id} className="flex items-center justify-between">
-                                            <div className="flex min-w-0 items-center gap-2.5">
-                                                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${accent.chip}`}>
-                                                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" /></svg>
-                                                </span>
-                                                <span className="truncate text-sm font-medium text-slate-800">{agent.name}</span>
-                                            </div>
-                                            <span className="shrink-0 font-mono text-sm tabular-nums text-slate-600">
-                                                {formatCurrencyCents(agent.priceCents)} <span className="text-slate-400">+ {NA}/run</span>
-                                            </span>
-                                        </div>
-                                    );
-                                })
-                            )}
+                                <p className="px-4 py-4 text-sm text-slate-400">No purchased agents yet.</p>
+                            ) : agents.map((agent) => (
+                                <div key={agent.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-slate-800">{agent.name}</p>
+                                        <p className="text-xs text-slate-400">One-time purchase</p>
+                                    </div>
+                                    <span className="shrink-0 font-mono text-sm font-bold text-green-700">{formatCurrencyCents(agent.priceCents)} paid</span>
+                                </div>
+                            ))}
                         </div>
-
-                        <div className="my-5 h-px bg-gray-100" />
-
-                        <div className="flex items-center justify-between font-bold">
-                            <span>Total agent fees paid</span>
-                            <span className="font-mono tabular-nums">{totalAgentFees}</span>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between">
-                            <span className="text-sm text-slate-600">This month execution costs (to date)</span>
-                            <span className="font-mono text-sm font-semibold tabular-nums text-amber-600">{currentMonthExecution}</span>
+                        <div className="mt-4 flex items-center justify-between text-sm font-semibold">
+                            <span className="text-slate-500">Total one-time amount paid</span>
+                            <span className="font-mono text-slate-900">{totalAgentFees}</span>
                         </div>
                     </div>
 
                     <div className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 p-6">
-                        <span className="text-sm font-semibold text-amber-700">Next Charge</span>
-                        <div className="mt-2 font-mono text-3xl font-black tabular-nums text-slate-900">{nextCharge}</div>
-                        <p className="mt-1 text-sm text-slate-600">No upcoming agent purchases</p>
+                        <span className="text-sm font-semibold text-amber-700">Current accrued usage</span>
+                        <div className="mt-2 font-mono text-3xl font-black tabular-nums text-slate-900">{currentMonthExecution}</div>
+                        <p className="mt-1 text-sm text-slate-600">Updates automatically as agents are used</p>
 
                         <div className="my-4 h-px bg-amber-200/60" />
 
                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Execution fees</span>
                         <p className="mt-1 text-sm text-slate-600">Billed monthly on the 1st</p>
                         <p className="mt-1 text-sm font-semibold text-slate-800">
-                            Next execution bill: <span className="font-mono">{NA}</span>
+                            Unpaid invoices: <span className="font-mono">{nextCharge}</span>
                         </p>
-                        <p className="mt-0.5 text-xs text-slate-400">Usage tracking not available yet</p>
+                        <p className="mt-0.5 text-xs text-slate-400">Finalized on the 1st; payment is due by the 7th</p>
                     </div>
                 </section>
 
@@ -306,65 +424,60 @@ export default function BusinessBillingUsagePage() {
                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" aria-label="Usage breakdown">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <h2 className="text-lg font-bold">Usage This Month</h2>
+                        <span className="text-xs text-slate-400">
+                            {usage?.updatedAt ? `Updated ${formatDate(usage.updatedAt)}` : "No usage recorded"}
+                        </span>
                     </div>
 
-                    <div className="mt-6 space-y-5">
-                        {agents.length === 0 ? (
-                            <p className="text-sm text-slate-400">No usage to display yet.</p>
+                    <div className="mt-4 divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-100">
+                        {(usage?.agentRollup.length ?? 0) === 0 ? (
+                            <p className="px-4 py-6 text-sm text-slate-400">No usage to display yet.</p>
                         ) : (
-                            agents.map((agent, index) => {
-                                const accent = ACCENTS[index % ACCENTS.length];
-                                return (
-                                    <div key={agent.id}>
-                                        <div className="mb-1.5 flex items-center justify-between gap-2">
-                                            <div className="flex min-w-0 items-center gap-2">
-                                                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${accent.dot}`} />
-                                                <span className="truncate text-sm font-medium text-slate-800">{agent.name}</span>
-                                            </div>
-                                            <span className="shrink-0 font-mono text-sm tabular-nums text-slate-500">
-                                                {NA} executions · {NA}
-                                            </span>
-                                        </div>
-                                        <div className="relative h-3 rounded-full bg-gray-100">
-                                            <div className="absolute inset-0 overflow-hidden rounded-full">
-                                                <div className={`h-full rounded-full ${accent.fill}`} style={{ width: "0%" }} />
-                                            </div>
-                                        </div>
+                            usage!.agentRollup.map((agent) => (
+                                <div key={agent.agentId ?? agent.agentName} className="flex items-center justify-between gap-4 bg-white px-4 py-4">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-slate-900">{agent.agentName}</p>
+                                        <p className="mt-1 text-xs text-slate-400">{agent.callCount} calls · {agent.durationMinutes.toFixed(1)} minutes</p>
                                     </div>
-                                );
-                            })
+                                    <div className="flex shrink-0 items-center gap-3">
+                                        <span className="font-mono text-base font-bold text-amber-600">${agent.billedCostUsd.toFixed(2)}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => router.push(`/business/checkout?mode=usage&agentId=${encodeURIComponent(agent.agentId ?? "")}&amountCents=${agent.amountCents}&agent=${encodeURIComponent(agent.agentName)}`)}
+                                            className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-amber-600"
+                                        >
+                                            Pay
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
                         )}
                     </div>
-
-                    <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">
-                        <span className="text-sm font-semibold">
-                            Total executions: <span className="font-mono tabular-nums">{NA}</span>
-                        </span>
-                        <span className="text-sm font-bold text-amber-600">
-                            Total cost: <span className="font-mono tabular-nums">{NA}</span>
-                        </span>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-400">
-                        Average cost per customer interaction: <span className="font-mono">{NA}</span>
-                    </p>
                 </section>
 
                 {/* 3. Invoice history */}
                 <section className="rounded-2xl border border-gray-100 bg-white shadow-sm" aria-label="Invoice history">
-                    <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+                    <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <h2 className="text-lg font-bold">Invoices</h2>
-                        <button
-                            type="button"
-                            onClick={downloadAllInvoices}
-                            data-testid="billing-invoices-download-all"
-                            className="rounded text-sm font-semibold text-amber-600 transition hover:text-amber-700"
-                        >
-                            Download all
-                        </button>
+                        <div className="flex flex-wrap rounded-lg bg-slate-100 p-1" role="tablist" aria-label="Invoice status">
+                            <button type="button" role="tab" aria-selected={invoiceTab === "trial"} onClick={() => setInvoiceTab("trial")} className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${invoiceTab === "trial" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500"}`}>
+                                Trial ({trialPurchaseInvoices.length})
+                            </button>
+                            <button type="button" role="tab" aria-selected={invoiceTab === "paid"} onClick={() => setInvoiceTab("paid")} className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${invoiceTab === "paid" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
+                                Paid ({paidPurchaseInvoices.length + paidUsageInvoices.length})
+                            </button>
+                            <button type="button" role="tab" aria-selected={invoiceTab === "overdue"} onClick={() => setInvoiceTab("overdue")} className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${invoiceTab === "overdue" ? "bg-white text-red-700 shadow-sm" : "text-slate-500"}`}>
+                                Overdue ({overdueUsageInvoices.length})
+                            </button>
+                        </div>
                     </div>
 
-                    {invoices.length === 0 ? (
-                        <p className="px-6 py-8 text-center text-sm text-slate-400">No invoices yet.</p>
+                    {invoiceTab === "trial" && trialPurchaseInvoices.length === 0 ? (
+                        <p className="px-6 py-8 text-center text-sm text-slate-400">No trial invoices yet.</p>
+                    ) : invoiceTab === "paid" && paidPurchaseInvoices.length + paidUsageInvoices.length === 0 ? (
+                        <p className="px-6 py-8 text-center text-sm text-slate-400">No paid invoices yet.</p>
+                    ) : invoiceTab === "overdue" && overdueUsageInvoices.length === 0 ? (
+                        <p className="px-6 py-8 text-center text-sm text-slate-400">No overdue invoices.</p>
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full">
@@ -378,7 +491,7 @@ export default function BusinessBillingUsagePage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {invoices.map((invoice) => (
+                                    {invoiceTab === "trial" && trialPurchaseInvoices.map((invoice) => (
                                         <tr
                                             key={invoice.id}
                                             role="button"
@@ -414,6 +527,71 @@ export default function BusinessBillingUsagePage() {
                                                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinejoin="round" d="M7 3h7l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /><path strokeLinejoin="round" d="M14 3v4h4" /></svg>
                                                     PDF
                                                 </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {invoiceTab === "paid" && paidPurchaseInvoices.map((invoice) => (
+                                        <tr
+                                            key={invoice.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => openInvoice(invoice.id)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    openInvoice(invoice.id);
+                                                }
+                                            }}
+                                            className="cursor-pointer border-b border-gray-50 transition last:border-0 hover:bg-amber-50/30 focus-visible:bg-amber-50/40 focus-visible:outline-none"
+                                        >
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">{formatDate(invoice.createdAt)}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-700">{invoice.description || NA}</td>
+                                            <td className="px-6 py-4 font-mono text-sm font-semibold tabular-nums text-slate-800">{formatCurrencyCents(invoiceDisplayAmount(invoice))}</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(invoice.status)}`}>
+                                                    {statusLabel(invoice.status)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void downloadInvoice(invoice);
+                                                    }}
+                                                    data-testid="billing-invoice-download"
+                                                    aria-label={`Download ${invoice.description || "invoice"} PDF`}
+                                                    className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
+                                                >
+                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinejoin="round" d="M7 3h7l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /><path strokeLinejoin="round" d="M14 3v4h4" /></svg>
+                                                    PDF
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {invoiceTab === "paid" && paidUsageInvoices.map((invoice) => (
+                                        <tr key={invoice.id} onClick={() => openUsageInvoice(invoice)} className="cursor-pointer border-b border-gray-50 transition last:border-0 hover:bg-amber-50/30">
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">{formatDate(invoice.paidAt ?? invoice.issuedAt)}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-700">Usage — {invoice.agentBreakdown.map((agent) => agent.agentName).join(", ") || "Agent"}</td>
+                                            <td className="px-6 py-4 font-mono text-sm font-semibold">{formatCurrencyCents(invoice.amountCents)}</td>
+                                            <td className="px-6 py-4"><span className="rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700">Paid</span></td>
+                                            <td className="px-6 py-4 text-right font-mono text-xs text-slate-500">{invoice.invoiceNumber}</td>
+                                        </tr>
+                                    ))}
+                                    {invoiceTab === "overdue" && overdueUsageInvoices.map((invoice) => (
+                                        <tr key={invoice.id} onClick={() => openUsageInvoice(invoice)} className="cursor-pointer border-b border-red-50 bg-red-50/20 transition last:border-0 hover:bg-red-50/50">
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">{formatDate(invoice.issuedAt)}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-700">Usage — {invoice.agentBreakdown.map((agent) => agent.agentName).join(", ") || "Agent"}</td>
+                                            <td className="px-6 py-4 font-mono text-sm font-semibold">{formatCurrencyCents(invoice.amountCents)}</td>
+                                            <td className="px-6 py-4"><span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${invoice.isAccruing ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{invoice.isAccruing ? "Accruing" : invoice.status === "OVERDUE" ? "Overdue" : "Payment due"}</span></td>
+                                            <td className="px-6 py-4 text-right">
+                                                {invoice.isAccruing ? (
+                                                    <span className="text-xs font-semibold text-amber-700">View invoice</span>
+                                                ) : (
+                                                    <button type="button" disabled={payingInvoiceId === invoice.id} onClick={(event) => { event.stopPropagation(); void payUsageInvoice(invoice); }} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50">
+                                                        {payingInvoiceId === invoice.id ? "Paying…" : "Pay now"}
+                                                    </button>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}

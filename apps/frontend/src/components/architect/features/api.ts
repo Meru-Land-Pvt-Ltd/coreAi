@@ -235,6 +235,10 @@ export function updateArchitectListingStatus(
   });
 }
 
+export function deleteArchitectListing(listingId: string) {
+  return apiDelete<{ listingId: string; workflowId: string | null }>(`/architect/listings/${listingId}`);
+}
+
 export type ArchitectPayoutMethod = {
   bankName: string;
   accountHolderName: string;
@@ -286,6 +290,7 @@ export type ArchitectPayoutSale = {
   grossCents: number;
   earningsCents: number;
   purchaseStatus: string;
+  architectEarningStatus: "PENDING" | "APPROVED" | "REJECTED";
 };
 
 export type ArchitectListingEarnings = {
@@ -579,7 +584,7 @@ export function startArchitectVapiBrowserTest(
 
 export type WorkflowConfigureListingSummary = {
   id: string;
-  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
   reviewStatus: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
   publishStatus: "DRAFT" | "IN_REVIEW" | "PUBLISHED" | "UNPUBLISHED";
   rejectionReason: string | null;
@@ -761,6 +766,8 @@ export type ArchitectSettingsPayload = {
       requiresPayment: boolean;
     };
     agentsPaused: boolean;
+    allAgentsPaused: boolean;
+    hasPausableAgents: boolean;
   };
 };
 
@@ -847,13 +854,13 @@ export function payArchitectRefundObligations(action: "PAUSE_ALL_AGENTS" | "DELE
 export function pauseAllArchitectAgents() {
   return apiPost<{
     paused: boolean;
-    requiresPayment?: boolean;
-    obligations?: {
-      agents: ArchitectRefundAgent[];
-      totalRefundCents: number;
-      requiresPayment: boolean;
-    };
   }>("/architect/settings/danger/pause-agents", {});
+}
+
+export function reactivateAllArchitectAgents() {
+  return apiPost<{
+    reactivated: boolean;
+  }>("/architect/settings/danger/reactivate-agents", {});
 }
 
 export function deleteArchitectAccount(confirmation: "DELETE") {

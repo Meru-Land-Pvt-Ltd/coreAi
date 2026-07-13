@@ -109,6 +109,8 @@ function statusDisplay(status: ArchitectListing["status"]) {
       return { label: "Rejected", text: "text-rose-600", dot: "bg-rose-500" };
     case "SUSPENDED":
       return { label: "Suspended", text: "text-rose-600", dot: "bg-rose-500" };
+    case "PAUSED":
+      return { label: "Paused", text: "text-amber-600", dot: "bg-amber-500" };
     default:
       return { label: "Draft", text: "text-slate-500", dot: "bg-slate-400" };
   }

@@ -134,15 +134,17 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         </span>
                     </a>
 
-                    <button
-                        type="button"
-                        onClick={closeSidebar}
-                        data-testid="business-sidebar-close"
-                        className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
-                        aria-label="Close menu"
-                    >
-                        <Icon name="close" className="h-5 w-5" />
-                    </button>
+                    {sidebarOpen ? (
+                        <button
+                            type="button"
+                            onClick={closeSidebar}
+                            data-testid="business-sidebar-close"
+                            className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
+                            aria-label="Close menu"
+                        >
+                            <Icon name="close" className="h-5 w-5" />
+                        </button>
+                    ) : null}
                 </div>
 
                 <nav className="mt-6 flex flex-col gap-1 px-3" aria-label="Sections">
@@ -236,15 +238,19 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
 
             <div className="min-h-screen lg:ml-64">
                 <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 px-5 py-3 backdrop-blur lg:hidden">
-                    <button
-                        type="button"
-                        onClick={() => setSidebarOpen(true)}
-                        data-testid="business-sidebar-open"
-                        className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
-                        aria-label="Open menu"
-                    >
-                        <Icon name="menu" className="h-6 w-6" />
-                    </button>
+                    {!sidebarOpen ? (
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen(true)}
+                            data-testid="business-sidebar-open"
+                            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
+                            aria-label="Open menu"
+                        >
+                            <Icon name="menu" className="h-6 w-6" />
+                        </button>
+                    ) : (
+                        <span className="h-10 w-10" aria-hidden="true" />
+                    )}
 
                     <Image
                         src={TRIVEN_LOGO_SRC}

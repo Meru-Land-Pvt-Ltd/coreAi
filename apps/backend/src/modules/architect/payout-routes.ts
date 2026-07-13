@@ -5,8 +5,12 @@ import { prisma } from "../../lib/prisma";
 import {
   ARCHITECT_SHARE,
   loadArchitectEarnings,
+  saleTransactionStatus,
   serializeArchitectSale,
-  sumEarningsCents
+  sumApprovedEarningsCents,
+  sumEarningsCents,
+  sumPendingEarningsCents,
+  effectiveEarningStatus
 } from "./payout-earnings";
 
 export const architectPayoutRoutes = new Hono();
@@ -101,14 +105,17 @@ async function computeArchitectPayoutSummary(
     })
   ]);
 
-  const totalEarningsCents = sumEarningsCents(sales);
+  const totalEarningsCents = sumApprovedEarningsCents(sales);
+  const pendingCents = sumPendingEarningsCents(sales);
   const paidOutCents = payouts.reduce((sum, payout) => sum + payout.amountCents, 0);
   const availableBalanceCents = Math.max(0, totalEarningsCents - paidOutCents);
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const thisMonthSales = sales.filter((sale) => sale.createdAt >= monthStart);
-  const thisMonthEarningsCents = sumEarningsCents(thisMonthSales);
+  const thisMonthSales = sales.filter(
+    (sale) => sale.createdAt >= monthStart && effectiveEarningStatus(sale) === "APPROVED"
+  );
+  const thisMonthEarningsCents = sumApprovedEarningsCents(thisMonthSales);
 
   const grossAvailableCents = Math.round(availableBalanceCents / ARCHITECT_SHARE);
   const platformFeeCents = Math.max(0, grossAvailableCents - availableBalanceCents);
@@ -121,31 +128,33 @@ async function computeArchitectPayoutSummary(
     const monthSales = sales.filter(
       (sale) => sale.createdAt >= pointDate && sale.createdAt < nextMonth
     );
-    const confirmedCents = sumEarningsCents(monthSales);
+    const confirmedCents = sumApprovedEarningsCents(monthSales);
+    const pendingMonthCents = sumPendingEarningsCents(monthSales);
 
     return {
       label: pointDate.toLocaleDateString("en-US", { month: "short" }),
       confirmedCents,
-      pendingCents: 0
+      pendingCents: pendingMonthCents
     };
   });
 
   const listingBreakdown = listings.map((listing) => {
     const listingSales = sales.filter((sale) => sale.listingId === listing.id);
+    const approvedSales = listingSales.filter((sale) => effectiveEarningStatus(sale) === "APPROVED");
     return {
       listingId: listing.id,
       listingName: listing.name,
       priceCents: listing.priceCents,
-      installCount: listingSales.length,
-      grossCents: listingSales.reduce((sum, sale) => sum + sale.grossCents, 0),
-      earningsCents: sumEarningsCents(listingSales)
+      installCount: approvedSales.length,
+      grossCents: approvedSales.reduce((sum, sale) => sum + sale.grossCents, 0),
+      earningsCents: sumApprovedEarningsCents(approvedSales)
     };
   });
 
   return {
     totalEarningsCents,
     availableBalanceCents,
-    pendingCents: 0,
+    pendingCents,
     thisMonthEarningsCents,
     thisMonthLabel: formatMonthLabel(now),
     thisMonthSalesCount: thisMonthSales.length,
@@ -192,7 +201,7 @@ architectPayoutRoutes.get("/earnings", async (c) => {
       totals: {
         salesCount: sales.length,
         grossCents: sales.reduce((sum, sale) => sum + sale.grossCents, 0),
-        earningsCents: sumEarningsCents(sales),
+        earningsCents: sumApprovedEarningsCents(sales),
         architectSharePercent: Math.round(ARCHITECT_SHARE * 100)
       }
     });
@@ -370,7 +379,7 @@ architectPayoutRoutes.get("/transactions", async (c) => {
       description: `${sale.listingName} — sold to ${sale.businessName}`,
       type: "Sale" as const,
       amountCents: sale.earningsCents,
-      status: "Paid out" as const
+      status: saleTransactionStatus(sale)
     }));
 
     const payoutTransactions = payouts.map((payout) => ({

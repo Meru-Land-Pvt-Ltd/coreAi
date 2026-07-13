@@ -295,14 +295,16 @@ export type BusinessSettingsProfile = {
   profilePhotoUrl: string | null;
   businessName: string;
   businessType: string;
+  businessSize: string;
   teamPhone: string;
   bookingUrl: string;
   timeZone: string;
   businessAddress: string;
 };
 
-export function getBusinessSettingsProfile() {
-  return apiGet<{ profile: BusinessSettingsProfile }>("/business/settings/profile");
+export function getBusinessSettingsProfile(businessId?: string) {
+  const query = businessId?.trim() ? `?businessId=${encodeURIComponent(businessId.trim())}` : "";
+  return apiGet<{ profile: BusinessSettingsProfile }>(`/business/settings/profile${query}`);
 }
 
 export function saveBusinessSettingsProfile(body: {
@@ -312,12 +314,13 @@ export function saveBusinessSettingsProfile(body: {
   email?: string;
   businessName?: string;
   businessType?: string;
+  businessSize?: string;
   teamPhone?: string;
   bookingUrl?: string;
   timeZone?: string;
   businessAddress?: string;
 }) {
-  return apiPut<{
+  return apiPost<{
     profile: BusinessSettingsProfile;
     token?: string;
     user?: {
@@ -347,4 +350,41 @@ export function requestBusinessEmailChange(email: string) {
 
 export function verifyBusinessEmailChange(body: { email: string; code: string }) {
   return apiPost<{ email: string; verified: boolean }>("/business/settings/profile/email/verify", body);
+}
+
+export type BusinessSettingsSession = {
+  id: string;
+  deviceLabel: string;
+  location: string;
+  ipMasked: string;
+  isCurrent: boolean;
+  statusLabel: string;
+  lastActiveAt: string;
+};
+
+export type BusinessLoginHistoryEntry = {
+  id: string;
+  date: string;
+  device: string;
+  location: string;
+  status: string;
+};
+
+export function getBusinessActiveSessions() {
+  return apiGet<{ sessions: BusinessSettingsSession[] }>("/business/settings/sessions");
+}
+
+export function revokeBusinessSession(sessionId: string) {
+  return apiDelete<{ revoked: boolean }>(`/business/settings/sessions/${sessionId}`);
+}
+
+export function revokeOtherBusinessSessions() {
+  return apiDelete<{ revoked: boolean }>("/business/settings/sessions");
+}
+
+export function getBusinessLoginHistory(page = 1, perPage = 20) {
+  return apiGet<{
+    loginHistory: BusinessLoginHistoryEntry[];
+    pagination: { page: number; perPage: number; total: number; totalPages: number };
+  }>(`/business/settings/login-history?page=${page}&perPage=${perPage}`);
 }

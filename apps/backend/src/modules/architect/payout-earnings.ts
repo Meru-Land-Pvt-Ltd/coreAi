@@ -1,4 +1,5 @@
-import type { Payment, PaymentStatus } from "@prisma/client";
+import type { ArchitectEarningStatus, Payment, PaymentStatus } from "@prisma/client";
+import { paymentAgentGrossCents } from "../../lib/billing-invoices";
 import { prisma } from "../../lib/prisma";
 
 export const ARCHITECT_SHARE = 0.7;
@@ -17,7 +18,15 @@ export type ArchitectSaleRecord = {
   grossCents: number;
   earningsCents: number;
   purchaseStatus: PaymentStatus;
+  architectEarningStatus: ArchitectEarningStatus;
+  reviewedAt: Date | null;
 };
+
+export function effectiveEarningStatus(sale: Pick<ArchitectSaleRecord, "architectEarningStatus" | "reviewedAt">) {
+  if (sale.architectEarningStatus === "REJECTED") return "REJECTED" as const;
+  if (sale.architectEarningStatus === "APPROVED" && sale.reviewedAt) return "APPROVED" as const;
+  return "PENDING" as const;
+}
 
 function resolveActivePayment<T extends { status: PaymentStatus }>(payments: T[]) {
   const owned = payments.filter((payment) => OWNED_PAYMENT_STATUSES.includes(payment.status));
@@ -120,7 +129,10 @@ export async function loadArchitectEarnings(
     const active = resolveActivePayment(bucket);
     if (!active?.listing || !active.listingId) continue;
 
-    const grossCents = active.amountCents > 0 ? active.amountCents : active.listing.priceCents;
+    // Architect earnings are computed on the agent price only — the payment
+    // total may include the platform's phone-number fee.
+    const agentGrossCents = paymentAgentGrossCents(active);
+    const grossCents = agentGrossCents > 0 ? agentGrossCents : active.listing.priceCents;
     const installKey = `${active.listingId}:${active.userId}`;
 
     sales.push({
@@ -134,7 +146,9 @@ export async function loadArchitectEarnings(
       businessName: buyerDisplayName(active),
       grossCents,
       earningsCents: Math.round(grossCents * ARCHITECT_SHARE),
-      purchaseStatus: active.status
+      purchaseStatus: active.status,
+      architectEarningStatus: active.architectEarningStatus,
+      reviewedAt: active.architectEarningReviewedAt
     });
   }
 
@@ -143,6 +157,21 @@ export async function loadArchitectEarnings(
 
 export function sumEarningsCents(sales: ArchitectSaleRecord[]) {
   return sales.reduce((sum, sale) => sum + sale.earningsCents, 0);
+}
+
+export function sumApprovedEarningsCents(sales: ArchitectSaleRecord[]) {
+  return sumEarningsCents(sales.filter((sale) => effectiveEarningStatus(sale) === "APPROVED"));
+}
+
+export function sumPendingEarningsCents(sales: ArchitectSaleRecord[]) {
+  return sumEarningsCents(sales.filter((sale) => effectiveEarningStatus(sale) === "PENDING"));
+}
+
+export function saleTransactionStatus(sale: ArchitectSaleRecord) {
+  const status = effectiveEarningStatus(sale);
+  if (status === "REJECTED") return "Rejected" as const;
+  if (status === "APPROVED") return "Paid" as const;
+  return "Pending" as const;
 }
 
 export async function countSalesByListingIds(listingIds: string[]): Promise<Map<string, number>> {
@@ -196,6 +225,8 @@ export function serializeArchitectSale(sale: ArchitectSaleRecord) {
     businessName: sale.businessName,
     grossCents: sale.grossCents,
     earningsCents: sale.earningsCents,
-    purchaseStatus: sale.purchaseStatus
+    purchaseStatus: sale.purchaseStatus,
+    architectEarningStatus: effectiveEarningStatus(sale),
+    reviewedAt: sale.reviewedAt?.toISOString() ?? null
   };
 }
