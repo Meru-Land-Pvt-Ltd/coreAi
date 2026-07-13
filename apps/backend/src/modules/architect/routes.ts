@@ -628,7 +628,11 @@ architectRoutes.get("/connectors/gmail/status", async (c) => {
 architectRoutes.get("/connectors/gmail/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const url = createGmailOAuthUrl(authUser.id);
+    // Same-app path only — the callback prefixes FRONTEND_URL, so a full URL
+    // or protocol-relative value can never leave the app.
+    const redirect = c.req.query("redirect");
+    const redirectPath = redirect && redirect.startsWith("/") ? redirect : undefined;
+    const url = createGmailOAuthUrl(authUser.id, redirectPath);
 
     return successResponse(c, {
       url

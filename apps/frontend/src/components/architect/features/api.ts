@@ -652,8 +652,9 @@ export function getGmailConnectorStatus() {
   return apiGet<GmailConnectorStatus>("/architect/connectors/gmail/status");
 }
 
-export function getGmailOAuthUrl() {
-  return apiGet<{ url: string }>("/architect/connectors/gmail/oauth-url");
+export function getGmailOAuthUrl(redirectPath?: string) {
+  const query = redirectPath ? `?redirect=${encodeURIComponent(redirectPath)}` : "";
+  return apiGet<{ url: string }>(`/architect/connectors/gmail/oauth-url${query}`);
 }
 
 export function disconnectGmailConnector() {

@@ -353,7 +353,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setConnectingGmail(true);
     setMessage("Connecting Google...");
 
-    const result = await getGmailOAuthUrl();
+    // Return to this exact builder page after OAuth; drop any stale gmail
+    // status param so the callback's own gmail=connected doesn't duplicate.
+    const returnTo = new URL(window.location.href);
+    returnTo.searchParams.delete("gmail");
+
+    const result = await getGmailOAuthUrl(`${returnTo.pathname}${returnTo.search}`);
 
     if (result.success && result.data) {
       window.location.href = result.data.url;

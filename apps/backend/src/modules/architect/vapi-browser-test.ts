@@ -303,6 +303,8 @@ Live call handling:
     voice: selectedVoice,
     voiceProvider: str(ai, "voiceProvider"),
     voiceId: selectedVoiceId,
+    language: str(ai, "language"),
+    speakingSpeed: str(ai, "speakingSpeed"),
     serverUrl: `${webhookBase}/architect/connectors/vapi/webhook`,
     existingAssistantId,
     metadata: {

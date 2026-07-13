@@ -399,11 +399,11 @@ export async function deployInstalledAgentVoiceAssistant(
     firstMessage,
     systemPrompt,
     model: "gpt-4o-mini",
-    // Provider/voice fallbacks are handled by the force-safe resolver in the
-    // Vapi connector — never hardcode a provider or mix voice ID types here.
     voice: override.voice || "triven-default",
     voiceProvider: override.provider,
     voiceId: override.voiceId,
+    language: cleanString(voiceNode.language),
+    speakingSpeed: cleanString(voiceNode.speakingSpeed),
     serverUrl: webhookUrl,
     existingAssistantId
   });
