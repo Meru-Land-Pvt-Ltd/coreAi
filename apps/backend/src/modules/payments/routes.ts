@@ -28,6 +28,7 @@ import {
 } from "../../lib/mailer";
 import { getStripeClient, isStripeConfigured } from "./stripe";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
+import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 
 export const paymentRoutes = new Hono();
 
@@ -59,93 +60,6 @@ function resolveActivePayment<T extends { status: PaymentStatus; createdAt: Date
 function currentMonthStart(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
-/** Per installed agent: executions this month (matches dashboard activity chart). */
-async function buildInstalledAgentMonthlyStats(
-  businessId: string,
-  installedAgents: Array<{ id: string; listingId: string | null }>
-) {
-  const monthStart = currentMonthStart();
-  const agentIds = installedAgents.map((agent) => agent.id);
-  const statsByAgent = new Map<string, { runsThisMonth: number; costThisMonthMicroUsd: number }>();
-
-  for (const agent of installedAgents) {
-    statsByAgent.set(agent.id, { runsThisMonth: 0, costThisMonthMicroUsd: 0 });
-  }
-
-  if (agentIds.length === 0) {
-    return statsByAgent;
-  }
-
-  const [vapiCalls, appointments, missedCalls, phoneLinks] = await Promise.all([
-    prisma.vapiCall.findMany({
-      where: { businessId, createdAt: { gte: monthStart } },
-      select: { installedAgentId: true, billedCostMicroUsd: true }
-    }),
-    prisma.appointment.count({ where: { businessId, createdAt: { gte: monthStart } } }),
-    prisma.lead.count({
-      where: { businessId, source: { contains: "MISSED_CALL" }, createdAt: { gte: monthStart } }
-    }),
-    prisma.businessPhoneNumber.findMany({
-      where: { businessId, isActive: true },
-      select: { installedAgentId: true }
-    })
-  ]);
-
-  const phoneAgentIds = [
-    ...new Set(phoneLinks.map((link) => link.installedAgentId).filter(Boolean) as string[])
-  ];
-
-  let unattributedRuns = 0;
-  let unattributedCostMicroUsd = 0;
-
-  for (const call of vapiCalls) {
-    if (call.installedAgentId && statsByAgent.has(call.installedAgentId)) {
-      const row = statsByAgent.get(call.installedAgentId)!;
-      row.runsThisMonth += 1;
-      row.costThisMonthMicroUsd += call.billedCostMicroUsd ?? 0;
-      continue;
-    }
-    unattributedRuns += 1;
-    unattributedCostMicroUsd += call.billedCostMicroUsd ?? 0;
-  }
-
-  const attributeShared = (runs: number, costMicroUsd: number) => {
-    if (runs <= 0 && costMicroUsd <= 0) return;
-
-    if (installedAgents.length === 1) {
-      const row = statsByAgent.get(installedAgents[0].id)!;
-      row.runsThisMonth += runs;
-      row.costThisMonthMicroUsd += costMicroUsd;
-      return;
-    }
-
-    if (phoneAgentIds.length === 1) {
-      const row = statsByAgent.get(phoneAgentIds[0]);
-      if (row) {
-        row.runsThisMonth += runs;
-        row.costThisMonthMicroUsd += costMicroUsd;
-      }
-      return;
-    }
-
-    if (phoneAgentIds.length > 1) {
-      for (const agentId of phoneAgentIds) {
-        const row = statsByAgent.get(agentId);
-        if (row) row.runsThisMonth += runs;
-      }
-      if (phoneAgentIds.length > 0) {
-        const first = statsByAgent.get(phoneAgentIds[0]);
-        if (first) first.costThisMonthMicroUsd += costMicroUsd;
-      }
-    }
-  };
-
-  attributeShared(unattributedRuns, unattributedCostMicroUsd);
-  attributeShared(appointments + missedCalls, 0);
-
-  return statsByAgent;
 }
 
 function resolveInvoicePaymentId(paymentId: string) {
@@ -614,9 +528,9 @@ paymentRoutes.get("/my-agents", async (c) => {
   ]);
 
   const installedAgents = business?.installedAgents ?? [];
-  const statsByAgentId = business
-    ? await buildInstalledAgentMonthlyStats(business.id, installedAgents)
-    : new Map<string, { runsThisMonth: number; costThisMonthMicroUsd: number }>();
+  const runStatsByAgentId = business
+    ? await buildInstalledAgentRunStats(business.id, installedAgents, { start: currentMonthStart() })
+    : new Map<string, { runs: number; costMicroUsd: number }>();
   const installedByListingId = new Map(
     installedAgents
       .filter((agent) => agent.listingId)
@@ -646,8 +560,8 @@ paymentRoutes.get("/my-agents", async (c) => {
 
     const installedAgent = installedByListingId.get(listing.id) ?? null;
     const stats = installedAgent
-      ? statsByAgentId.get(installedAgent.id) ?? { runsThisMonth: 0, costThisMonthMicroUsd: 0 }
-      : { runsThisMonth: 0, costThisMonthMicroUsd: 0 };
+      ? runStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
+      : { runs: 0, costMicroUsd: 0 };
 
     agents.push({
       purchaseId: activePayment.id,
@@ -656,8 +570,8 @@ paymentRoutes.get("/my-agents", async (c) => {
       installedAgentId: installedAgent?.id ?? null,
       installedAgentStatus: installedAgent?.status ?? null,
       stats: {
-        runsThisMonth: stats.runsThisMonth,
-        costThisMonthMicroUsd: stats.costThisMonthMicroUsd
+        runsThisMonth: stats.runs,
+        costThisMonthMicroUsd: stats.costMicroUsd
       },
       listing: {
         id: listing.id,
