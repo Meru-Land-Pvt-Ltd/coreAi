@@ -237,105 +237,6 @@ export function TestPanel({
           </div>
         ) : null}
 
-        {isVoiceWorkflow ? (
-          <BrowserVoiceCallTest
-            conversationMessages={conversationMessages}
-            conversationLogs={conversationLogs}
-            conversationToolCalls={conversationToolCalls}
-            chatting={chatting}
-            businessName={businessName}
-            businessType={businessType}
-            callerName={callerName}
-            appointmentService={appointmentService}
-            onStartVapiCall={onStartVapiCall}
-            onSendConversationMessage={onSendConversationMessage}
-            onResetConversationTest={onResetConversationTest}
-          />
-        ) : null}
-
-        {isVoiceWorkflow || hasGmailFlow ? (
-          <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="builder-test-connections">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-architect-test-connections-heading">Architect test connections</h3>
-              <button
-                type="button"
-                onClick={onRefreshConnections}
-                data-testid="builder-test-refresh-status"
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-              >
-                Refresh status
-              </button>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-google-card">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gmail / Google account</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-google-status">
-                  {gmailConnected ? `Google connected: ${gmailEmail ?? "connected"}` : "Not connected"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-permission">
-                  Calendar permission: {calendarConnected ? "connected" : "missing"}
-                </p>
-                {gmailConnected && !calendarConnected ? (
-                  <p className="mt-1 text-xs font-semibold text-amber-700" data-testid="builder-test-calendar-reconnect-hint">
-                    Reconnect Google to grant Calendar permission.
-                  </p>
-                ) : null}
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={onConnectGmail}
-                    disabled={connectingGmail}
-                    data-testid="builder-test-connect-google"
-                    className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
-                  >
-                    {connectingGmail ? "Connecting..." : gmailConnected ? "Reconnect Google" : "Connect Google"}
-                  </button>
-                  {gmailConnected ? (
-                    <button
-                      type="button"
-                      onClick={onDisconnectGoogle}
-                      data-testid="builder-test-disconnect-google"
-                      className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-                    >
-                      Disconnect Google
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-calendar-card">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Google Calendar</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-calendar-status-text">
-                  {calendarConnected ? "Connected" : "Missing permission"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-id-text">Calendar ID: {calendarId || "primary"}</p>
-                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-timezone-text">Timezone: {timeZone || "America/Los_Angeles"}</p>
-              </div>
-              {isVoiceWorkflow ? (
-                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-twilio-card">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Twilio test number</p>
-                  <p className="mt-1 font-mono text-sm font-semibold text-slate-800" data-testid="builder-test-twilio-number">
-                    {testDeployment?.assignedPhoneNumber ?? "Assigned when the live sandbox starts"}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-twilio-note">
-                    Browser call test does not use phone numbers. Live sandbox can be enabled later.
-                  </p>
-                </div>
-              ) : null}
-              {isVoiceWorkflow ? (
-                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-vapi-card">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Vapi assistant</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-vapi-status">
-                    {testDeployment?.vapiAssistantId ? "Assistant ready" : "Not required for browser call test"}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-vapi-note">
-                    The sandbox uses its own assistant for this workflow — no shared production assistant.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
         <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">
             {isVoiceWorkflow ? "Simulate an inbound call" : "Simulate a customer event"}
@@ -397,7 +298,7 @@ export function TestPanel({
                     value={triggerMessage}
                     onChange={(event) => onTriggerMessageChange(event.target.value)}
                     placeholder="Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
-                    className="w-full h-24 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                    className="w-full h-24 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
                   />
                 </label>
                 <div className="col-span-1 sm:col-span-2">
@@ -506,32 +407,109 @@ export function TestPanel({
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
                       />
                     </label>
-                    <label data-testid="builder-test-timezone-label">
-                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar timezone</span>
-                      <input data-testid="builder-test-timezone-input"
-                        type="text"
-                        value={timeZone}
-                        onChange={(event) => onTimeZoneChange(event.target.value)}
-                        placeholder="America/Los_Angeles"
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-                      />
-                    </label>
-                    <label data-testid="builder-test-calendar-id-label">
-                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Calendar ID</span>
-                      <input data-testid="builder-test-calendar-id-input"
-                        type="text"
-                        value={calendarId}
-                        onChange={(event) => onCalendarIdChange(event.target.value)}
-                        placeholder="primary"
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-                      />
-                    </label>
                   </>
                 ) : null}
               </>
             )}
           </div>
         </div>
+
+        {isVoiceWorkflow || hasGmailFlow ? (
+          <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="builder-test-connections">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-architect-test-connections-heading">Architect test connections</h3>
+              <button
+                type="button"
+                onClick={onRefreshConnections}
+                data-testid="builder-test-refresh-status"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+              >
+                Refresh status
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-google-card">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gmail / Google account</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-google-status">
+                  {gmailConnected ? `Google connected: ${gmailEmail ?? "connected"}` : "Not connected"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-permission">
+                  Calendar permission: {calendarConnected ? "connected" : "missing"}
+                </p>
+                {gmailConnected && !calendarConnected ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-700" data-testid="builder-test-calendar-reconnect-hint">
+                    Reconnect Google to grant Calendar permission.
+                  </p>
+                ) : null}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onConnectGmail}
+                    disabled={connectingGmail}
+                    data-testid="builder-test-connect-google"
+                    className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
+                  >
+                    {connectingGmail ? "Connecting..." : gmailConnected ? "Reconnect Google" : "Connect Google"}
+                  </button>
+                  {gmailConnected ? (
+                    <button
+                      type="button"
+                      onClick={onDisconnectGoogle}
+                      data-testid="builder-test-disconnect-google"
+                      className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                    >
+                      Disconnect Google
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-calendar-card">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Google Calendar</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-calendar-status-text">
+                  {calendarConnected ? "Connected" : "Missing permission"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-id-text">Calendar ID: {calendarId || "primary"}</p>
+                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-timezone-text">Timezone: {timeZone || "America/Los_Angeles"}</p>
+              </div>
+              {isVoiceWorkflow ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-twilio-card">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Twilio test number</p>
+                  <p className="mt-1 font-mono text-sm font-semibold text-slate-800" data-testid="builder-test-twilio-number">
+                    {testDeployment?.assignedPhoneNumber ?? "Assigned when the live sandbox starts"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-twilio-note">
+                    Browser call test does not use phone numbers. Live sandbox can be enabled later.
+                  </p>
+                </div>
+              ) : null}
+              {isVoiceWorkflow ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-vapi-card">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Vapi assistant</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-vapi-status">
+                    {testDeployment?.vapiAssistantId ? "Assistant ready" : "Not required for browser call test"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-vapi-note">
+                    The sandbox uses its own assistant for this workflow — no shared production assistant.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {isVoiceWorkflow ? (
+          <BrowserVoiceCallTest
+            conversationMessages={conversationMessages}
+            chatting={chatting}
+            businessName={businessName}
+            businessType={businessType}
+            callerName={callerName}
+            appointmentService={appointmentService}
+            onStartVapiCall={onStartVapiCall}
+            onSendConversationMessage={onSendConversationMessage}
+            onResetConversationTest={onResetConversationTest}
+          />
+        ) : null}
 
         <div className="mt-6 overflow-hidden rounded-2xl bg-slate-900 shadow-sm ring-1 ring-slate-900/5">
           <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5">

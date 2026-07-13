@@ -746,7 +746,18 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
   const type = String(node.data.type ?? "");
   const definition = getNodeDefinition(type);
   const inputKeys = definition?.requiredVariables ?? [];
-  const outputKeys = definition?.producedVariables ?? [];
+  let outputKeys = definition?.producedVariables ?? [];
+  if (type === "ai.llm_call") {
+    const nodeLabel = String(node.data.title ?? node.data.label ?? node.id)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ".")
+      .replace(/(^\.|\.$)/g, "");
+    outputKeys = [
+      node.data.llmOutputKey || "ai.output",
+      `node.${node.id}.output`,
+      `node.${nodeLabel}.output`
+    ];
+  }
   const usedKeys = collectTemplateVariables(node);
   const connector = String(node.data.connector ?? "");
   const connectorAction = String(node.data.connectorAction ?? "");

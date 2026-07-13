@@ -4,12 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_CALL_START_MESSAGE } from "@coreai/shared";
 import type {
     ArchitectConversationMessage,
-    ArchitectConversationToolCall,
-    ArchitectVapiBrowserTestSession,
-    WorkflowRunLog
+    ArchitectVapiBrowserTestSession
 } from "@/components/architect/features/types";
 import { BuilderIcon } from "./icons";
-import { logColor } from "./run-context";
 
 /* ------------------------- fallback speech (browser) ---------------------- */
 /* Browser SpeechRecognition + speechSynthesis are used ONLY in fallback      */
@@ -165,7 +162,7 @@ function callStateLabel(state: CallState): string {
 function callStateBadgeClass(state: CallState): string {
     if (state === "listening") return "bg-green-100 text-green-700";
     if (state === "thinking") return "bg-amber-100 text-amber-700";
-    if (state === "speaking") return "bg-violet-100 text-violet-700";
+    if (state === "speaking") return "bg-amber-100 text-amber-700";
     if (state === "ended") return "bg-slate-100 text-slate-600";
     if (state === "starting") return "bg-blue-100 text-blue-700";
     return "bg-slate-100 text-slate-500";
@@ -173,8 +170,6 @@ function callStateBadgeClass(state: CallState): string {
 
 export function BrowserVoiceCallTest({
     conversationMessages,
-    conversationLogs,
-    conversationToolCalls,
     chatting,
     businessName,
     businessType,
@@ -185,8 +180,6 @@ export function BrowserVoiceCallTest({
     onResetConversationTest
 }: {
     conversationMessages: ArchitectConversationMessage[];
-    conversationLogs: WorkflowRunLog[];
-    conversationToolCalls: ArchitectConversationToolCall[];
     chatting: boolean;
     businessName: string;
     businessType: string;
@@ -201,7 +194,6 @@ export function BrowserVoiceCallTest({
     const [mode, setMode] = useState<CallMode>(null);
     const [vapiSession, setVapiSession] = useState<ArchitectVapiBrowserTestSession | null>(null);
     const [vapiTranscript, setVapiTranscript] = useState<ArchitectConversationMessage[]>([]);
-    const [vapiToolEvents, setVapiToolEvents] = useState<ArchitectConversationToolCall[]>([]);
     const [fallbackReason, setFallbackReason] = useState("");
     const [partialTranscript, setPartialTranscript] = useState("");
     const [typedFallback, setTypedFallback] = useState("");
@@ -230,48 +222,8 @@ export function BrowserVoiceCallTest({
 
     /* ------------------------------ Vapi mode ------------------------------ */
 
-    function readVapiToolNames(record: Record<string, unknown>): string[] {
-        const lists = [record.toolCallList, record.toolCalls, asRecord(record.message).toolCallList];
-        const names: string[] = [];
-
-        for (const list of lists) {
-            if (!Array.isArray(list)) continue;
-
-            for (const item of list) {
-                const itemRecord = asRecord(item);
-                const fn = asRecord(itemRecord.function);
-                const name =
-                    (typeof itemRecord.name === "string" && itemRecord.name) ||
-                    (typeof fn.name === "string" && fn.name) ||
-                    "";
-
-                if (name) names.push(name);
-            }
-        }
-
-        return names;
-    }
-
     function handleVapiMessage(payload: unknown) {
         const record = asRecord(payload);
-
-        // Tool activity: show which workflow tools the agent is using.
-        if (record.type === "tool-calls" || record.type === "function-call") {
-            const names = readVapiToolNames(record);
-
-            if (names.length > 0) {
-                setVapiToolEvents((current) => [
-                    ...current,
-                    ...names.map((name) => ({
-                        name,
-                        status: "simulated" as const,
-                        message: "Tool call sent to the workflow backend (dry-run in test mode)."
-                    }))
-                ]);
-            }
-
-            return;
-        }
 
         if (record.type !== "transcript") return;
 
@@ -285,7 +237,6 @@ export function BrowserVoiceCallTest({
             return;
         }
 
-        setPartialTranscript("");
         setVapiTranscript((current) => [
             ...current,
             { role, content: text, createdAt: new Date().toISOString() }
@@ -319,10 +270,6 @@ export function BrowserVoiceCallTest({
             const message = readVapiError(payload);
 
             setError(message);
-            setVapiToolEvents((current) => [
-                ...current,
-                { name: "vapi.call", status: "error", message }
-            ]);
             callActiveRef.current = false;
 
             try {
@@ -404,7 +351,6 @@ export function BrowserVoiceCallTest({
         setFallbackReason("");
         setPartialTranscript("");
         setVapiTranscript([]);
-        setVapiToolEvents([]);
         setVapiSession(null);
         setMode(null);
         onResetConversationTest();
@@ -456,7 +402,6 @@ export function BrowserVoiceCallTest({
         setMode(null);
         setVapiSession(null);
         setVapiTranscript([]);
-        setVapiToolEvents([]);
         setFallbackReason("");
         setError("");
         setCallState("idle");
@@ -560,19 +505,17 @@ export function BrowserVoiceCallTest({
     const isVapiMode = mode === "vapi";
     const isFallbackMode = mode === "fallback";
     const transcriptMessages = isVapiMode ? vapiTranscript : conversationMessages;
-    const toolCallItems = isVapiMode ? vapiToolEvents : conversationToolCalls;
     const hasMessages = transcriptMessages.length > 0;
-
     return (
         <div
-            className="mt-6 overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-sm"
+            className="mt-6 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
             data-testid="builder-browser-voice-call-test"
         >
-            <div className="border-b border-violet-50 bg-gradient-to-br from-violet-50 via-white to-amber-50 p-5">
+            <div className="border-b border-gray-100 bg-gradient-to-br from-slate-50/50 via-white to-amber-50/10 p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-2">
-                            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-violet-600 text-white shadow-sm">
+                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500 text-white shadow-sm">
                                 <BuilderIcon name="phone-call" className="h-5 w-5" />
                             </span>
 
@@ -594,18 +537,18 @@ export function BrowserVoiceCallTest({
                             {isVapiMode && vapiSession ? (
                                 <>
                                     <span
-                                        className="rounded-full bg-violet-600 px-3 py-1 font-bold text-white"
+                                        className="rounded-full bg-amber-500 px-3 py-1 font-bold text-white"
                                         data-testid="builder-browser-call-provider-badge"
                                     >
                                         Powered by Vapi
                                     </span>
-                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-violet-100" data-testid="builder-browser-call-vapi-voice">
+                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-gray-200" data-testid="builder-browser-call-vapi-voice">
                                         Voice: {vapiSession.voiceName}
                                     </span>
-                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-violet-100" data-testid="builder-browser-call-vapi-model">
+                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-gray-200" data-testid="builder-browser-call-vapi-model">
                                         Model: {vapiSession.model}
                                     </span>
-                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-violet-100" data-testid="builder-browser-call-vapi-transcriber">
+                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-gray-200" data-testid="builder-browser-call-vapi-transcriber">
                                         Transcriber: {vapiSession.transcriber}
                                     </span>
                                 </>
@@ -618,17 +561,17 @@ export function BrowserVoiceCallTest({
                                         Fallback browser simulation
                                     </span>
                                     {fallbackReason ? (
-                                        <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-500 ring-1 ring-amber-100" data-testid="builder-browser-call-fallback-reason">
+                                        <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-500 ring-1 ring-gray-200" data-testid="builder-browser-call-fallback-reason">
                                             {fallbackReason}
                                         </span>
                                     ) : null}
                                 </>
                             ) : (
                                 <>
-                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-violet-100">
+                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-gray-200">
                                         {businessName || "Sample Business"}
                                     </span>
-                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-violet-100">
+                                    <span className="rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-600 ring-1 ring-gray-200">
                                         {businessType || "Service Business"}
                                     </span>
                                 </>
@@ -643,7 +586,7 @@ export function BrowserVoiceCallTest({
                                 onClick={() => void startBrowserCall()}
                                 disabled={chatting}
                                 data-testid="builder-browser-call-start"
-                                className="rounded-full bg-violet-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50"
+                                className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-50"
                             >
                                 Start call
                             </button>
@@ -652,7 +595,7 @@ export function BrowserVoiceCallTest({
                                 type="button"
                                 onClick={endBrowserCall}
                                 data-testid="builder-browser-call-end"
-                                className="rounded-full bg-rose-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-rose-700"
+                                className="rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700"
                             >
                                 End call
                             </button>
@@ -663,7 +606,7 @@ export function BrowserVoiceCallTest({
                             onClick={resetCall}
                             disabled={chatting && !hasMessages}
                             data-testid="builder-browser-call-reset"
-                            className="rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-gray-50 disabled:opacity-50"
+                            className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-gray-50 disabled:opacity-50"
                         >
                             Reset
                         </button>
@@ -679,9 +622,9 @@ export function BrowserVoiceCallTest({
                         className={`grid h-24 w-24 place-items-center rounded-full text-white shadow-lg transition disabled:opacity-40 ${callState === "listening"
                                 ? "animate-pulse bg-green-600 hover:bg-green-700 disabled:opacity-100"
                                 : callState === "speaking"
-                                    ? "animate-pulse bg-violet-600 disabled:opacity-100"
+                                    ? "animate-pulse bg-amber-500 disabled:opacity-100"
                                     : callState === "thinking"
-                                        ? "animate-pulse bg-amber-500 disabled:opacity-100"
+                                        ? "animate-pulse bg-amber-400 disabled:opacity-100"
                                         : "bg-slate-900 hover:bg-slate-800"
                             }`}
                         aria-label={isVapiMode ? "Live call status" : callState === "listening" ? "Stop listening" : "Speak"}
@@ -706,7 +649,7 @@ export function BrowserVoiceCallTest({
 
                 {partialTranscript ? (
                     <p
-                        className="mx-auto mt-3 max-w-xl rounded-2xl bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 ring-1 ring-violet-100"
+                        className="mx-auto mt-3 max-w-xl rounded-2xl bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 ring-1 ring-gray-200"
                         data-testid="builder-browser-call-partial"
                     >
                         {partialTranscript}
@@ -738,13 +681,13 @@ export function BrowserVoiceCallTest({
                                     }
                                 }}
                                 placeholder="Fallback test message..."
-                                className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-400/20"
+                                className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/20"
                             />
                             <button
                                 type="button"
                                 onClick={() => void sendTypedFallback()}
                                 disabled={!typedFallback.trim() || chatting}
-                                className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                                className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-amber-600 transition"
                             >
                                 Send
                             </button>
@@ -753,103 +696,53 @@ export function BrowserVoiceCallTest({
                 ) : null}
             </div>
 
-            <div className="grid gap-0 lg:grid-cols-[1.35fr_.9fr]">
-                <div className="min-h-[360px] border-b border-gray-100 bg-slate-50 p-5 lg:border-b-0 lg:border-r">
-                    <div className="mb-3 flex items-center justify-between">
-                        <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                            Live transcript
-                        </p>
-                        <p className="text-xs font-semibold text-slate-400">
-                            Caller: {callerName || "Test caller"} • Service: {appointmentService || "Consultation"}
-                        </p>
-                    </div>
-
-                    {hasMessages ? (
-                        <div className="space-y-3" data-testid="builder-browser-call-transcript">
-                            {transcriptMessages.map((message, index) => (
-                                <div
-                                    key={`${message.role}-${index}-${message.createdAt ?? ""}`}
-                                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                                    data-testid={`builder-browser-call-message-${message.role}`}
-                                >
-                                    <div
-                                        className={`max-w-[84%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${message.role === "user"
-                                                ? "rounded-br-md bg-amber-500 text-white"
-                                                : "rounded-bl-md bg-white text-slate-800 ring-1 ring-gray-100"
-                                            }`}
-                                    >
-                                        <div>{message.content}</div>
-                                        {message.createdAt ? (
-                                            <div className={`mt-1 text-[10px] ${message.role === "user" ? "text-amber-100" : "text-slate-400"}`}>
-                                                {shortTime(message.createdAt)}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="grid h-[300px] place-items-center text-center">
-                            <div>
-                                <div className="mx-auto grid h-14 w-14 place-items-center rounded-3xl bg-violet-50 text-violet-600">
-                                    <BuilderIcon name="sparkles" className="h-6 w-6" />
-                                </div>
-                                <p className="mt-3 text-sm font-black text-slate-700">No conversation yet</p>
-                                <p className="mt-1 text-xs text-slate-400">
-                                    Click Start call, then speak into your mic.
-                                </p>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="bg-white p-5">
+            <div className="min-h-[360px] bg-slate-50 p-5">
+                <div className="mb-3 flex items-center justify-between">
                     <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                        Execution
+                        Live transcript
                     </p>
-
-                    {conversationLogs.length > 0 ? (
-                        <div className="mt-3 rounded-2xl bg-slate-950 p-4 font-mono text-xs text-slate-300" data-testid="builder-browser-call-logs">
-                            <div className="space-y-1.5">
-                                {conversationLogs.map((log, index) => (
-                                    <p key={`${log.nodeId}-${index}`} className={logColor(log.status)}>
-                                        $ {log.label} - {log.message}
-                                    </p>
-                                ))}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-slate-500">
-                            {isVapiMode
-                                ? "Vapi runs the tools live — booking and SMS stay dry-run. Tool activity appears in the tool panel below when the webhook reports it."
-                                : "Node execution logs will appear here after the first message."}
-                        </div>
-                    )}
-
-                    <p className="mt-5 text-xs font-black uppercase tracking-wider text-slate-400">
-                        Simulated tools
+                    <p className="text-xs font-semibold text-slate-400">
+                        Caller: {callerName || "Test caller"} • Service: {appointmentService || "Consultation"}
                     </p>
-
-                    {toolCallItems.length > 0 ? (
-                        <div className="mt-3 space-y-2" data-testid="builder-browser-call-tools">
-                            {toolCallItems.map((tool, index) => (
-                                <div key={`${tool.name}-${index}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="text-xs font-black text-slate-800">{tool.name}</p>
-                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${tool.status === "error" ? "bg-rose-100 text-rose-700" : "bg-violet-100 text-violet-700"}`}>
-                                            {tool.status}
-                                        </span>
-                                    </div>
-                                    <p className="mt-1 text-xs leading-5 text-slate-500">{tool.message}</p>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-slate-500">
-                            Calendar, booking, and SMS tool activity will appear here (dry-run in test mode).
-                        </div>
-                    )}
                 </div>
+
+                {hasMessages ? (
+                    <div className="space-y-3" data-testid="builder-browser-call-transcript">
+                        {transcriptMessages.map((message, index) => (
+                            <div
+                                key={`${message.role}-${index}-${message.createdAt ?? ""}`}
+                                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                                data-testid={`builder-browser-call-message-${message.role}`}
+                            >
+                                <div
+                                    className={`max-w-[84%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${message.role === "user"
+                                            ? "rounded-br-md bg-amber-500 text-white"
+                                            : "rounded-bl-md bg-white text-slate-800 ring-1 ring-gray-100"
+                                        }`}
+                                >
+                                    <div>{message.content}</div>
+                                    {message.createdAt ? (
+                                        <div className={`mt-1 text-[10px] ${message.role === "user" ? "text-amber-100" : "text-slate-400"}`}>
+                                            {shortTime(message.createdAt)}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="grid h-[300px] place-items-center text-center">
+                        <div>
+                            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-500">
+                                <BuilderIcon name="sparkles" className="h-6 w-6" />
+                            </div>
+                            <p className="mt-3 text-sm font-black text-slate-700">No conversation yet</p>
+                            <p className="mt-1 text-xs text-slate-400">
+                                Click Start call, then speak into your mic.
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
