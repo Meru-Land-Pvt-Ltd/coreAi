@@ -35,6 +35,7 @@ type ApiListing = {
     priceCents?: number | null;
     status?: string | null;
     tags?: string[];
+    category?: string | null;
     requiredConnectors?: string[];
     supportedLlms?: string[];
     workflowId?: string | null;
@@ -112,13 +113,17 @@ function getAgentIndustry(listing: ApiListing) {
 }
 
 function getAgentCategory(listing: ApiListing) {
+    if (listing.category?.trim()) {
+        return formatLabel(listing.category.trim());
+    }
+
     const tags = listing.tags ?? [];
     const categoryTag =
         tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
         tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
 
     if (categoryTag) return formatLabel(categoryTag.replace(/^category:/i, ""));
-    return "AI Agent";
+    return "Uncategorized";
 }
 
 function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {

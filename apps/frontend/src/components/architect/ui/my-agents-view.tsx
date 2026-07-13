@@ -3,19 +3,68 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { formatDate, formatMoney } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
   deleteArchitectListing,
   deleteArchitectWorkflow,
+  getArchitectAgentsStats,
   getArchitectListings,
   getArchitectWorkflow,
-  updateArchitectListingStatus
+  updateArchitectListingStatus,
+  type ArchitectAgentsStats
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { getAuthUser } from "@/lib/auth";
 import { architectPublishingStatusPath, architectAnalyticsPath } from "@/lib/routes";
+import { ArrowDown, ArrowUp } from "lucide-react";
+
+const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
+  totalAgents: 0,
+  agentsAddedThisMonth: 0,
+  liveAndEarning: 0,
+  liveSharePercent: 0,
+  totalExecutions: 0,
+  executionsThisMonth: 0,
+  executionsPrevMonth: 0,
+  executionsChangePercent: null,
+  revenue30dCents: 0,
+  revenuePrev30dCents: 0,
+  revenueChangePercent: null
+};
+
+type TrendDirection = "up" | "down" | "flat";
+
+function getTrendDirection(change: number | null): TrendDirection {
+  if (change == null || change === 0) return "flat";
+  return change > 0 ? "up" : "down";
+}
+
+function TrendFooter({
+  direction,
+  children,
+  testId
+}: {
+  direction: TrendDirection;
+  children: ReactNode;
+  testId?: string;
+}) {
+  const colorClass =
+    direction === "up" ? "text-green-600" : direction === "down" ? "text-red-500" : "text-slate-400";
+  return (
+    <p className={`mt-1 flex items-center gap-1 text-xs font-semibold ${colorClass}`} data-testid={testId}>
+      {direction === "up" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+      {direction === "down" ? <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+      <span>{children}</span>
+    </p>
+  );
+}
+
+function formatTrendPercentLabel(change: number | null, emptyLabel = "0% vs last month"): string {
+  if (change === null || change === 0) return emptyLabel;
+  return `${Math.abs(change)}% vs last month`;
+}
 
 type AgentStatus = ArchitectListing["status"];
 type ViewMode = "grid" | "list";
@@ -691,13 +740,18 @@ function CountUp({ value, format = "int" }: { value: number; format?: "int" | "m
   }, [value]);
 
   const rounded = Math.round(display);
-  return <>{format === "money" ? formatMoney(rounded * 100) : rounded.toLocaleString("en-US")}</>;
+  if (format === "money") {
+    // Revenue must show $0 (formatMoney(0) returns "Free" for listing prices).
+    return <>{`$${rounded.toLocaleString("en-US")}`}</>;
+  }
+  return <>{rounded.toLocaleString("en-US")}</>;
 }
 
 export function MyAgentsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
+  const [stats, setStats] = useState<ArchitectAgentsStats>(EMPTY_AGENT_STATS);
   const [loading, setLoading] = useState(true);
   const [architectName, setArchitectName] = useState("Architect");
   const [filter, setFilter] = useState<AgentFilter>("ALL");
@@ -731,9 +785,15 @@ export function MyAgentsView() {
   }, [searchParams]);
 
   async function loadAgents() {
-    const result = await getArchitectListings();
-    if (result.success && result.data) {
-      setAgents(result.data.listings);
+    const [listingsResult, statsResult] = await Promise.all([
+      getArchitectListings(),
+      getArchitectAgentsStats()
+    ]);
+    if (listingsResult.success && listingsResult.data) {
+      setAgents(listingsResult.data.listings);
+    }
+    if (statsResult.success && statsResult.data) {
+      setStats(statsResult.data);
     }
     setLoading(false);
   }
@@ -783,7 +843,18 @@ export function MyAgentsView() {
     [agents]
   );
 
-  const approvedShare = counts.total ? `${Math.round((counts.approved / counts.total) * 100)}% of total` : "0% of total";
+  const liveShareLabel =
+    stats.totalAgents > 0 ? `${stats.liveSharePercent}% of total` : "0% of total";
+  const agentsAddedDirection: TrendDirection =
+    stats.agentsAddedThisMonth > 0 ? "up" : "flat";
+  const agentsAddedText =
+    stats.agentsAddedThisMonth > 0
+      ? `${stats.agentsAddedThisMonth} this month`
+      : "No new agents this month";
+  const executionsTrendDirection = getTrendDirection(stats.executionsChangePercent);
+  const executionsTrendText = formatTrendPercentLabel(stats.executionsChangePercent);
+  const revenueTrendDirection = getTrendDirection(stats.revenueChangePercent);
+  const revenueTrendText = formatTrendPercentLabel(stats.revenueChangePercent);
 
   const visibleAgents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -913,7 +984,7 @@ export function MyAgentsView() {
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-agents-heading">
+            <h1 className="text-2xl font-bold text-slate-900 " data-testid="architect-ui-my-agents-view-agents-heading">
               My Agents
             </h1>
             <p className="mt-1 text-sm text-slate-500" data-testid="my-agents-subtitle-text">
@@ -935,46 +1006,58 @@ export function MyAgentsView() {
       </header>
 
       <main className="p-4 sm:p-6 lg:p-8">
-        {/* Stats */}
+        {/* Stats — values from GET /architect/agents/stats */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {/* Total Agents */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-total-agents-text">
               Total Agents
             </p>
             <p className="mt-1 text-3xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-counts-total-text">
-              <CountUp value={counts.total} />
+              <CountUp value={stats.totalAgents} />
             </p>
-            <p className="mt-1 text-xs text-slate-400">Across all statuses</p>
+            <TrendFooter direction={agentsAddedDirection} testId="my-agents-stats-agents-added-trend">
+              {agentsAddedText}
+            </TrendFooter>
           </div>
 
+          {/* Live & earning */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-approved-text">
-              Live &amp; Approved
+              Live &amp; Earning
             </p>
             <p className="mt-1 text-3xl font-bold text-green-600" data-testid="architect-ui-my-agents-view-counts-approved-text">
-              <CountUp value={counts.approved} />
+              <CountUp value={stats.liveAndEarning} />
             </p>
-            <p className="mt-1 text-xs text-slate-400">{approvedShare}</p>
+            <TrendFooter direction="flat" testId="my-agents-stats-live-share">
+              {liveShareLabel}
+            </TrendFooter>
           </div>
 
+          {/* Total Executions */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-in-review-text">
-              In Review
+              Total Executions
             </p>
-            <p className="mt-1 text-3xl font-bold text-amber-600" data-testid="architect-ui-my-agents-view-counts-review-text">
-              <CountUp value={counts.review} />
+            <p className="mt-1 text-3xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-counts-review-text">
+              <CountUp value={stats.totalExecutions} />
             </p>
-            <p className="mt-1 text-xs text-slate-400">Awaiting approval</p>
+            <TrendFooter direction={executionsTrendDirection} testId="my-agents-stats-executions-trend">
+              {executionsTrendText}
+            </TrendFooter>
           </div>
 
+          {/* Revenue (30d) */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-drafts-text">
-              Drafts
+              Revenue (30d)
             </p>
-            <p className="mt-1 text-3xl font-bold text-slate-800" data-testid="architect-ui-my-agents-view-counts-draft-text">
-              <CountUp value={counts.draft} />
+            <p className="mt-1 text-3xl font-bold text-orange-500" data-testid="architect-ui-my-agents-view-counts-draft-text">
+              <CountUp value={stats.revenue30dCents / 100} format="money" />
             </p>
-            <p className="mt-1 text-xs text-slate-400">Not published yet</p>
+            <TrendFooter direction={revenueTrendDirection} testId="my-agents-stats-revenue-trend">
+              {revenueTrendText}
+            </TrendFooter>
           </div>
         </div>
 

@@ -21,6 +21,24 @@ export function getArchitectSummary() {
   return apiGet<ArchitectSummary>("/architect/summary");
 }
 
+export type ArchitectAgentsStats = {
+  totalAgents: number;
+  agentsAddedThisMonth: number;
+  liveAndEarning: number;
+  liveSharePercent: number;
+  totalExecutions: number;
+  executionsThisMonth: number;
+  executionsPrevMonth: number;
+  executionsChangePercent: number | null;
+  revenue30dCents: number;
+  revenuePrev30dCents: number;
+  revenueChangePercent: number | null;
+};
+
+export function getArchitectAgentsStats() {
+  return apiGet<ArchitectAgentsStats>("/architect/agents/stats");
+}
+
 export function getArchitectProfile() {
   return apiGet<{ profile: ArchitectProfile | null }>("/architect/profile");
 }

@@ -113,6 +113,7 @@ type ApiListing = {
   priceCents?: number | null;
   status?: string;
   tags?: string[];
+  category?: string | null;
   requiredConnectors?: string[];
   supportedLlms?: string[];
   createdAt?: string;
@@ -142,14 +143,17 @@ function formatLabel(value: string) {
 }
 
 function getListingCategory(listing: ApiListing) {
+  if (listing.category?.trim()) {
+    return formatLabel(listing.category.trim());
+  }
+
   const tags = listing.tags ?? [];
   const categoryTag =
     tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
     tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
 
   if (categoryTag) return formatLabel(categoryTag);
-  if (listing.workflow?.name) return "Workflow";
-  return "AI Agent";
+  return "Uncategorized";
 }
 
 function getListingIndustry(listing: ApiListing) {

@@ -38,7 +38,7 @@ import {
   getTemplateBySlug,
   listTemplateCards
 } from "./templates";
-import { loadArchitectEarnings, countSalesByListingIds } from "./payout-earnings";
+import { loadArchitectEarnings, countSalesByListingIds, effectiveEarningStatus } from "./payout-earnings";
 import {
   getArchitectTestDeploymentStatus,
   startArchitectTestDeployment,
@@ -288,6 +288,108 @@ architectRoutes.get("/ai/providers", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+
+/** My Agents dashboard stats — live counts, executions, 30d revenue (no hardcoded UI values). */
+architectRoutes.get("/agents/stats", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const cutoff30 = new Date(now.getTime() - 30 * dayMs);
+    const cutoff60 = new Date(now.getTime() - 60 * dayMs);
+
+    // Buyer executions = LIVE runs of installs tied to this architect's marketplace listings.
+    // Excludes architect TEST panel runs and ARCHITECT_TEST sandbox installs (no listingId).
+    const buyerExecutionWhere = {
+      mode: "LIVE" as const,
+      workflow: { architectUserId: authUser.id },
+      installedAgent: { listingId: { not: null } }
+    };
+
+    const [listings, workflows, sales, executionsThisMonth, executionsPrevMonth, executionsTotal] =
+      await Promise.all([
+        prisma.agentListing.findMany({
+          where: { architectUserId: authUser.id },
+          select: { id: true, workflowId: true, status: true, createdAt: true }
+        }),
+        prisma.workflowDefinition.findMany({
+          where: { architectUserId: authUser.id },
+          select: { id: true, createdAt: true }
+        }),
+        loadArchitectEarnings(authUser.id),
+        prisma.workflowRun.count({
+          where: {
+            ...buyerExecutionWhere,
+            createdAt: { gte: monthStart }
+          }
+        }),
+        prisma.workflowRun.count({
+          where: {
+            ...buyerExecutionWhere,
+            createdAt: { gte: prevMonthStart, lt: monthStart }
+          }
+        }),
+        prisma.workflowRun.count({
+          where: buyerExecutionWhere
+        })
+      ]);
+
+    // Match GET /architect/listings agent uniqueness (one card per workflow + orphan drafts).
+    const seenWorkflowIds = new Set<string>();
+    const uniqueListings = listings.filter((listing) => {
+      if (!listing.workflowId) return true;
+      if (seenWorkflowIds.has(listing.workflowId)) return false;
+      seenWorkflowIds.add(listing.workflowId);
+      return true;
+    });
+    const draftWorkflows = workflows.filter((workflow) => !seenWorkflowIds.has(workflow.id));
+
+    const totalAgents = uniqueListings.length + draftWorkflows.length;
+    const liveAndEarning = uniqueListings.filter((listing) => listing.status === "APPROVED").length;
+    const liveSharePercent = totalAgents > 0 ? Math.round((liveAndEarning / totalAgents) * 1000) / 10 : 0;
+
+    const agentsCreatedThisMonth =
+      uniqueListings.filter((listing) => listing.createdAt >= monthStart).length +
+      draftWorkflows.filter((workflow) => workflow.createdAt >= monthStart).length;
+
+    const revenue30dCents = sales
+      .filter((sale) => sale.createdAt >= cutoff30 && effectiveEarningStatus(sale) !== "REJECTED")
+      .reduce((sum, sale) => sum + sale.earningsCents, 0);
+
+    const revenuePrev30dCents = sales
+      .filter(
+        (sale) =>
+          sale.createdAt >= cutoff60 &&
+          sale.createdAt < cutoff30 &&
+          effectiveEarningStatus(sale) !== "REJECTED"
+      )
+      .reduce((sum, sale) => sum + sale.earningsCents, 0);
+
+    function percentChange(current: number, previous: number): number | null {
+      if (previous <= 0) return current > 0 ? 100 : null;
+      return Math.round(((current - previous) / previous) * 100);
+    }
+
+    return successResponse(c, {
+      totalAgents,
+      agentsAddedThisMonth: agentsCreatedThisMonth,
+      liveAndEarning,
+      liveSharePercent,
+      totalExecutions: executionsTotal,
+      executionsThisMonth,
+      executionsPrevMonth,
+      executionsChangePercent: percentChange(executionsThisMonth, executionsPrevMonth),
+      revenue30dCents,
+      revenuePrev30dCents,
+      revenueChangePercent: percentChange(revenue30dCents, revenuePrev30dCents)
+    });
+  } catch (error) {
+    console.error("[architect/agents/stats] failed", error);
+    return errorResponse(c, "Could not load agent stats", 500, "AGENT_STATS_FAILED");
+  }
+});
 
 const profileSchema = z.object({
   title: z.string().trim().min(2).optional().or(z.literal("")),
