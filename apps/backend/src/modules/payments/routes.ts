@@ -27,6 +27,7 @@ import {
   type InvoiceData
 } from "../../lib/mailer";
 import { getStripeClient, isStripeConfigured } from "./stripe";
+import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 
 export const paymentRoutes = new Hono();
 
@@ -945,6 +946,10 @@ paymentRoutes.post("/start-trial", async (c) => {
     console.error("Payment success email failed (non-fatal)", error);
   }
 
+  // Notify the architect that another buyer is now using their agent (only if
+  // they enabled the New sale email). Best-effort — never blocks the purchase.
+  await notifyArchitectOfNewSale({ listingId: listing.id, agentPriceCents: listing.priceCents });
+
   return successResponse(
     c,
     {
@@ -1243,6 +1248,9 @@ paymentRoutes.post("/purchase", async (c) => {
   } catch (error) {
     console.error("Payment success email failed (non-fatal)", error);
   }
+
+  // Direct purchase (no prior trial) — notify the architect of the new sale.
+  await notifyArchitectOfNewSale({ listingId: listing.id, agentPriceCents: listing.priceCents });
 
   return successResponse(
     c,

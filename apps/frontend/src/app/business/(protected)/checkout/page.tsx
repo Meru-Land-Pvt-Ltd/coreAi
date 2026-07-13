@@ -87,6 +87,22 @@ type CountriesResponse = {
     countries: CheckoutCountry[];
 };
 
+type CheckoutUsageBill = {
+    month: string;
+    agentRollup: Array<{
+        agentId: string | null;
+        agentName: string;
+        callCount: number;
+        durationMinutes: number;
+        amountCents: number;
+        serviceCosts: Array<{
+            serviceCode: string;
+            serviceName: string;
+            billedCostUsd: number;
+        }>;
+    }>;
+};
+
 const FALLBACK_COUNTRIES: CheckoutCountry[] = [
     {
         id: "fallback-us",
@@ -481,23 +497,6 @@ select.field {
 }
 `;
 
-const agent = {
-    name: "Missed Call Text-Back",
-    author: "Marcus T.",
-    price: 100,
-    rating: 4.9,
-    reviews: 47
-};
-
-const DEFAULT_INCLUDED_ITEMS = [
-    "Automatic text-back on missed calls",
-    "Customizable message templates",
-    "Smart scheduling (business hours only)",
-    "Lead capture & CRM integration",
-    "Performance analytics dashboard",
-    "Lifetime updates — free forever"
-];
-
 // Derive the "What's included" list from the purchased agent's listing so the
 // order summary reflects the real agent rather than static copy. The workflow
 // nodes describe the actual steps; connectors/LLMs and requiredConnectors are
@@ -516,9 +515,7 @@ function getIncludedItems(listing: CheckoutListing) {
 
     const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
 
-    if (items.length) return items;
-
-    return ["Real-time workflow automation", "Business-specific configuration"];
+    return items;
 }
 
 const nextSteps = [
@@ -603,16 +600,16 @@ export default function BusinessCheckoutPage() {
     const searchParams = useSearchParams();
     const listingId = searchParams.get("listingId");
     const usageMode = searchParams.get("mode") === "usage";
-    const usageAgentId = searchParams.get("agentId");
-    const usageAgentName = searchParams.get("agent");
-    const usageAmountCents = Number(searchParams.get("amountCents") ?? 0);
+    const usageAgentId = searchParams.get("agentId") || null;
 
     const [authReady, setAuthReady] = useState(false);
     const [email, setEmail] = useState("");
-    const [listingName, setListingName] = useState(agent.name);
-    const [listingAuthor, setListingAuthor] = useState(agent.author);
-    const [basePrice, setBasePrice] = useState(agent.price);
-    const [includedItems, setIncludedItems] = useState<string[]>(DEFAULT_INCLUDED_ITEMS);
+    const [listingName, setListingName] = useState("");
+    const [listingAuthor, setListingAuthor] = useState("");
+    const [basePrice, setBasePrice] = useState(0);
+    const [includedItems, setIncludedItems] = useState<string[]>([]);
+    const [usageSummaryLoading, setUsageSummaryLoading] = useState(usageMode);
+    const [usageSummaryReady, setUsageSummaryReady] = useState(!usageMode);
     const [trialError, setTrialError] = useState("");
     const [paymentTab, setPaymentTab] = useState<PaymentTab>("credit");
 
@@ -684,7 +681,7 @@ export default function BusinessCheckoutPage() {
 
     const formReady =
         authReady &&
-        (usageMode ||
+        ((usageMode && usageSummaryReady) ||
         (paymentTab !== "credit" ||
             (validations.card &&
                 validations.expiry &&
@@ -702,17 +699,51 @@ export default function BusinessCheckoutPage() {
             return;
         }
 
-        setEmail(user.email || "business@company.com");
+        setEmail(user.email || "");
         setAuthReady(true);
     }, [router]);
 
     useEffect(() => {
-        if (!usageMode) return;
-        if (usageAgentName) setListingName(usageAgentName);
-        if (Number.isFinite(usageAmountCents) && usageAmountCents >= 0) {
-            setBasePrice(usageAmountCents / 100);
+        if (!authReady || !usageMode) return;
+
+        let mounted = true;
+
+        async function loadUsageSummary() {
+            setUsageSummaryLoading(true);
+            setUsageSummaryReady(false);
+
+            const response = await apiGet<CheckoutUsageBill>("/business/billing/usage");
+            if (!mounted) return;
+
+            const usage = response.data;
+            const agentUsage = usage?.agentRollup.find((entry) => entry.agentId === usageAgentId);
+            if (!response.success || !usage || !agentUsage) {
+                setCheckoutError(response.error ?? "Could not load the current usage summary.");
+                setUsageSummaryLoading(false);
+                return;
+            }
+
+            setListingName(agentUsage.agentName);
+            setListingAuthor(
+                `${usage.month} · ${agentUsage.callCount} ${agentUsage.callCount === 1 ? "call" : "calls"} · ${agentUsage.durationMinutes.toFixed(1)} minutes`
+            );
+            setBasePrice(agentUsage.amountCents / 100);
+            setIncludedItems(
+                agentUsage.serviceCosts
+                    .filter((service) => service.billedCostUsd > 0)
+                    .map((service) => `${service.serviceName} — $${service.billedCostUsd.toFixed(2)}`)
+            );
+            setCheckoutError("");
+            setUsageSummaryReady(true);
+            setUsageSummaryLoading(false);
         }
-    }, [usageAgentName, usageAmountCents, usageMode]);
+
+        void loadUsageSummary();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady, usageAgentId, usageMode]);
 
     useEffect(() => {
         if (!authReady || !listingId) return;
@@ -734,9 +765,9 @@ export default function BusinessCheckoutPage() {
                     listing.architect?.fullName ||
                     listing.architect?.architectProfile?.title ||
                     listing.architect?.email ||
-                    agent.author
+                    ""
                 );
-                setBasePrice(Math.round((listing.priceCents ?? 0) / 100) || agent.price);
+                setBasePrice((listing.priceCents ?? 0) / 100);
 
                 const items = getIncludedItems(listing);
                 if (items.length) setIncludedItems(items);
@@ -1271,20 +1302,29 @@ export default function BusinessCheckoutPage() {
                             </div>
 
                             <aside className="order-1 lg:order-2 lg:col-span-2">
-                                <OrderSummary
-                                    trialDate={trialDate}
-                                    includedItems={includedItems}
-                                    futureAmount={futureAmount}
-                                    agentName={listingName}
-                                    agentAuthor={listingAuthor}
-                                    price={basePrice}
-                                    isPurchaseMode={isPurchaseMode}
-                                    dueTodayAmount={dueTodayAmount}
-                                    postpaidRate={postpaidRate}
-                                    isUsageMode={usageMode}
-                                    phoneFeeLabel={phoneFee?.label ?? null}
-                                    phoneFeeAmount={phoneFeeAmount}
-                                />
+                                {usageSummaryLoading ? (
+                                    <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" aria-live="polite">
+                                        <div className="h-6 w-36 animate-pulse rounded bg-slate-200" />
+                                        <div className="mt-6 h-16 animate-pulse rounded-xl bg-slate-100" />
+                                        <div className="mt-4 h-32 animate-pulse rounded-xl bg-slate-100" />
+                                        <p className="mt-4 text-sm text-slate-500">Loading your current usage…</p>
+                                    </div>
+                                ) : usageMode && !usageSummaryReady ? null : (
+                                    <OrderSummary
+                                        trialDate={trialDate}
+                                        includedItems={includedItems}
+                                        futureAmount={futureAmount}
+                                        agentName={listingName}
+                                        agentAuthor={listingAuthor}
+                                        price={basePrice}
+                                        isPurchaseMode={isPurchaseMode}
+                                        dueTodayAmount={dueTodayAmount}
+                                        postpaidRate={postpaidRate}
+                                        isUsageMode={usageMode}
+                                        phoneFeeLabel={phoneFee?.label ?? null}
+                                        phoneFeeAmount={phoneFeeAmount}
+                                    />
+                                )}
                             </aside>
                         </div>
                     </main>
@@ -1594,12 +1634,19 @@ function OrderSummary({
 
                     <div className="min-w-0">
                         <p className="font-bold leading-tight text-slate-900">{agentName}</p>
-                        <p className="mt-0.5 text-sm text-slate-500">by {agentAuthor}</p>
+                        {agentAuthor ? (
+                            <p className="mt-0.5 text-sm text-slate-500">
+                                {isUsageMode ? agentAuthor : `by ${agentAuthor}`}
+                            </p>
+                        ) : null}
                     </div>
                 </div>
 
+                {includedItems.length ? (
                 <div className="border-b border-gray-50 px-6 py-5">
-                    <p className="mb-3 text-sm font-semibold text-slate-700" data-testid="business-protected-checkout-what-apos-s-included-text">What&apos;s included</p>
+                    <p className="mb-3 text-sm font-semibold text-slate-700" data-testid="business-protected-checkout-what-apos-s-included-text">
+                        {isUsageMode ? "Billed services" : "What's included"}
+                    </p>
 
                     <ul className="space-y-2.5">
                         {includedItems.map((item) => (
@@ -1612,6 +1659,7 @@ function OrderSummary({
                         ))}
                     </ul>
                 </div>
+                ) : null}
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">
@@ -1625,11 +1673,13 @@ function OrderSummary({
                         {isPurchaseMode ? null : (
                             <PriceRow label="7-day free trial" value={`−$${trialDiscountLabel}`} green />
                         )}
-                        <PriceRow
-                            label="Post-paid execution fees"
-                            value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(4)}/minute`}
-                            muted
-                        />
+                        {!isUsageMode ? (
+                            <PriceRow
+                                label="Post-paid execution fees"
+                                value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(4)}/minute`}
+                                muted
+                            />
+                        ) : null}
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />

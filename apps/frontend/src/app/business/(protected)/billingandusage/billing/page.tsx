@@ -549,7 +549,9 @@ function UsageInvoiceCard({
                                 <tr key={service.serviceCode} className="border-b border-slate-100">
                                     <td className="px-3 py-3 text-slate-400">{index + 1}</td>
                                     <td className="px-3 py-3 font-medium text-slate-700">{service.serviceName}</td>
-                                    <td className="px-3 py-3 text-right text-slate-500">{service.quantity.toFixed(2)}</td>
+                                    <td className="px-3 py-3 text-right text-slate-500">
+                                        {service.serviceCode === "platform_service" ? "—" : service.quantity.toFixed(2)}
+                                    </td>
                                     <td className="px-3 py-3 text-right font-mono font-semibold">${service.billedCostUsd.toFixed(2)}</td>
                                 </tr>
                             ))}

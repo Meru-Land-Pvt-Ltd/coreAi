@@ -109,6 +109,7 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional()
 });
 

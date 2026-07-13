@@ -25,9 +25,26 @@ function formatUsd(value: number, digits = 4) {
 }
 
 type DraftRow = {
+  name: string;
+  role: string;
+  unit: UsageServiceUnit;
   updatedCostUsd: string;
   actualCostUsd: string;
+  isActive: boolean;
 };
+
+const PLATFORM_SERVICE_CODES = new Set(["database_storage", "google_calendar"]);
+
+function draftFromService(service: AdminUsageService): DraftRow {
+  return {
+    name: service.name,
+    role: service.role ?? "",
+    unit: service.unit,
+    actualCostUsd: String(service.actualCostUsd),
+    updatedCostUsd: String(service.updatedCostUsd),
+    isActive: service.isActive
+  };
+}
 
 type AddForm = {
   code: string;
@@ -51,7 +68,8 @@ export default function AdminPricingPage() {
   const [data, setData] = useState<AdminPricingServicesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [actingId, setActingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, DraftRow>>({});
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState<AddForm>(EMPTY_ADD_FORM);
@@ -64,12 +82,10 @@ export default function AdminPricingPage() {
       setData(result.data);
       const nextDrafts: Record<string, DraftRow> = {};
       for (const service of result.data.services) {
-        nextDrafts[service.id] = {
-          actualCostUsd: String(service.actualCostUsd),
-          updatedCostUsd: String(service.updatedCostUsd)
-        };
+        nextDrafts[service.id] = draftFromService(service);
       }
       setDrafts(nextDrafts);
+      setEditingIds(new Set());
     } else {
       setMessage(result.error ?? "Could not load pricing services.");
     }
@@ -88,14 +104,18 @@ export default function AdminPricingPage() {
         const draft = drafts[service.id];
         if (!draft) return false;
         return (
+          draft.name.trim() !== service.name ||
+          (draft.role.trim() || null) !== service.role ||
+          draft.unit !== service.unit ||
           Number(draft.actualCostUsd) !== service.actualCostUsd ||
-          Number(draft.updatedCostUsd) !== service.updatedCostUsd
+          Number(draft.updatedCostUsd) !== service.updatedCostUsd ||
+          draft.isActive !== service.isActive
         );
       })
       .map((service) => service.id);
   }, [drafts, rows]);
 
-  function updateDraft(id: string, field: keyof DraftRow, value: string) {
+  function updateDraft<K extends keyof DraftRow>(id: string, field: K, value: DraftRow[K]) {
     setDrafts((current) => ({
       ...current,
       [id]: {
@@ -105,39 +125,67 @@ export default function AdminPricingPage() {
     }));
   }
 
-  async function saveRow(service: AdminUsageService) {
-    const draft = drafts[service.id];
-    if (!draft) return;
-
-    const actualCostUsd = Number(draft.actualCostUsd);
-    const updatedCostUsd = Number(draft.updatedCostUsd);
-
-    if (!Number.isFinite(actualCostUsd) || actualCostUsd < 0) {
-      setMessage("Actual cost must be a valid non-negative number.");
-      return;
-    }
-    if (!Number.isFinite(updatedCostUsd) || updatedCostUsd < 0) {
-      setMessage("Updated cost must be a valid non-negative number.");
-      return;
-    }
-
-    setActingId(service.id);
+  function beginEditing(service: AdminUsageService) {
+    setDrafts((current) => ({ ...current, [service.id]: draftFromService(service) }));
+    setEditingIds((current) => new Set(current).add(service.id));
     setMessage("");
+  }
 
-    const result = await updateAdminPricingService(service.id, {
-      actualCostUsd,
-      updatedCostUsd
+  function cancelEditing(service: AdminUsageService) {
+    setDrafts((current) => ({ ...current, [service.id]: draftFromService(service) }));
+    setEditingIds((current) => {
+      const next = new Set(current);
+      next.delete(service.id);
+      return next;
     });
+  }
 
-    if (!result.success) {
-      setMessage(result.error ?? "Could not update service pricing.");
-      setActingId(null);
+  async function saveChanges() {
+    const changedServices = rows.filter((service) => dirtyIds.includes(service.id));
+    if (changedServices.length === 0) return;
+
+    for (const service of changedServices) {
+      const draft = drafts[service.id];
+      const actualCostUsd = Number(draft?.actualCostUsd);
+      const updatedCostUsd = Number(draft?.updatedCostUsd);
+      if (!draft?.name.trim()) {
+        setMessage(`Service name is required for ${service.code}.`);
+        return;
+      }
+      if (!Number.isFinite(actualCostUsd) || actualCostUsd < 0) {
+        setMessage(`Actual cost for ${service.code} must be a valid non-negative number.`);
+        return;
+      }
+      if (!Number.isFinite(updatedCostUsd) || updatedCostUsd < 0) {
+        setMessage(`Updated cost for ${service.code} must be a valid non-negative number.`);
+        return;
+      }
+    }
+
+    setSaving(true);
+    setMessage("");
+    const results = await Promise.all(
+      changedServices.map((service) => {
+        const draft = drafts[service.id]!;
+        return updateAdminPricingService(service.id, {
+          name: draft.name.trim(),
+          role: draft.role.trim() || null,
+          unit: draft.unit,
+          actualCostUsd: Number(draft.actualCostUsd),
+          updatedCostUsd: Number(draft.updatedCostUsd),
+          isActive: draft.isActive
+        });
+      })
+    );
+    const failed = results.find((result) => !result.success);
+    setSaving(false);
+    if (failed) {
+      setMessage(failed.error ?? "Could not save all service changes.");
       return;
     }
 
-    setMessage(`Updated pricing for ${service.name}.`);
-    setActingId(null);
     await load();
+    setMessage(`${changedServices.length} service${changedServices.length === 1 ? "" : "s"} updated.`);
   }
 
   async function submitAddService(event: React.FormEvent) {
@@ -197,14 +245,25 @@ export default function AdminPricingPage() {
             Infrastructure costs for AI Receptionist and agent execution. Updated cost is used everywhere in billing.
           </p>
         </div>
-        <button
-          type="button"
-          data-testid="admin-pricing-add-service"
-          onClick={() => setShowAddModal(true)}
-          className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600"
-        >
-          Add service
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={dirtyIds.length === 0 || saving}
+            data-testid="admin-pricing-save-all"
+            onClick={() => void saveChanges()}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? "Saving…" : `Save changes${dirtyIds.length ? ` (${dirtyIds.length})` : ""}`}
+          </button>
+          <button
+            type="button"
+            data-testid="admin-pricing-add-service"
+            onClick={() => setShowAddModal(true)}
+            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600"
+          >
+            Add service
+          </button>
+        </div>
       </header>
 
       {data ? (
@@ -239,78 +298,33 @@ export default function AdminPricingPage() {
           No services configured yet.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-orange-100 bg-white">
-          <table data-testid="admin-pricing-table" className="w-full text-left text-sm">
-            <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Service ID</th>
-                <th className="px-4 py-3">Service</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Unit</th>
-                <th className="px-4 py-3">Actual cost</th>
-                <th className="px-4 py-3">Updated cost</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((service) => {
-                const draft = drafts[service.id];
-                const isDirty = dirtyIds.includes(service.id);
-                return (
-                  <tr
-                    key={service.id}
-                    className="border-b border-orange-50"
-                    data-testid={`admin-pricing-row-${service.code}`}
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{service.code}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-slate-900">{service.name}</p>
-                      {!service.isActive ? (
-                        <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
-                          Inactive
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{service.role ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-500">{UNIT_LABELS[service.unit]}</td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.0001"
-                        data-testid={`admin-pricing-actual-${service.code}`}
-                        value={draft?.actualCostUsd ?? ""}
-                        onChange={(event) => updateDraft(service.id, "actualCostUsd", event.target.value)}
-                        className="w-28 rounded-lg border border-orange-200 px-2 py-1 font-mono text-slate-700 outline-none focus:border-orange-400"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.0001"
-                        data-testid={`admin-pricing-updated-${service.code}`}
-                        value={draft?.updatedCostUsd ?? ""}
-                        onChange={(event) => updateDraft(service.id, "updatedCostUsd", event.target.value)}
-                        className="w-28 rounded-lg border border-orange-200 px-2 py-1 font-mono font-semibold text-green-700 outline-none focus:border-orange-400"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        disabled={!isDirty || actingId === service.id}
-                        data-testid={`admin-pricing-save-${service.code}`}
-                        onClick={() => void saveRow(service)}
-                        className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600 disabled:opacity-50"
-                      >
-                        {actingId === service.id ? "Saving…" : "Save"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-6" data-testid="admin-pricing-table">
+          <PricingServiceTable
+            title="Usage services"
+            description="AI, telephony, messaging, and other metered services. The role is the customer-facing invoice label."
+            rows={rows.filter((service) => !PLATFORM_SERVICE_CODES.has(service.code))}
+            drafts={drafts}
+            dirtyIds={dirtyIds}
+            editingIds={editingIds}
+            saving={saving}
+            onEdit={beginEditing}
+            onCancel={cancelEditing}
+            onDraftChange={updateDraft}
+            testId="admin-pricing-usage-table"
+          />
+          <PricingServiceTable
+            title="Platform services"
+            description="Shared platform infrastructure. Firebase / MongoDB and Google Calendar API are billed under one customer-facing Platform service label."
+            rows={rows.filter((service) => PLATFORM_SERVICE_CODES.has(service.code))}
+            drafts={drafts}
+            dirtyIds={dirtyIds}
+            editingIds={editingIds}
+            saving={saving}
+            onEdit={beginEditing}
+            onCancel={cancelEditing}
+            onDraftChange={updateDraft}
+            testId="admin-pricing-platform-table"
+          />
         </div>
       )}
 
@@ -441,6 +455,160 @@ export default function AdminPricingPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function PricingServiceTable({
+  title,
+  description,
+  rows,
+  drafts,
+  dirtyIds,
+  editingIds,
+  saving,
+  onEdit,
+  onCancel,
+  onDraftChange,
+  testId
+}: {
+  title: string;
+  description: string;
+  rows: AdminUsageService[];
+  drafts: Record<string, DraftRow>;
+  dirtyIds: string[];
+  editingIds: Set<string>;
+  saving: boolean;
+  onEdit: (service: AdminUsageService) => void;
+  onCancel: (service: AdminUsageService) => void;
+  onDraftChange: <K extends keyof DraftRow>(id: string, field: K, value: DraftRow[K]) => void;
+  testId: string;
+}) {
+  return (
+    <section>
+      <div className="mb-3">
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      </div>
+      {rows.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-orange-200 bg-white px-4 py-6 text-sm text-slate-500">
+          No services in this group.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-orange-100 bg-white">
+          <table data-testid={testId} className="w-full min-w-[1040px] text-left text-sm">
+            <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
+              <tr>
+                <th className="px-4 py-3">Service ID</th>
+                <th className="px-4 py-3">Service</th>
+                <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3">Unit</th>
+                <th className="px-4 py-3">Actual cost</th>
+                <th className="px-4 py-3">Updated cost</th>
+                <th className="px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((service) => {
+                const draft = drafts[service.id];
+                const isDirty = dirtyIds.includes(service.id);
+                const isEditing = editingIds.has(service.id);
+                return (
+                  <tr
+                    key={service.id}
+                    className="border-b border-orange-50"
+                    data-testid={`admin-pricing-row-${service.code}`}
+                  >
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{service.code}</td>
+                    <td className="px-4 py-3">
+                      <input
+                        disabled={!isEditing || saving}
+                        value={draft?.name ?? ""}
+                        onChange={(event) => onDraftChange(service.id, "name", event.target.value)}
+                        className="w-44 rounded-lg border border-orange-200 px-2 py-1 font-semibold text-slate-900 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        disabled={!isEditing || saving}
+                        value={draft?.role ?? ""}
+                        placeholder="Customer-facing label"
+                        onChange={(event) => onDraftChange(service.id, "role", event.target.value)}
+                        className="w-52 rounded-lg border border-orange-200 px-2 py-1 text-slate-600 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <select
+                        disabled={!isEditing || saving}
+                        value={draft?.unit ?? service.unit}
+                        onChange={(event) => onDraftChange(service.id, "unit", event.target.value as UsageServiceUnit)}
+                        className="rounded-lg border border-orange-200 px-2 py-1 text-slate-600 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                      >
+                        {Object.entries(UNIT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        data-testid={`admin-pricing-actual-${service.code}`}
+                        value={draft?.actualCostUsd ?? ""}
+                        disabled={!isEditing || saving}
+                        onChange={(event) => onDraftChange(service.id, "actualCostUsd", event.target.value)}
+                        className="w-28 rounded-lg border border-orange-200 px-2 py-1 font-mono text-slate-700 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        data-testid={`admin-pricing-updated-${service.code}`}
+                        value={draft?.updatedCostUsd ?? ""}
+                        disabled={!isEditing || saving}
+                        onChange={(event) => onDraftChange(service.id, "updatedCostUsd", event.target.value)}
+                        className="w-28 rounded-lg border border-orange-200 px-2 py-1 font-mono font-semibold text-green-700 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {isEditing ? (
+                          <>
+                            <label className="flex items-center gap-1 text-xs font-semibold text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={draft?.isActive ?? false}
+                                disabled={saving}
+                                onChange={(event) => onDraftChange(service.id, "isActive", event.target.checked)}
+                              />
+                              Active
+                            </label>
+                            <button type="button" disabled={saving} onClick={() => onCancel(service)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={saving}
+                            data-testid={`admin-pricing-edit-${service.code}`}
+                            onClick={() => onEdit(service)}
+                            className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {isDirty ? <span className="text-xs font-semibold text-orange-600">Unsaved</span> : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

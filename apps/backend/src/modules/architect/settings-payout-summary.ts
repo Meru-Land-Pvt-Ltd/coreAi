@@ -14,10 +14,13 @@ export async function computeArchitectPayoutSummary(architectUserId: string) {
   return {
     payoutMethod: payoutMethod
       ? {
-          bankName: payoutMethod.bankName,
-          accountLast4: payoutMethod.accountNumber.slice(-4),
-          ifscCode: payoutMethod.ifscCode,
-          verified: true
+          bankName: payoutMethod.bankName ?? "Stripe bank account",
+          accountLast4: payoutMethod.accountLast4 ?? payoutMethod.accountNumber?.slice(-4) ?? "",
+          country: payoutMethod.country,
+          routingLabel: payoutMethod.country === "IN" ? "IFSC" : "ABA routing number",
+          routingLast4: payoutMethod.routingLast4,
+          verificationStatus: payoutMethod.verificationStatus,
+          verified: payoutMethod.verificationStatus === "VERIFIED" && payoutMethod.payoutsEnabled
         }
       : null,
     architectSharePercent: Math.round(ARCHITECT_SHARE * 100),

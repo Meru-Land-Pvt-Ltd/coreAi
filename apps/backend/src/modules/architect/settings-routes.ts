@@ -17,6 +17,8 @@ import {
   hasPaidRefundSettlement
 } from "./danger-obligations";
 import { computeArchitectPayoutSummary } from "./settings-payout-summary";
+import { normalizePayoutSchedule, payoutScheduleSchema } from "./payout-schedule";
+import { buildArchitectDataExportZip } from "./data-export";
 
 export const architectSettingsRoutes = new Hono();
 
@@ -207,6 +209,7 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
     },
     notifications: mergePrefs(DEFAULT_NOTIFICATION_PREFS, profile?.notificationPrefs),
     privacy: mergePrefs(DEFAULT_PRIVACY_PREFS, profile?.privacyPrefs),
+    payoutSchedule: normalizePayoutSchedule(profile?.payoutSchedule),
     security: {
       sessions: sessions.map((session) => serializeActiveSession(session, currentSid)),
       loginHistory: loginHistory.map(serializeLoginHistory)
@@ -528,6 +531,45 @@ architectSettingsRoutes.put("/privacy", async (c) => {
     }
 
     return errorResponse(c, "Could not save privacy settings", 500, "PRIVACY_SAVE_FAILED");
+  }
+});
+
+architectSettingsRoutes.put("/payouts/schedule", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = payoutScheduleSchema.parse(await c.req.json());
+
+    const profile = await prisma.architectProfile.upsert({
+      where: { userId: authUser.id },
+      update: { payoutSchedule: input },
+      create: { userId: authUser.id, payoutSchedule: input }
+    });
+
+    return successResponse(
+      c,
+      { payoutSchedule: normalizePayoutSchedule(profile.payoutSchedule) },
+      "Payout schedule saved"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid payout schedule", 422, "VALIDATION_ERROR");
+    }
+
+    return errorResponse(c, "Could not save payout schedule", 500, "PAYOUT_SCHEDULE_SAVE_FAILED");
+  }
+});
+
+architectSettingsRoutes.get("/data-export", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const { filename, zip } = await buildArchitectDataExportZip(authUser.id);
+
+    c.header("Content-Type", "application/zip");
+    c.header("Content-Disposition", `attachment; filename="${filename}"`);
+    return c.body(zip);
+  } catch (error) {
+    console.error("Architect data export failed", error);
+    return errorResponse(c, "Could not export your data", 500, "DATA_EXPORT_FAILED");
   }
 });
 
