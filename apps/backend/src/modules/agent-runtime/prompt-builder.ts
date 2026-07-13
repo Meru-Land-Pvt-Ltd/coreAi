@@ -245,3 +245,76 @@ Current date and time:
 
   return sections.join("\n\n");
 }
+
+export function resolveNodeTemplateVariables(
+  text: string,
+  workflowJson: unknown,
+  overrides?: { assistantName?: string; businessName?: string }
+): string {
+  if (!text || !workflowJson) return text;
+
+  let nodes: any[] = [];
+  try {
+    const parsed = typeof workflowJson === "string" ? JSON.parse(workflowJson) : workflowJson;
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.nodes)) {
+      nodes = parsed.nodes;
+    }
+  } catch {
+    return text;
+  }
+
+  const tokens: Record<string, string> = {};
+
+  for (const node of nodes) {
+    if (!node || !node.id) continue;
+
+    const data = node.data || {};
+    const id = node.id;
+    const label = String(data.title ?? data.label ?? id)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ".")
+      .replace(/(^\.|\.$)/g, "");
+
+    const originalLabel = String(data.title ?? data.label ?? id);
+
+    const keysToMap = [id, label];
+    if (originalLabel) {
+      keysToMap.push(originalLabel);
+    }
+
+    for (const [propKey, propVal] of Object.entries(data)) {
+      let valStr = typeof propVal === "string" ? propVal : String(propVal ?? "");
+
+      if (propKey === "assistantName" && overrides?.assistantName) {
+        valStr = overrides.assistantName;
+      }
+      if (propKey === "businessName" && overrides?.businessName) {
+        valStr = overrides.businessName;
+      }
+
+      for (const prefix of keysToMap) {
+        tokens[`${prefix}.${propKey}`] = valStr;
+
+        if (propKey === "assistantName") {
+          tokens[`${prefix}.assistant.name`] = valStr;
+          tokens[`${prefix}.assistent.name`] = valStr;
+          tokens[`${prefix}.assistant_name`] = valStr;
+          tokens[`${prefix}.assistent_name`] = valStr;
+          tokens[`${prefix}.assistentName`] = valStr;
+        }
+
+        if (propKey === "businessName") {
+          tokens[`${prefix}.business.name`] = valStr;
+          tokens[`${prefix}.business_name`] = valStr;
+        }
+      }
+    }
+  }
+
+  let result = text;
+  for (const [key, value] of Object.entries(tokens)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+
+  return result;
+}

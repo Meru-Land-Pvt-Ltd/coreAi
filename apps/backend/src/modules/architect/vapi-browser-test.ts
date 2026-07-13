@@ -5,7 +5,8 @@ import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import {
   buildAgentFirstMessage,
   buildAgentSystemPrompt,
-  resolveAssistantName
+  resolveAssistantName,
+  resolveNodeTemplateVariables
 } from "../agent-runtime/prompt-builder";
 import {
   ARCHITECT_TEST_PURPOSE,
@@ -241,10 +242,11 @@ export async function startArchitectVapiBrowserTest(
     timeZone
   };
 
-  const nodeInstructions = [str(ai, "systemPrompt"), str(ai, "customInstructions")]
+  const nodeInstructionsRaw = [str(ai, "systemPrompt"), str(ai, "customInstructions")]
     .filter(Boolean)
     .map((text) => fillNodeTokens(text, tokens))
     .join("\n\n");
+  const nodeInstructions = resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, { assistantName, businessName });
 
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
@@ -272,10 +274,13 @@ Live call handling:
     ]
   });
 
+  const customFirstMessageRaw = fillNodeTokens(str(ai, "firstMessage"), tokens);
+  const customFirstMessage = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, { assistantName, businessName });
+
   const firstMessage = buildAgentFirstMessage({
     assistantName,
     businessName,
-    customFirstMessage: fillNodeTokens(str(ai, "firstMessage"), tokens)
+    customFirstMessage
   });
 
   // ---- Create/update the per-workflow browser-test assistant (no phone) ----

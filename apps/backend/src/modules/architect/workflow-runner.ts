@@ -71,6 +71,7 @@ export type WorkflowRunInput = {
   installedAgentId?: string;
   listingId?: string;
   latestMessage?: string;
+  assistantName?: string;
   attachments?: Array<{
     name: string;
     mimeType: string;
@@ -133,6 +134,7 @@ type RunnerNodeData = {
   maxTokens?: unknown;
   outputFormat?: unknown;
   backlinkNodeIds?: unknown;
+  assistantName?: unknown;
   // LLM Call node fields (ai.llm_call) — set from the workflow builder inspector
   llmProvider?: unknown;
   llmModel?: unknown;
@@ -184,6 +186,7 @@ type RunnerContext = {
     vapiAssistantId?: string;
     vapiPhoneNumberId?: string;
     hours?: unknown;
+    assistantName?: string;
   };
   inboundSms?: {
     body: string;
@@ -409,6 +412,9 @@ function sortNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[]) {
 }
 
 function resolveContextPath(context: RunnerContext, path: string): unknown {
+  if (path in context) {
+    return (context as Record<string, unknown>)[path];
+  }
   return path.split(".").reduce<unknown>((current, segment) => {
     if (typeof current !== "object" || current === null) return undefined;
     return (current as Record<string, unknown>)[segment];
@@ -442,30 +448,25 @@ function createLog(
   };
 }
 
-function toAiBrainNodeConfig(node: RunnerNode): AiBrainNodeConfig {
+function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainNodeConfig {
   const isLlmCall = asString(node.data?.type) === "ai.llm_call";
 
-  // For LLM Call nodes, remap frontend field names to the canonical names
-  // expected by runAiBrainNode / contextBundleToExecuteRequest:
-  //   llmProvider -> provider
-  //   llmModel    -> model
-  //   llmSystemPrompt -> instructions (used as the system context/persona)
-  //   llmPrompt   -> prompt (the user-facing task message)
-  //   llmTemperature -> temperature
-  //   llmMaxTokens   -> maxTokens
-  //   llmOutputFormat -> outputFormat
   const data = isLlmCall
     ? {
         ...node.data,
         provider: node.data?.llmProvider ?? node.data?.provider,
         model: node.data?.llmModel ?? node.data?.model,
-        instructions: node.data?.llmSystemPrompt ?? node.data?.instructions,
-        prompt: node.data?.llmPrompt ?? node.data?.prompt,
+        instructions: renderTemplate(node.data?.llmSystemPrompt ?? node.data?.instructions, context),
+        prompt: renderTemplate(node.data?.llmPrompt ?? node.data?.prompt, context),
+        llmRequirements: renderTemplate(node.data?.llmRequirements, context),
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: node.data?.llmMaxTokens ?? node.data?.maxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
       }
-    : node.data;
+    : {
+        ...node.data,
+        prompt: renderTemplate(node.data?.prompt, context),
+      };
 
   return {
     id: node.id,
@@ -516,7 +517,8 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
       timeZone: optionalString(input?.timeZone) ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
       vapiAssistantId: optionalString(input?.vapiAssistantId) ?? env.VAPI_DEFAULT_ASSISTANT_ID,
       vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID,
-      hours: input?.businessHours
+      hours: input?.businessHours,
+      assistantName: optionalString(input?.assistantName)
     },
     missedCall: {
       callerNumber: callerNumber ?? "",
@@ -1391,7 +1393,8 @@ function forwardInputFromContext(context: RunnerContext): WorkflowRunInput {
     conversationId: context.conversationId,
     leadId: context.leadId,
     installedAgentId: context.installedAgentId,
-    latestMessage: context.latestMessage ?? context.inboundSms?.body
+    latestMessage: context.latestMessage ?? context.inboundSms?.body,
+    assistantName: context.business?.assistantName
   };
 }
 
@@ -1629,6 +1632,57 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
   logs.push(createLog(node, "success", `Output saved as ${outputKey}.`, context.output));
 }
 
+function seedNodeVariablesInContext(context: Record<string, any>, nodes: any[]) {
+  for (const node of nodes) {
+    if (!node || !node.id) continue;
+
+    const data = node.data || {};
+    const id = node.id;
+    const label = String(data.title ?? data.label ?? id)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ".")
+      .replace(/(^\.|\.$)/g, "");
+
+    const originalLabel = String(data.title ?? data.label ?? id);
+
+    const nodeObj: Record<string, any> = {};
+
+    for (const [propKey, propVal] of Object.entries(data)) {
+      nodeObj[propKey] = propVal;
+
+      if (propKey === "assistantName") {
+        nodeObj["assistant"] = { name: propVal };
+        nodeObj["assistent"] = { name: propVal };
+        nodeObj["assistant.name"] = propVal;
+        nodeObj["assistent.name"] = propVal;
+        nodeObj["assistant_name"] = propVal;
+        nodeObj["assistent_name"] = propVal;
+        nodeObj["assistentName"] = propVal;
+      }
+      if (propKey === "businessName") {
+        nodeObj["business"] = { name: propVal };
+        nodeObj["business.name"] = propVal;
+        nodeObj["business_name"] = propVal;
+      }
+    }
+
+    if (!context.node || typeof context.node !== "object") {
+      context.node = {};
+    }
+    context.node[id] = { ...context.node[id], ...nodeObj };
+    context.node[label] = { ...context.node[label], ...nodeObj };
+    if (originalLabel) {
+      context.node[originalLabel] = { ...context.node[originalLabel], ...nodeObj };
+    }
+
+    context[id] = { ...context[id], ...nodeObj };
+    context[label] = { ...context[label], ...nodeObj };
+    if (originalLabel) {
+      context[originalLabel] = { ...context[originalLabel], ...nodeObj };
+    }
+  }
+}
+
 export async function runWorkflowTest({
   userId,
   workflowId,
@@ -1650,6 +1704,18 @@ export async function runWorkflowTest({
   const logs: WorkflowRunLog[] = [];
   const context: RunnerContext = seedMissedCallContext(input);
   const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId };
+
+  // Set assistantName on context.business if not set
+  const voiceNode = parsedWorkflow.nodes.find((n) => asString(n.data?.type) === VOICE_NODE_TYPES.voiceConversation);
+  if (voiceNode && context.business) {
+    const nodeAssistantName = asString(voiceNode.data?.assistantName);
+    if (nodeAssistantName && !nodeAssistantName.includes("{{") && !context.business.assistantName) {
+      context.business.assistantName = nodeAssistantName;
+    }
+  }
+
+  // Seed all node-specific variables/properties to context for template resolution
+  seedNodeVariablesInContext(context as any, parsedWorkflow.nodes);
 
   if (parsedWorkflow.nodes.length === 0) {
     return {
@@ -1737,7 +1803,7 @@ export async function runWorkflowTest({
               workflowRunId,
               threadId,
               executionOrder: executionOrder++,
-              node: toAiBrainNodeConfig(node),
+              node: toAiBrainNodeConfig(node, context),
             });
 
             const outputText = result.text ?? "";
@@ -1757,7 +1823,8 @@ export async function runWorkflowTest({
               // Per-node alias for explicit chaining: {{node.<id>.output}}
               const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
                 .toLowerCase()
-                .replace(/[^a-z0-9]/g, "_");
+                .replace(/[^a-z0-9]+/g, ".")
+                .replace(/(^\.|\.$)/g, "");
               context[`node.${node.id}.output`] = outputText;
               context[`node.${nodeLabel}.output`] = outputText;
 
