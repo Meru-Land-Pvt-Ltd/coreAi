@@ -1,7 +1,12 @@
--- CreateEnum
-CREATE TYPE "ContextLinkStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'FAILED');
+-- Incremental changes on top of 20260708061236_clear.
+-- Guard enum creation so re-apply is safe if objects already exist.
 
--- AlterTable
+DO $$ BEGIN
+  CREATE TYPE "ContextLinkStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'FAILED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
 ALTER TABLE "Business" ALTER COLUMN "subscriptionStatus" SET DEFAULT 'active';
 
 -- AlterTable

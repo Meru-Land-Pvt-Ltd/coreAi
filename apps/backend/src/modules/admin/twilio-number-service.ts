@@ -266,7 +266,8 @@ type TwilioIncomingNumber = {
 export type PurchaseNumberInput = {
   phoneNumber: string;
   country?: string;
-  adminUserId: string;
+  /** Absent for automatic (buyer purchase-time) provisioning. */
+  adminUserId?: string | null;
   friendlyName?: string;
 };
 
@@ -339,7 +340,7 @@ export async function purchaseNumber(input: PurchaseNumberInput) {
     voiceWebhookUrl: webhooks.voiceUrl,
     smsWebhookUrl: webhooks.smsUrl,
     webhookStatus: "CONFIGURED" as const,
-    purchasedByAdminId: input.adminUserId,
+    purchasedByAdminId: input.adminUserId ?? null,
     purchasedAt: new Date(),
     releasedAt: null,
     businessId: null,

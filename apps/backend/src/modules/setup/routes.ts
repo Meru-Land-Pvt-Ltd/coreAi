@@ -7,6 +7,7 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { sendTwilioSms } from "../architect/twilio-connector";
+import { claimAvailableInventoryNumber } from "../business/phone-provisioning";
 import {
   RECEPTIONIST_WORKFLOW_DESCRIPTION,
   RECEPTIONIST_WORKFLOW_NAME,
@@ -265,16 +266,62 @@ async function persistVerifiedPhone(opts: {
     });
   }
 
-  const claimed = await prisma.platformPhoneNumber.findFirst({
-    where: { status: "AVAILABLE", provider: "TWILIO" },
-    orderBy: { createdAt: "asc" }
+  // Prefer the number already allotted to this buyer at purchase time
+  // (assigned to the business, or reserved by owner before it existed) so a
+  // second pool number is never claimed for the same buyer.
+  const business = await prisma.business.findUnique({
+    where: { id: opts.businessId },
+    select: { ownerId: true }
+  });
+  const alreadyAllotted = await prisma.platformPhoneNumber.findFirst({
+    where: {
+      status: "ASSIGNED",
+      OR: [
+        { businessId: opts.businessId },
+        ...(business ? [{ businessId: null, buyerUserId: business.ownerId }] : [])
+      ]
+    },
+    orderBy: { assignedAt: "desc" }
   });
 
-  const created = await prisma.businessPhoneNumber.create({
-    data: {
+  // Pool fallback claims atomically (status guard inside) — a concurrent
+  // purchase or another business's setup can never end up on the same number.
+  const claimed =
+    alreadyAllotted ??
+    (business
+      ? await claimAvailableInventoryNumber({
+          buyerUserId: business.ownerId,
+          businessId: opts.businessId,
+          installedAgentId: opts.installedAgentId
+        })
+      : null);
+
+  const targetNumber = claimed?.phoneNumber ?? normalized;
+
+  // A reclaimed pool number may carry a historical (inactive) routing row —
+  // take it over. An ACTIVE row owned by another business means the number
+  // (or the buyer's own line) is in use elsewhere: fail loudly, never steal.
+  const existingRow = await prisma.businessPhoneNumber.findUnique({
+    where: { phoneNumber: targetNumber },
+    select: { businessId: true, isActive: true }
+  });
+  if (existingRow && existingRow.isActive && existingRow.businessId !== opts.businessId) {
+    throw new Error("That phone number is already in use by another business.");
+  }
+
+  const created = await prisma.businessPhoneNumber.upsert({
+    where: { phoneNumber: targetNumber },
+    update: {
       businessId: opts.businessId,
       installedAgentId: opts.installedAgentId,
-      phoneNumber: claimed?.phoneNumber ?? normalized,
+      twilioPhoneNumberSid: claimed?.twilioSid ?? null,
+      forwardToPhone: normalized,
+      isActive: true
+    },
+    create: {
+      businessId: opts.businessId,
+      installedAgentId: opts.installedAgentId,
+      phoneNumber: targetNumber,
       twilioPhoneNumberSid: claimed?.twilioSid ?? null,
       forwardToPhone: normalized,
       isActive: true
@@ -284,7 +331,12 @@ async function persistVerifiedPhone(opts: {
   if (claimed) {
     await prisma.platformPhoneNumber.update({
       where: { id: claimed.id },
-      data: { status: "ASSIGNED", businessId: opts.businessId, assignedAt: new Date() }
+      data: {
+        status: "ASSIGNED",
+        businessId: opts.businessId,
+        installedAgentId: opts.installedAgentId,
+        assignedAt: claimed.assignedAt ?? new Date()
+      }
     });
   }
 

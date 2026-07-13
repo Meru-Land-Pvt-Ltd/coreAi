@@ -7,14 +7,20 @@ import {
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
   getBusinessCalendarStatus,
+  getBusinessLoginHistory,
+  getBusinessActiveSessions,
   getBusinessSettingsProfile,
   getBusinessSetup,
   requestBusinessEmailChange,
+  revokeBusinessSession,
+  revokeOtherBusinessSessions,
   saveBusinessProfilePhoto,
   saveBusinessSettingsProfile,
   saveBusinessSetup,
   verifyBusinessEmailChange,
+  type BusinessLoginHistoryEntry,
   type BusinessSettingsProfile,
+  type BusinessSettingsSession,
   type BusinessSetupData
 } from "@/components/business/features/api";
 import { apiGet } from "@/lib/api";
@@ -43,12 +49,35 @@ const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
 
 const INDUSTRIES = [
   "Dental",
-  "Medical",
-  "Legal",
+  "Medical Clinic",
+  "Dermatology",
+  "Physiotherapy",
+  "Chiropractor",
+  "Optometry",
+  "Veterinary",
+  "Med Spa",
+  "Salon",
+  "Barbershop",
+  "Spa & Wellness",
+  "Yoga Studio",
+  "Gym / Fitness",
+  "Law Firm",
+  "Plumber",
   "HVAC",
+  "Electrician",
+  "Garage Door",
+  "Roofing",
+  "Landscaping",
+  "Pool Service",
   "Real Estate",
-  "Fitness",
+  "Auto Repair",
   "Restaurant",
+  "Insurance",
+  "Mortgage Broker",
+  "Urgent Care",
+  "Senior Care",
+  "Property Management",
+  "E-commerce",
   "Other"
 ];
 
@@ -69,6 +98,125 @@ const TIMEZONES = [
   "Pacific/Honolulu (Hawaii Time)",
   "Europe/London (GMT)"
 ];
+
+function optionSlug(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function SettingsSelect({
+  id,
+  value,
+  options,
+  placeholder,
+  testId,
+  menuTestId,
+  optionTestIdPrefix,
+  onChange
+}: {
+  id: string;
+  value: string;
+  options: readonly string[];
+  placeholder: string;
+  testId: string;
+  menuTestId: string;
+  optionTestIdPrefix: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const visibleOptions = useMemo(() => {
+    if (!value || options.includes(value)) return options;
+    return [value, ...options];
+  }, [options, value]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!dropdownRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        id={id}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        data-testid={testId}
+        className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-sm shadow-sm transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={value ? "truncate text-slate-900" : "truncate text-slate-500"}>
+          {value || placeholder}
+        </span>
+        <svg
+          className={`ml-3 h-4 w-4 shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          data-testid={menuTestId}
+          className="absolute left-0 top-full z-[80] mt-2 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg"
+        >
+          {visibleOptions.map((option) => {
+            const active = value === option;
+
+            return (
+              <button
+                key={option}
+                type="button"
+                role="option"
+                aria-selected={active}
+                data-testid={`${optionTestIdPrefix}-${optionSlug(option)}`}
+                onClick={() => {
+                  onChange(option);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                  active ? "bg-amber-50 text-amber-700" : "bg-white text-slate-700 hover:bg-amber-50 hover:text-amber-700"
+                }`}
+              >
+                <span className="truncate">{option}</span>
+                {active ? (
+                  <svg className="ml-2 h-4 w-4 shrink-0 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const NOTIFICATION_ROWS: Array<{
   key: string;
@@ -159,35 +307,6 @@ const COOKIE_PREFS = [
   }
 ];
 
-const ACTIVE_SESSIONS = [
-  {
-    id: "current",
-    device: "Chrome on MacBook Pro",
-    detail: "192.168.•••.••• · Portland, OR · Active now",
-    current: true
-  },
-  {
-    id: "iphone",
-    device: "Safari on iPhone 15",
-    detail: "10.0.•••.••• · Portland, OR · Last active 2 hours ago",
-    current: false
-  },
-  {
-    id: "windows",
-    device: "Chrome on Windows PC",
-    detail: "172.16.•••.••• · Seattle, WA · Last active 3 days ago",
-    current: false
-  }
-];
-
-const LOGIN_HISTORY = [
-  { date: "Jun 24, 2030 · 9:14 AM", device: "Chrome on MacBook Pro · Portland, OR", status: "Success" as const },
-  { date: "Jun 23, 2030 · 6:42 PM", device: "Safari on iPhone 15 · Portland, OR", status: "Success" as const },
-  { date: "Jun 21, 2030 · 8:03 AM", device: "Chrome on Windows PC · Seattle, WA", status: "Success" as const },
-  { date: "Jun 19, 2030 · 11:27 PM", device: "Unrecognized device · Newark, NJ", status: "Failed" as const },
-  { date: "Jun 18, 2030 · 7:55 AM", device: "Chrome on MacBook Pro · Portland, OR", status: "Success" as const }
-];
-
 const PASSWORD_REQUIREMENTS = [
   { key: "len" as const, label: "12+ characters" },
   { key: "upper" as const, label: "1 uppercase letter" },
@@ -229,6 +348,16 @@ function formatDate(iso: string) {
     month: "short",
     day: "numeric",
     year: "numeric"
+  }).format(new Date(iso));
+}
+
+function formatDateTime(iso: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
   }).format(new Date(iso));
 }
 
@@ -373,6 +502,11 @@ function SettingsSection({
   );
 }
 
+function formatTimeZoneLabel(value: string) {
+  const match = TIMEZONES.find((option) => option.startsWith(value) || option === value);
+  return match ?? value;
+}
+
 function buildProfileForm(
   authUser: AuthUser | null,
   setup: BusinessSetupData | null,
@@ -385,10 +519,10 @@ function buildProfileForm(
     phone: settingsProfile?.phone ?? setup?.profile?.teamPhone ?? "",
     businessName: settingsProfile?.businessName ?? setup?.business?.name ?? "",
     industry: settingsProfile?.businessType ?? setup?.business?.type ?? INDUSTRIES[0]!,
-    businessSize: BUSINESS_SIZES[1]!,
+    businessSize: settingsProfile?.businessSize || BUSINESS_SIZES[1]!,
     website: settingsProfile?.bookingUrl ?? setup?.profile?.bookingUrl ?? "",
     address: settingsProfile?.businessAddress ?? "",
-    timezone: settingsProfile?.timeZone ?? setup?.profile?.timeZone ?? TIMEZONES[0]!
+    timezone: formatTimeZoneLabel(settingsProfile?.timeZone ?? setup?.profile?.timeZone ?? TIMEZONES[0]!)
   };
 }
 
@@ -423,7 +557,8 @@ export function BusinessSettingsView() {
   const [cookiePrefs, setCookiePrefs] = useState<Record<string, boolean>>({});
   const [expandedMobile, setExpandedMobile] = useState<SettingsTab | null>("profile");
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
-  const [sessions, setSessions] = useState(ACTIVE_SESSIONS);
+  const [sessions, setSessions] = useState<BusinessSettingsSession[]>([]);
+  const [loginHistory, setLoginHistory] = useState<BusinessLoginHistoryEntry[]>([]);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -443,28 +578,41 @@ export function BusinessSettingsView() {
   }, []);
 
   const loadData = useCallback(async () => {
-    const [setupResult, billingResult, calendarResult, profileResult] = await Promise.all([
+    const [setupResult, billingResult, calendarResult, profileResult, sessionsResult, loginHistoryResult] =
+      await Promise.all([
       getBusinessSetup(),
       apiGet<{ billing: BillingData }>("/payments/billing"),
       getBusinessCalendarStatus(),
-      getBusinessSettingsProfile()
+      getBusinessSettingsProfile(),
+      getBusinessActiveSessions(),
+      getBusinessLoginHistory()
     ]);
 
     const settingsProfile =
       profileResult.success && profileResult.data?.profile ? profileResult.data.profile : null;
+    const businessId =
+      settingsProfile?.businessId ??
+      (setupResult.success ? setupResult.data?.business?.id : undefined);
 
     if (setupResult.success && setupResult.data) {
       setSetupData(setupResult.data);
     }
 
+    const profileRequest =
+      businessId && !settingsProfile?.businessId
+        ? await getBusinessSettingsProfile(businessId)
+        : profileResult;
+    const resolvedProfile =
+      profileRequest.success && profileRequest.data?.profile ? profileRequest.data.profile : settingsProfile;
+
     const nextForm = buildProfileForm(
       authUser,
       setupResult.success ? setupResult.data ?? null : null,
-      settingsProfile
+      resolvedProfile
     );
     setProfileForm(nextForm);
 
-    const nextEmail = settingsProfile?.email ?? authUser?.email ?? "";
+    const nextEmail = resolvedProfile?.email ?? authUser?.email ?? "";
     setAccountEmail(nextEmail);
     setEmailDraft(nextEmail);
     setEmailOtp("");
@@ -472,7 +620,7 @@ export function BusinessSettingsView() {
     setEmailVerified(false);
     setProfilePhotoPreview(null);
 
-    const nextPhoto = settingsProfile?.profilePhotoUrl ?? authUser?.profilePhotoUrl ?? null;
+    const nextPhoto = resolvedProfile?.profilePhotoUrl ?? authUser?.profilePhotoUrl ?? null;
     setSavedProfilePhotoUrl(nextPhoto);
     if (nextPhoto) {
       updateAuthUser({ profilePhotoUrl: nextPhoto });
@@ -485,6 +633,18 @@ export function BusinessSettingsView() {
     if (calendarResult.success && calendarResult.data) {
       setCalendarConnected(calendarResult.data.connected);
       setCalendarEmail(calendarResult.data.email);
+    }
+
+    if (sessionsResult.success && sessionsResult.data?.sessions) {
+      setSessions(sessionsResult.data.sessions);
+    } else {
+      setSessions([]);
+    }
+
+    if (loginHistoryResult.success && loginHistoryResult.data?.loginHistory) {
+      setLoginHistory(loginHistoryResult.data.loginHistory);
+    } else {
+      setLoginHistory([]);
     }
   }, [authUser]);
 
@@ -544,6 +704,7 @@ export function BusinessSettingsView() {
       email: emailDraftChanged && emailVerified ? normalizedEmailDraft : undefined,
       businessName: profileForm.businessName,
       businessType: profileForm.industry,
+      businessSize: profileForm.businessSize,
       teamPhone: profileForm.phone || undefined,
       bookingUrl: profileForm.website || undefined,
       timeZone: profileForm.timezone,
@@ -579,9 +740,10 @@ export function BusinessSettingsView() {
       phone: savedProfile.phone,
       businessName: savedProfile.businessName,
       industry: savedProfile.businessType,
+      businessSize: savedProfile.businessSize || current.businessSize,
       website: savedProfile.bookingUrl,
       address: savedProfile.businessAddress,
-      timezone: savedProfile.timeZone
+      timezone: formatTimeZoneLabel(savedProfile.timeZone)
     }));
 
     updateAuthUser({
@@ -717,9 +879,24 @@ export function BusinessSettingsView() {
       .finally(() => setProfilePhotoSelecting(false));
   }
 
-  function handleRevokeSession(sessionId: string) {
-    setSessions((current) => current.filter((session) => session.id !== sessionId));
-    showToast("Session revoked");
+  async function handleRevokeSession(sessionId: string) {
+    const result = await revokeBusinessSession(sessionId);
+    if (result.success) {
+      setSessions((current) => current.filter((session) => session.id !== sessionId));
+      showToast("Session revoked");
+      return;
+    }
+    showToast(result.error ?? "Could not revoke session");
+  }
+
+  async function handleRevokeOtherSessions() {
+    const result = await revokeOtherBusinessSessions();
+    if (result.success) {
+      setSessions((current) => current.filter((session) => session.isCurrent));
+      showToast("All other sessions revoked");
+      return;
+    }
+    showToast(result.error ?? "Could not revoke sessions");
   }
 
   function handleDeleteAccount() {
@@ -997,37 +1174,31 @@ export function BusinessSettingsView() {
                         <label htmlFor="industry" className="mb-1.5 block text-sm font-medium text-slate-700">
                           Industry
                         </label>
-                        <select
+                        <SettingsSelect
                           id="industry"
-                          data-testid="business-settings-industry"
                           value={profileForm.industry}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, industry: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        >
-                          {INDUSTRIES.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
+                          options={INDUSTRIES}
+                          placeholder="Select industry"
+                          testId="business-settings-industry"
+                          menuTestId="business-settings-industry-menu"
+                          optionTestIdPrefix="business-settings-industry-option"
+                          onChange={(industry) => setProfileForm((c) => ({ ...c, industry }))}
+                        />
                       </div>
                       <div>
                         <label htmlFor="businessSize" className="mb-1.5 block text-sm font-medium text-slate-700">
                           Business size
                         </label>
-                        <select
+                        <SettingsSelect
                           id="businessSize"
-                          data-testid="business-settings-business-size"
                           value={profileForm.businessSize}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, businessSize: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        >
-                          {BUSINESS_SIZES.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
+                          options={BUSINESS_SIZES}
+                          placeholder="Select business size"
+                          testId="business-settings-business-size"
+                          menuTestId="business-settings-business-size-menu"
+                          optionTestIdPrefix="business-settings-business-size-option"
+                          onChange={(businessSize) => setProfileForm((c) => ({ ...c, businessSize }))}
+                        />
                       </div>
                       <div>
                         <label htmlFor="website" className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -1110,7 +1281,12 @@ export function BusinessSettingsView() {
 
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Active sessions</h3>
                   <div className="overflow-hidden rounded-xl border border-gray-100">
-                    {sessions.map((session, index) => (
+                    {sessions.length === 0 ? (
+                      <p className="p-4 text-sm text-slate-500" data-testid="business-settings-sessions-empty">
+                        No active sessions found.
+                      </p>
+                    ) : (
+                      sessions.map((session, index) => (
                       <div
                         key={session.id}
                         className={`flex items-center gap-3 p-4 ${index < sessions.length - 1 ? "border-b border-gray-100" : ""}`}
@@ -1118,7 +1294,7 @@ export function BusinessSettingsView() {
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-slate-500">
                           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            {session.id === "iphone" ? (
+                            {/iphone|ipad|android/i.test(session.deviceLabel) ? (
                               <>
                                 <rect x="7" y="2" width="10" height="20" rx="2" />
                                 <path d="M11 18h2" />
@@ -1133,37 +1309,38 @@ export function BusinessSettingsView() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-800">
-                            {session.device}
-                            {session.current ? (
+                            {session.deviceLabel}
+                            {session.isCurrent ? (
                               <span className="ml-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
                                 This device
                               </span>
                             ) : null}
                           </p>
-                          <p className="mt-0.5 text-xs text-slate-500">{session.detail}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {session.ipMasked} · {session.location} · {session.statusLabel}
+                          </p>
                         </div>
-                        {!session.current ? (
+                        {!session.isCurrent ? (
                           <button
                             type="button"
                             className="rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-gray-50"
                             data-testid={`business-settings-revoke-${session.id}`}
-                            onClick={() => handleRevokeSession(session.id)}
+                            onClick={() => void handleRevokeSession(session.id)}
                           >
                             Revoke
                           </button>
                         ) : null}
                       </div>
-                    ))}
+                    ))
+                    )}
                   </div>
                   <div className="mt-3">
                     <button
                       type="button"
                       data-testid="business-settings-revoke-all"
-                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                      onClick={() => {
-                        setSessions((current) => current.filter((session) => session.current));
-                        showToast("All other sessions revoked");
-                      }}
+                      disabled={sessions.filter((session) => !session.isCurrent).length === 0}
+                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50"
+                      onClick={() => void handleRevokeOtherSessions()}
                     >
                       Revoke all other sessions
                     </button>
@@ -1173,11 +1350,18 @@ export function BusinessSettingsView() {
 
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Login history</h3>
                   <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
-                    {LOGIN_HISTORY.map((entry) => (
-                      <div key={entry.date} className="flex items-center justify-between gap-3 px-4 py-3">
+                    {loginHistory.length === 0 ? (
+                      <p className="p-4 text-sm text-slate-500" data-testid="business-settings-login-history-empty">
+                        No login history yet.
+                      </p>
+                    ) : (
+                      loginHistory.map((entry) => (
+                      <div key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`business-settings-login-${entry.id}`}>
                         <div className="min-w-0">
-                          <p className="text-sm text-slate-700">{entry.date}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">{entry.device}</p>
+                          <p className="text-sm text-slate-700">{formatDateTime(entry.date)}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {entry.device} · {entry.location}
+                          </p>
                         </div>
                         <span
                           className={`rounded-full px-2 py-1 text-xs font-semibold ${
@@ -1189,16 +1373,9 @@ export function BusinessSettingsView() {
                           {entry.status}
                         </span>
                       </div>
-                    ))}
+                    ))
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    className="mt-3 text-sm font-semibold text-amber-700 hover:underline"
-                    data-testid="business-settings-login-history"
-                    onClick={() => showToast("Full login history coming soon")}
-                  >
-                    View full login history
-                  </button>
             </SettingsSection>
 
             <SettingsSection
@@ -1310,18 +1487,6 @@ export function BusinessSettingsView() {
                       onDisconnect={handleDisconnectCalendar}
                     />
                     <IntegrationCard
-                      name="Twilio"
-                      description="Phone calls and SMS messaging for voice agents"
-                      connected={twilioConnected}
-                      connectedDetail={
-                        twilioConnected ? `Connected · ${setupData?.phoneNumber?.phoneNumber}` : undefined
-                      }
-                      testId="twilio"
-                      icon="twilio"
-                      onConnect={() => showToast("Twilio is provisioned automatically when you install an agent")}
-                      onDisconnect={() => showToast("Contact support to change your Twilio number")}
-                    />
-                    <IntegrationCard
                       name="Google Business Profile"
                       description="Manage reviews, respond to customers, update business listing"
                       connected={false}
@@ -1367,63 +1532,7 @@ export function BusinessSettingsView() {
                   <div className="mb-6">
                     <h2 className="text-lg font-bold text-slate-900">Billing &amp; subscription</h2>
                     <p className="mt-1 text-sm text-slate-500">Manage your plan, payment methods, and invoices.</p>
-                  </div>
-
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Current plan</h3>
-                  <div className="rounded-2xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-200 p-[1.5px]">
-                    <div className="rounded-2xl bg-white p-5">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-lg font-bold text-slate-900">
-                              {billing?.plan?.name ?? "AI Receptionist"}
-                            </span>
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-                              {billing?.plan?.status ?? "Current"}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-sm text-slate-500">
-                            <span className="font-semibold text-slate-900">
-                              {formatUsd(billing?.summary?.nextChargeCents ?? 29900)}
-                            </span>
-                            /month · Billed monthly
-                          </p>
-                          <p className="mt-3 text-sm text-slate-600">
-                            Up to 10 agents · Unlimited executions · Priority support
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">Next billing: July 1, 2030</p>
-                        </div>
-                        <div className="flex flex-col items-start gap-2 sm:items-end">
-                          <Link
-                            href={BUSINESS_BILLING_PATH}
-                            data-testid="business-settings-change-plan"
-                            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                          >
-                            Change plan
-                          </Link>
-                          <Link
-                            href={BUSINESS_BILLING_PATH}
-                            data-testid="business-settings-view-billing"
-                            className="text-sm font-semibold text-amber-700 hover:underline"
-                          >
-                            View all plans
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      className="text-sm font-medium text-slate-400 hover:text-red-500 hover:underline"
-                      data-testid="business-settings-cancel-subscription"
-                      onClick={() => showToast("Subscription cancellation coming soon")}
-                    >
-                      Cancel subscription
-                    </button>
-                  </div>
-
-                  <hr className="my-7 border-gray-100" />
+                  </div>             
 
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Payment method</h3>
                   {billing?.paymentMethod ? (

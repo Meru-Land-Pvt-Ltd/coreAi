@@ -18,6 +18,8 @@ type Agent = {
     name: string;
     category: string;
     industry: string;
+    /** Human-readable industry labels from listing.industryTags (e.g. "Dental"). */
+    industries: string[];
     description: string;
     price: number;
     installs: number;
@@ -78,6 +80,8 @@ type ApiListing = {
     priceCents?: number | null;
     status?: string;
     tags?: string[];
+    industryTags?: string[];
+    category?: string | null;
     requiredConnectors?: string[];
     supportedLlms?: string[];
     createdAt?: string;
@@ -301,11 +305,15 @@ function formatLabel(value: string) {
         .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function agentMatchesIndustry(agent: Agent, industryId: string) {
+    if (industryId === "all") return true;
+    if (agent.industry === industryId) return true;
+    return agent.industries.some((label) => normalizeFilterValue(label) === industryId);
+}
+
 function getIndustryAgentCount(industryId: string, agents: Agent[]) {
     if (industryId === "all") return agents.length;
-    return agents.filter(
-        (agent) => agent.industry === industryId || agent.industry === "all"
-    ).length;
+    return agents.filter((agent) => agentMatchesIndustry(agent, industryId)).length;
 }
 
 function isIndustryAvailable(id: string, agents: Agent[]) {
@@ -313,47 +321,54 @@ function isIndustryAvailable(id: string, agents: Agent[]) {
     return getIndustryAgentCount(id, agents) > 0;
 }
 
-function getAgentIndustry(listing: ApiListing) {
+/** Prefer AgentListing.industryTags; fall back to legacy industry:/plain tags. */
+function getAgentIndustries(listing: ApiListing): string[] {
+    const fromIndustryTags = (listing.industryTags ?? [])
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+    if (fromIndustryTags.length > 0) {
+        return Array.from(new Set(fromIndustryTags));
+    }
+
     const tags = listing.tags ?? [];
+    const prefixed = tags
+        .filter((tag) => tag.toLowerCase().startsWith("industry:"))
+        .map((tag) => tag.replace(/^industry:/i, "").trim())
+        .filter(Boolean);
+    if (prefixed.length > 0) {
+        return Array.from(new Set(prefixed));
+    }
 
-    const industryTag =
-        tags.find((tag) => tag.toLowerCase().startsWith("industry:")) ??
-        tags.find((tag) =>
-            [
-                "dental",
-                "hvac",
-                "plumbing",
-                "real estate",
-                "legal",
-                "medical",
-                "wellness",
-                "automotive",
-                "ecommerce",
-                "e-commerce"
-            ].includes(tag.toLowerCase())
-        );
+    return [];
+}
 
-    if (!industryTag) return "all";
-
-    return normalizeFilterValue(industryTag.replace(/^industry:/i, ""));
+function getAgentIndustry(listing: ApiListing) {
+    const industries = getAgentIndustries(listing);
+    if (industries.length === 0) return "all";
+    return normalizeFilterValue(industries[0]);
 }
 
 function getAgentCategory(listing: ApiListing) {
+    if (listing.category?.trim()) {
+        return formatLabel(listing.category.trim());
+    }
+
+    const industrySet = new Set(getAgentIndustries(listing).map((tag) => tag.toLowerCase()));
     const tags = listing.tags ?? [];
 
     const categoryTag =
         tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
-        tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
+        tags.find((tag) => {
+            const lower = tag.toLowerCase();
+            if (lower.startsWith("industry:")) return false;
+            return !industrySet.has(lower);
+        });
 
     if (categoryTag) {
         return formatLabel(categoryTag.replace(/^category:/i, ""));
     }
 
-    if (listing.workflow?.name) {
-        return "Workflow";
-    }
-
-    return "AI Agent";
+    return "Uncategorized";
 }
 
 function isRecentlyCreated(createdAt?: string) {
@@ -400,11 +415,14 @@ function getWhatYouGetItems(listing: ApiListing): string[] {
 function mapListingToAgent(listing: ApiListing): Agent {
     const profile = listing.architect?.architectProfile;
 
+    const industries = getAgentIndustries(listing);
+
     return {
         id: listing.id,
         name: listing.name,
         category: getAgentCategory(listing),
         industry: getAgentIndustry(listing),
+        industries,
         description:
             listing.shortDescription ||
             listing.description ||
@@ -676,9 +694,7 @@ export default function MarketplacePage() {
                     .includes(cleanQuery);
 
             const matchesIndustry =
-                industry === "all" ||
-                agent.industry === industry ||
-                agent.industry === "all";
+                industry === "all" || agentMatchesIndustry(agent, industry);
 
             const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
             const matchesRating = agent.rating >= minRating;
@@ -1353,7 +1369,11 @@ function AgentDetailsModal({
     }, [onClose]);
 
     const industryLabel =
-        agent.industry === "all" ? "All industries" : formatLabel(agent.industry);
+        agent.industries.length > 0
+            ? agent.industries.join(", ")
+            : agent.industry === "all"
+              ? "All industries"
+              : formatLabel(agent.industry);
 
     return (
         <div
@@ -1520,9 +1540,17 @@ function AgentGridCard({
                         {agent.category}
                     </span>
 
-                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="business-protected-marketplace-agent-industry-all-industries-format-label-agent-text">
-                        {agent.industry === "all" ? "All industries" : formatLabel(agent.industry)}
-                    </span>
+                    {agent.industries.length > 0 ? (
+                        agent.industries.map((tag) => (
+                            <span
+                                key={tag}
+                                className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700"
+                                data-testid="business-protected-marketplace-agent-industry-all-industries-format-label-agent-text"
+                            >
+                                {tag}
+                            </span>
+                        ))
+                    ) : null}
                 </div>
 
                 <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="business-protected-marketplace-agent-description-text">

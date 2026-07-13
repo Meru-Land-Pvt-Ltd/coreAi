@@ -29,7 +29,12 @@ export class ProviderRegistry {
       return;
     }
 
-    const adapterFiles = files.filter((f) => f.endsWith(".adapter.ts") || f.endsWith(".adapter.js"));
+    const adapterFiles = files.filter(
+      (f) =>
+        !f.startsWith("._") &&
+        !f.startsWith(".") &&
+        (f.endsWith(".adapter.ts") || f.endsWith(".adapter.js"))
+    );
 
     if (adapterFiles.length === 0) {
       console.warn("[AIProviderEngine] No *.adapter files found in providers/.");

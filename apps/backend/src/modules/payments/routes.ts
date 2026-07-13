@@ -9,8 +9,17 @@ import {
   buildBillingInvoices,
   invoiceDateForPayment,
   invoiceDisplayAmountCents,
+  parsePaymentLineItems,
   type PaymentWithListing
 } from "../../lib/billing-invoices";
+import {
+  autoProvisionPhoneNumberForPurchase,
+  buildAgentPurchaseLineItems,
+  getPhoneNumberFee,
+  listingNeedsPhoneNumber,
+  markPhoneNumberFeeBilled,
+  resolveUnbilledPhoneFee
+} from "../business/phone-provisioning";
 import {
   buildInvoiceDocumentHtml,
   buildInvoicePdfBuffer,
@@ -31,8 +40,12 @@ const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
   PaymentStatus.PENDING
 ];
 
-function resolveActivePayment<T extends { status: PaymentStatus }>(payments: T[]) {
-  const owned = payments.filter((payment) => OWNED_PAYMENT_STATUSES.includes(payment.status));
+function resolveActivePayment<T extends { status: PaymentStatus; createdAt: Date }>(payments: T[]) {
+  const trialCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const owned = payments.filter((payment) =>
+    OWNED_PAYMENT_STATUSES.includes(payment.status) &&
+    (payment.status !== PaymentStatus.TRIALING || payment.createdAt.getTime() > trialCutoff)
+  );
 
   return (
     owned.find((payment) => payment.status === PaymentStatus.SUCCEEDED) ??
@@ -40,6 +53,98 @@ function resolveActivePayment<T extends { status: PaymentStatus }>(payments: T[]
     owned.find((payment) => payment.status === PaymentStatus.PENDING) ??
     null
   );
+}
+
+function currentMonthStart(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/** Per installed agent: executions this month (matches dashboard activity chart). */
+async function buildInstalledAgentMonthlyStats(
+  businessId: string,
+  installedAgents: Array<{ id: string; listingId: string | null }>
+) {
+  const monthStart = currentMonthStart();
+  const agentIds = installedAgents.map((agent) => agent.id);
+  const statsByAgent = new Map<string, { runsThisMonth: number; costThisMonthMicroUsd: number }>();
+
+  for (const agent of installedAgents) {
+    statsByAgent.set(agent.id, { runsThisMonth: 0, costThisMonthMicroUsd: 0 });
+  }
+
+  if (agentIds.length === 0) {
+    return statsByAgent;
+  }
+
+  const [vapiCalls, appointments, missedCalls, phoneLinks] = await Promise.all([
+    prisma.vapiCall.findMany({
+      where: { businessId, createdAt: { gte: monthStart } },
+      select: { installedAgentId: true, billedCostMicroUsd: true }
+    }),
+    prisma.appointment.count({ where: { businessId, createdAt: { gte: monthStart } } }),
+    prisma.lead.count({
+      where: { businessId, source: { contains: "MISSED_CALL" }, createdAt: { gte: monthStart } }
+    }),
+    prisma.businessPhoneNumber.findMany({
+      where: { businessId, isActive: true },
+      select: { installedAgentId: true }
+    })
+  ]);
+
+  const phoneAgentIds = [
+    ...new Set(phoneLinks.map((link) => link.installedAgentId).filter(Boolean) as string[])
+  ];
+
+  let unattributedRuns = 0;
+  let unattributedCostMicroUsd = 0;
+
+  for (const call of vapiCalls) {
+    if (call.installedAgentId && statsByAgent.has(call.installedAgentId)) {
+      const row = statsByAgent.get(call.installedAgentId)!;
+      row.runsThisMonth += 1;
+      row.costThisMonthMicroUsd += call.billedCostMicroUsd ?? 0;
+      continue;
+    }
+    unattributedRuns += 1;
+    unattributedCostMicroUsd += call.billedCostMicroUsd ?? 0;
+  }
+
+  const attributeShared = (runs: number, costMicroUsd: number) => {
+    if (runs <= 0 && costMicroUsd <= 0) return;
+
+    if (installedAgents.length === 1) {
+      const row = statsByAgent.get(installedAgents[0].id)!;
+      row.runsThisMonth += runs;
+      row.costThisMonthMicroUsd += costMicroUsd;
+      return;
+    }
+
+    if (phoneAgentIds.length === 1) {
+      const row = statsByAgent.get(phoneAgentIds[0]);
+      if (row) {
+        row.runsThisMonth += runs;
+        row.costThisMonthMicroUsd += costMicroUsd;
+      }
+      return;
+    }
+
+    if (phoneAgentIds.length > 1) {
+      for (const agentId of phoneAgentIds) {
+        const row = statsByAgent.get(agentId);
+        if (row) row.runsThisMonth += runs;
+      }
+      if (phoneAgentIds.length > 0) {
+        const first = statsByAgent.get(phoneAgentIds[0]);
+        if (first) first.costThisMonthMicroUsd += costMicroUsd;
+      }
+    }
+  };
+
+  attributeShared(unattributedRuns, unattributedCostMicroUsd);
+  attributeShared(appointments + missedCalls, 0);
+
+  return statsByAgent;
 }
 
 function resolveInvoicePaymentId(paymentId: string) {
@@ -79,9 +184,48 @@ type CheckoutBillingDetails = {
 };
 
 async function persistCheckoutBilling(ownerId: string, billing: CheckoutBillingDetails) {
-  await prisma.business.updateMany({
+  const business = await prisma.business.findFirst({
     where: { ownerId },
-    data: billing
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  if (!business) return null;
+  await prisma.business.update({ where: { id: business.id }, data: billing });
+  return business.id;
+}
+
+async function chargeAgentOnce({
+  stripe,
+  customerId,
+  paymentMethodId,
+  listing,
+  userId,
+  amountCents,
+  phoneFeeCents
+}: {
+  stripe: NonNullable<ReturnType<typeof getStripeClient>>;
+  customerId: string;
+  paymentMethodId: string;
+  listing: { id: string; name: string; priceCents: number };
+  userId: string;
+  /** Total to charge — agent price plus any number fee. Defaults to the agent price. */
+  amountCents?: number;
+  phoneFeeCents?: number;
+}) {
+  return stripe.paymentIntents.create({
+    amount: amountCents ?? listing.priceCents,
+    currency: "usd",
+    customer: customerId,
+    payment_method: paymentMethodId,
+    confirm: true,
+    off_session: true,
+    description: `One-time purchase of ${listing.name}`,
+    metadata: {
+      userId,
+      listingId: listing.id,
+      chargeType: "agent_purchase",
+      ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
+    }
   });
 }
 
@@ -142,6 +286,7 @@ type PaymentForInvoice = PaymentWithListing & {
   billingName?: string | null;
   billingEmail?: string | null;
   billingAddress?: string | null;
+  lineItemsJson?: unknown;
 };
 
 async function resolvePaymentMethodLabel(payment: PaymentForInvoice): Promise<string | null> {
@@ -197,22 +342,29 @@ async function buildInvoiceData(
   const agentName = payment.listing?.name || "Agent purchase";
   const trialDescription = `7-day trial for ${agentName}`;
   const billTo = resolveInvoiceBillTo(payment, business, authUser);
+  const isHistoricalTrial =
+    payment.status === PaymentStatus.CANCELED &&
+    (payment.description ?? "").toLowerCase().includes("trial");
+  const isTrialInvoice =
+    syntheticTrial || payment.status === PaymentStatus.TRIALING || isHistoricalTrial;
 
-  if (syntheticTrial) {
+  if (isTrialInvoice) {
+    const trialTransactionId = syntheticTrial ? `${payment.id}-trial` : payment.id;
+
     return {
-      invoiceNumber: invoiceNumberForPayment(`${payment.id}-trial`),
+      invoiceNumber: invoiceNumberForPayment(trialTransactionId),
       date: payment.createdAt,
       businessName: billTo.businessName,
       businessEmail: billTo.businessEmail,
       agentName,
-      description: trialDescription,
+      description: payment.description || trialDescription,
       amountCents: 0,
       listPriceCents: payment.amountCents,
       currency: payment.currency,
       status: PaymentStatus.TRIALING,
       billingAddress: billTo.billingAddress,
       paymentMethod,
-      transactionId: `${payment.id}-trial`
+      transactionId: trialTransactionId
     };
   }
 
@@ -229,7 +381,8 @@ async function buildInvoiceData(
     status: payment.status,
     billingAddress: billTo.billingAddress,
     paymentMethod,
-    transactionId: payment.id
+    transactionId: payment.id,
+    lineItems: parsePaymentLineItems(payment.lineItemsJson) ?? undefined
   };
 }
 
@@ -322,12 +475,31 @@ paymentRoutes.get("/billing", async (c) => {
     where: { ownerId: authUser.id },
     orderBy: { createdAt: "asc" },
     select: {
+      id: true,
       name: true,
       billingName: true,
       billingEmail: true,
       billingAddress: true
     }
   });
+
+  const currentBillingMonth = new Date().toISOString().slice(0, 7);
+  const [currentUsage, unpaidUsageInvoices] = business
+    ? await Promise.all([
+        prisma.vapiCall.aggregate({
+          where: {
+            businessId: business.id,
+            billingMonth: currentBillingMonth,
+            billingRecordedAt: { not: null }
+          },
+          _sum: { billedCostMicroUsd: true }
+        }),
+        prisma.businessUsageInvoice.aggregate({
+          where: { businessId: business.id, status: { in: ["OPEN", "OVERDUE"] } },
+          _sum: { totalMicroUsd: true }
+        })
+      ])
+    : [{ _sum: { billedCostMicroUsd: null } }, { _sum: { totalMicroUsd: null } }];
 
   // Best-effort fetch of the default card from Stripe. Any failure -> null (UI shows NA).
   let paymentMethod: {
@@ -381,12 +553,10 @@ paymentRoutes.get("/billing", async (c) => {
       agents,
       summary: {
         totalAgentFeesPaidCents,
-        // Execution usage tracking is not available yet -> UI shows NA.
-        currentMonthExecutionCostCents: null,
-        nextChargeCents: 0
+        currentMonthExecutionCostCents: Math.round((currentUsage._sum.billedCostMicroUsd ?? 0) / 10_000),
+        nextChargeCents: Math.round((unpaidUsageInvoices._sum.totalMicroUsd ?? 0) / 10_000)
       },
-      // Per-execution usage breakdown is not tracked yet -> UI shows NA.
-      usage: null,
+      usage: { billingMonth: currentBillingMonth },
       invoices,
       paymentMethod,
       businessName: business?.billingName ?? business?.name ?? authUser.fullName ?? null,
@@ -402,33 +572,55 @@ paymentRoutes.get("/billing", async (c) => {
 paymentRoutes.get("/my-agents", async (c) => {
   const authUser = c.get("authUser");
 
-  const payments = await prisma.payment.findMany({
-    where: {
-      userId: authUser.id,
-      listingId: { not: null },
-      status: { in: OWNED_PAYMENT_STATUSES }
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      listing: {
-        include: {
-          workflow: {
-            select: { id: true, name: true, description: true }
-          },
-          architect: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-              architectProfile: {
-                select: { title: true, rating: true, completedJobs: true }
+  const [payments, business] = await Promise.all([
+    prisma.payment.findMany({
+      where: {
+        userId: authUser.id,
+        listingId: { not: null },
+        status: { in: OWNED_PAYMENT_STATUSES }
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        listing: {
+          include: {
+            workflow: {
+              select: { id: true, name: true, description: true }
+            },
+            architect: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                architectProfile: {
+                  select: { title: true, rating: true, completedJobs: true }
+                }
               }
             }
           }
         }
       }
-    }
-  });
+    }),
+    prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        installedAgents: {
+          select: { id: true, listingId: true, status: true }
+        }
+      }
+    })
+  ]);
+
+  const installedAgents = business?.installedAgents ?? [];
+  const statsByAgentId = business
+    ? await buildInstalledAgentMonthlyStats(business.id, installedAgents)
+    : new Map<string, { runsThisMonth: number; costThisMonthMicroUsd: number }>();
+  const installedByListingId = new Map(
+    installedAgents
+      .filter((agent) => agent.listingId)
+      .map((agent) => [agent.listingId as string, agent])
+  );
 
   // Dedupe by listing — prefer the current active payment (paid over trial).
   const paymentsByListing = new Map<string, typeof payments>();
@@ -451,10 +643,21 @@ paymentRoutes.get("/my-agents", async (c) => {
     const activePayment = resolveActivePayment(listingPayments);
     if (!activePayment) continue;
 
+    const installedAgent = installedByListingId.get(listing.id) ?? null;
+    const stats = installedAgent
+      ? statsByAgentId.get(installedAgent.id) ?? { runsThisMonth: 0, costThisMonthMicroUsd: 0 }
+      : { runsThisMonth: 0, costThisMonthMicroUsd: 0 };
+
     agents.push({
       purchaseId: activePayment.id,
       purchasedAt: activePayment.createdAt,
       purchaseStatus: activePayment.status,
+      installedAgentId: installedAgent?.id ?? null,
+      installedAgentStatus: installedAgent?.status ?? null,
+      stats: {
+        runsThisMonth: stats.runsThisMonth,
+        costThisMonthMicroUsd: stats.costThisMonthMicroUsd
+      },
       listing: {
         id: listing.id,
         name: listing.name,
@@ -512,10 +715,37 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     (anyPayment && !activePayment) ||
     isTrialing;
 
+  const usageServices = await prisma.platformUsageService.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { code: true, name: true, unit: true, updatedCostMicroUsd: true }
+  });
+  const perMinuteMicroUsd = usageServices
+    .filter((service) => service.unit === "PER_MINUTE")
+    .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);
+
+  // One-time number fee billed with the agent price when this agent's
+  // workflow needs a dedicated phone number.
+  const needsPhone = await listingNeedsPhoneNumber(listing.id);
+  const phoneFee = needsPhone ? await getPhoneNumberFee() : null;
+
   return successResponse(c, {
     listingId: listing.id,
     listingName: listing.name,
     amountCents: listing.priceCents,
+    phoneNumberFee: phoneFee
+      ? { label: phoneFee.label, amountCents: phoneFee.amountCents }
+      : null,
+    currency: "usd",
+    usagePricing: {
+      perMinuteUsd: perMinuteMicroUsd / 1_000_000,
+      services: usageServices.map((service) => ({
+        code: service.code,
+        name: service.name,
+        unit: service.unit,
+        unitPriceUsd: service.updatedCostMicroUsd / 1_000_000
+      }))
+    },
     canStartTrial: !anyPayment,
     hasActiveAccess: Boolean(activePayment),
     trialUsed: anyPayment,
@@ -579,7 +809,7 @@ paymentRoutes.post("/start-trial", async (c) => {
   const { listingId, paymentMethodId, billingName, billingEmail, billingAddress } = parsed.data;
   const billingDetails: CheckoutBillingDetails = { billingName, billingEmail, billingAddress };
 
-  await persistCheckoutBilling(authUser.id, billingDetails);
+  const businessId = await persistCheckoutBilling(authUser.id, billingDetails);
 
   const listing = await prisma.agentListing.findFirst({
     where: {
@@ -595,14 +825,13 @@ paymentRoutes.post("/start-trial", async (c) => {
   const existingPayments = await prisma.payment.findMany({
     where: {
       userId: authUser.id,
+      businessId,
       listingId
     },
     orderBy: { createdAt: "desc" }
   });
 
-  const activePayment = existingPayments.find((payment) =>
-    OWNED_PAYMENT_STATUSES.includes(payment.status)
-  );
+  const activePayment = resolveActivePayment(existingPayments);
 
   if (activePayment) {
     return successResponse(c, {
@@ -660,42 +889,15 @@ paymentRoutes.post("/start-trial", async (c) => {
     }
   });
 
-  const product = await stripe.products.create({
-    name: listing.name,
-    metadata: {
-      listingId: listing.id
-    }
-  });
-
-  const subscription = await stripe.subscriptions.create({
-    customer: customerId,
-    items: [
-      {
-        price_data: {
-          currency: "usd",
-          unit_amount: listing.priceCents,
-          recurring: { interval: "month" },
-          product: product.id
-        }
-      }
-    ],
-    trial_period_days: 7,
-    default_payment_method: attachedPaymentMethodId,
-    metadata: {
-      userId: authUser.id,
-      listingId: listing.id
-    }
-  });
-
   const payment = await prisma.payment.create({
     data: {
       userId: authUser.id,
+      businessId,
       listingId: listing.id,
       amountCents: listing.priceCents,
       currency: "usd",
       status: "TRIALING",
       stripeCustomerId: customerId,
-      stripeSubscriptionId: subscription.id,
       stripePaymentId: attachedPaymentMethodId,
       description: `7-day trial for ${listing.name}`,
       ...paymentBillingData(billingDetails)
@@ -709,6 +911,24 @@ paymentRoutes.post("/start-trial", async (c) => {
       }
     }
   });
+
+  // Allot the buyer's dedicated number at trial start (agents with a phone
+  // node only). The fee is billed with the agent price after the trial; a
+  // provisioning failure must never break the purchase — setup retries later.
+  let assignedPhoneNumber: string | null = null;
+  try {
+    const provisioned = await autoProvisionPhoneNumberForPurchase({
+      buyerUserId: authUser.id,
+      businessId,
+      listingId: listing.id
+    });
+    assignedPhoneNumber = provisioned?.phoneNumber ?? null;
+  } catch (error) {
+    console.error("[phone-provision] trial-start provisioning failed (non-fatal)", {
+      listingId: listing.id,
+      error
+    });
+  }
 
   // Send a purchase-confirmation email with the invoice attached. Best-effort:
   // a mail failure must never break the purchase.
@@ -729,10 +949,9 @@ paymentRoutes.post("/start-trial", async (c) => {
     c,
     {
       payment,
-      subscriptionId: subscription.id,
-      trialEndsAt: subscription.trial_end
-        ? new Date(subscription.trial_end * 1000).toISOString()
-        : null
+      subscriptionId: null,
+      assignedPhoneNumber,
+      trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     },
     "Trial started",
     201
@@ -757,7 +976,7 @@ paymentRoutes.post("/purchase", async (c) => {
   const { listingId, paymentMethodId, billingName, billingEmail, billingAddress } = parsed.data;
   const billingDetails: CheckoutBillingDetails = { billingName, billingEmail, billingAddress };
 
-  await persistCheckoutBilling(authUser.id, billingDetails);
+  const businessId = await persistCheckoutBilling(authUser.id, billingDetails);
 
   const listing = await prisma.agentListing.findFirst({
     where: {
@@ -778,9 +997,7 @@ paymentRoutes.post("/purchase", async (c) => {
     orderBy: { createdAt: "desc" }
   });
 
-  const activePayment = existingPayments.find((payment) =>
-    OWNED_PAYMENT_STATUSES.includes(payment.status)
-  );
+  const activePayment = resolveActivePayment(existingPayments);
 
   if (activePayment?.status === "SUCCEEDED") {
     return successResponse(c, {
@@ -829,23 +1046,63 @@ paymentRoutes.post("/purchase", async (c) => {
     }
   });
 
-  if (activePayment?.status === "TRIALING" && activePayment.stripeSubscriptionId) {
-    await stripe.subscriptions.update(activePayment.stripeSubscriptionId, {
-      trial_end: "now",
-      default_payment_method: attachedPaymentMethodId
+  if (activePayment?.status === "TRIALING") {
+    // The number was allotted at trial start; ensure it exists (idempotent)
+    // and bill its fee together with the agent price, as an invoice line —
+    // but only if this number's fee was never billed before.
+    try {
+      await autoProvisionPhoneNumberForPurchase({
+        buyerUserId: authUser.id,
+        businessId,
+        listingId: listing.id
+      });
+    } catch (error) {
+      console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
+        listingId: listing.id,
+        error
+      });
+    }
+
+    const unbilledPhoneFee = await resolveUnbilledPhoneFee({
+      buyerUserId: authUser.id,
+      businessId
     });
+    const lineItems = buildAgentPurchaseLineItems({
+      agentLabel: listing.name,
+      agentPriceCents: listing.priceCents,
+      phoneFee: unbilledPhoneFee?.fee ?? null
+    });
+    const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+
+    const intent = await chargeAgentOnce({
+      stripe,
+      customerId,
+      paymentMethodId: attachedPaymentMethodId,
+      listing,
+      userId: authUser.id,
+      amountCents: totalCents,
+      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
+    });
+    if (intent.status !== "succeeded") {
+      return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
+    }
+
+    if (activePayment.stripeSubscriptionId) {
+      await stripe.subscriptions.cancel(activePayment.stripeSubscriptionId).catch(() => undefined);
+    }
 
     const payment = await prisma.payment.create({
       data: {
         userId: authUser.id,
+        businessId,
         listingId: listing.id,
-        amountCents: listing.priceCents,
+        amountCents: totalCents,
         currency: "usd",
         status: "SUCCEEDED",
         stripeCustomerId: customerId,
-        stripeSubscriptionId: activePayment.stripeSubscriptionId,
         stripePaymentId: attachedPaymentMethodId,
         description: `Purchase of ${listing.name}`,
+        lineItemsJson: lineItems as never,
         ...paymentBillingData(billingDetails)
       },
       include: {
@@ -857,6 +1114,15 @@ paymentRoutes.post("/purchase", async (c) => {
         }
       }
     });
+
+    await prisma.payment.update({
+      where: { id: activePayment.id },
+      data: { status: "CANCELED" }
+    });
+
+    if (unbilledPhoneFee) {
+      await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
+    }
 
     try {
       const invoice = await buildInvoiceData(payment, authUser);
@@ -875,7 +1141,7 @@ paymentRoutes.post("/purchase", async (c) => {
       c,
       {
         payment,
-        subscriptionId: activePayment.stripeSubscriptionId
+        subscriptionId: null
       },
       "Purchase completed",
       201
@@ -889,43 +1155,58 @@ paymentRoutes.post("/purchase", async (c) => {
     });
   }
 
-  const product = await stripe.products.create({
-    name: listing.name,
-    metadata: {
+  // Direct purchase (no trial): allot the number first, then charge the agent
+  // price plus the number fee (only if never billed for this number) in one
+  // payment with an itemized breakdown.
+  try {
+    await autoProvisionPhoneNumberForPurchase({
+      buyerUserId: authUser.id,
+      businessId,
       listingId: listing.id
-    }
-  });
+    });
+  } catch (error) {
+    console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
+      listingId: listing.id,
+      error
+    });
+  }
 
-  const subscription = await stripe.subscriptions.create({
-    customer: customerId,
-    items: [
-      {
-        price_data: {
-          currency: "usd",
-          unit_amount: listing.priceCents,
-          recurring: { interval: "month" },
-          product: product.id
-        }
-      }
-    ],
-    default_payment_method: attachedPaymentMethodId,
-    metadata: {
-      userId: authUser.id,
-      listingId: listing.id
-    }
+  const unbilledPhoneFee = await resolveUnbilledPhoneFee({
+    buyerUserId: authUser.id,
+    businessId
   });
+  const lineItems = buildAgentPurchaseLineItems({
+    agentLabel: listing.name,
+    agentPriceCents: listing.priceCents,
+    phoneFee: unbilledPhoneFee?.fee ?? null
+  });
+  const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+
+  const intent = await chargeAgentOnce({
+    stripe,
+    customerId,
+    paymentMethodId: attachedPaymentMethodId,
+    listing,
+    userId: authUser.id,
+    amountCents: totalCents,
+    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
+  });
+  if (intent.status !== "succeeded") {
+    return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
+  }
 
   const payment = await prisma.payment.create({
     data: {
       userId: authUser.id,
+      businessId,
       listingId: listing.id,
-      amountCents: listing.priceCents,
+      amountCents: totalCents,
       currency: "usd",
       status: "SUCCEEDED",
       stripeCustomerId: customerId,
-      stripeSubscriptionId: subscription.id,
       stripePaymentId: attachedPaymentMethodId,
       description: `Purchase of ${listing.name}`,
+      lineItemsJson: lineItems as never,
       ...paymentBillingData(billingDetails)
     },
     include: {
@@ -937,6 +1218,18 @@ paymentRoutes.post("/purchase", async (c) => {
       }
     }
   });
+
+  // Cancel any stale TRIALING rows for this listing (an expired trial paid
+  // manually lands here) so the hourly trial-conversion job cannot charge the
+  // same buyer a second time.
+  await prisma.payment.updateMany({
+    where: { userId: authUser.id, listingId: listing.id, status: "TRIALING", NOT: { id: payment.id } },
+    data: { status: "CANCELED" }
+  });
+
+  if (unbilledPhoneFee) {
+    await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
+  }
 
   try {
     const invoice = await buildInvoiceData(payment, authUser);
@@ -955,7 +1248,7 @@ paymentRoutes.post("/purchase", async (c) => {
     c,
     {
       payment,
-      subscriptionId: subscription.id
+      subscriptionId: null
     },
     "Purchase completed",
     201

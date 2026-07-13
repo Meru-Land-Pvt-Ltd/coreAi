@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { normalizeTimeZone } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -9,6 +9,7 @@ import {
 } from "../../lib/email-otp";
 import { createAuthToken, verifyAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { prisma } from "../../lib/prisma";
+import { serializeActiveSession, serializeLoginHistory } from "../../lib/user-session";
 
 export const businessSettingsRoutes = new Hono();
 
@@ -34,8 +35,9 @@ const businessProfileSchema = z.object({
   email: z.string().trim().toLowerCase().email().optional(),
   businessName: z.string().trim().min(2).optional(),
   businessType: z.string().trim().min(2).optional(),
+  businessSize: z.string().trim().optional().or(z.literal("")),
   teamPhone: z.string().trim().optional().or(z.literal("")),
-  bookingUrl: z.string().trim().url().optional().or(z.literal("")),
+  bookingUrl: z.string().trim().optional().or(z.literal("")),
   timeZone: z.string().trim().optional(),
   businessAddress: z.string().trim().optional().or(z.literal(""))
 });
@@ -50,6 +52,24 @@ const businessEmailChangeBindings = new Map<string, EmailChangeBinding>();
 
 function emailChangeBindingKey(userId: string, email: string) {
   return `${userId}:${email}`;
+}
+
+function normalizeSettingsTimeZone(value: string | undefined) {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  const iana = trimmed.split("(")[0]?.trim() || trimmed;
+  return normalizeTimeZone(iana);
+}
+
+function normalizeOptionalBookingUrl(value: string | undefined) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "";
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
 }
 
 function parseProfilePhotoDataUrl(photoDataUrl: string) {
@@ -104,6 +124,7 @@ function serializeBusinessProfile(
       teamPhone: string | null;
       bookingUrl: string | null;
       timeZone: string;
+      businessSize: string | null;
     } | null;
   }
 ) {
@@ -115,6 +136,7 @@ function serializeBusinessProfile(
     profilePhotoUrl: user.profilePhotoUrl ?? null,
     businessName: business.name,
     businessType: business.type,
+    businessSize: business.profile?.businessSize ?? "",
     teamPhone: business.profile?.teamPhone ?? "",
     bookingUrl: business.profile?.bookingUrl ?? "",
     timeZone: business.profile?.timeZone ?? "America/Los_Angeles",
@@ -125,7 +147,8 @@ function serializeBusinessProfile(
 businessSettingsRoutes.get("/profile", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const business = await loadOwnedBusiness(authUser.id);
+    const requestedBusinessId = c.req.query("businessId")?.trim();
+    const business = await loadOwnedBusiness(authUser.id, requestedBusinessId || undefined);
 
     if (!business) {
       return successResponse(c, {
@@ -137,6 +160,7 @@ businessSettingsRoutes.get("/profile", async (c) => {
           profilePhotoUrl: null,
           businessName: "",
           businessType: "",
+          businessSize: "",
           teamPhone: "",
           bookingUrl: "",
           timeZone: "America/Los_Angeles",
@@ -167,166 +191,198 @@ businessSettingsRoutes.get("/profile", async (c) => {
   }
 });
 
-businessSettingsRoutes.put("/profile", async (c) => {
-  try {
-    const authUser = c.get("authUser");
-    const input = businessProfileSchema.parse(await c.req.json());
-    const business = await loadOwnedBusiness(authUser.id, input.businessId);
+async function saveBusinessSettingsProfile(c: Context) {
+  const authUser = c.get("authUser");
+  const input = businessProfileSchema.parse(await c.req.json());
+  const business = await loadOwnedBusiness(authUser.id, input.businessId);
 
-    if (!business) {
-      return errorResponse(c, "Business not found", 404, "BUSINESS_NOT_FOUND");
+  if (!business) {
+    return errorResponse(c, "Business not found", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: authUser.id },
+    select: { email: true, fullName: true, role: true, profilePhotoUrl: true }
+  });
+
+  if (!currentUser) {
+    return errorResponse(c, "User not found", 404, "USER_NOT_FOUND");
+  }
+
+  let nextEmail = currentUser.email;
+  let emailChanged = false;
+
+  if (input.email && input.email !== currentUser.email.toLowerCase()) {
+    const bindingKey = emailChangeBindingKey(authUser.id, input.email);
+    const binding = businessEmailChangeBindings.get(bindingKey);
+
+    if (!binding?.verified || binding.email !== input.email) {
+      return errorResponse(
+        c,
+        "Verify the new email address before saving",
+        422,
+        "EMAIL_NOT_VERIFIED"
+      );
     }
 
-    const currentUser = await prisma.user.findUnique({
-      where: { id: authUser.id },
-      select: { email: true, fullName: true, role: true, profilePhotoUrl: true }
-    });
-
-    if (!currentUser) {
-      return errorResponse(c, "User not found", 404, "USER_NOT_FOUND");
+    if (!binding.verifiedAt || Date.now() - binding.verifiedAt > EMAIL_VERIFY_TTL_MS) {
+      businessEmailChangeBindings.delete(bindingKey);
+      return errorResponse(
+        c,
+        "Email verification expired. Request a new code.",
+        422,
+        "EMAIL_VERIFICATION_EXPIRED"
+      );
     }
 
-    let nextEmail = currentUser.email;
-    let emailChanged = false;
-
-    if (input.email && input.email !== currentUser.email.toLowerCase()) {
-      const bindingKey = emailChangeBindingKey(authUser.id, input.email);
-      const binding = businessEmailChangeBindings.get(bindingKey);
-
-      if (!binding?.verified || binding.email !== input.email) {
-        return errorResponse(
-          c,
-          "Verify the new email address before saving",
-          422,
-          "EMAIL_NOT_VERIFIED"
-        );
-      }
-
-      if (!binding.verifiedAt || Date.now() - binding.verifiedAt > EMAIL_VERIFY_TTL_MS) {
-        businessEmailChangeBindings.delete(bindingKey);
-        return errorResponse(
-          c,
-          "Email verification expired. Request a new code.",
-          422,
-          "EMAIL_VERIFICATION_EXPIRED"
-        );
-      }
-
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          email: input.email,
-          role: "BUSINESS",
-          id: { not: authUser.id }
-        },
-        select: { id: true }
-      });
-
-      if (existingUser) {
-        businessEmailChangeBindings.delete(bindingKey);
-        return errorResponse(c, "This email is already used by another business account", 409, "EMAIL_ALREADY_IN_USE");
-      }
-
-      nextEmail = input.email;
-      emailChanged = true;
-    }
-
-    const updatedUser = await prisma.user.update({
-      where: { id: authUser.id },
-      data: {
-        fullName: input.fullName ?? undefined,
-        phone: input.phone || null,
-        email: emailChanged ? nextEmail : undefined
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: input.email,
+        role: "BUSINESS",
+        id: { not: authUser.id }
       },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        role: true,
-        profilePhotoUrl: true
-      }
+      select: { id: true }
     });
 
-    const timeZone = input.timeZone ? normalizeTimeZone(input.timeZone) : undefined;
+    if (existingUser) {
+      businessEmailChangeBindings.delete(bindingKey);
+      return errorResponse(c, "This email is already used by another business account", 409, "EMAIL_ALREADY_IN_USE");
+    }
 
-    const updatedBusiness = await prisma.business.update({
-      where: { id: business.id },
+    nextEmail = input.email;
+    emailChanged = true;
+  }
+
+  const timeZone = normalizeSettingsTimeZone(input.timeZone);
+  const bookingUrl = normalizeOptionalBookingUrl(input.bookingUrl);
+
+  const updatedUser = await prisma.user.update({
+    where: { id: authUser.id },
+    data: {
+      fullName: input.fullName ?? undefined,
+      phone: input.phone || null,
+      email: emailChanged ? nextEmail : undefined
+    },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      role: true,
+      profilePhotoUrl: true
+    }
+  });
+
+  await prisma.business.update({
+    where: { id: business.id },
+    data: {
+      name: input.businessName ?? undefined,
+      type: input.businessType ?? undefined,
+      billingAddress: input.businessAddress || null
+    }
+  });
+
+  const profileData = {
+    teamPhone: input.teamPhone || null,
+    bookingUrl: bookingUrl || null,
+    businessSize: input.businessSize || null,
+    ...(timeZone ? { timeZone } : {})
+  };
+
+  if (business.profile) {
+    await prisma.businessProfile.update({
+      where: { businessId: business.id },
+      data: profileData
+    });
+  } else {
+    await prisma.businessProfile.create({
       data: {
-        name: input.businessName ?? undefined,
-        type: input.businessType ?? undefined,
-        billingAddress: input.businessAddress || null
-      },
-      include: { profile: true }
+        businessId: business.id,
+        ...profileData,
+        timeZone: timeZone ?? "America/Los_Angeles"
+      }
     });
+  }
 
-    if (business.profile) {
-      await prisma.businessProfile.update({
-        where: { businessId: business.id },
-        data: {
-          teamPhone: input.teamPhone || null,
-          bookingUrl: input.bookingUrl || null,
-          ...(timeZone ? { timeZone } : {})
-        }
-      });
-    } else if (input.teamPhone || input.bookingUrl || timeZone) {
-      await prisma.businessProfile.create({
-        data: {
-          businessId: business.id,
-          teamPhone: input.teamPhone || null,
-          bookingUrl: input.bookingUrl || null,
-          timeZone: timeZone ?? "America/Los_Angeles"
-        }
-      });
-    }
-
-    if (emailChanged) {
-      for (const [key] of businessEmailChangeBindings.entries()) {
-        if (key.startsWith(`${authUser.id}:`)) {
-          businessEmailChangeBindings.delete(key);
-        }
+  if (emailChanged) {
+    for (const [key] of businessEmailChangeBindings.entries()) {
+      if (key.startsWith(`${authUser.id}:`)) {
+        businessEmailChangeBindings.delete(key);
       }
     }
+  }
 
-    const refreshedBusiness = await loadOwnedBusiness(authUser.id, business.id);
-    const profile = serializeBusinessProfile(
-      updatedUser,
-      refreshedBusiness ?? updatedBusiness
+  const refreshedBusiness = await loadOwnedBusiness(authUser.id, business.id);
+  const profile = serializeBusinessProfile(
+    updatedUser,
+    refreshedBusiness ?? {
+      ...business,
+      name: input.businessName ?? business.name,
+      type: input.businessType ?? business.type,
+      billingAddress: input.businessAddress ?? business.billingAddress,
+      profile: business.profile
+        ? {
+            ...business.profile,
+            teamPhone: input.teamPhone || null,
+            bookingUrl: bookingUrl || null,
+            businessSize: input.businessSize || null,
+            timeZone: timeZone ?? business.profile.timeZone
+          }
+        : null
+    }
+  );
+
+  const currentSid = await getCurrentSid(c);
+  const responseBody: {
+    profile: typeof profile;
+    token?: string;
+    user?: {
+      id: string;
+      fullName: string | null;
+      email: string;
+      role: string;
+      profilePhotoUrl: string | null;
+    };
+  } = { profile };
+
+  if (emailChanged) {
+    const token = await createAuthToken(
+      {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        role: updatedUser.role as JwtUserRole
+      },
+      currentSid
     );
 
-    const currentSid = await getCurrentSid(c);
-    const responseBody: {
-      profile: typeof profile;
-      token?: string;
-      user?: {
-        id: string;
-        fullName: string | null;
-        email: string;
-        role: string;
-        profilePhotoUrl: string | null;
-      };
-    } = { profile };
+    responseBody.token = token;
+    responseBody.user = {
+      id: updatedUser.id,
+      fullName: updatedUser.fullName,
+      email: updatedUser.email,
+      role: updatedUser.role,
+      profilePhotoUrl: updatedUser.profilePhotoUrl
+    };
+  }
 
-    if (emailChanged) {
-      const token = await createAuthToken(
-        {
-          id: updatedUser.id,
-          email: updatedUser.email,
-          role: updatedUser.role as JwtUserRole
-        },
-        currentSid
-      );
+  return successResponse(c, responseBody, "Profile saved");
+}
 
-      responseBody.token = token;
-      responseBody.user = {
-        id: updatedUser.id,
-        fullName: updatedUser.fullName,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        profilePhotoUrl: updatedUser.profilePhotoUrl
-      };
+businessSettingsRoutes.post("/profile", async (c) => {
+  try {
+    return await saveBusinessSettingsProfile(c);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid profile", 422, "VALIDATION_ERROR");
     }
 
-    return successResponse(c, responseBody, "Profile saved");
+    return errorResponse(c, "Could not save profile", 500, "PROFILE_SAVE_FAILED");
+  }
+});
+
+businessSettingsRoutes.put("/profile", async (c) => {
+  try {
+    return await saveBusinessSettingsProfile(c);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid profile", 422, "VALIDATION_ERROR");
@@ -465,4 +521,89 @@ businessSettingsRoutes.post("/profile/email/verify", async (c) => {
     console.error("Business email change verify failed", error);
     return errorResponse(c, "Could not verify email address", 500, "EMAIL_VERIFY_FAILED");
   }
+});
+
+businessSettingsRoutes.get("/sessions", async (c) => {
+  const authUser = c.get("authUser");
+  const currentSid = await getCurrentSid(c);
+
+  const sessions = await prisma.userActiveSession.findMany({
+    where: {
+      userId: authUser.id,
+      revokedAt: null,
+      expiresAt: { gt: new Date() }
+    },
+    orderBy: { lastActiveAt: "desc" }
+  });
+
+  return successResponse(c, {
+    sessions: sessions.map((session) => serializeActiveSession(session, currentSid))
+  });
+});
+
+businessSettingsRoutes.delete("/sessions/:sessionId", async (c) => {
+  const authUser = c.get("authUser");
+  const sessionId = c.req.param("sessionId");
+  const currentSid = await getCurrentSid(c);
+
+  const session = await prisma.userActiveSession.findFirst({
+    where: { id: sessionId, userId: authUser.id, revokedAt: null }
+  });
+
+  if (!session) {
+    return errorResponse(c, "Session not found", 404, "SESSION_NOT_FOUND");
+  }
+
+  if (currentSid && session.tokenSid === currentSid) {
+    return errorResponse(c, "Cannot revoke your current session", 422, "CANNOT_REVOKE_CURRENT_SESSION");
+  }
+
+  await prisma.userActiveSession.update({
+    where: { id: session.id },
+    data: { revokedAt: new Date() }
+  });
+
+  return successResponse(c, { revoked: true }, "Session revoked");
+});
+
+businessSettingsRoutes.delete("/sessions", async (c) => {
+  const authUser = c.get("authUser");
+  const currentSid = await getCurrentSid(c);
+
+  await prisma.userActiveSession.updateMany({
+    where: {
+      userId: authUser.id,
+      revokedAt: null,
+      ...(currentSid ? { tokenSid: { not: currentSid } } : {})
+    },
+    data: { revokedAt: new Date() }
+  });
+
+  return successResponse(c, { revoked: true }, "Other sessions revoked");
+});
+
+businessSettingsRoutes.get("/login-history", async (c) => {
+  const authUser = c.get("authUser");
+  const page = Math.max(1, Number(c.req.query("page") ?? "1") || 1);
+  const perPage = Math.min(50, Math.max(1, Number(c.req.query("perPage") ?? "20") || 20));
+
+  const [items, total] = await Promise.all([
+    prisma.userLoginHistory.findMany({
+      where: { userId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * perPage,
+      take: perPage
+    }),
+    prisma.userLoginHistory.count({ where: { userId: authUser.id } })
+  ]);
+
+  return successResponse(c, {
+    loginHistory: items.map(serializeLoginHistory),
+    pagination: {
+      page,
+      perPage,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / perPage))
+    }
+  });
 });

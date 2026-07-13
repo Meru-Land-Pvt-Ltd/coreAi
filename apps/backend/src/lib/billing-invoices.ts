@@ -1,5 +1,7 @@
 import { PaymentStatus } from "@prisma/client";
 
+export type PaymentLineItem = { label: string; amountCents: number };
+
 export type PaymentWithListing = {
   id: string;
   listingId: string | null;
@@ -12,8 +14,37 @@ export type PaymentWithListing = {
   billingName?: string | null;
   billingEmail?: string | null;
   billingAddress?: string | null;
+  lineItemsJson?: unknown;
   listing?: { id: string; name: string } | null;
 };
+
+/**
+ * The agent-price portion of a payment — the first breakdown row. Platform
+ * fees (e.g. the number fee) ride on later rows and must not feed architect
+ * earnings/payouts. Payments without a breakdown are all agent price.
+ */
+export function paymentAgentGrossCents(payment: {
+  amountCents: number;
+  lineItemsJson?: unknown;
+}): number {
+  const items = parsePaymentLineItems(payment.lineItemsJson);
+  return items ? items[0]?.amountCents ?? payment.amountCents : payment.amountCents;
+}
+
+/** Validated fee breakdown from Payment.lineItemsJson (null when absent/invalid). */
+export function parsePaymentLineItems(value: unknown): PaymentLineItem[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const items = value.filter(
+    (item): item is PaymentLineItem =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as { label?: unknown }).label === "string" &&
+      typeof (item as { amountCents?: unknown }).amountCents === "number"
+  );
+
+  return items.length > 0 ? items : null;
+}
 
 const INVOICE_HISTORY_STATUSES: PaymentStatus[] = [
   PaymentStatus.TRIALING,
@@ -54,14 +85,43 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
     billingName: string | null;
     billingEmail: string | null;
     billingAddress: string | null;
+    lineItems: PaymentLineItem[] | null;
   }> = [];
 
   const listingsWithTrialInvoice = new Set<string>();
 
   for (const payment of payments) {
+    if (!payment.listingId) continue;
+
+    if (payment.status === PaymentStatus.CANCELED) {
+      const description = (payment.description ?? "").toLowerCase();
+      if (!description.includes("trial")) continue;
+      if (listingsWithTrialInvoice.has(payment.listingId)) continue;
+
+      listingsWithTrialInvoice.add(payment.listingId);
+      const agentName = payment.listing?.name ?? "Agent";
+
+      invoices.push({
+        id: payment.id,
+        createdAt: payment.createdAt.toISOString(),
+        description: payment.description ?? `7-day trial for ${agentName}`,
+        amountCents: payment.amountCents,
+        displayAmountCents: 0,
+        currency: payment.currency,
+        status: PaymentStatus.TRIALING,
+        listingId: payment.listingId,
+        listingName: payment.listing?.name ?? null,
+        billingName: payment.billingName ?? null,
+        billingEmail: payment.billingEmail ?? null,
+        billingAddress: payment.billingAddress ?? null,
+        lineItems: null
+      });
+      continue;
+    }
+
     if (!INVOICE_HISTORY_STATUSES.includes(payment.status)) continue;
 
-    if (payment.status === PaymentStatus.TRIALING && payment.listingId) {
+    if (payment.status === PaymentStatus.TRIALING) {
       listingsWithTrialInvoice.add(payment.listingId);
     }
 
@@ -77,7 +137,8 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
       listingName: payment.listing?.name ?? null,
       billingName: payment.billingName ?? null,
       billingEmail: payment.billingEmail ?? null,
-      billingAddress: payment.billingAddress ?? null
+      billingAddress: payment.billingAddress ?? null,
+      lineItems: parsePaymentLineItems(payment.lineItemsJson)
     });
   }
 
@@ -104,7 +165,8 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
       listingName: payment.listing?.name ?? null,
       billingName: payment.billingName ?? null,
       billingEmail: payment.billingEmail ?? null,
-      billingAddress: payment.billingAddress ?? null
+      billingAddress: payment.billingAddress ?? null,
+      lineItems: null
     });
 
     listingsWithTrialInvoice.add(payment.listingId);

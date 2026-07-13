@@ -86,6 +86,9 @@ export async function unassignPlatformNumber(
       installedAgentId: null,
       buyerUserId: null,
       assignedAt: null,
+      // The one-time number fee follows the assignment — the next buyer of
+      // this number must be billed afresh.
+      feeBilledAt: null,
       ...(input.platform.status === "ASSIGNED" ? { status: "AVAILABLE" as const } : {})
     }
   });

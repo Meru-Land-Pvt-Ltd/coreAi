@@ -7,6 +7,7 @@ import {
   getArchitectSettings,
   payArchitectRefundObligations,
   pauseAllArchitectAgents,
+  reactivateAllArchitectAgents,
   requestArchitectEmailChange,
   revokeArchitectSession,
   revokeOtherArchitectSessions,
@@ -189,6 +190,38 @@ function Toggle({
   );
 }
 
+function PauseAgentsModal({
+  open,
+  pausing,
+  onClose,
+  onConfirm
+}: {
+  open: boolean;
+  pausing: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid="architect-settings-pause-modal">
+      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-bold text-slate-900">Pause all agents?</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-500">
+          <p>All your agents will be paused.</p>
+          <p>Your live listed agents will be removed from the marketplace.</p>
+          <p>You can reactivate your agents anytime to go live again.</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid="architect-settings-pause-cancel">Cancel</button>
+          <button type="button" disabled={pausing} onClick={onConfirm} className="rounded-xl border border-amber-300 px-5 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50" data-testid="architect-settings-pause-confirm">Pause all agents</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RefundModal({
   open,
   title,
@@ -284,8 +317,11 @@ export default function ArchitectSettingsPage() {
   const [phoneCountryCode, setPhoneCountryCode] = useState(COUNTRY_CODES[0]!.code);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [pauseModalOpen, setPauseModalOpen] = useState(false);
+  const [pausingAgents, setPausingAgents] = useState(false);
+  const [reactivatingAgents, setReactivatingAgents] = useState(false);
   const [refundModal, setRefundModal] = useState<{
-    action: "PAUSE_ALL_AGENTS" | "DELETE_ACCOUNT";
+    action: "DELETE_ACCOUNT";
     agents: ArchitectRefundAgent[];
     totalCents: number;
   } | null>(null);
@@ -550,28 +586,33 @@ export default function ArchitectSettingsPage() {
       return;
     }
     showToast("Refund payment recorded ✓");
-    const action = refundModal.action;
     setRefundModal(null);
-    if (action === "PAUSE_ALL_AGENTS") await executePauseAgents();
-    else await executeDeleteAccount();
+    await executeDeleteAccount();
   }
 
   async function executePauseAgents() {
+    setPausingAgents(true);
     const result = await pauseAllArchitectAgents();
+    setPausingAgents(false);
     if (result.success && result.data?.paused) {
+      setPauseModalOpen(false);
       showToast("All agents paused");
       await loadSettings();
       return;
     }
-    if (result.data?.requiresPayment && result.data.obligations) {
-      setRefundModal({
-        action: "PAUSE_ALL_AGENTS",
-        agents: result.data.obligations.agents,
-        totalCents: result.data.obligations.totalRefundCents
-      });
+    showToast(result.error ?? "Could not pause agents");
+  }
+
+  async function executeReactivateAgents() {
+    setReactivatingAgents(true);
+    const result = await reactivateAllArchitectAgents();
+    setReactivatingAgents(false);
+    if (result.success && result.data?.reactivated) {
+      showToast("All agents are live again");
+      await loadSettings();
       return;
     }
-    showToast(result.error ?? "Could not pause agents");
+    showToast(result.error ?? "Could not reactivate agents");
   }
 
   async function executeDeleteAccount() {
@@ -618,7 +659,7 @@ export default function ArchitectSettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-gray-50/85 px-5 py-4 backdrop-blur lg:px-8">
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-5 py-4 backdrop-blur lg:px-8">
         <h1 className="text-xl font-extrabold tracking-tight text-slate-900" data-testid="architect-settings-title">Settings</h1>
         <p className="hidden text-sm text-slate-500 sm:block">Manage your account, storefront, and agent business.</p>
       </header>
@@ -1245,17 +1286,30 @@ export default function ArchitectSettingsPage() {
                   <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-red-100 bg-white p-5">
                     <div className="max-w-xl">
                       <p className="text-sm font-semibold text-slate-900">Pause all published agents</p>
-                      <p className="mt-1 text-sm text-slate-500">Immediately remove all your agents from the marketplace. Existing buyers retain access but no new purchases can be made. You can unpause at any time.</p>
-                      {settings?.danger.agentsPaused ? <p className="mt-2 text-xs font-semibold text-amber-700">All agents are currently paused.</p> : null}
+                      <p className="mt-1 text-sm text-slate-500">Remove your live agents from the marketplace. You can make them live again at any time.</p>
+                      {settings?.danger.allAgentsPaused ? <p className="mt-2 text-xs font-semibold text-amber-700">All agents are currently paused.</p> : null}
                     </div>
-                    <button type="button" onClick={() => void executePauseAgents()} className="shrink-0 rounded-xl border border-amber-300 px-5 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50" data-testid="architect-settings-pause-all-agents">Pause all agents</button>
-                  </div>
-                  <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-red-100 bg-white p-5">
-                    <div className="max-w-xl">
-                      <p className="text-sm font-semibold text-slate-900">Deactivate your architect account</p>
-                      <p className="mt-1 text-sm text-slate-500">Temporarily disable your account and unlist agents from the marketplace. Existing buyers retain access and pending payouts still process.</p>
-                    </div>
-                    <button type="button" onClick={() => showToast("Account deactivation requested")} className="shrink-0 rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50">Deactivate account</button>
+                    {settings?.danger.allAgentsPaused ? (
+                      <button
+                        type="button"
+                        disabled={reactivatingAgents}
+                        onClick={() => void executeReactivateAgents()}
+                        className="shrink-0 rounded-xl border border-green-300 px-5 py-2.5 text-sm font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50"
+                        data-testid="architect-settings-reactivate-all-agents"
+                      >
+                        Make your agents live
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!settings?.danger.hasPausableAgents}
+                        onClick={() => setPauseModalOpen(true)}
+                        className="shrink-0 rounded-xl border border-amber-300 px-5 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                        data-testid="architect-settings-pause-all-agents"
+                      >
+                        Pause all agents
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-red-100 bg-white p-5">
                     <div className="max-w-xl">
@@ -1286,9 +1340,16 @@ export default function ArchitectSettingsPage() {
         </div>
       ) : null}
 
+      <PauseAgentsModal
+        open={pauseModalOpen}
+        pausing={pausingAgents}
+        onClose={() => setPauseModalOpen(false)}
+        onConfirm={() => void executePauseAgents()}
+      />
+
       <RefundModal
         open={Boolean(refundModal)}
-        title={refundModal?.action === "DELETE_ACCOUNT" ? "Pay refunds before deleting account" : "Pay refunds before pausing agents"}
+        title="Pay refunds before deleting account"
         agents={refundModal?.agents ?? []}
         totalCents={refundModal?.totalCents ?? 0}
         paying={payingRefund}

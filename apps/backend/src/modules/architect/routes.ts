@@ -38,7 +38,7 @@ import {
   getTemplateBySlug,
   listTemplateCards
 } from "./templates";
-import { loadArchitectEarnings, countSalesByListingIds } from "./payout-earnings";
+import { loadArchitectEarnings, countSalesByListingIds, effectiveEarningStatus } from "./payout-earnings";
 import {
   getArchitectTestDeploymentStatus,
   startArchitectTestDeployment,
@@ -104,8 +104,6 @@ architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoi
 async function listPublicMarketplaceListings(c: Context) {
   const allListings = await prisma.agentListing.findMany({
     where: {
-      // Buyer-facing marketplace shows APPROVED only — PENDING_REVIEW stays
-      // visible to the architect (own listings) and the admin review queue.
       status: "APPROVED"
     },
     include: {
@@ -159,7 +157,6 @@ async function getPublicMarketplaceListingById(c: Context) {
   const listing = await prisma.agentListing.findFirst({
     where: {
       id,
-      // Same rule as the public list: buyers only ever see APPROVED listings.
       status: "APPROVED"
     },
     include: {
@@ -289,6 +286,108 @@ architectRoutes.get("/ai/providers", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+
+/** My Agents dashboard stats — live counts, executions, 30d revenue (no hardcoded UI values). */
+architectRoutes.get("/agents/stats", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const cutoff30 = new Date(now.getTime() - 30 * dayMs);
+    const cutoff60 = new Date(now.getTime() - 60 * dayMs);
+
+    // Buyer executions = LIVE runs of installs tied to this architect's marketplace listings.
+    // Excludes architect TEST panel runs and ARCHITECT_TEST sandbox installs (no listingId).
+    const buyerExecutionWhere = {
+      mode: "LIVE" as const,
+      workflow: { architectUserId: authUser.id },
+      installedAgent: { listingId: { not: null } }
+    };
+
+    const [listings, workflows, sales, executionsThisMonth, executionsPrevMonth, executionsTotal] =
+      await Promise.all([
+        prisma.agentListing.findMany({
+          where: { architectUserId: authUser.id },
+          select: { id: true, workflowId: true, status: true, createdAt: true }
+        }),
+        prisma.workflowDefinition.findMany({
+          where: { architectUserId: authUser.id },
+          select: { id: true, createdAt: true }
+        }),
+        loadArchitectEarnings(authUser.id),
+        prisma.workflowRun.count({
+          where: {
+            ...buyerExecutionWhere,
+            createdAt: { gte: monthStart }
+          }
+        }),
+        prisma.workflowRun.count({
+          where: {
+            ...buyerExecutionWhere,
+            createdAt: { gte: prevMonthStart, lt: monthStart }
+          }
+        }),
+        prisma.workflowRun.count({
+          where: buyerExecutionWhere
+        })
+      ]);
+
+    // Match GET /architect/listings agent uniqueness (one card per workflow + orphan drafts).
+    const seenWorkflowIds = new Set<string>();
+    const uniqueListings = listings.filter((listing) => {
+      if (!listing.workflowId) return true;
+      if (seenWorkflowIds.has(listing.workflowId)) return false;
+      seenWorkflowIds.add(listing.workflowId);
+      return true;
+    });
+    const draftWorkflows = workflows.filter((workflow) => !seenWorkflowIds.has(workflow.id));
+
+    const totalAgents = uniqueListings.length + draftWorkflows.length;
+    const liveAndEarning = uniqueListings.filter((listing) => listing.status === "APPROVED").length;
+    const liveSharePercent = totalAgents > 0 ? Math.round((liveAndEarning / totalAgents) * 1000) / 10 : 0;
+
+    const agentsCreatedThisMonth =
+      uniqueListings.filter((listing) => listing.createdAt >= monthStart).length +
+      draftWorkflows.filter((workflow) => workflow.createdAt >= monthStart).length;
+
+    const revenue30dCents = sales
+      .filter((sale) => sale.createdAt >= cutoff30 && effectiveEarningStatus(sale) !== "REJECTED")
+      .reduce((sum, sale) => sum + sale.earningsCents, 0);
+
+    const revenuePrev30dCents = sales
+      .filter(
+        (sale) =>
+          sale.createdAt >= cutoff60 &&
+          sale.createdAt < cutoff30 &&
+          effectiveEarningStatus(sale) !== "REJECTED"
+      )
+      .reduce((sum, sale) => sum + sale.earningsCents, 0);
+
+    function percentChange(current: number, previous: number): number | null {
+      if (previous <= 0) return current > 0 ? 100 : null;
+      return Math.round(((current - previous) / previous) * 100);
+    }
+
+    return successResponse(c, {
+      totalAgents,
+      agentsAddedThisMonth: agentsCreatedThisMonth,
+      liveAndEarning,
+      liveSharePercent,
+      totalExecutions: executionsTotal,
+      executionsThisMonth,
+      executionsPrevMonth,
+      executionsChangePercent: percentChange(executionsThisMonth, executionsPrevMonth),
+      revenue30dCents,
+      revenuePrev30dCents,
+      revenueChangePercent: percentChange(revenue30dCents, revenuePrev30dCents)
+    });
+  } catch (error) {
+    console.error("[architect/agents/stats] failed", error);
+    return errorResponse(c, "Could not load agent stats", 500, "AGENT_STATS_FAILED");
+  }
+});
 
 const profileSchema = z.object({
   title: z.string().trim().min(2).optional().or(z.literal("")),
@@ -1612,18 +1711,81 @@ architectRoutes.post("/listings", async (c) => {
 });
 
 const listingStatusUpdateSchema = z.object({
-  status: z.enum(["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "SUSPENDED"])
+  status: z.enum(["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "SUSPENDED", "PAUSED"])
 });
 
 const architectListingStatusTransitions: Partial<
   Record<
-    "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED",
-    Array<"DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED">
+    "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED",
+    Array<"DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED">
   >
 > = {
   PENDING_REVIEW: ["DRAFT"],
-  REJECTED: ["DRAFT"]
+  REJECTED: ["DRAFT"],
+  PAUSED: ["APPROVED"]
 };
+
+const DELETABLE_LISTING_STATUSES = ["DRAFT", "REJECTED"] as const;
+
+architectRoutes.delete("/listings/:listingId", async (c) => {
+  const authUser = c.get("authUser");
+  const listingId = c.req.param("listingId");
+
+  const listing = await prisma.agentListing.findFirst({
+    where: {
+      id: listingId,
+      architectUserId: authUser.id
+    },
+    include: {
+      _count: {
+        select: { installedAgents: true }
+      }
+    }
+  });
+
+  if (!listing) {
+    return errorResponse(c, "Agent not found", 404, "LISTING_NOT_FOUND");
+  }
+
+  if (!DELETABLE_LISTING_STATUSES.includes(listing.status as (typeof DELETABLE_LISTING_STATUSES)[number])) {
+    return errorResponse(
+      c,
+      "This agent cannot be deleted in its current status.",
+      409,
+      "LISTING_NOT_DELETABLE"
+    );
+  }
+
+  if (listing._count.installedAgents > 0) {
+    return errorResponse(
+      c,
+      "This agent has active installs and cannot be deleted.",
+      409,
+      "LISTING_HAS_INSTALLS"
+    );
+  }
+
+  const workflowId = listing.workflowId;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.agentListing.delete({ where: { id: listingId } });
+
+    if (workflowId) {
+      const otherListing = await tx.agentListing.findFirst({ where: { workflowId } });
+      const installed = await tx.installedAgent.findFirst({ where: { workflowId } });
+      if (!otherListing && !installed) {
+        await tx.workflowDefinition.deleteMany({
+          where: {
+            id: workflowId,
+            architectUserId: authUser.id
+          }
+        });
+      }
+    }
+  });
+
+  return successResponse(c, { listingId, workflowId }, "Agent deleted");
+});
 
 architectRoutes.patch("/listings/:agentId/status", async (c) => {
   try {
@@ -1653,9 +1815,28 @@ architectRoutes.patch("/listings/:agentId/status", async (c) => {
       );
     }
 
-    const updatedListing = await prisma.agentListing.update({
-      where: { id: agentId },
-      data: { status: input.status }
+    const updatedListing = await prisma.$transaction(async (tx) => {
+      const nextListing = await tx.agentListing.update({
+        where: { id: agentId },
+        data: { status: input.status }
+      });
+
+      if (listing.status === "PAUSED" && input.status === "APPROVED") {
+        const remainingPaused = await tx.agentListing.count({
+          where: {
+            architectUserId: authUser.id,
+            status: "PAUSED"
+          }
+        });
+
+        await tx.architectProfile.upsert({
+          where: { userId: authUser.id },
+          update: { agentsPaused: remainingPaused > 0 },
+          create: { userId: authUser.id, agentsPaused: remainingPaused > 0 }
+        });
+      }
+
+      return nextListing;
     });
 
     return successResponse(c, { listing: updatedListing }, "Agent status updated");

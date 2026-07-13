@@ -3,17 +3,68 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { formatDate, formatMoney } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
+  deleteArchitectListing,
   deleteArchitectWorkflow,
+  getArchitectAgentsStats,
   getArchitectListings,
-  getArchitectWorkflow
+  getArchitectWorkflow,
+  updateArchitectListingStatus,
+  type ArchitectAgentsStats
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { getAuthUser } from "@/lib/auth";
 import { architectPublishingStatusPath, architectAnalyticsPath } from "@/lib/routes";
+import { ArrowDown, ArrowUp } from "lucide-react";
+
+const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
+  totalAgents: 0,
+  agentsAddedThisMonth: 0,
+  liveAndEarning: 0,
+  liveSharePercent: 0,
+  totalExecutions: 0,
+  executionsThisMonth: 0,
+  executionsPrevMonth: 0,
+  executionsChangePercent: null,
+  revenue30dCents: 0,
+  revenuePrev30dCents: 0,
+  revenueChangePercent: null
+};
+
+type TrendDirection = "up" | "down" | "flat";
+
+function getTrendDirection(change: number | null): TrendDirection {
+  if (change == null || change === 0) return "flat";
+  return change > 0 ? "up" : "down";
+}
+
+function TrendFooter({
+  direction,
+  children,
+  testId
+}: {
+  direction: TrendDirection;
+  children: ReactNode;
+  testId?: string;
+}) {
+  const colorClass =
+    direction === "up" ? "text-green-600" : direction === "down" ? "text-red-500" : "text-slate-400";
+  return (
+    <p className={`mt-1 flex items-center gap-1 text-xs font-semibold ${colorClass}`} data-testid={testId}>
+      {direction === "up" ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+      {direction === "down" ? <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+      <span>{children}</span>
+    </p>
+  );
+}
+
+function formatTrendPercentLabel(change: number | null, emptyLabel = "0% vs last month"): string {
+  if (change === null || change === 0) return emptyLabel;
+  return `${Math.abs(change)}% vs last month`;
+}
 
 type AgentStatus = ArchitectListing["status"];
 type ViewMode = "grid" | "list";
@@ -111,6 +162,13 @@ const STATUS_STYLES: Record<
     iconBg: "bg-red-50",
     iconBorder: "border-red-100",
     iconText: "text-red-600"
+  },
+  PAUSED: {
+    label: "Paused",
+    pill: "bg-amber-50 text-amber-700",
+    iconBg: "bg-amber-50",
+    iconBorder: "border-amber-100",
+    iconText: "text-amber-600"
   }
 };
 
@@ -234,6 +292,8 @@ function StatusPill({ status }: { status: AgentStatus }) {
         <SpinnerGlyph />
       ) : status === "REJECTED" || status === "SUSPENDED" ? (
         <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+      ) : status === "PAUSED" ? (
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
       ) : null}
       {style.label}
     </span>
@@ -277,6 +337,14 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
         <p className="text-xs font-medium text-red-600">
           {agent.status === "REJECTED" ? "Changes requested — edit and resubmit." : "Suspended — contact support to restore."}
         </p>
+      </div>
+    );
+  }
+
+  if (agent.status === "PAUSED") {
+    return (
+      <div className="ma-band border-t border-amber-100 bg-amber-50/60 px-5 py-3" data-testid={`my-agents-paused-notice-${agent.id}`}>
+        <p className="text-xs font-medium text-amber-700">Paused removed from marketplace. Reactivate anytime from Settings.</p>
       </div>
     );
   }
@@ -344,6 +412,10 @@ function FooterActions({
         View status <ArrowIcon />
       </Link>
     );
+  }
+
+  if (agent.status === "PAUSED") {
+    return null;
   }
 
   if (agent.status === "DRAFT") {
@@ -473,6 +545,130 @@ function AgentCard({
   );
 }
 
+function PlayIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function isWorkflowOnlyDraft(agent: ArchitectListing): boolean {
+  return agent.id.startsWith("draft-");
+}
+
+function agentCanBeDeleted(agent: ArchitectListing): boolean {
+  if ((agent.installCount ?? 0) > 0) return false;
+  if (isWorkflowOnlyDraft(agent)) return Boolean(agent.workflowId);
+  return agent.status === "DRAFT" || agent.status === "REJECTED";
+}
+
+function deleteAgentModalCopy(agent: ArchitectListing): { title: string; lines: string[] } {
+  if ((agent.installCount ?? 0) > 0) {
+    return {
+      title: `Delete ${agent.name}?`,
+      lines: ["This agent has active installs and cannot be deleted.", "Pause the agent from Settings if you want to stop new sales."]
+    };
+  }
+
+  if (agent.status === "APPROVED" || agent.status === "PAUSED") {
+    return {
+      title: `Delete ${agent.name}?`,
+      lines: ["Live agents cannot be deleted.", "Pause the agent from Settings if you want to stop new sales."]
+    };
+  }
+
+  if (agent.status === "PENDING_REVIEW") {
+    return {
+      title: `Delete ${agent.name}?`,
+      lines: ["Agents under review cannot be deleted yet.", "Withdraw from review or wait for a decision, then try again."]
+    };
+  }
+
+  if (agent.status === "SUSPENDED") {
+    return {
+      title: `Delete ${agent.name}?`,
+      lines: ["Suspended agents cannot be deleted from here.", "Contact support if you need this agent removed."]
+    };
+  }
+
+  return {
+    title: `Delete ${agent.name}?`,
+    lines: ["This permanently removes the agent and its workflow.", "This can't be undone."]
+  };
+}
+
+function ReactivateAgentModal({
+  agent,
+  reactivating,
+  onClose,
+  onConfirm
+}: {
+  agent: ArchitectListing;
+  reactivating: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={`my-agents-reactivate-modal-${agent.id}`}>
+      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-bold text-slate-900">Reactivate {agent.name}?</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-500">
+          <p>This agent will go live again and appear in the marketplace.</p>
+          <p>Existing buyers keep access. New buyers can purchase again.</p>
+          <p>You can pause all agents again anytime from Settings.</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid={`my-agents-reactivate-cancel-${agent.id}`}>Cancel</button>
+          <button type="button" disabled={reactivating} onClick={onConfirm} className="rounded-xl border border-green-300 px-5 py-2.5 text-sm font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50" data-testid={`my-agents-reactivate-confirm-${agent.id}`}>
+            {reactivating ? "Reactivating…" : "Make agent live"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteAgentModal({
+  agent,
+  deleting,
+  onClose,
+  onConfirm
+}: {
+  agent: ArchitectListing;
+  deleting: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const deletable = agentCanBeDeleted(agent);
+  const copy = deleteAgentModalCopy(agent);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={`my-agents-delete-modal-${agent.id}`}>
+      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-bold text-slate-900">{copy.title}</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-500">
+          {copy.lines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid={`my-agents-delete-cancel-${agent.id}`}>
+            {deletable ? "Cancel" : "Close"}
+          </button>
+          {deletable ? (
+            <button type="button" disabled={deleting} onClick={onConfirm} className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50" data-testid={`my-agents-delete-confirm-${agent.id}`}>
+              {deleting ? "Deleting…" : "Delete agent"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EmptyAgentsState({ message }: { message?: string }) {
   return (
     <div className="mx-auto max-w-md px-6 py-16 text-center">
@@ -544,13 +740,18 @@ function CountUp({ value, format = "int" }: { value: number; format?: "int" | "m
   }, [value]);
 
   const rounded = Math.round(display);
-  return <>{format === "money" ? formatMoney(rounded * 100) : rounded.toLocaleString("en-US")}</>;
+  if (format === "money") {
+    // Revenue must show $0 (formatMoney(0) returns "Free" for listing prices).
+    return <>{`$${rounded.toLocaleString("en-US")}`}</>;
+  }
+  return <>{rounded.toLocaleString("en-US")}</>;
 }
 
 export function MyAgentsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
+  const [stats, setStats] = useState<ArchitectAgentsStats>(EMPTY_AGENT_STATS);
   const [loading, setLoading] = useState(true);
   const [architectName, setArchitectName] = useState("Architect");
   const [filter, setFilter] = useState<AgentFilter>("ALL");
@@ -559,8 +760,10 @@ export function MyAgentsView() {
   const [view, setView] = useState<ViewMode>("grid");
   const [sortOpen, setSortOpen] = useState(false);
   const [menu, setMenu] = useState<{ agentId: string; top: number; left: number } | null>(null);
-  const [confirm, setConfirm] = useState<{ message: string; confirmLabel: string; run: () => Promise<void> } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [reactivateAgent, setReactivateAgent] = useState<ArchitectListing | null>(null);
+  const [deleteAgent, setDeleteAgent] = useState<ArchitectListing | null>(null);
+  const [reactivating, setReactivating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -582,9 +785,15 @@ export function MyAgentsView() {
   }, [searchParams]);
 
   async function loadAgents() {
-    const result = await getArchitectListings();
-    if (result.success && result.data) {
-      setAgents(result.data.listings);
+    const [listingsResult, statsResult] = await Promise.all([
+      getArchitectListings(),
+      getArchitectAgentsStats()
+    ]);
+    if (listingsResult.success && listingsResult.data) {
+      setAgents(listingsResult.data.listings);
+    }
+    if (statsResult.success && statsResult.data) {
+      setStats(statsResult.data);
     }
     setLoading(false);
   }
@@ -634,7 +843,18 @@ export function MyAgentsView() {
     [agents]
   );
 
-  const approvedShare = counts.total ? `${Math.round((counts.approved / counts.total) * 100)}% of total` : "0% of total";
+  const liveShareLabel =
+    stats.totalAgents > 0 ? `${stats.liveSharePercent}% of total` : "0% of total";
+  const agentsAddedDirection: TrendDirection =
+    stats.agentsAddedThisMonth > 0 ? "up" : "flat";
+  const agentsAddedText =
+    stats.agentsAddedThisMonth > 0
+      ? `${stats.agentsAddedThisMonth} this month`
+      : "No new agents this month";
+  const executionsTrendDirection = getTrendDirection(stats.executionsChangePercent);
+  const executionsTrendText = formatTrendPercentLabel(stats.executionsChangePercent);
+  const revenueTrendDirection = getTrendDirection(stats.revenueChangePercent);
+  const revenueTrendText = formatTrendPercentLabel(stats.revenueChangePercent);
 
   const visibleAgents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -709,30 +929,47 @@ export function MyAgentsView() {
     await loadAgents();
   }
 
-  function requestDeleteDraft(agent: ArchitectListing) {
+  function requestReactivateAgent(agent: ArchitectListing) {
     setMenu(null);
-    if (!agent.workflowId) return;
-    setConfirm({
-      message: `Delete “${agent.name}”? This can’t be undone.`,
-      confirmLabel: "Delete draft",
-      run: async () => {
-        const result = await deleteArchitectWorkflow(agent.workflowId as string);
-        if (!result.success) {
-          setToast(result.error ?? "Could not delete this draft.");
-          return;
-        }
-        setToast(`Deleted “${agent.name}”.`);
-        await loadAgents();
-      }
-    });
+    setReactivateAgent(agent);
   }
 
-  async function runConfirm() {
-    if (!confirm) return;
-    setBusy(true);
-    await confirm.run();
-    setBusy(false);
-    setConfirm(null);
+  async function executeReactivateAgent() {
+    if (!reactivateAgent) return;
+    setReactivating(true);
+    const result = await updateArchitectListingStatus(reactivateAgent.id, "APPROVED");
+    setReactivating(false);
+    if (!result.success) {
+      setToast(result.error ?? "Could not reactivate this agent.");
+      return;
+    }
+    setReactivateAgent(null);
+    setToast(`“${reactivateAgent.name}” is live again.`);
+    await loadAgents();
+  }
+
+  function requestDeleteAgent(agent: ArchitectListing) {
+    setMenu(null);
+    setDeleteAgent(agent);
+  }
+
+  async function executeDeleteAgent() {
+    if (!deleteAgent || !agentCanBeDeleted(deleteAgent)) return;
+
+    setDeleting(true);
+    const result = isWorkflowOnlyDraft(deleteAgent)
+      ? await deleteArchitectWorkflow(deleteAgent.workflowId as string)
+      : await deleteArchitectListing(deleteAgent.id);
+    setDeleting(false);
+
+    if (!result.success) {
+      setToast(result.error ?? "Could not delete this agent.");
+      return;
+    }
+
+    setDeleteAgent(null);
+    setToast(`Deleted “${deleteAgent.name}”.`);
+    await loadAgents();
   }
 
   const menuAgent = menu ? agents.find((agent) => agent.id === menu.agentId) ?? null : null;
@@ -741,13 +978,13 @@ export function MyAgentsView() {
   const viewBtnOff = "bg-white text-slate-400 hover:text-slate-600";
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen bg-gray-50 text-slate-900">
       <style dangerouslySetInnerHTML={{ __html: MY_AGENTS_STYLES }} />
 
-      <header className="mx-auto w-full max-w-full">
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-agents-heading">
+            <h1 className="text-2xl font-bold text-slate-900 " data-testid="architect-ui-my-agents-view-agents-heading">
               My Agents
             </h1>
             <p className="mt-1 text-sm text-slate-500" data-testid="my-agents-subtitle-text">
@@ -766,50 +1003,63 @@ export function MyAgentsView() {
             Create New Agent
           </Link>
         </div>
+      </header>
 
-        {/* Stats */}
-        <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <main className="p-4 sm:p-6 lg:p-8">
+        {/* Stats — values from GET /architect/agents/stats */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {/* Total Agents */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-total-agents-text">
               Total Agents
             </p>
             <p className="mt-1 text-3xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-counts-total-text">
-              <CountUp value={counts.total} />
+              <CountUp value={stats.totalAgents} />
             </p>
-            <p className="mt-1 text-xs text-slate-400">Across all statuses</p>
+            <TrendFooter direction={agentsAddedDirection} testId="my-agents-stats-agents-added-trend">
+              {agentsAddedText}
+            </TrendFooter>
           </div>
 
+          {/* Live & earning */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-approved-text">
-              Live &amp; Approved
+              Live &amp; Earning
             </p>
             <p className="mt-1 text-3xl font-bold text-green-600" data-testid="architect-ui-my-agents-view-counts-approved-text">
-              <CountUp value={counts.approved} />
+              <CountUp value={stats.liveAndEarning} />
             </p>
-            <p className="mt-1 text-xs text-slate-400">{approvedShare}</p>
+            <TrendFooter direction="flat" testId="my-agents-stats-live-share">
+              {liveShareLabel}
+            </TrendFooter>
           </div>
 
+          {/* Total Executions */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-in-review-text">
-              In Review
+              Total Executions
             </p>
-            <p className="mt-1 text-3xl font-bold text-amber-600" data-testid="architect-ui-my-agents-view-counts-review-text">
-              <CountUp value={counts.review} />
+            <p className="mt-1 text-3xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-counts-review-text">
+              <CountUp value={stats.totalExecutions} />
             </p>
-            <p className="mt-1 text-xs text-slate-400">Awaiting approval</p>
+            <TrendFooter direction={executionsTrendDirection} testId="my-agents-stats-executions-trend">
+              {executionsTrendText}
+            </TrendFooter>
           </div>
 
+          {/* Revenue (30d) */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-drafts-text">
-              Drafts
+              Revenue (30d)
             </p>
-            <p className="mt-1 text-3xl font-bold text-slate-800" data-testid="architect-ui-my-agents-view-counts-draft-text">
-              <CountUp value={counts.draft} />
+            <p className="mt-1 text-3xl font-bold text-orange-500" data-testid="architect-ui-my-agents-view-counts-draft-text">
+              <CountUp value={stats.revenue30dCents / 100} format="money" />
             </p>
-            <p className="mt-1 text-xs text-slate-400">Not published yet</p>
+            <TrendFooter direction={revenueTrendDirection} testId="my-agents-stats-revenue-trend">
+              {revenueTrendText}
+            </TrendFooter>
           </div>
         </div>
-      </header>
 
       {/* Filter + view controls */}
       <section className="mx-auto mt-6 w-full max-w-full">
@@ -968,6 +1218,7 @@ export function MyAgentsView() {
           <EmptyAgentsState message={search.trim() ? "No agents match your search. Try a different keyword or clear the search." : "You have no agents in this category yet. Create one or change the filter to see more."} />
         )}
       </section>
+      </main>
 
       {/* Floating 3-dot menu */}
       {menu && menuAgent ? (
@@ -991,6 +1242,19 @@ export function MyAgentsView() {
             >
               <PencilIcon />
               <span>Edit Agent</span>
+            </button>
+          ) : null}
+
+          {menuAgent.status === "PAUSED" ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => requestReactivateAgent(menuAgent)}
+              data-testid={`my-agents-menu-reactivate-${menuAgent.id}`}
+              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-green-700 transition-colors hover:bg-green-50"
+            >
+              <PlayIcon />
+              <span>Reactivate</span>
             </button>
           ) : null}
 
@@ -1036,21 +1300,17 @@ export function MyAgentsView() {
             </button>
           ) : null}
 
-          {menuAgent.status === "DRAFT" ? (
-            <>
-              <div className="my-1 border-t border-gray-100" />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => requestDeleteDraft(menuAgent)}
-                data-testid={`my-agents-menu-delete-${menuAgent.id}`}
-                className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
-              >
-                <TrashIcon />
-                <span>Delete Agent</span>
-              </button>
-            </>
-          ) : null}
+          <div className="my-1 border-t border-gray-100" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => requestDeleteAgent(menuAgent)}
+            data-testid={`my-agents-menu-delete-${menuAgent.id}`}
+            className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
+          >
+            <TrashIcon />
+            <span>Delete</span>
+          </button>
         </div>
       ) : null}
 
@@ -1063,32 +1323,22 @@ export function MyAgentsView() {
         </div>
       ) : null}
 
-      {confirm ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4" data-testid="my-agents-confirm-modal" onClick={() => !busy && setConfirm(null)}>
-          <div className="w-[min(92vw,420px)] rounded-2xl border border-gray-200 bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
-            <h3 className="text-base font-black text-slate-900">Please confirm</h3>
-            <p className="mt-2 text-sm text-slate-600">{confirm.message}</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirm(null)}
-                disabled={busy}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void runConfirm()}
-                disabled={busy}
-                data-testid="my-agents-confirm-delete"
-                className="rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-60"
-              >
-                {busy ? "Working…" : confirm.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
+      {reactivateAgent ? (
+        <ReactivateAgentModal
+          agent={reactivateAgent}
+          reactivating={reactivating}
+          onClose={() => !reactivating && setReactivateAgent(null)}
+          onConfirm={() => void executeReactivateAgent()}
+        />
+      ) : null}
+
+      {deleteAgent ? (
+        <DeleteAgentModal
+          agent={deleteAgent}
+          deleting={deleting}
+          onClose={() => !deleting && setDeleteAgent(null)}
+          onConfirm={() => void executeDeleteAgent()}
+        />
       ) : null}
     </div>
   );

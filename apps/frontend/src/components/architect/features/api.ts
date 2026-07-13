@@ -21,6 +21,24 @@ export function getArchitectSummary() {
   return apiGet<ArchitectSummary>("/architect/summary");
 }
 
+export type ArchitectAgentsStats = {
+  totalAgents: number;
+  agentsAddedThisMonth: number;
+  liveAndEarning: number;
+  liveSharePercent: number;
+  totalExecutions: number;
+  executionsThisMonth: number;
+  executionsPrevMonth: number;
+  executionsChangePercent: number | null;
+  revenue30dCents: number;
+  revenuePrev30dCents: number;
+  revenueChangePercent: number | null;
+};
+
+export function getArchitectAgentsStats() {
+  return apiGet<ArchitectAgentsStats>("/architect/agents/stats");
+}
+
 export function getArchitectProfile() {
   return apiGet<{ profile: ArchitectProfile | null }>("/architect/profile");
 }
@@ -235,6 +253,10 @@ export function updateArchitectListingStatus(
   });
 }
 
+export function deleteArchitectListing(listingId: string) {
+  return apiDelete<{ listingId: string; workflowId: string | null }>(`/architect/listings/${listingId}`);
+}
+
 export type ArchitectPayoutMethod = {
   bankName: string;
   accountHolderName: string;
@@ -286,6 +308,7 @@ export type ArchitectPayoutSale = {
   grossCents: number;
   earningsCents: number;
   purchaseStatus: string;
+  architectEarningStatus: "PENDING" | "APPROVED" | "REJECTED";
 };
 
 export type ArchitectListingEarnings = {
@@ -579,7 +602,7 @@ export function startArchitectVapiBrowserTest(
 
 export type WorkflowConfigureListingSummary = {
   id: string;
-  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
   reviewStatus: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
   publishStatus: "DRAFT" | "IN_REVIEW" | "PUBLISHED" | "UNPUBLISHED";
   rejectionReason: string | null;
@@ -761,6 +784,8 @@ export type ArchitectSettingsPayload = {
       requiresPayment: boolean;
     };
     agentsPaused: boolean;
+    allAgentsPaused: boolean;
+    hasPausableAgents: boolean;
   };
 };
 
@@ -847,13 +872,13 @@ export function payArchitectRefundObligations(action: "PAUSE_ALL_AGENTS" | "DELE
 export function pauseAllArchitectAgents() {
   return apiPost<{
     paused: boolean;
-    requiresPayment?: boolean;
-    obligations?: {
-      agents: ArchitectRefundAgent[];
-      totalRefundCents: number;
-      requiresPayment: boolean;
-    };
   }>("/architect/settings/danger/pause-agents", {});
+}
+
+export function reactivateAllArchitectAgents() {
+  return apiPost<{
+    reactivated: boolean;
+  }>("/architect/settings/danger/reactivate-agents", {});
 }
 
 export function deleteArchitectAccount(confirmation: "DELETE") {

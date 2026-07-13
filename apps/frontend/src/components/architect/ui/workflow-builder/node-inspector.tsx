@@ -945,9 +945,7 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
             onChange={set("assistantName")}
             placeholder="e.g. Sarah"
           />
-          <p className="mt-2 text-[11px] text-slate-400" data-testid="ai-assistant-name-note">
-            The name the agent introduces itself with. Buyers can override it during install.
-          </p>
+
         </div>
       </Section>
 
@@ -957,7 +955,7 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
           selectedVoice={str("voice", PLATFORM_DEFAULT_VOICE_ID)}
           customVoiceId={str("voiceId")}
           testIdPrefix="architect-voice-picker"
-          subtitle="Choose the suggested voice for this template. The buyer can accept it or choose another voice before deployment."
+          subtitle=""
           onSelectDefault={() => {
             onUpdateNodeData("voice", PLATFORM_DEFAULT_VOICE_ID);
             onUpdateNodeData("voiceName", TRIVEN_VOICE_NAME);
@@ -980,9 +978,6 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
           }}
         />
 
-        <p className="mt-2 text-[11px] text-slate-400" data-testid="voice-suggested-note">
-          This is only the template’s suggested voice. Buyer deployment resolves the final ElevenLabs voice.
-        </p>
       </Section>
 
       <Section title="Conversation">

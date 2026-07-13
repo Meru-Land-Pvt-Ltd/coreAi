@@ -68,7 +68,12 @@ type ListingAccess = {
     trialUsed: boolean;
     canPayNow?: boolean;
     amountCents: number;
+    phoneNumberFee?: { label: string; amountCents: number } | null;
     purchaseStatus: string | null;
+    usagePricing?: {
+        perMinuteUsd: number;
+        services: Array<{ code: string; name: string; unit: string; unitPriceUsd: number }>;
+    };
 };
 
 type CheckoutCountry = {
@@ -597,6 +602,10 @@ export default function BusinessCheckoutPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const listingId = searchParams.get("listingId");
+    const usageMode = searchParams.get("mode") === "usage";
+    const usageAgentId = searchParams.get("agentId");
+    const usageAgentName = searchParams.get("agent");
+    const usageAmountCents = Number(searchParams.get("amountCents") ?? 0);
 
     const [authReady, setAuthReady] = useState(false);
     const [email, setEmail] = useState("");
@@ -629,6 +638,7 @@ export default function BusinessCheckoutPage() {
     const [processing, setProcessing] = useState(false);
     const [checkoutError, setCheckoutError] = useState("");
     const [listingAccess, setListingAccess] = useState<ListingAccess | null>(null);
+    const [postpaidRate, setPostpaidRate] = useState<number | null>(null);
     const [confirmation, setConfirmation] = useState(false);
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
 
@@ -651,30 +661,37 @@ export default function BusinessCheckoutPage() {
         zip: isZipValid(countryCode, zip)
     };
 
-    const futureAmount = basePrice;
+    // One-time dedicated number fee for phone-capable agents — charged with
+    // the agent price, shown as its own summary row.
+    const phoneFee = usageMode ? null : listingAccess?.phoneNumberFee ?? null;
+    const phoneFeeAmount = (phoneFee?.amountCents ?? 0) / 100;
+    const payTotal = basePrice + phoneFeeAmount;
+
+    const futureAmount = payTotal;
     const canPayNow = listingAccess?.canPayNow ?? (
         listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false
     );
-    const isPurchaseMode = canPayNow;
+    const isPurchaseMode = usageMode || canPayNow;
     const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
-    const checkoutBlocked = hasActiveAccess && !canPayNow;
-    const dueTodayAmount = isPurchaseMode ? basePrice : 0;
+    const checkoutBlocked = !usageMode && hasActiveAccess && !canPayNow;
+    const dueTodayAmount = isPurchaseMode ? payTotal : 0;
     const checkoutButtonLabel = isPurchaseMode
-        ? `Pay $${basePrice}`
+        ? `Pay $${payTotal.toFixed(2)}`
         : "Start 7-day free trial";
     const mobileCheckoutButtonLabel = isPurchaseMode
-        ? `Pay $${basePrice}`
+        ? `Pay $${payTotal.toFixed(2)}`
         : "Start free trial";
 
     const formReady =
         authReady &&
+        (usageMode ||
         (paymentTab !== "credit" ||
             (validations.card &&
                 validations.expiry &&
                 validations.cvc &&
                 validations.name &&
                 validations.address &&
-                validations.zip));
+                validations.zip)));
 
     useEffect(() => {
         const token = getAuthToken();
@@ -688,6 +705,14 @@ export default function BusinessCheckoutPage() {
         setEmail(user.email || "business@company.com");
         setAuthReady(true);
     }, [router]);
+
+    useEffect(() => {
+        if (!usageMode) return;
+        if (usageAgentName) setListingName(usageAgentName);
+        if (Number.isFinite(usageAmountCents) && usageAmountCents >= 0) {
+            setBasePrice(usageAmountCents / 100);
+        }
+    }, [usageAgentName, usageAmountCents, usageMode]);
 
     useEffect(() => {
         if (!authReady || !listingId) return;
@@ -738,6 +763,8 @@ export default function BusinessCheckoutPage() {
 
                 if (response.success && response.data) {
                     setListingAccess(response.data);
+                    setBasePrice(response.data.amountCents / 100);
+                    setPostpaidRate(response.data.usagePricing?.perMinuteUsd ?? null);
                 }
             } catch {
                 if (mounted) setListingAccess(null);
@@ -853,11 +880,20 @@ export default function BusinessCheckoutPage() {
 
         setProcessing(true);
 
+        if (usageMode) {
+            router.push(
+                usageAgentId
+                    ? `/business/billingandusage/billing?agentId=${encodeURIComponent(usageAgentId)}`
+                    : "/business/billingandusage/billing"
+            );
+            return;
+        }
+
         if (!listingId) {
             router.push(
                 businessPaymentSuccessPath({
                     agent: listingName,
-                    amount: basePrice,
+                    amount: isPurchaseMode ? payTotal : basePrice,
                     email,
                     mode: isPurchaseMode ? "purchase" : "trial"
                 })
@@ -894,7 +930,7 @@ export default function BusinessCheckoutPage() {
                     businessPaymentFailedPath({
                         listingId,
                         agent: listingName,
-                        amount: basePrice,
+                        amount: isPurchaseMode ? payTotal : basePrice,
                         mode: isPurchaseMode ? "purchase" : "trial"
                     })
                 );
@@ -905,7 +941,7 @@ export default function BusinessCheckoutPage() {
                 businessPaymentSuccessPath({
                     listingId,
                     agent: listingName,
-                    amount: basePrice,
+                    amount: isPurchaseMode ? payTotal : basePrice,
                     email,
                     mode: isPurchaseMode ? "purchase" : "trial"
                 })
@@ -916,7 +952,7 @@ export default function BusinessCheckoutPage() {
                 businessPaymentFailedPath({
                     listingId,
                     agent: listingName,
-                    amount: basePrice,
+                    amount: isPurchaseMode ? payTotal : basePrice,
                     mode: isPurchaseMode ? "purchase" : "trial"
                 })
             );
@@ -1244,6 +1280,10 @@ export default function BusinessCheckoutPage() {
                                     price={basePrice}
                                     isPurchaseMode={isPurchaseMode}
                                     dueTodayAmount={dueTodayAmount}
+                                    postpaidRate={postpaidRate}
+                                    isUsageMode={usageMode}
+                                    phoneFeeLabel={phoneFee?.label ?? null}
+                                    phoneFeeAmount={phoneFeeAmount}
                                 />
                             </aside>
                         </div>
@@ -1516,7 +1556,11 @@ function OrderSummary({
     agentAuthor,
     price,
     isPurchaseMode = false,
-    dueTodayAmount = 0
+    dueTodayAmount = 0,
+    postpaidRate = null,
+    isUsageMode = false,
+    phoneFeeLabel = null,
+    phoneFeeAmount = 0
 }: {
     trialDate: string;
     includedItems: string[];
@@ -1526,9 +1570,15 @@ function OrderSummary({
     price: number;
     isPurchaseMode?: boolean;
     dueTodayAmount?: number;
+    postpaidRate?: number | null;
+    isUsageMode?: boolean;
+    phoneFeeLabel?: string | null;
+    phoneFeeAmount?: number;
 }) {
     const priceLabel = price.toFixed(2);
     const dueTodayLabel = dueTodayAmount.toFixed(2);
+    // Trial discounts everything charged later (agent price + number fee).
+    const trialDiscountLabel = (price + phoneFeeAmount).toFixed(2);
 
     return (
         <div className="lg:sticky lg:top-28">
@@ -1565,11 +1615,21 @@ function OrderSummary({
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">
-                        <PriceRow label="Agent price" value={`$${priceLabel}`} />
+                        <PriceRow label={isUsageMode ? "Usage amount" : "Agent price"} value={`$${priceLabel}`} />
+                        {phoneFeeAmount > 0 ? (
+                            <PriceRow
+                                label={phoneFeeLabel ?? "AI Receptionist No."}
+                                value={`$${phoneFeeAmount.toFixed(2)}`}
+                            />
+                        ) : null}
                         {isPurchaseMode ? null : (
-                            <PriceRow label="7-day free trial" value={`−$${priceLabel}`} green />
+                            <PriceRow label="7-day free trial" value={`−$${trialDiscountLabel}`} green />
                         )}
-                        <PriceRow label="Execution fees" value="Pay as you go" muted />
+                        <PriceRow
+                            label="Post-paid execution fees"
+                            value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(4)}/minute`}
+                            muted
+                        />
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
@@ -1596,6 +1656,9 @@ function OrderSummary({
                         <span className="tnum font-medium text-slate-500">${futureAmount.toFixed(2)}</span>
                     </div>
                     )}
+                    <p className="mt-3 text-xs leading-5 text-slate-400">
+                        Usage starts on the purchase date, is invoiced on the 1st, and is due by the 7th.
+                    </p>
                 </div>
 
                 {isPurchaseMode ? null : (

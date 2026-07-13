@@ -245,6 +245,8 @@ model Business {
   installedAgents InstalledAgent[]
   leads           Lead[]
   vapiCalls       VapiCall[]
+  usageInvoices   BusinessUsageInvoice[]
+  payments        Payment[]
   workflowRuns    WorkflowRun[]
   emailAliases    BusinessEmailAlias[]
   emailMessages   EmailMessage[]
@@ -259,6 +261,7 @@ model BusinessProfile {
   serviceArea       String?
   bookingUrl        String?
   teamPhone         String?
+  businessSize      String?
   hoursJson         Json?
   tone              String   @default("friendly")
   escalationRules   String?
@@ -388,6 +391,8 @@ model Appointment {
   endAt           DateTime
   timeZone        String?
   calendarEventId String?
+  /// Google Calendar event htmlLink — lets the buyer open the booking on the calendar.
+  calendarEventLink String?
   status          String   @default("BOOKED")
   notes           String?
   createdAt       DateTime @default(now())
@@ -403,6 +408,7 @@ model Appointment {
 model VapiCall {
   id             String    @id @default(cuid())
   businessId     String
+  installedAgentId String?
   conversationId String?
   callId         String    @unique
   customerPhone  String
@@ -410,13 +416,31 @@ model VapiCall {
   transcript     String?
   summary        String?
   metadataJson   Json?
+  durationSeconds Int?
+  durationMinutes Float?
+  smsCount       Int       @default(0)
+  /// Vapi-reported total call cost (vendor actual).
+  vapiCostMicroUsd Int?
+  /// Sum of admin-board actual vendor rates for this execution.
+  actualCostMicroUsd Int?
+  /// Sum of admin-board updated rates — used for buyer billing.
+  billedCostMicroUsd Int?
+  usageLineItemsJson Json?
+  vapiCostBreakdownJson Json?
+  billingMonth   String?
+  billingRecordedAt DateTime?
+  usageInvoiceId String?
   startedAt      DateTime  @default(now())
   endedAt        DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   business       Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  usageInvoice   BusinessUsageInvoice? @relation(fields: [usageInvoiceId], references: [id], onDelete: SetNull)
 
   @@index([businessId])
+  @@index([businessId, billingMonth])
+  @@index([installedAgentId])
+  @@index([usageInvoiceId])
   @@index([customerPhone])
   @@index([status])
 }
@@ -443,6 +467,9 @@ model PlatformPhoneNumber {
   buyerUserId      String?
   installedAgentId String?
   assignedAt       DateTime?
+  /// When the one-time number fee was billed to the buyer (once per number;
+  /// cleared when the number returns to AVAILABLE).
+  feeBilledAt      DateTime?
   /// Admin provisioning metadata (numbers purchased through the admin panel).
   purchasedByAdminId String?
   purchasedAt        DateTime?
@@ -480,10 +507,14 @@ model AdminAuditLog {
 model Payment {
   id          String        @id @default(cuid())
   userId      String
+  businessId  String?
   listingId   String?
   amountCents Int           @default(0)
   currency    String        @default("usd")
   status      PaymentStatus @default(PENDING)
+  architectEarningStatus ArchitectEarningStatus @default(PENDING)
+  architectEarningReviewedAt DateTime?
+  architectEarningReviewedByUserId String?
 
   stripeCustomerId     String?
   stripeSessionId      String?
@@ -495,13 +526,18 @@ model Payment {
   billingAddress String?
 
   description String?
+  /// Buyer-facing fee breakdown: [{ label, amountCents }] — agent price plus
+  /// the "AI Receptionist No." number fee when one was provisioned.
+  lineItemsJson Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business?    @relation(fields: [businessId], references: [id], onDelete: SetNull)
   listing AgentListing? @relation(fields: [listingId], references: [id])
 
   @@index([userId])
+  @@index([businessId])
   @@index([listingId])
   @@index([status])
   @@index([stripeCustomerId])
@@ -659,6 +695,7 @@ enum ListingStatus {
   APPROVED
   REJECTED
   SUSPENDED
+  PAUSED
 }
 
 enum ListingReviewStatus {
@@ -734,6 +771,12 @@ enum PaymentStatus {
   FAILED
   CANCELED
   REFUNDED
+}
+
+enum ArchitectEarningStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // Brain Memory — stores what each workflow run and node actually did.
@@ -968,4 +1011,86 @@ model EmailMessage {
   @@index([aliasId])
   @@index([sesMessageId])
   @@index([toEmail, status])
+}
+
+// ---- Platform usage service costs (admin-managed pricing board) ----
+
+enum UsageServiceUnit {
+  PER_MINUTE
+  PER_SMS
+  PER_CALL
+  PER_UNIT
+}
+
+/// Vendor / infrastructure line item used to bill agent execution (e.g. Twilio, Deepgram).
+model PlatformUsageService {
+  id                 String           @id @default(cuid())
+  code               String           @unique
+  name               String
+  role               String?
+  unit               UsageServiceUnit   @default(PER_MINUTE)
+  actualCostMicroUsd Int
+  updatedCostMicroUsd Int
+  isActive           Boolean          @default(true)
+  sortOrder          Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+enum UsageInvoiceStatus {
+  OPEN
+  OVERDUE
+  PAID
+  VOID
+}
+
+/// Immutable monthly, post-paid usage bill for one business. Call and pricing
+/// snapshots are retained so businesses never share or retroactively change costs.
+model BusinessUsageInvoice {
+  id                    String             @id @default(cuid())
+  businessId            String
+  billingMonth          String
+  invoiceNumber         String             @unique
+  status                UsageInvoiceStatus @default(OPEN)
+  currency              String             @default("usd")
+  periodStart           DateTime
+  periodEnd             DateTime
+  issuedAt              DateTime
+  dueAt                 DateTime
+  subtotalMicroUsd      Int
+  totalMicroUsd         Int
+  paidAt                DateTime?
+  stripePaymentIntentId String?
+  reminderCount         Int                @default(0)
+  lastReminderAt        DateTime?
+  suspendedAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  business  Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lineItems BusinessUsageInvoiceLineItem[]
+  calls     VapiCall[]
+
+  @@unique([businessId, billingMonth])
+  @@index([businessId, status])
+  @@index([status, dueAt])
+}
+
+model BusinessUsageInvoiceLineItem {
+  id                 String               @id @default(cuid())
+  invoiceId          String
+  serviceCode        String
+  serviceName        String
+  unit               UsageServiceUnit
+  quantity           Float
+  unitPriceMicroUsd  Int
+  amountMicroUsd     Int
+  createdAt          DateTime             @default(now())
+
+  invoice BusinessUsageInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, serviceCode])
+  @@index([invoiceId])
 }
