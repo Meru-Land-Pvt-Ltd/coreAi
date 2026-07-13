@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deleteArchitectAccount,
+  downloadArchitectDataExport,
   getArchitectSettings,
   payArchitectRefundObligations,
   pauseAllArchitectAgents,
@@ -12,12 +13,14 @@ import {
   revokeArchitectSession,
   revokeOtherArchitectSessions,
   saveArchitectNotificationPrefs,
+  saveArchitectPayoutSchedule,
   saveArchitectPrivacyPrefs,
   saveArchitectProfilePhoto,
   saveArchitectSettingsProfile,
   saveArchitectSettingsStorefront,
   verifyArchitectEmailChange,
   type ArchitectLoginHistoryEntry,
+  type ArchitectPayoutSchedule,
   type ArchitectRefundAgent,
   type ArchitectSettingsPayload,
   type ArchitectSettingsSession
@@ -32,7 +35,6 @@ type SettingsTab =
   | "storefront"
   | "security"
   | "notifications"
-  | "developer"
   | "payouts"
   | "data"
   | "danger";
@@ -42,7 +44,6 @@ const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
   { id: "storefront", label: "Public Storefront" },
   { id: "security", label: "Security" },
   { id: "notifications", label: "Notifications" },
-  { id: "developer", label: "Developer Tools" },
   { id: "payouts", label: "Payouts" },
   { id: "data", label: "Data & Privacy" },
   { id: "danger", label: "Danger Zone", danger: true }
@@ -90,11 +91,8 @@ const NOTIFICATION_ROWS: Array<{
   defaults: { email: boolean; push: boolean };
 }> = [
   { key: "newSale", title: "New sale", description: "When a buyer purchases one of your agents", defaults: { email: true, push: true } },
-  { key: "newReview", title: "New review", description: "When a buyer leaves a review or rating on your agent", defaults: { email: true, push: true } },
-  { key: "buyerMessages", title: "Buyer messages", description: "When a buyer sends you a message or question", defaults: { email: true, push: true } },
   { key: "agentSubmissionUpdates", title: "Agent submission updates", description: "Approval, rejection, or change requests from the review team", defaults: { email: true, push: true } },
   { key: "payoutProcessed", title: "Payout processed", description: "When earnings are sent to your bank account", defaults: { email: true, push: false } },
-  { key: "performanceAlerts", title: "Performance alerts", description: "When an agent's rating drops below 4.0 or error rate spikes", defaults: { email: true, push: true } },
   { key: "marketplaceInsights", title: "Marketplace insights", description: "Weekly tips to optimize listings and increase sales", defaults: { email: false, push: false } },
   { key: "platformUpdates", title: "Platform updates", description: "New features, API changes, and policy updates", defaults: { email: true, push: false } },
   { key: "securityAlerts", title: "Security alerts", description: "New logins, password changes, payout method changes", defaults: { email: true, push: true }, locked: true }
@@ -111,14 +109,16 @@ const PRIVACY_TOGGLES = [
 
 const PRIVACY_GROUPS = [
   {
-    title: "Marketplace visibility",
-    keys: ["showProfileOnMarketplace", "showSalesCount", "showRating", "allowBuyerMessages"]
-  },
-  {
     title: "Cookie preferences",
     keys: ["analyticsCookies", "marketingCookies"]
   }
 ];
+
+const DEFAULT_PAYOUT_SCHEDULE: ArchitectPayoutSchedule = {
+  frequency: "Monthly",
+  day: "1st",
+  thresholdCents: 5000
+};
 
 function formatUsd(cents: number) {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -338,6 +338,8 @@ export default function ArchitectSettingsPage() {
 
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, { email: boolean; push: boolean; locked?: boolean }>>({});
   const [privacyPrefs, setPrivacyPrefs] = useState<Record<string, boolean>>({});
+  const [payoutSchedule, setPayoutSchedule] = useState<ArchitectPayoutSchedule>(DEFAULT_PAYOUT_SCHEDULE);
+  const [exportingData, setExportingData] = useState(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -402,6 +404,9 @@ export default function ArchitectSettingsPage() {
     });
     setNotificationPrefs(result.data.notifications as Record<string, { email: boolean; push: boolean; locked?: boolean }>);
     setPrivacyPrefs(result.data.privacy);
+    if (result.data.payoutSchedule) {
+      setPayoutSchedule(result.data.payoutSchedule);
+    }
   }, []);
 
   useEffect(() => {
@@ -558,6 +563,26 @@ export default function ArchitectSettingsPage() {
     setSaving(false);
     if (result.success) showToast("Privacy settings saved ✓");
     else showToast(result.error ?? "Could not save privacy settings");
+  }
+
+  async function handleSavePayoutSchedule() {
+    setSaving(true);
+    const result = await saveArchitectPayoutSchedule(payoutSchedule);
+    setSaving(false);
+    if (result.success) {
+      if (result.data?.payoutSchedule) setPayoutSchedule(result.data.payoutSchedule);
+      showToast("Payout schedule saved ✓");
+    } else {
+      showToast(result.error ?? "Could not save payout schedule");
+    }
+  }
+
+  async function handleExportData() {
+    setExportingData(true);
+    const result = await downloadArchitectDataExport();
+    setExportingData(false);
+    if (result.success) showToast("Data export downloaded ✓");
+    else showToast(result.error ?? "Could not export your data");
   }
 
   async function handleRevokeSession(sessionId: string) {
@@ -1020,7 +1045,9 @@ export default function ArchitectSettingsPage() {
                       <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-slate-400">
                         <th className="py-3 font-semibold">Notification type</th>
                         <th className="w-24 py-3 text-center font-semibold">Email</th>
+                        {/* Push notifications section commented out
                         <th className="w-24 py-3 text-center font-semibold">Push</th>
+                        */}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -1037,11 +1064,13 @@ export default function ArchitectSettingsPage() {
                                 <Toggle checked={pref.email ?? row.defaults.email} disabled={row.locked} onChange={(email) => setNotificationPrefs((c) => ({ ...c, [row.key]: { ...pref, email } }))} testId={`architect-settings-notify-email-${row.key}`} />
                               </div>
                             </td>
+                            {/* Push notifications section commented out
                             <td className="py-3.5 text-center">
                               <div className="flex justify-center">
                                 <Toggle checked={pref.push ?? row.defaults.push} disabled={row.locked} onChange={(push) => setNotificationPrefs((c) => ({ ...c, [row.key]: { ...pref, push } }))} testId={`architect-settings-notify-push-${row.key}`} />
                               </div>
                             </td>
+                            */}
                           </tr>
                         );
                       })}
@@ -1049,95 +1078,6 @@ export default function ArchitectSettingsPage() {
                   </table>
                 </div>
                 <button type="button" onClick={() => void handleSaveNotifications()} disabled={saving} data-testid="architect-settings-save-notifications" className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save preferences</button>
-              </section>
-            ) : null}
-
-            {activeTab === "developer" ? (
-              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-developer">
-                <h2 className="text-lg font-bold text-slate-900">Developer Tools &amp; Integrations</h2>
-                <p className="mt-1 text-sm text-slate-500">Manage API keys, connected services, and development tools.</p>
-                <div>
-                  <h3 className="text-base font-semibold text-slate-900">CORE API Keys</h3>
-                  <p className="mb-4 mt-1 text-sm text-slate-500">Use these keys to access the CORE Agent SDK and test your agents locally.</p>
-                  <div className="space-y-4">
-                    {[
-                      { label: "Production key", keyValue: "core_live_••••••••••••••••mT4x", lastUsed: "Last used 2 hours ago" },
-                      { label: "Test key", keyValue: "core_test_••••••••••••••••kP2y", lastUsed: "" }
-                    ].map((keyRow) => (
-                      <div key={keyRow.label}>
-                        <div className="mb-1.5 flex items-center justify-between">
-                          <span className="text-sm font-medium text-slate-700">{keyRow.label}</span>
-                          {keyRow.lastUsed ? <span className="text-xs text-slate-400">{keyRow.lastUsed}</span> : null}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <code className="min-w-[200px] flex-1 truncate rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm text-slate-700">{keyRow.keyValue}</code>
-                          <button type="button" onClick={() => showToast("Key copied")} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Copy</button>
-                          <button type="button" onClick={() => showToast("Key regenerated")} className="rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50">Regenerate</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="mt-3 text-xs text-slate-400">Never share your production key. Use test keys during development.</p>
-                </div>
-                <div className="border-t border-gray-100 pt-7">
-                  <h3 className="text-base font-semibold text-slate-900">Webhook Endpoints</h3>
-                  <p className="mb-4 mt-1 text-sm text-slate-500">Receive real-time notifications when events happen.</p>
-                  <div>
-                    <label htmlFor="webhookUrl" className="mb-1.5 block text-sm font-medium text-slate-700">Endpoint URL</label>
-                    <input id="webhookUrl" type="url" defaultValue="https://agentlabs.dev/webhooks/core" className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
-                  </div>
-                  <div className="mt-4">
-                    <span className="mb-2 block text-sm font-medium text-slate-700">Events subscribed</span>
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      {["agent.sold", "agent.review.created", "agent.error", "payout.processed", "agent.execution.completed"].map((eventName, index) => (
-                        <label key={eventName} className="flex items-center gap-2.5 text-sm text-slate-700">
-                          <input type="checkbox" defaultChecked={index < 3} className="h-4 w-4 rounded border-slate-300 accent-amber-500" />
-                          <code className="font-mono text-xs">{eventName}</code>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <button type="button" onClick={() => showToast("Webhook updated ✓")} className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600">Update webhook</button>
-                  <div className="mt-5">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Recent deliveries</p>
-                    <div className="space-y-1.5 font-mono text-xs">
-                      {[
-                        ["Jul 08 09:12:04", "agent.sold", "200 ✓", "text-green-600"],
-                        ["Jul 08 08:40:51", "agent.review.created", "200 ✓", "text-green-600"],
-                        ["Jul 07 22:18:30", "agent.error", "500", "text-red-600"]
-                      ].map(([time, eventName, status, tone]) => (
-                        <div key={`${time}-${eventName}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                          <span className="text-slate-500">{time}</span>
-                          <span className="text-slate-700">{eventName}</span>
-                          <span className={`font-semibold ${tone}`}>{status}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="border-t border-gray-100 pt-7">
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Connected services</h3>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {[
-                      { name: "GitHub", status: "Connected", action: "Disconnect" },
-                      { name: "Google Calendar", status: "Connected", action: "Disconnect" },
-                      { name: "Slack", status: "Not connected", action: "Connect" },
-                      { name: "Stripe", status: "Connected", action: "Disconnect" }
-                    ].map((service) => (
-                      <div key={service.name} className="rounded-xl border border-gray-200 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">{service.name}</p>
-                            <p className="text-xs text-slate-500">{service.status}</p>
-                          </div>
-                          <button type="button" onClick={() => showToast(`${service.name} ${service.action.toLowerCase()} requested`)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-gray-50">
-                            {service.action}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </section>
             ) : null}
 
@@ -1156,7 +1096,11 @@ export default function ArchitectSettingsPage() {
                           <>
                             <p className="text-sm font-semibold text-slate-900">{settings.payouts.payoutMethod.bankName}</p>
                             <p className="mt-0.5 font-mono text-xs text-slate-500">Account •••• {settings.payouts.payoutMethod.accountLast4}</p>
-                            <p className="font-mono text-xs text-slate-500">IFSC {settings.payouts.payoutMethod.ifscCode}</p>
+                            {settings.payouts.payoutMethod.routingLast4 ? (
+                              <p className="font-mono text-xs text-slate-500">
+                                {settings.payouts.payoutMethod.routingLabel} •••• {settings.payouts.payoutMethod.routingLast4}
+                              </p>
+                            ) : null}
                           </>
                         ) : (
                           <p className="text-sm text-slate-500">No payout method on file.</p>
@@ -1175,25 +1119,47 @@ export default function ArchitectSettingsPage() {
                   <div className="grid gap-5 sm:grid-cols-3">
                     <div>
                       <label htmlFor="payoutFrequency" className="mb-1.5 block text-sm font-medium text-slate-700">Frequency</label>
-                      <select id="payoutFrequency" defaultValue="Monthly" className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
-                        <option>Weekly</option>
-                        <option>Bi-weekly</option>
-                        <option>Monthly</option>
+                      <select
+                        id="payoutFrequency"
+                        value={payoutSchedule.frequency}
+                        onChange={(e) => setPayoutSchedule((c) => ({ ...c, frequency: e.target.value as ArchitectPayoutSchedule["frequency"] }))}
+                        data-testid="architect-settings-payout-frequency"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                      >
+                        <option value="Weekly">Weekly</option>
+                        <option value="Bi-weekly">Bi-weekly</option>
+                        <option value="Monthly">Monthly</option>
                       </select>
                     </div>
                     <div>
                       <label htmlFor="payoutDay" className="mb-1.5 block text-sm font-medium text-slate-700">Payout day</label>
-                      <select id="payoutDay" defaultValue="1st" className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
-                        <option>1st</option>
-                        <option>15th</option>
-                        <option>Last day of month</option>
+                      <select
+                        id="payoutDay"
+                        value={payoutSchedule.day}
+                        onChange={(e) => setPayoutSchedule((c) => ({ ...c, day: e.target.value as ArchitectPayoutSchedule["day"] }))}
+                        data-testid="architect-settings-payout-day"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                      >
+                        <option value="1st">1st</option>
+                        <option value="15th">15th</option>
+                        <option value="Last day of month">Last day of month</option>
                       </select>
                     </div>
                     <div>
                       <label htmlFor="payoutThreshold" className="mb-1.5 block text-sm font-medium text-slate-700">Minimum threshold</label>
                       <div className="flex">
                         <span className="inline-flex items-center rounded-l-xl border border-r-0 border-gray-200 bg-slate-50 px-3 text-sm font-medium text-slate-500">$</span>
-                        <input id="payoutThreshold" defaultValue="50.00" className="w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm" />
+                        <input
+                          id="payoutThreshold"
+                          value={(payoutSchedule.thresholdCents / 100).toFixed(2)}
+                          onChange={(e) => {
+                            const dollars = Number.parseFloat(e.target.value.replace(/[^0-9.]/g, ""));
+                            setPayoutSchedule((c) => ({ ...c, thresholdCents: Number.isFinite(dollars) ? Math.round(dollars * 100) : 0 }));
+                          }}
+                          inputMode="decimal"
+                          data-testid="architect-settings-payout-threshold"
+                          className="w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm"
+                        />
                       </div>
                     </div>
                   </div>
@@ -1202,7 +1168,7 @@ export default function ArchitectSettingsPage() {
                     <span className="text-sm text-slate-700">Next scheduled payout</span>
                     <span className="text-sm font-bold text-amber-700">{settings?.payouts.lastPayoutAt ? `Last paid ${formatDateTime(settings.payouts.lastPayoutAt)}` : "Pending first payout"}</span>
                   </div>
-                  <button type="button" onClick={() => showToast("Payout schedule saved ✓")} className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600">Save schedule</button>
+                  <button type="button" onClick={() => void handleSavePayoutSchedule()} disabled={saving} data-testid="architect-settings-save-payout-schedule" className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Save schedule</button>
                 </div>
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Tax information</h3>
@@ -1242,10 +1208,10 @@ export default function ArchitectSettingsPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-semibold text-slate-900">Data export</h3>
-                  <p className="mt-1 text-sm text-slate-500">Download a complete copy of your account data, agent source code, sales history, conversation logs, and analytics.</p>
+                  <p className="mt-1 text-sm text-slate-500">Download a copy of your account data, storefront, listing metadata, sales history, and payout records. Agent source code and conversation logs are not included.</p>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <button type="button" onClick={() => showToast("Export requested — check your email")} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid="architect-settings-request-export">Request data export</button>
-                    <span className="text-xs text-slate-400">Export delivered as a ZIP within 24 hours.</span>
+                    <button type="button" onClick={() => void handleExportData()} disabled={exportingData} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50" data-testid="architect-settings-request-export">{exportingData ? "Preparing export…" : "Export data"}</button>
+                    <span className="text-xs text-slate-400">Downloaded instantly as a ZIP file.</span>
                   </div>
                 </div>
                 {PRIVACY_GROUPS.map((group) => (

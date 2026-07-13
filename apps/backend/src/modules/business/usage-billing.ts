@@ -11,6 +11,50 @@ import { fetchVapiCallById } from "../architect/vapi-connector";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 
+const PLATFORM_SERVICE_CODES = new Set(["database_storage", "google_calendar"]);
+type ServiceRoleMap = Map<string, string | null>;
+
+function customerServiceIdentity(serviceCode: string, serviceRoles: ServiceRoleMap) {
+  if (PLATFORM_SERVICE_CODES.has(serviceCode)) {
+    return { serviceCode: "platform_service", serviceName: "Platform service" };
+  }
+
+  const role = serviceRoles.get(serviceCode)?.trim() || "Usage service";
+  const safeRoleKey = role.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "usage_service";
+  return { serviceCode: `service_role_${safeRoleKey}`, serviceName: role };
+}
+
+function customerFacingLineItems(items: UsageLineItem[], serviceRoles: ServiceRoleMap): UsageLineItem[] {
+  const grouped = new Map<string, UsageLineItem>();
+
+  for (const item of items) {
+    const identity = customerServiceIdentity(item.serviceCode, serviceRoles);
+    const existing = grouped.get(identity.serviceCode);
+    if (!existing) {
+      grouped.set(identity.serviceCode, {
+        ...item,
+        ...identity,
+        unit: identity.serviceCode === "platform_service" ? "PER_UNIT" : item.unit
+      });
+      continue;
+    }
+
+    existing.quantity += item.quantity;
+    existing.actualCostMicroUsd += item.actualCostMicroUsd;
+    existing.billedCostMicroUsd += item.billedCostMicroUsd;
+    if (existing.unit !== item.unit) existing.unit = "PER_UNIT";
+  }
+
+  return [...grouped.values()];
+}
+
+async function loadServiceRoles(): Promise<ServiceRoleMap> {
+  const services = await prisma.platformUsageService.findMany({
+    select: { code: true, role: true }
+  });
+  return new Map(services.map((service) => [service.code, service.role]));
+}
+
 function billingMonthFromDate(date: Date): string {
   return date.toISOString().slice(0, 7);
 }
@@ -220,7 +264,7 @@ export async function recordVapiCallUsage({
   });
 }
 
-function rollupLineItems(calls: Array<{ usageLineItemsJson: unknown }>) {
+function rollupLineItems(calls: Array<{ usageLineItemsJson: unknown }>, serviceRoles: ServiceRoleMap) {
   const rollup = new Map<
     string,
     {
@@ -235,7 +279,7 @@ function rollupLineItems(calls: Array<{ usageLineItemsJson: unknown }>) {
 
   for (const call of calls) {
     const items = Array.isArray(call.usageLineItemsJson)
-      ? (call.usageLineItemsJson as UsageLineItem[])
+      ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
       : [];
 
     for (const item of items) {
@@ -272,7 +316,8 @@ function rollupAgentUsage(
     billedCostMicroUsd: number | null;
     usageLineItemsJson?: unknown;
   }>,
-  agentNames: Map<string, string>
+  agentNames: Map<string, string>,
+  serviceRoles: ServiceRoleMap
 ) {
   const rollup = new Map<string, {
     agentId: string | null;
@@ -305,7 +350,7 @@ function rollupAgentUsage(
     existing.durationMinutes += call.durationMinutes ?? 0;
     existing.billedCostMicroUsd += call.billedCostMicroUsd ?? 0;
     const lineItems = Array.isArray(call.usageLineItemsJson)
-      ? (call.usageLineItemsJson as UsageLineItem[])
+      ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
       : [];
     for (const lineItem of lineItems) {
       if (lineItem.quantity <= 0 || lineItem.billedCostMicroUsd <= 0) continue;
@@ -361,7 +406,7 @@ export async function getBusinessUsageBill(c: Context) {
     });
   }
 
-  const [calls, agents] = await Promise.all([
+  const [calls, agents, serviceRoles] = await Promise.all([
     prisma.vapiCall.findMany({
     where: {
       businessId: business.id,
@@ -386,7 +431,8 @@ export async function getBusinessUsageBill(c: Context) {
     prisma.installedAgent.findMany({
       where: { businessId: business.id },
       select: { id: true, name: true }
-    })
+    }),
+    loadServiceRoles()
   ]);
   const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
 
@@ -405,8 +451,8 @@ export async function getBusinessUsageBill(c: Context) {
     totalBilledUsd: microUsdToUsd(totalBilledMicroUsd),
     totalVapiReportedUsd: microUsdToUsd(totalVapiMicroUsd),
     updatedAt: calls[0]?.billingRecordedAt?.toISOString() ?? null,
-    agentRollup: rollupAgentUsage(calls, agentNames),
-    serviceRollup: rollupLineItems(calls),
+    agentRollup: rollupAgentUsage(calls, agentNames, serviceRoles),
+    serviceRollup: rollupLineItems(calls, serviceRoles),
     calls: calls.map((call) => ({
       callId: call.callId,
       customerPhone: call.customerPhone,
@@ -417,7 +463,9 @@ export async function getBusinessUsageBill(c: Context) {
       actualCostUsd: call.actualCostMicroUsd ? microUsdToUsd(call.actualCostMicroUsd) : 0,
       billedCostUsd: call.billedCostMicroUsd ? microUsdToUsd(call.billedCostMicroUsd) : 0,
       vapiReportedCostUsd: call.vapiCostMicroUsd ? microUsdToUsd(call.vapiCostMicroUsd) : null,
-      lineItems: call.usageLineItemsJson,
+      lineItems: Array.isArray(call.usageLineItemsJson)
+        ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
+        : [],
       recordedAt: call.billingRecordedAt?.toISOString() ?? null
     }))
   });
@@ -451,8 +499,8 @@ function serializeUsageInvoice(invoice: {
     billedCostMicroUsd: number | null;
     usageLineItemsJson: unknown;
   }>;
-}, agentNames: Map<string, string>) {
-  const agentBreakdown = rollupAgentUsage(invoice.calls, agentNames);
+}, agentNames: Map<string, string>, serviceRoles: ServiceRoleMap) {
+  const agentBreakdown = rollupAgentUsage(invoice.calls, agentNames, serviceRoles);
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -471,10 +519,23 @@ function serializeUsageInvoice(invoice: {
     suspendedAt: invoice.suspendedAt?.toISOString() ?? null,
     callCount: invoice.calls.length,
     agentBreakdown,
-    lineItems: invoice.lineItems.map((item) => ({
-      ...item,
-      unitPriceUsd: microUsdToUsd(item.unitPriceMicroUsd),
-      amountUsd: microUsdToUsd(item.amountMicroUsd)
+    lineItems: customerFacingLineItems(
+      invoice.lineItems.map((item) => ({
+        serviceCode: item.serviceCode,
+        serviceName: item.serviceName,
+        unit: item.unit as UsageLineItem["unit"],
+        quantity: item.quantity,
+        actualCostMicroUsd: 0,
+        billedCostMicroUsd: item.amountMicroUsd
+      })),
+      serviceRoles
+    ).map((item) => ({
+      serviceCode: item.serviceCode,
+      serviceName: item.serviceName,
+      unit: item.unit,
+      quantity: item.quantity,
+      amountMicroUsd: item.billedCostMicroUsd,
+      amountUsd: microUsdToUsd(item.billedCostMicroUsd)
     }))
   };
 }
@@ -488,27 +549,32 @@ export async function getBusinessUsageInvoices(c: Context) {
   });
   if (!business) return successResponse(c, { invoices: [] });
 
-  const invoices = await prisma.businessUsageInvoice.findMany({
-    where: { businessId: business.id },
-    orderBy: [{ billingMonth: "desc" }, { issuedAt: "desc" }],
-    include: {
-      lineItems: { orderBy: { amountMicroUsd: "desc" } },
-      calls: {
-        select: {
-          installedAgentId: true,
-          durationMinutes: true,
-          billedCostMicroUsd: true,
-          usageLineItemsJson: true
+  const [invoices, agents, serviceRoles] = await Promise.all([
+    prisma.businessUsageInvoice.findMany({
+      where: { businessId: business.id },
+      orderBy: [{ billingMonth: "desc" }, { issuedAt: "desc" }],
+      include: {
+        lineItems: { orderBy: { amountMicroUsd: "desc" } },
+        calls: {
+          select: {
+            installedAgentId: true,
+            durationMinutes: true,
+            billedCostMicroUsd: true,
+            usageLineItemsJson: true
+          }
         }
       }
-    }
-  });
-  const agents = await prisma.installedAgent.findMany({
-    where: { businessId: business.id },
-    select: { id: true, name: true }
-  });
+    }),
+    prisma.installedAgent.findMany({
+      where: { businessId: business.id },
+      select: { id: true, name: true }
+    }),
+    loadServiceRoles()
+  ]);
   const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
-  return successResponse(c, { invoices: invoices.map((invoice) => serializeUsageInvoice(invoice, agentNames)) });
+  return successResponse(c, {
+    invoices: invoices.map((invoice) => serializeUsageInvoice(invoice, agentNames, serviceRoles))
+  });
 }
 
 export async function payBusinessUsageInvoice(c: Context) {

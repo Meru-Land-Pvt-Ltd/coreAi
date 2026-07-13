@@ -1,6 +1,8 @@
 import type { Route } from "next";
 
 export const HOME_PATH = "/" as Route;
+export const BUSINESS_ONBOARDING_PATH = "/business/onboarding" as Route;
+export const BUSINESS_DASHBOARD_PATH = "/business/dashboard" as Route;
 export const BUSINESS_MARKETPLACE_PATH = "/business/marketplace" as Route;
 export const BUSINESS_MARKETPLACE_PUBLIC_PATH = "/marketplace" as Route;
 export const BUSINESS_CHECKOUT_PATH = "/business/checkout" as Route;

@@ -53,6 +53,7 @@ import {
   sumInvoiceTotalCents
 } from "../../lib/billing-invoices";
 import { businessSettingsRoutes } from "./settings-routes";
+import { businessOnboardingRoutes } from "./onboarding-routes";
 
 export const businessRoutes = new Hono();
 
@@ -92,6 +93,7 @@ businessRoutes.get("/billing/usage", getBusinessUsageBill);
 businessRoutes.get("/billing/usage-invoices", getBusinessUsageInvoices);
 businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessUsageInvoice);
 businessRoutes.route("/settings", businessSettingsRoutes);
+businessRoutes.route("/onboarding", businessOnboardingRoutes);
 
 /** First moment of the current calendar month (UTC). */
 function currentMonthStart(): Date {

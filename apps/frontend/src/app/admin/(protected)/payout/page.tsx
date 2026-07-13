@@ -346,7 +346,11 @@ function PayoutDetailsModal({
               <p className="mt-2 font-semibold text-slate-900">{sale.architect.payoutMethod.bankName}</p>
               <p className="text-slate-600">{sale.architect.payoutMethod.accountHolderName}</p>
               <p className="font-mono text-xs text-slate-500">Account •••• {sale.architect.payoutMethod.accountLast4}</p>
-              <p className="font-mono text-xs text-slate-500">IFSC {sale.architect.payoutMethod.ifscCode}</p>
+              {sale.architect.payoutMethod.routingLast4 ? (
+                <p className="font-mono text-xs text-slate-500">
+                  {sale.architect.payoutMethod.routingLabel} •••• {sale.architect.payoutMethod.routingLast4}
+                </p>
+              ) : null}
             </div>
           ) : (
             <p className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-800">

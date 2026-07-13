@@ -59,6 +59,7 @@ model ArchitectProfile {
   completedJobs    Int             @default(0)
   notificationPrefs Json?
   privacyPrefs     Json?
+  payoutSchedule   Json?
   agentsPaused     Boolean         @default(false)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -262,6 +263,9 @@ model BusinessProfile {
   bookingUrl        String?
   teamPhone         String?
   businessSize      String?
+  onboardingCompletedAt DateTime?
+  onboardingSkippedAt   DateTime?
+  onboardingDataJson    Json?
   hoursJson         Json?
   tone              String   @default("friendly")
   escalationRules   String?
@@ -585,27 +589,43 @@ model Country {
 }
 
 model ArchitectPayoutMethod {
-  id                String   @id @default(cuid())
-  architectUserId   String   @unique
-  bankName          String
-  accountHolderName String
-  accountNumber     String
-  ifscCode          String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  architect         User     @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  id                      String   @id @default(cuid())
+  architectUserId         String   @unique
+  bankName                String?
+  accountHolderName       String?
+  accountNumber           String?  // Legacy only. New Stripe Connect methods never store a full account number.
+  ifscCode                String?  // Legacy only. Stripe collects IFSC/ABA routing details directly.
+  country                 String   @default("IN")
+  currency                String   @default("inr")
+  accountLast4            String?
+  routingLast4            String?
+  stripeAccountId         String?  @unique
+  stripeExternalAccountId String?
+  verificationStatus      String   @default("PENDING")
+  payoutsEnabled          Boolean  @default(false)
+  detailsSubmitted        Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  architect               User     @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
-  @@index([ifscCode])
+  @@index([country])
+  @@index([verificationStatus])
 }
 
 model ArchitectPayout {
-  id              String                @id @default(cuid())
-  architectUserId String
-  amountCents     Int
-  status          ArchitectPayoutStatus @default(COMPLETED)
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  architect       User                  @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  id               String                @id @default(cuid())
+  architectUserId  String
+  amountCents      Int
+  currency         String                @default("usd")
+  status           ArchitectPayoutStatus @default(PENDING)
+  stripeTransferId String?               @unique
+  stripePayoutId   String?               @unique
+  arrivalDate      DateTime?
+  failureCode      String?
+  failureMessage   String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  architect        User                  @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
   @@index([status])

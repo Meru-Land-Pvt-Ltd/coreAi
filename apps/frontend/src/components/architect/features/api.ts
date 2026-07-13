@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
+import { apiClient, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
 import type { AgentConfigureData, AgentMarketplacePreview } from "@coreai/shared";
 import type {
   ArchitectListing,
@@ -243,7 +243,15 @@ export type ArchitectPayoutMethod = {
   bankName: string;
   accountHolderName: string;
   accountLast4: string;
-  ifscCode: string;
+  country: "US" | "IN";
+  currency: string;
+  routingLabel: "IFSC" | "ABA routing number";
+  routingLast4: string | null;
+  verificationStatus: "REQUIRES_ACTION" | "PENDING" | "VERIFIED" | "FAILED" | string;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  requiresAction: boolean;
+  stripeConnected: boolean;
   createdAt: string;
   verified: boolean;
 };
@@ -336,6 +344,16 @@ export function getArchitectPayoutEarnings(listingIds?: string[]) {
   }>(`/architect/payouts/earnings${query}`);
 }
 
+export function startArchitectStripeOnboarding(body: {
+  country: "US" | "IN";
+  accountHolderName: string;
+}) {
+  return apiPost<{ url: string; expiresAt: string; stripeAccountId: string }>(
+    "/architect/payouts/connect/onboarding",
+    body
+  );
+}
+
 export function verifyArchitectIfsc(ifscCode: string) {
   return apiGet<{
     valid: boolean;
@@ -348,13 +366,25 @@ export function verifyArchitectIfsc(ifscCode: string) {
 }
 
 export function saveArchitectPayoutMethod(body: {
+  country: "US" | "IN";
   bankName: string;
   accountHolderName: string;
   accountNumber: string;
   confirmAccountNumber: string;
-  ifscCode: string;
+  routingNumber: string;
 }) {
   return apiPut<{ payoutMethod: ArchitectPayoutMethod }>("/architect/payouts/method", body);
+}
+
+export function refreshArchitectStripeOnboarding() {
+  return apiPost<{ url: string }>("/architect/payouts/connect/refresh", {});
+}
+
+export function syncArchitectStripePayoutMethod() {
+  return apiPost<{ payoutMethod: ArchitectPayoutMethod | null }>(
+    "/architect/payouts/method/sync",
+    {}
+  );
 }
 
 export function getArchitectPayoutTransactions(params?: {
@@ -754,12 +784,16 @@ export type ArchitectSettingsPayload = {
     payoutMethod: {
       bankName: string;
       accountLast4: string;
-      ifscCode: string;
+      country: "US" | "IN";
+      routingLabel: "IFSC" | "ABA routing number";
+      routingLast4: string | null;
+      verificationStatus: string;
       verified: boolean;
     } | null;
     architectSharePercent: number;
     lastPayoutAt: string | null;
   };
+  payoutSchedule: ArchitectPayoutSchedule;
   danger: {
     obligations: {
       agents: ArchitectRefundAgent[];
@@ -810,6 +844,52 @@ export function saveArchitectSettingsStorefront(body: Partial<ArchitectSettingsS
 
 export function saveArchitectNotificationPrefs(body: Record<string, { email?: boolean; push?: boolean }>) {
   return apiPut<{ notifications: Record<string, unknown> }>("/architect/settings/notifications", body);
+}
+
+export type ArchitectPayoutSchedule = {
+  frequency: "Weekly" | "Bi-weekly" | "Monthly";
+  day: "1st" | "15th" | "Last day of month";
+  thresholdCents: number;
+};
+
+export function saveArchitectPayoutSchedule(body: ArchitectPayoutSchedule) {
+  return apiPut<{ payoutSchedule: ArchitectPayoutSchedule }>(
+    "/architect/settings/payouts/schedule",
+    body
+  );
+}
+
+/**
+ * Downloads the architect's data export as a ZIP (excludes agent source code
+ * and conversation logs). Triggers a browser download on success.
+ */
+export async function downloadArchitectDataExport(): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await apiClient.get("/architect/settings/data-export", {
+      responseType: "blob"
+    });
+
+    const blob = new Blob([response.data as BlobPart], { type: "application/zip" });
+    const disposition =
+      typeof response.headers?.["content-disposition"] === "string"
+        ? response.headers["content-disposition"]
+        : "";
+    const match = /filename="?([^"]+)"?/.exec(disposition);
+    const filename = match?.[1] ?? `triven-architect-data-${new Date().toISOString().slice(0, 10)}.zip`;
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+
+    return { success: true };
+  } catch {
+    return { success: false, error: "Could not export your data" };
+  }
 }
 
 export function saveArchitectPrivacyPrefs(body: Record<string, boolean>) {
