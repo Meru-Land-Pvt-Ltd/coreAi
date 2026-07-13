@@ -57,7 +57,7 @@ function toLangChainMessages(request: AIExecuteRequest) {
       messages.push(new HumanMessage(message.content));
     }
   }
-  for (const message of request.messages) {
+  for (const message of request.messages ?? []) {
     if (message.role === "system") {
       messages.push(new SystemMessage(message.content));
     } else if (message.role === "assistant") {
@@ -122,6 +122,7 @@ export async function executeWithLangChain(
 
     return {
       status: "success",
+      capability: "llm",
       text: rawText,
       structuredOutput,
       attachments: [],
@@ -137,6 +138,7 @@ export async function executeWithLangChain(
   } catch (err) {
     return {
       status: "error",
+      capability: "llm",
       text: null,
       structuredOutput: null,
       attachments: [],
