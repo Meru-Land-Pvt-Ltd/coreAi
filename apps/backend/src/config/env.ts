@@ -40,12 +40,18 @@ const envSchema = z.object({
   TWILIO_TEST_MODE: booleanFromEnv.default(false),
   TWILIO_VALIDATE_SIGNATURE: booleanFromEnv.default(false),
 
+  // Only SES is supported; the literal guards against configuring a removed provider.
+  MAIL_PROVIDER: z.enum(["ses"]).default("ses"),
   SES_REGION: z.string().optional(),
   SES_FROM_DOMAIN: z.string().default("reply.triven.ai"),
   SES_MAIL_FROM_DOMAIN: z.string().default("bounce.reply.triven.ai"),
   SES_INBOUND_BUCKET: z.string().optional(),
   SES_INBOUND_TOPIC_ARN: z.string().optional(),
+  SES_EVENTS_TOPIC_ARN: z.string().optional(),
   SES_CONFIGURATION_SET: z.string().optional(),
+  // SNS signature verification — always enforced in production; this flag only
+  // allows unsigned test payloads in local development.
+  SES_SNS_VERIFY: booleanFromEnv.default(true),
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),

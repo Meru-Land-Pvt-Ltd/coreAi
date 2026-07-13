@@ -1,3 +1,4 @@
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import type { BusinessEmailAlias, EmailPurpose, EmailReplyHandlingMode, Prisma } from "@prisma/client";
 import { env } from "../../config/env";
@@ -16,13 +17,35 @@ export const RESERVED_LOCAL_PARTS = new Set([
   "billing",
   "sales",
   "hello",
+  "help",
+  "info",
+  "contact",
+  "mailer-daemon",
   "noreply",
   "no-reply",
-  "root"
+  "notifications",
+  "triven",
+  "root",
+  "system"
 ]);
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOCAL_PART_PATTERN = /^[a-z0-9](?:[a-z0-9.-]{0,48}[a-z0-9])?$/;
+
+class AliasTakenError extends Error {
+  constructor(localPart: string) {
+    super(`Alias "${localPart}" is already taken.`);
+    this.name = "AliasTakenError";
+  }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
 
 let sesClient: SESv2Client | null = null;
 
@@ -125,6 +148,8 @@ export async function createOrUpdateBusinessEmailAlias(input: {
   displayName: string;
   forwardToEmail?: string | null;
   replyHandlingMode?: EmailReplyHandlingMode;
+  customerConfirmationEnabled?: boolean;
+  internalSummaryEnabled?: boolean;
 }): Promise<{ ok: true; alias: BusinessEmailAlias } | { ok: false; error: string }> {
   const localPart = normalizeEmailAliasLocalPart(input.localPart);
   const issue = validateLocalPart(localPart);
@@ -138,28 +163,54 @@ export async function createOrUpdateBusinessEmailAlias(input: {
     return { ok: false, error: "Forward-to email must be a valid email address." };
   }
 
-  if (!(await isLocalPartAvailable(localPart, input.businessId))) {
-    return { ok: false, error: `"${localPart}" is already taken — pick a different alias.` };
-  }
-
-  const existing = await getBusinessEmailAlias(input.businessId);
-  const data = {
-    localPart,
-    domain: env.SES_FROM_DOMAIN,
-    emailAddress: aliasEmailAddress(localPart),
-    displayName,
-    forwardToEmail,
-    replyHandlingMode: input.replyHandlingMode ?? "TRIVEN_AND_FORWARD",
-    status: "ACTIVE" as const,
-    installedAgentId: input.installedAgentId ?? existing?.installedAgentId ?? null,
-    lastError: null
-  };
-
-  const alias = existing
-    ? await prisma.businessEmailAlias.update({ where: { id: existing.id }, data })
-    : await prisma.businessEmailAlias.create({
-        data: { ...data, businessId: input.businessId, buyerUserId: input.buyerUserId }
+  // Availability re-check and the claim run inside one transaction; the unique
+  // constraint on emailAddress is the final arbiter for concurrent claims.
+  let alias: BusinessEmailAlias;
+  let existing: BusinessEmailAlias | null;
+  try {
+    [existing, alias] = await prisma.$transaction(async (tx) => {
+      const taken = await tx.businessEmailAlias.findUnique({
+        where: { emailAddress: aliasEmailAddress(localPart) },
+        select: { businessId: true }
       });
+      if (taken && taken.businessId !== input.businessId) {
+        throw new AliasTakenError(localPart);
+      }
+
+      const current = await tx.businessEmailAlias.findFirst({
+        where: { businessId: input.businessId, status: { not: "ARCHIVED" } },
+        orderBy: { createdAt: "desc" }
+      });
+
+      const data = {
+        localPart,
+        domain: env.SES_FROM_DOMAIN,
+        emailAddress: aliasEmailAddress(localPart),
+        displayName,
+        forwardToEmail,
+        replyHandlingMode: input.replyHandlingMode ?? ("TRIVEN_AND_FORWARD" as const),
+        customerConfirmationEnabled:
+          input.customerConfirmationEnabled ?? current?.customerConfirmationEnabled ?? true,
+        internalSummaryEnabled: input.internalSummaryEnabled ?? current?.internalSummaryEnabled ?? true,
+        status: "ACTIVE" as const,
+        installedAgentId: input.installedAgentId ?? current?.installedAgentId ?? null,
+        lastError: null
+      };
+
+      const saved = current
+        ? await tx.businessEmailAlias.update({ where: { id: current.id }, data })
+        : await tx.businessEmailAlias.create({
+            data: { ...data, businessId: input.businessId, buyerUserId: input.buyerUserId }
+          });
+
+      return [current, saved] as const;
+    });
+  } catch (error) {
+    if (error instanceof AliasTakenError || isUniqueViolation(error)) {
+      return { ok: false, error: `"${localPart}" is already taken — pick a different alias.` };
+    }
+    throw error;
+  }
 
   // Audit trail for alias changes (identifiers only — never credentials).
   if (existing && existing.emailAddress !== alias.emailAddress) {
@@ -175,13 +226,36 @@ export async function createOrUpdateBusinessEmailAlias(input: {
 
 /* --------------------------------- outbound -------------------------------- */
 
-/** Recipient previously bounced or complained → suppressed. */
+/** Recipient on the suppression list, or previously bounced/complained. */
 export async function isEmailSuppressed(toEmail: string): Promise<boolean> {
+  const email = toEmail.toLowerCase();
+
+  const entry = await prisma.emailSuppression.findUnique({
+    where: { emailAddress: email },
+    select: { active: true }
+  });
+  if (entry) return entry.active;
+
+  // Legacy fallback: messages marked before the suppression table existed.
   const suppressed = await prisma.emailMessage.findFirst({
-    where: { toEmail: toEmail.toLowerCase(), status: { in: ["BOUNCED", "COMPLAINED"] } },
+    where: { toEmail: email, status: { in: ["BOUNCED", "COMPLAINED"] } },
     select: { id: true }
   });
   return Boolean(suppressed);
+}
+
+/** Add (or re-activate) a suppression entry. Reason is stored for admin review. */
+export async function addEmailSuppression(
+  emailAddress: string,
+  reason: string,
+  source = "SES"
+): Promise<void> {
+  const email = emailAddress.toLowerCase();
+  await prisma.emailSuppression.upsert({
+    where: { emailAddress: email },
+    update: { active: true, reason: reason.slice(0, 500), source },
+    create: { emailAddress: email, reason: reason.slice(0, 500), source }
+  });
 }
 
 async function isRateLimited(businessId: string): Promise<boolean> {
@@ -195,6 +269,8 @@ async function isRateLimited(businessId: string): Promise<boolean> {
 export type SendBusinessEmailInput = {
   businessId: string;
   to: string;
+  cc?: string[] | null;
+  bcc?: string[] | null;
   subject: string;
   textBody: string;
   htmlBody?: string;
@@ -202,56 +278,149 @@ export type SendBusinessEmailInput = {
   installedAgentId?: string | null;
   threadKey?: string | null;
   inReplyTo?: string | null;
+  /** Stable dedupe key (e.g. "booking_confirmation:<callId>") — a repeat send with the same key is a no-op. */
+  idempotencyKey?: string | null;
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * Normalize a cc/bcc list: trim + lowercase, drop invalid entries, dedupe, and
+ * remove overlap with earlier recipient tiers (to > cc > bcc). Suppressed
+ * recipients are filtered out (the primary recipient blocks the send instead).
+ */
+async function normalizeSecondaryRecipients(
+  raw: string[] | null | undefined,
+  exclude: Set<string>
+): Promise<string[]> {
+  const result: string[] = [];
+  for (const entry of raw ?? []) {
+    const email = entry.trim().toLowerCase();
+    if (!email || !isValidEmailAddress(email) || exclude.has(email)) continue;
+    if (await isEmailSuppressed(email)) {
+      console.log(`[email] dropped suppressed cc/bcc recipient ${email}`);
+      continue;
+    }
+    exclude.add(email);
+    result.push(email);
+  }
+  return result;
+}
+
 export type SendBusinessEmailResult =
-  | { ok: true; messageId: string; dryRun: boolean }
+  | { ok: true; messageId: string; dryRun: boolean; duplicate?: boolean }
   | { ok: false; error: string };
 
 /**
  * Send one transactional email from the business's proxy alias. Every attempt
  * (sent, dry-run, or failed) is stored as an EmailMessage row.
  */
+/** Sentinel recipient resolved to the alias's forward-to (buyer team) address. */
+export const TEAM_RECIPIENT = "__team__";
+
 export async function sendBusinessEmail(input: SendBusinessEmailInput): Promise<SendBusinessEmailResult> {
   const alias = await getBusinessEmailAlias(input.businessId);
   if (!alias || alias.status !== "ACTIVE") {
     return { ok: false, error: "No active email alias — complete Mail Setup first." };
   }
 
-  const to = input.to.trim().toLowerCase();
+  const requestedTo = input.to.trim();
+  if (requestedTo === TEAM_RECIPIENT && !alias.forwardToEmail) {
+    return { ok: false, error: "No forward-to email configured for team notifications." };
+  }
+  const to = (requestedTo === TEAM_RECIPIENT ? (alias.forwardToEmail as string) : requestedTo).toLowerCase();
   if (!isValidEmailAddress(to)) return { ok: false, error: `Invalid recipient email: ${input.to}` };
+
+  const idempotencyKey = input.idempotencyKey?.trim() || null;
+  // A FAILED record with the same key is a retry candidate (queue backoff);
+  // anything else means the message was already handled.
+  let retryRecordId: string | null = null;
+  if (idempotencyKey) {
+    const existing = await prisma.emailMessage.findUnique({
+      where: { idempotencyKey },
+      select: { id: true, status: true }
+    });
+    if (existing && existing.status !== "FAILED") {
+      return { ok: true, messageId: existing.id, dryRun: false, duplicate: true };
+    }
+    retryRecordId = existing?.id ?? null;
+  }
+
+  const fromDisplay = `${alias.displayName} via Triven`;
+  const fromEmail = alias.emailAddress;
+
   if (await isEmailSuppressed(to)) {
+    // Record the blocked attempt so it is visible in admin/dashboards.
+    try {
+      await prisma.emailMessage.create({
+        data: {
+          businessId: input.businessId,
+          installedAgentId: input.installedAgentId ?? alias.installedAgentId,
+          aliasId: alias.id,
+          direction: "OUTBOUND",
+          fromEmail,
+          toEmail: to,
+          replyToEmail: fromEmail,
+          subject: input.subject.slice(0, 500),
+          status: "SUPPRESSED",
+          purpose: input.purpose,
+          idempotencyKey,
+          metadata: { ...(input.metadata ?? {}), suppressed: true } as never
+        }
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
     return { ok: false, error: `Recipient ${to} is suppressed after a bounce/complaint.` };
   }
   if (await isRateLimited(input.businessId)) {
     return { ok: false, error: "Email rate limit reached for this business — try again later." };
   }
 
-  const fromDisplay = `${alias.displayName} via Triven`;
-  const fromEmail = alias.emailAddress;
   const configured = isSesConfigured();
   const dryRun = !configured;
 
-  const record = await prisma.emailMessage.create({
-    data: {
-      businessId: input.businessId,
-      installedAgentId: input.installedAgentId ?? alias.installedAgentId,
-      aliasId: alias.id,
-      direction: "OUTBOUND",
-      fromEmail,
-      toEmail: to,
-      replyToEmail: fromEmail,
-      subject: input.subject.slice(0, 500),
-      textBody: input.textBody.slice(0, MAX_BODY_LENGTH),
-      htmlBody: input.htmlBody?.slice(0, MAX_BODY_LENGTH) ?? null,
-      status: "QUEUED",
-      purpose: input.purpose,
-      threadKey: input.threadKey ?? null,
-      inReplyTo: input.inReplyTo ?? null,
-      metadata: ({ ...(input.metadata ?? {}), fromDisplay, ...(dryRun ? { dryRun: true } : {}) }) as never
+  // to > cc > bcc precedence; overlapping addresses stay in the highest tier.
+  const seen = new Set<string>([to]);
+  const ccEmails = await normalizeSecondaryRecipients(input.cc, seen);
+  const bccEmails = await normalizeSecondaryRecipients(input.bcc, seen);
+
+  const recordData = {
+    businessId: input.businessId,
+    installedAgentId: input.installedAgentId ?? alias.installedAgentId,
+    aliasId: alias.id,
+    direction: "OUTBOUND" as const,
+    fromEmail,
+    toEmail: to,
+    ccEmails,
+    bccEmails,
+    replyToEmail: fromEmail,
+    subject: input.subject.slice(0, 500),
+    textBody: input.textBody.slice(0, MAX_BODY_LENGTH),
+    htmlBody: input.htmlBody?.slice(0, MAX_BODY_LENGTH) ?? null,
+    status: "QUEUED" as const,
+    purpose: input.purpose,
+    threadKey: input.threadKey ?? null,
+    inReplyTo: input.inReplyTo ?? null,
+    idempotencyKey,
+    metadata: ({ ...(input.metadata ?? {}), fromDisplay, ...(dryRun ? { dryRun: true } : {}) }) as never
+  };
+
+  let record: { id: string };
+  try {
+    record = retryRecordId
+      ? await prisma.emailMessage.update({ where: { id: retryRecordId }, data: recordData })
+      : await prisma.emailMessage.create({ data: recordData });
+  } catch (error) {
+    // Concurrent duplicate with the same idempotency key lost the race — treat as already sent.
+    if (idempotencyKey && isUniqueViolation(error)) {
+      const winner = await prisma.emailMessage.findUnique({
+        where: { idempotencyKey },
+        select: { id: true }
+      });
+      if (winner) return { ok: true, messageId: winner.id, dryRun: false, duplicate: true };
     }
-  });
+    throw error;
+  }
 
   if (dryRun) {
     if (env.NODE_ENV === "production" && !env.SES_DRY_RUN) {
@@ -273,7 +442,11 @@ export async function sendBusinessEmail(input: SendBusinessEmailInput): Promise<
   try {
     const command = new SendEmailCommand({
       FromEmailAddress: `${fromDisplay} <${fromEmail}>`,
-      Destination: { ToAddresses: [to] },
+      Destination: {
+        ToAddresses: [to],
+        ...(ccEmails.length ? { CcAddresses: ccEmails } : {}),
+        ...(bccEmails.length ? { BccAddresses: bccEmails } : {})
+      },
       ReplyToAddresses: [fromEmail],
       ...(env.SES_CONFIGURATION_SET ? { ConfigurationSetName: env.SES_CONFIGURATION_SET } : {}),
       Content: {
@@ -317,7 +490,13 @@ export async function sendCustomerFollowUpEmail(input: {
   serviceName?: string | null;
   extraNotes?: string | null;
   purpose?: Extract<EmailPurpose, "BOOKING_CONFIRMATION" | "CUSTOMER_FOLLOW_UP">;
+  idempotencyKey?: string | null;
 }): Promise<SendBusinessEmailResult> {
+  const alias = await getBusinessEmailAlias(input.businessId);
+  if (alias && !alias.customerConfirmationEnabled) {
+    return { ok: false, error: "Customer email confirmations are disabled in Mail Setup." };
+  }
+
   const purpose = input.purpose ?? (input.appointmentTime ? "BOOKING_CONFIRMATION" : "CUSTOMER_FOLLOW_UP");
   const greeting = input.customerName?.trim() ? `Hi ${input.customerName.trim()},` : "Hi,";
 
@@ -342,7 +521,8 @@ export async function sendCustomerFollowUpEmail(input: {
     to: input.customerEmail,
     subject,
     textBody: lines.join("\n"),
-    purpose
+    purpose,
+    idempotencyKey: input.idempotencyKey
   });
 }
 
@@ -352,6 +532,7 @@ export async function sendInternalNotificationEmail(input: {
   businessName: string;
   subjectSuffix?: string;
   purpose?: Extract<EmailPurpose, "INTERNAL_NOTIFICATION" | "CALL_SUMMARY">;
+  idempotencyKey?: string | null;
   fields: {
     caller?: string | null;
     phone?: string | null;
@@ -364,6 +545,9 @@ export async function sendInternalNotificationEmail(input: {
   const alias = await getBusinessEmailAlias(input.businessId);
   if (!alias?.forwardToEmail) {
     return { ok: false, error: "No forward-to email configured for internal notifications." };
+  }
+  if (!alias.internalSummaryEnabled) {
+    return { ok: false, error: "Internal summary emails are disabled in Mail Setup." };
   }
 
   const purpose = input.purpose ?? "CALL_SUMMARY";
@@ -386,7 +570,8 @@ export async function sendInternalNotificationEmail(input: {
     to: alias.forwardToEmail,
     subject,
     textBody,
-    purpose
+    purpose,
+    idempotencyKey: input.idempotencyKey
   });
 }
 
@@ -487,6 +672,50 @@ export async function routeInboundEmailToBusiness(input: InboundEmailInput): Pro
   return { routed: true, businessId: alias.businessId, forwarded, messageId: stored.id };
 }
 
+const MAX_INBOUND_RAW_BYTES = 2 * 1024 * 1024;
+
+let s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+  if (!s3Client) {
+    s3Client = new S3Client({
+      region: env.SES_REGION ?? env.AWS_REGION,
+      credentials: {
+        accessKeyId: env.AWS_ACCESS_KEY_ID as string,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string
+      }
+    });
+  }
+  return s3Client;
+}
+
+/**
+ * Fetch the raw MIME stored by the SES receipt rule. Only the configured
+ * inbound bucket is ever read — a spoofed bucket name in the payload is refused.
+ */
+async function fetchInboundRawFromS3(bucketName: string, objectKey: string): Promise<string | null> {
+  if (!env.SES_INBOUND_BUCKET || bucketName !== env.SES_INBOUND_BUCKET) {
+    console.warn(`[email] refused S3 fetch from unexpected bucket "${bucketName}"`);
+    return null;
+  }
+  if (!objectKey || objectKey.includes("..") || objectKey.startsWith("/")) {
+    console.warn(`[email] refused suspicious S3 object key`);
+    return null;
+  }
+  if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) return null;
+
+  try {
+    const response = await getS3Client().send(
+      new GetObjectCommand({ Bucket: bucketName, Key: objectKey, Range: `bytes=0-${MAX_INBOUND_RAW_BYTES - 1}` })
+    );
+    const raw = await response.Body?.transformToString("utf-8");
+    return raw ?? null;
+  } catch (error) {
+    console.error(`[email] S3 inbound fetch failed: ${error instanceof Error ? error.message : "unknown"}`);
+    return null;
+  }
+}
+
 /** Very light text extraction from a raw MIME body (best effort, no attachments). */
 function extractTextFromRawMime(raw: string): { text: string | null; html: string | null } {
   if (!raw.includes("Content-Type:")) return { text: raw.slice(0, MAX_BODY_LENGTH), html: null };
@@ -545,9 +774,36 @@ export async function handleSesInboundNotification(payload: unknown): Promise<In
         ? mail.source
         : "") || "unknown@unknown";
   const subject = typeof commonHeaders.subject === "string" ? commonHeaders.subject : "(no subject)";
-  const raw = typeof message.content === "string" ? message.content : null;
-  const bodies = raw ? extractTextFromRawMime(raw) : { text: null, html: null };
   const sesMessageId = typeof mail.messageId === "string" ? mail.messageId : null;
+
+  // Duplicate SNS delivery of the same inbound message → acknowledge, don't re-store.
+  if (sesMessageId) {
+    const already = await prisma.emailMessage.findFirst({
+      where: { sesMessageId, direction: "INBOUND" },
+      select: { id: true, businessId: true }
+    });
+    if (already) {
+      return [
+        already.businessId
+          ? { routed: true, businessId: already.businessId, forwarded: false, messageId: already.id }
+          : { routed: false, reason: "duplicate delivery", messageId: already.id }
+      ];
+    }
+  }
+
+  // Raw MIME: inline in the notification, or stored in S3 by the receipt rule.
+  let raw = typeof message.content === "string" ? message.content : null;
+  if (!raw) {
+    const action = (receipt.action ?? {}) as Record<string, unknown>;
+    if (
+      action.type === "S3" &&
+      typeof action.bucketName === "string" &&
+      typeof action.objectKey === "string"
+    ) {
+      raw = await fetchInboundRawFromS3(action.bucketName, action.objectKey);
+    }
+  }
+  const bodies = raw ? extractTextFromRawMime(raw.slice(0, MAX_INBOUND_RAW_BYTES)) : { text: null, html: null };
 
   if (recipientList.length === 0) return [{ routed: false, reason: "no recipients in payload" }];
 
@@ -567,6 +823,29 @@ export async function handleSesInboundNotification(payload: unknown): Promise<In
   return results;
 }
 
+/**
+ * Cross-endpoint event dedupe: the same SES event can arrive via both the
+ * configuration-set topic (/ses/events) and the legacy identity topic
+ * (/ses/bounce-complaint). All DB writes are idempotent regardless; this cache
+ * just skips the duplicate work inside the delivery window.
+ */
+const RECENT_EVENT_KEYS = new Map<string, number>();
+const EVENT_DEDUPE_TTL_MS = 15 * 60 * 1000;
+
+function isDuplicateEvent(type: string, sesMessageId: string | null): boolean {
+  if (!sesMessageId) return false;
+  const key = `${type}:${sesMessageId}`;
+  const now = Date.now();
+  if (RECENT_EVENT_KEYS.size > 2000) {
+    for (const [cached, at] of RECENT_EVENT_KEYS) {
+      if (now - at > EVENT_DEDUPE_TTL_MS) RECENT_EVENT_KEYS.delete(cached);
+    }
+  }
+  const seen = RECENT_EVENT_KEYS.get(key);
+  RECENT_EVENT_KEYS.set(key, now);
+  return Boolean(seen && now - seen < EVENT_DEDUPE_TTL_MS);
+}
+
 /** Handle SES bounce/complaint events — marks messages and feeds the suppression list. */
 export async function handleSesBounceComplaintNotification(
   payload: unknown
@@ -578,10 +857,20 @@ export async function handleSesBounceComplaintNotification(
   if (type !== "bounce" && type !== "complaint") return { handled: false, updated: 0 };
 
   const status = type === "bounce" ? ("BOUNCED" as const) : ("COMPLAINED" as const);
+  const now = new Date();
+  const timestamps = type === "bounce" ? { bouncedAt: now } : { complainedAt: now };
   const mail = (message.mail ?? {}) as Record<string, unknown>;
   const sesMessageId = typeof mail.messageId === "string" ? mail.messageId : null;
 
+  if (isDuplicateEvent(type, sesMessageId)) {
+    return { handled: true, type, updated: 0 };
+  }
+
   const detail = (message.bounce ?? message.complaint ?? {}) as Record<string, unknown>;
+  // Transient bounces (mailbox full, greylisting) do NOT suppress the recipient.
+  const bounceType = typeof detail.bounceType === "string" ? detail.bounceType.toLowerCase() : null;
+  const isPermanent = type === "complaint" || bounceType === "permanent" || bounceType === "undetermined";
+
   const recipientEntries = (detail.bouncedRecipients ?? detail.complainedRecipients ?? []) as Array<
     Record<string, unknown>
   >;
@@ -593,17 +882,85 @@ export async function handleSesBounceComplaintNotification(
 
   let updated = 0;
   if (sesMessageId) {
-    const byId = await prisma.emailMessage.updateMany({ where: { sesMessageId }, data: { status } });
+    const byId = await prisma.emailMessage.updateMany({
+      where: { sesMessageId },
+      data: { status, ...timestamps }
+    });
     updated += byId.count;
   }
   for (const recipient of recipients) {
     const byRecipient = await prisma.emailMessage.updateMany({
       where: { toEmail: recipient, direction: "OUTBOUND", status: "SENT" },
-      data: { status }
+      data: { status, ...timestamps }
     });
     updated += byRecipient.count;
+
+    if (isPermanent) {
+      const reason =
+        type === "complaint"
+          ? "Recipient complained (marked as spam)"
+          : `Permanent bounce${typeof detail.bounceSubType === "string" ? ` (${detail.bounceSubType})` : ""}`;
+      await addEmailSuppression(recipient, reason, "SES");
+    }
   }
 
-  console.log(`[email] SES ${type}: ${recipients.join(", ") || sesMessageId || "unknown"} (${updated} message(s) marked)`);
+  console.log(
+    `[email] SES ${type}${bounceType ? `/${bounceType}` : ""}: ${recipients.join(", ") || sesMessageId || "unknown"} (${updated} message(s) marked${isPermanent ? ", suppressed" : ""})`
+  );
+  return { handled: true, type, updated };
+}
+
+/**
+ * Configuration-set delivery events (SES_EVENTS_TOPIC_ARN): Send, Delivery,
+ * Bounce, Complaint, Reject, RenderingFailure. Bounce/complaint delegate to
+ * the handler above so suppression stays in one place.
+ */
+export async function handleSesDeliveryEventNotification(
+  payload: unknown
+): Promise<{ handled: boolean; type?: string; updated: number }> {
+  const message = unwrapSnsEnvelope(payload);
+  if (!message) return { handled: false, updated: 0 };
+
+  const type = String(message.eventType ?? message.notificationType ?? "").toLowerCase();
+  if (!type) return { handled: false, updated: 0 };
+
+  if (type === "bounce" || type === "complaint") {
+    return handleSesBounceComplaintNotification(payload);
+  }
+
+  const mail = (message.mail ?? {}) as Record<string, unknown>;
+  const sesMessageId = typeof mail.messageId === "string" ? mail.messageId : null;
+  if (!sesMessageId) return { handled: false, type, updated: 0 };
+  if (isDuplicateEvent(type, sesMessageId)) return { handled: true, type, updated: 0 };
+
+  let updated = 0;
+
+  if (type === "delivery") {
+    const result = await prisma.emailMessage.updateMany({
+      where: { sesMessageId, status: { in: ["QUEUED", "SENT"] } },
+      data: { status: "DELIVERED", deliveredAt: new Date() }
+    });
+    updated = result.count;
+  } else if (type === "reject") {
+    const result = await prisma.emailMessage.updateMany({
+      where: { sesMessageId },
+      data: { status: "REJECTED" }
+    });
+    updated = result.count;
+  } else if (type === "renderingfailure" || type === "rendering failure") {
+    const result = await prisma.emailMessage.updateMany({
+      where: { sesMessageId },
+      data: { status: "FAILED" }
+    });
+    updated = result.count;
+  } else if (type === "send") {
+    // Send is informational; the row is already SENT from the API call.
+    return { handled: true, type, updated: 0 };
+  } else {
+    // DeliveryDelay, Open, Click, Subscription — acknowledged, not tracked.
+    return { handled: true, type, updated: 0 };
+  }
+
+  console.log(`[email] SES event ${type}: ${sesMessageId} (${updated} message(s) updated)`);
   return { handled: true, type, updated };
 }

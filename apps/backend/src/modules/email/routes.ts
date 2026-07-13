@@ -1,14 +1,16 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
   handleSesBounceComplaintNotification,
+  handleSesDeliveryEventNotification,
   handleSesInboundNotification
 } from "./ses-mail-service";
+import { asSnsEnvelope, isTrustedAwsSnsUrl, verifySnsMessage } from "./sns-verify";
 
 export const emailRoutes = new Hono();
 
-async function readSnsPayload(c: { req: { json: () => Promise<unknown>; text: () => Promise<string> } }): Promise<unknown> {
+async function readSnsPayload(c: Context): Promise<unknown> {
   try {
     return await c.req.json();
   } catch {
@@ -21,20 +23,36 @@ async function readSnsPayload(c: { req: { json: () => Promise<unknown>; text: ()
   }
 }
 
-function topicAllowed(payload: unknown): boolean {
-  if (!env.SES_INBOUND_TOPIC_ARN) return true;
-  if (typeof payload !== "object" || payload === null) return true;
-  const topicArn = (payload as Record<string, unknown>).TopicArn;
-  return typeof topicArn !== "string" || topicArn === env.SES_INBOUND_TOPIC_ARN;
+/**
+ * Strict topic allowlist. In production the expected ARN must be configured
+ * and match; anything else is rejected (no fail-open).
+ */
+function topicAllowed(payload: unknown, expectedArns: Array<string | undefined>): boolean {
+  const allowed = expectedArns.filter((arn): arn is string => Boolean(arn));
+  const claimed =
+    typeof payload === "object" && payload !== null
+      ? (payload as Record<string, unknown>).TopicArn
+      : undefined;
+
+  if (allowed.length === 0) {
+    // No ARNs configured: never acceptable in production.
+    return env.NODE_ENV !== "production";
+  }
+  return typeof claimed === "string" && allowed.includes(claimed);
 }
 
-/** Auto-confirm SNS topic subscriptions so AWS can start delivering. */
+/** Confirm SNS topic subscriptions — only ever fetches AWS SNS URLs. */
 async function maybeConfirmSubscription(payload: unknown): Promise<boolean> {
-  if (typeof payload !== "object" || payload === null) return false;
-  const record = payload as Record<string, unknown>;
-  if (record.Type !== "SubscriptionConfirmation" || typeof record.SubscribeURL !== "string") return false;
+  const message = asSnsEnvelope(payload);
+  if (!message || message.Type !== "SubscriptionConfirmation") return false;
+
+  if (!isTrustedAwsSnsUrl(message.SubscribeURL)) {
+    console.warn("[email] SNS SubscriptionConfirmation with untrusted SubscribeURL — ignored");
+    return true; // handled (rejected), don't process further
+  }
+
   try {
-    await fetch(record.SubscribeURL);
+    await fetch(message.SubscribeURL as string, { signal: AbortSignal.timeout(10_000) });
     console.log("[email] SNS subscription confirmed");
   } catch (error) {
     console.error(`[email] SNS subscription confirmation failed: ${(error as Error).message}`);
@@ -42,22 +60,45 @@ async function maybeConfirmSubscription(payload: unknown): Promise<boolean> {
   return true;
 }
 
-emailRoutes.post("/ses/inbound", async (c) => {
-  const payload = await readSnsPayload(c);
-  if (!payload) return errorResponse(c, "Invalid payload", 400, "INVALID_PAYLOAD");
-  if (!topicAllowed(payload)) return errorResponse(c, "Unknown topic", 403, "TOPIC_MISMATCH");
-  if (await maybeConfirmSubscription(payload)) return successResponse(c, { confirmed: true });
+type SnsHandler = (payload: unknown) => Promise<unknown>;
 
-  const results = await handleSesInboundNotification(payload);
-  return successResponse(c, { results });
-});
+function snsRoute(expectedArns: () => Array<string | undefined>, handler: SnsHandler) {
+  return async (c: Context) => {
+    const payload = await readSnsPayload(c);
+    if (!payload) return errorResponse(c, "Invalid payload", 400, "INVALID_PAYLOAD");
 
-emailRoutes.post("/ses/bounce-complaint", async (c) => {
-  const payload = await readSnsPayload(c);
-  if (!payload) return errorResponse(c, "Invalid payload", 400, "INVALID_PAYLOAD");
-  if (!topicAllowed(payload)) return errorResponse(c, "Unknown topic", 403, "TOPIC_MISMATCH");
-  if (await maybeConfirmSubscription(payload)) return successResponse(c, { confirmed: true });
+    const verdict = await verifySnsMessage(payload);
+    if (!verdict.ok) {
+      console.warn(`[email] rejected SNS message: ${verdict.reason}`);
+      return errorResponse(c, "SNS verification failed", 403, "SNS_VERIFICATION_FAILED");
+    }
 
-  const result = await handleSesBounceComplaintNotification(payload);
-  return successResponse(c, result);
-});
+    if (!topicAllowed(payload, expectedArns())) {
+      return errorResponse(c, "Unknown topic", 403, "TOPIC_MISMATCH");
+    }
+    if (await maybeConfirmSubscription(payload)) return successResponse(c, { confirmed: true });
+
+    const result = await handler(payload);
+    return successResponse(c, { result });
+  };
+}
+
+emailRoutes.post(
+  "/ses/inbound",
+  snsRoute(() => [env.SES_INBOUND_TOPIC_ARN], (payload) => handleSesInboundNotification(payload))
+);
+
+// Configuration-set event destination (Send/Delivery/Bounce/Complaint/Reject/RenderingFailure).
+emailRoutes.post(
+  "/ses/events",
+  snsRoute(() => [env.SES_EVENTS_TOPIC_ARN], (payload) => handleSesDeliveryEventNotification(payload))
+);
+
+// Legacy identity-level bounce/complaint topic; kept for existing subscriptions.
+emailRoutes.post(
+  "/ses/bounce-complaint",
+  snsRoute(
+    () => [env.SES_EVENTS_TOPIC_ARN, env.SES_INBOUND_TOPIC_ARN],
+    (payload) => handleSesBounceComplaintNotification(payload)
+  )
+);

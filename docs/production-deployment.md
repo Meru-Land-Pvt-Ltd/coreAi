@@ -42,12 +42,12 @@ Boot-required: `DATABASE_URL`, `JWT_SECRET` (24+ chars), `ENCRYPTION_KEY` (24+ c
 | ElevenLabs | `ELEVENLABS_API_KEY` (voice preview only) |
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GMAIL_OAUTH_REDIRECT_URI=https://triven.ai/api/architect/connectors/gmail/callback` |
 | Stripe (if billing) | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY` |
-| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM_NAME` |
+| Email (AWS SES) | `MAIL_PROVIDER=ses`, `SES_REGION=us-east-1`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_NO_REPLY`/`SES_FROM_BILLING`/`SES_FROM_CONFIRM`/`SES_FROM_SUPPORT`, `SES_FROM_DOMAIN=reply.triven.ai`, `SES_MAIL_FROM_DOMAIN=bounce.reply.triven.ai`, `SES_CONFIGURATION_SET=triven-transactional`, `SES_INBOUND_BUCKET`, `SES_INBOUND_TOPIC_ARN`, `SES_EVENTS_TOPIC_ARN` — see `apps/backend/docs/mail-setup-ses.md` |
 | Optional | `REDIS_URL` (not used by code yet), Firebase admin vars |
 
 **Phone numbers are NOT env config.** `TWILIO_PHONE_NUMBER` is a legacy/dev fallback only — production numbers live in the `PlatformPhoneNumber` table (see `docs/platform-phone-numbers.md`). Production logic never requires an env phone number.
 
-**Rotate before production:** every secret that ever lived in a dev `.env` (Twilio token, Vapi key, ElevenLabs key, Google secret, JWT_SECRET, ENCRYPTION_KEY, SMTP, Stripe). AppleDouble `._.env` artifacts were committed to git history early on — treat all dev secrets as exposed. The frontend env must only contain `NEXT_PUBLIC_*` values (a stray `STRIPE_SECRET_KEY` was removed from `apps/frontend/.env.local`).
+**Rotate before production:** every secret that ever lived in a dev `.env` (Twilio token, Vapi key, ElevenLabs key, Google secret, JWT_SECRET, ENCRYPTION_KEY, AWS/SES, Stripe). AppleDouble `._.env` artifacts were committed to git history early on — treat all dev secrets as exposed. The frontend env must only contain `NEXT_PUBLIC_*` values (a stray `STRIPE_SECRET_KEY` was removed from `apps/frontend/.env.local`).
 
 ### Firebase Admin (service account) — security rules
 

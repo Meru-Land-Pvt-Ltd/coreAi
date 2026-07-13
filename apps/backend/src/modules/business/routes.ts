@@ -1095,7 +1095,9 @@ const mailSetupSchema = z.object({
   localPart: z.string().trim().min(1, "Email alias is required").max(50),
   displayName: z.string().trim().min(1, "Sender name is required").max(120),
   forwardToEmail: z.string().trim().optional().or(z.literal("")),
-  replyHandlingMode: z.enum(["TRIVEN_INBOX", "FORWARD_ONLY", "TRIVEN_AND_FORWARD"]).default("TRIVEN_AND_FORWARD")
+  replyHandlingMode: z.enum(["TRIVEN_INBOX", "FORWARD_ONLY", "TRIVEN_AND_FORWARD"]).default("TRIVEN_AND_FORWARD"),
+  customerConfirmationEnabled: z.boolean().optional(),
+  internalSummaryEnabled: z.boolean().optional()
 });
 
 function serializeAlias(alias: NonNullable<Awaited<ReturnType<typeof getBusinessEmailAlias>>>) {
@@ -1107,6 +1109,8 @@ function serializeAlias(alias: NonNullable<Awaited<ReturnType<typeof getBusiness
     displayName: alias.displayName,
     forwardToEmail: alias.forwardToEmail,
     replyHandlingMode: alias.replyHandlingMode,
+    customerConfirmationEnabled: alias.customerConfirmationEnabled,
+    internalSummaryEnabled: alias.internalSummaryEnabled,
     status: alias.status
   };
 }
@@ -1162,7 +1166,9 @@ businessRoutes.post("/mail-setup", async (c) => {
       localPart: input.localPart,
       displayName: input.displayName,
       forwardToEmail: input.forwardToEmail || null,
-      replyHandlingMode: input.replyHandlingMode
+      replyHandlingMode: input.replyHandlingMode,
+      customerConfirmationEnabled: input.customerConfirmationEnabled,
+      internalSummaryEnabled: input.internalSummaryEnabled
     });
 
     if (!result.ok) return errorResponse(c, result.error, 422, "MAIL_SETUP_INVALID");

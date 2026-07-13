@@ -240,6 +240,8 @@ export type BusinessEmailAliasData = {
   displayName: string;
   forwardToEmail: string | null;
   replyHandlingMode: "TRIVEN_INBOX" | "FORWARD_ONLY" | "TRIVEN_AND_FORWARD";
+  customerConfirmationEnabled: boolean;
+  internalSummaryEnabled: boolean;
   status: "ACTIVE" | "DISABLED" | "ARCHIVED";
 };
 
@@ -255,6 +257,8 @@ export type MailSetupInput = {
   displayName: string;
   forwardToEmail?: string;
   replyHandlingMode: BusinessEmailAliasData["replyHandlingMode"];
+  customerConfirmationEnabled?: boolean;
+  internalSummaryEnabled?: boolean;
 };
 
 export function getBusinessMailSetup() {

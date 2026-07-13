@@ -961,6 +961,8 @@ enum EmailMessageStatus {
   RECEIVED
   BOUNCED
   COMPLAINED
+  REJECTED
+  SUPPRESSED
 }
 
 enum EmailPurpose {
@@ -984,6 +986,10 @@ model BusinessEmailAlias {
   displayName       String
   forwardToEmail    String?
   replyHandlingMode EmailReplyHandlingMode @default(TRIVEN_AND_FORWARD)
+  /// Buyer toggle: send customers booking-confirmation / follow-up emails.
+  customerConfirmationEnabled Boolean @default(true)
+  /// Buyer toggle: send the team internal call-summary / lead emails.
+  internalSummaryEnabled      Boolean @default(true)
   status            EmailAliasStatus       @default(ACTIVE)
   provider          String                 @default("SES")
   sesIdentityStatus String?
@@ -1008,6 +1014,8 @@ model EmailMessage {
   direction         EmailDirection
   fromEmail         String
   toEmail           String
+  ccEmails          String[]           @default([])
+  bccEmails         String[]           @default([])
   replyToEmail      String?
   subject           String
   textBody          String?
@@ -1016,10 +1024,14 @@ model EmailMessage {
   sesMessageId      String?
   threadKey         String?
   inReplyTo         String?
+  idempotencyKey    String?            @unique
   status            EmailMessageStatus @default(QUEUED)
   purpose           EmailPurpose       @default(CUSTOMER_FOLLOW_UP)
   metadata          Json?
   sentAt            DateTime?
+  deliveredAt       DateTime?
+  bouncedAt         DateTime?
+  complainedAt      DateTime?
   receivedAt        DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -1031,6 +1043,19 @@ model EmailMessage {
   @@index([aliasId])
   @@index([sesMessageId])
   @@index([toEmail, status])
+}
+
+/// Recipients we must never email again (permanent bounce / complaint / manual block).
+model EmailSuppression {
+  id           String   @id @default(cuid())
+  emailAddress String   @unique
+  reason       String
+  source       String   @default("SES")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([active])
 }
 
 // ---- Platform usage service costs (admin-managed pricing board) ----
