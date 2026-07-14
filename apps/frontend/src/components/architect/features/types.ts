@@ -55,7 +55,33 @@ export type ArchitectListing = {
   supportedLlms: string[];
   installCount?: number;
   createdAt: string;
+  updatedAt?: string;
+  submittedAt?: string | null;
   workflow?: ArchitectWorkflow | null;
+  /** Configure / marketplace fields surfaced for My Agents cards */
+  tagline?: string | null;
+  category?: string | null;
+  industryTags?: string[];
+  iconUrl?: string | null;
+  coverUrl?: string | null;
+  includedFeatures?: string[];
+  screenshotUrls?: string[];
+  /** Live card metrics */
+  executionCount?: number;
+  revenueCents?: number;
+  rating?: number | null;
+  draftProgress?: {
+    stepsCompleted: number;
+    stepsTotal: number;
+    percent: number;
+    missing: string[];
+  } | null;
+  reviewProgress?: {
+    percent: number;
+    passed: number;
+    total: number;
+    items: Array<{ label: string; done: boolean }>;
+  } | null;
 };
 
 export type ArchitectProject = {

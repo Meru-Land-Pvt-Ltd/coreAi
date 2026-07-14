@@ -1,5 +1,7 @@
-import Link from "next/link";
-import type { Route } from "next";
+"use client";
+
+import { useEffect, useState } from "react";
+import { getWorkflowConfigure } from "@/components/architect/features/api";
 import { BuilderIcon } from "./icons";
 
 export function PublishPanel({
@@ -29,6 +31,36 @@ export function PublishPanel({
   onGoConfigure?: () => void;
   onSave: () => void;
 }) {
+  const [category, setCategory] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workflowId) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await getWorkflowConfigure(workflowId);
+      if (cancelled || !result.success || !result.data?.configure) return;
+      const configure = result.data.configure;
+      setCategory(configure.basics.category?.trim() || "");
+      setTags(
+        (configure.basics.industryTags ?? [])
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      );
+      setCoverUrl(configure.media.screenshotUrls?.[0] ?? null);
+      setIconUrl(configure.basics.iconUrl || null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId]);
+
+  const previewTags = tags.length > 0 ? tags : category ? [category] : ["Business Automation"];
+  const coverCategory = category || previewTags[0] || "Business Automation";
+
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
       <div className="mx-auto max-w-5xl px-6 py-8">
@@ -42,25 +74,54 @@ export function PublishPanel({
           <div className="lg:col-span-3">
             <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-publish-panel-marketplace-preview-text">Marketplace preview</p>
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-              <div className="h-24 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500" />
-              <div className="px-5 pb-5">
+              <div className="relative z-0 h-24">
+                {coverUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- configure screenshots can be data URLs
+                  <img src={coverUrl} alt="Listing cover" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <div
+                    className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500"
+                    data-testid="publish-panel-default-cover"
+                  />
+                )}
+                <span
+                  className="absolute right-2.5 top-2.5 z-10 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm backdrop-blur"
+                  data-testid="architect-ui-workflow-builder-publish-panel-cover-category-text"
+                >
+                  {coverCategory}
+                </span>
+              </div>
+              <div className="relative z-10 px-5 pb-5">
                 <div className="-mt-8 flex items-end gap-3">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-md ring-1 ring-gray-100">
-                    <BuilderIcon name="message" className="h-8 w-8 text-amber-500" />
+                  <div
+                    className="relative z-10 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-md ring-4 ring-white"
+                    data-testid="publish-panel-preview-icon"
+                  >
+                    {iconUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- icons can be data URLs
+                      <img src={iconUrl} alt="Agent icon" className="h-full w-full object-cover" />
+                    ) : (
+                      <BuilderIcon name="message" className="h-8 w-8 text-white" />
+                    )}
                   </div>
-                  <div className="pb-1">
-                    <span className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700" data-testid="architect-ui-workflow-builder-publish-panel-category-text">Business Automation</span>
+                  <div className="flex flex-wrap gap-1.5 pb-1">
+                    {previewTags.slice(0, 3).map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700"
+                        data-testid="architect-ui-workflow-builder-publish-panel-category-text"
+                      >
+                        {tag}
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <h3 className="mt-3 text-lg font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-agent-heading">{agentName}</h3>
                 <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-agent-tagline-text">{tagline || "Automate customer conversations, bookings, and follow-ups with a reusable AI agent."}</p>
                 <div className="mt-4 flex items-center gap-4 text-sm">
-                  <span className="flex items-center gap-1 font-semibold text-amber-500" data-testid="architect-ui-workflow-builder-publish-panel-new-text">
-                    <BuilderIcon name="star" className="h-4 w-4" />
-                    New
+                  <span className="text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-by-architect-text">
+                    by <span className="font-medium text-slate-700" data-testid="architect-ui-workflow-builder-publish-panel-architect-name-text">{authorName}</span>
                   </span>
-                  <span className="text-slate-400">-</span>
-                  <span className="text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-by-architect-text">by <span className="font-medium text-slate-700" data-testid="architect-ui-workflow-builder-publish-panel-architect-name-text">{authorName}</span></span>
                 </div>
                 <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
                   <div>

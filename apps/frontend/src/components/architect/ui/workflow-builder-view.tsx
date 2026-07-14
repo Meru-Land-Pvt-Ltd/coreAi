@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { createPortal } from "react-dom";
 import {
   addEdge,
   Controls,
@@ -13,23 +14,24 @@ import {
   type NodeTypes
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Route } from "next";
 import { BROWSER_CALL_START_MESSAGE, VOICE_NODE_TYPES } from "@coreai/shared";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
-  createArchitectListing,
   createArchitectWorkflow,
   disconnectGmailConnector,
   getArchitectTestDeployment,
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
+  getWorkflowConfigure,
   runArchitectWorkflowTest,
   runArchitectConversationTest,
   startArchitectTestDeployment,
   startArchitectVapiBrowserTest,
   stopArchitectTestDeployment,
+  submitWorkflowForReview,
   updateArchitectWorkflow,
   useArchitectTemplate
 } from "@/components/architect/features/api";
@@ -48,6 +50,7 @@ import { ComponentLibrary } from "./workflow-builder/component-library";
 import { ConfigurePanel } from "./workflow-builder/configure-panel";
 import { CoreNode } from "./workflow-builder/core-node";
 import { createFlowEdge } from "./workflow-builder/edge-utils";
+import { BuilderIcon } from "./workflow-builder/icons";
 import { MobileSheet } from "./workflow-builder/mobile-sheet";
 import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
@@ -73,8 +76,6 @@ function testInputsStashKey(workflowId: string): string {
 }
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
-  const router = useRouter();
-
   const [workflow, setWorkflow] = useState<ArchitectWorkflow | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -116,6 +117,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("Unsaved changes");
   const [publishError, setPublishError] = useState("");
+  const [publishSuccessName, setPublishSuccessName] = useState<string | null>(null);
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [importingSlug, setImportingSlug] = useState<string | null>(null);
   const architectName = useMemo(() => {
@@ -203,6 +205,30 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     ]);
     return nodes.some((node) => voiceTypes.has(String(node.data.type ?? "")));
   }, [nodes]);
+
+  const needsCalendarConnection = useMemo(
+    () =>
+      nodes.some((node) => {
+        const type = String(node.data.type ?? "").toLowerCase();
+        const connector = String(node.data.connector ?? "").toLowerCase();
+        return (
+          type === VOICE_NODE_TYPES.calendarAvailability ||
+          type === VOICE_NODE_TYPES.bookAppointment ||
+          type.includes("calendar") ||
+          connector.includes("calendar")
+        );
+      }),
+    [nodes]
+  );
+
+  const needsGoogleConnection = hasGmailFlow || needsCalendarConnection;
+  // Twilio/Vapi cards are for live sandbox only — browser call test does not need them.
+  const liveSandboxActive =
+    testDeployment?.status === "READY" || Boolean(testDeployment?.assignedPhoneNumber);
+  const needsTwilioConnection = liveSandboxActive && (isVoiceWorkflow || hasSmsFlow);
+  const needsVapiConnection = liveSandboxActive && isVoiceWorkflow;
+  const needsAnyTestConnection =
+    needsGoogleConnection || needsCalendarConnection || needsTwilioConnection || needsVapiConnection;
 
   const isDentalWorkflow = useMemo(() => {
     const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
@@ -700,16 +726,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     setSaving(true);
 
-    const result = await createArchitectListing({
-      workflowId: publishId,
-      name,
-      shortDescription,
-      description: tagline,
-      priceCents: Math.max(0, Math.round(Number(price) * 100) || 0),
-      tags: [],
-      requiredConnectors: [],
-      supportedLlms: []
-    });
+    const configureResult = await getWorkflowConfigure(publishId);
+    if (!configureResult.success || !configureResult.data?.configure) {
+      setSaving(false);
+      setPublishError(configureResult.error ?? "Could not load Configure data. Finish Configure first.");
+      setMessage(configureResult.error ?? "Could not load configure");
+      return;
+    }
+
+    const result = await submitWorkflowForReview(publishId, configureResult.data.configure);
 
     setSaving(false);
 
@@ -719,8 +744,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
+    const submittedName =
+      configureResult.data.configure.basics.agentName.trim() || name || "Your agent";
+    setPublishSuccessName(submittedName);
     setMessage("Submitted for review");
-    router.push("/architect/agents" as Route);
+    void loadWorkflow();
   }
 
   function setConversationTranscript(next: ArchitectConversationMessage[]) {
@@ -1117,6 +1145,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             hasGmailFlow={hasGmailFlow}
             isVoiceWorkflow={isVoiceWorkflow}
             isDentalWorkflow={isDentalWorkflow}
+            needsAnyTestConnection={needsAnyTestConnection}
+            needsGoogleConnection={needsGoogleConnection}
+            needsCalendarConnection={needsCalendarConnection}
+            needsTwilioConnection={needsTwilioConnection}
+            needsVapiConnection={needsVapiConnection}
             gmailConnected={gmailConnected}
             gmailEmail={gmailEmail}
             calendarConnected={calendarConnected}
@@ -1191,6 +1224,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               setMessage("Submitted for review");
               void loadWorkflow();
             }}
+            onGoPublish={() => setActiveTab("publish")}
             onSave={() => void saveAgent()}
           />
         ) : null}
@@ -1230,6 +1264,44 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onClose={() => setPreviewOpen(false)}
         businessName={businessName.trim() || "Your business"}
       />
+
+      {typeof document !== "undefined" && publishSuccessName
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+              data-testid="configure-success-modal"
+            >
+              <div className="w-full max-w-md rounded-3xl bg-white p-8 text-center shadow-2xl">
+                <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-lg">
+                  <BuilderIcon name="send" className="h-10 w-10 text-white" />
+                </div>
+                <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">You&apos;re in review! 🎉</h3>
+                <p className="mt-2.5 text-[14.5px] leading-relaxed text-slate-600">
+                  {publishSuccessName} has been submitted to the Triven Marketplace. We&apos;ll email you within 24–48 hours.
+                </p>
+                <div className="mt-6 flex gap-3">
+                  <button
+                    type="button"
+                    data-testid="configure-success-stay"
+                    onClick={() => setPublishSuccessName(null)}
+                    className="flex-1 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
+                  >
+                    Stay in builder
+                  </button>
+                  <Link
+                    href={"/architect/agents" as Route}
+                    data-testid="configure-success-view-agents"
+                    onClick={() => setPublishSuccessName(null)}
+                    className="flex-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg"
+                  >
+                    View My Agents
+                  </Link>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       <MobileSheet panel={mobilePanel} onClose={() => setMobilePanel(null)}>
         {mobilePanel === "library" ? library : inspector}

@@ -112,12 +112,18 @@ type ApiListing = {
   name: string;
   shortDescription?: string;
   description?: string | null;
+  tagline?: string | null;
   priceCents?: number | null;
+  pricingModel?: string | null;
   status?: string;
   tags?: string[];
+  industryTags?: string[];
   category?: string | null;
+  iconUrl?: string | null;
+  includedFeatures?: string[];
   requiredConnectors?: string[];
   supportedLlms?: string[];
+  installCount?: number;
   createdAt?: string;
   updatedAt?: string;
   architect?: ApiArchitect | null;
@@ -171,24 +177,55 @@ function getListingCategory(listing: ApiListing) {
     return formatLabel(listing.category.trim());
   }
 
+  const industrySet = new Set(
+    (listing.industryTags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean)
+  );
   const tags = listing.tags ?? [];
   const categoryTag =
     tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
-    tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
+    tags.find((tag) => {
+      const lower = tag.toLowerCase();
+      if (lower.startsWith("industry:")) return false;
+      return !industrySet.has(lower);
+    });
 
   if (categoryTag) return formatLabel(categoryTag);
   return "Uncategorized";
 }
 
-function getListingIndustry(listing: ApiListing) {
-  const tags = listing.tags ?? [];
-  const industryTag = tags.find((tag) => tag.toLowerCase().startsWith("industry:"));
+/** Prefer Configure industryTags; otherwise show real listing tags (not "All industries"). */
+function getListingTags(listing: ApiListing): string[] {
+  const fromIndustryTags = (listing.industryTags ?? [])
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  if (fromIndustryTags.length > 0) {
+    return Array.from(new Set(fromIndustryTags));
+  }
 
-  if (!industryTag) return "All industries";
-  return formatLabel(industryTag);
+  const tags = listing.tags ?? [];
+  const prefixed = tags
+    .filter((tag) => tag.toLowerCase().startsWith("industry:"))
+    .map((tag) => formatLabel(tag));
+  if (prefixed.length > 0) {
+    return Array.from(new Set(prefixed));
+  }
+
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => tag.trim())
+        .filter((tag) => tag && !tag.toLowerCase().startsWith("category:"))
+        .map((tag) => formatLabel(tag))
+    )
+  );
 }
 
 function getWorkflowFeatures(listing: ApiListing) {
+  const fromFeatures = (listing.includedFeatures ?? [])
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+  if (fromFeatures.length) return fromFeatures;
+
   const nodes = listing.workflow?.workflowJson?.nodes ?? [];
 
   const fromNodes = nodes
@@ -211,6 +248,11 @@ function getWorkflowFeatures(listing: ApiListing) {
 }
 
 function getIncludedItems(listing: ApiListing) {
+  const fromFeatures = (listing.includedFeatures ?? [])
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+  if (fromFeatures.length) return fromFeatures;
+
   const items = [
     ...(listing.requiredConnectors ?? []).map((connector) => `${connector} integration`),
     ...(listing.supportedLlms ?? []).map((llm) => `${llm} support`),
@@ -473,13 +515,13 @@ export default function BusinessAgentDetailPage() {
   }, []);
 
   const category = useMemo(() => (listing ? getListingCategory(listing) : ""), [listing]);
-  const industry = useMemo(() => (listing ? getListingIndustry(listing) : ""), [listing]);
+  const tags = useMemo(() => (listing ? getListingTags(listing) : []), [listing]);
   const features = useMemo(() => (listing ? getWorkflowFeatures(listing) : []), [listing]);
   const includedItems = useMemo(() => (listing ? getIncludedItems(listing) : []), [listing]);
 
   const price = listing ? Math.round((listing.priceCents ?? 0) / 100) : 0;
   const rating = listing?.architect?.architectProfile?.rating ?? 0;
-  const installs = listing?.architect?.architectProfile?.completedJobs ?? 0;
+  const installs = listing?.installCount ?? listing?.architect?.architectProfile?.completedJobs ?? 0;
   const author =
     listing?.architect?.fullName ||
     listing?.architect?.architectProfile?.title ||
@@ -488,9 +530,11 @@ export default function BusinessAgentDetailPage() {
 
   const description =
     listing?.shortDescription ||
+    listing?.tagline ||
     listing?.description ||
     listing?.workflow?.description ||
     "";
+  const iconUrl = listing?.iconUrl?.trim() || null;
 
   const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
   const setupPath = listing ? businessSetupPath(listing.id) : BUSINESS_AGENTS_PATH;
@@ -573,8 +617,13 @@ export default function BusinessAgentDetailPage() {
 
           <div className="mx-auto grid w-full max-w-none gap-12 lg:grid-cols-5 lg:items-start">
             <div className="order-2 lg:order-1 lg:col-span-3">
-              <div className="relative inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500 shadow-glow">
-                <PhoneIcon className="h-8 w-8 text-slate-950" />
+              <div className="relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-amber-500 shadow-glow">
+                {iconUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- icons may be data URLs
+                  <img src={iconUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <PhoneIcon className="h-8 w-8 text-slate-950" />
+                )}
                 <span className="absolute -right-1.5 -top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-amber-400 ring-2 ring-white">
                   ⚡
                 </span>
@@ -591,11 +640,19 @@ export default function BusinessAgentDetailPage() {
 
               <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{description}</p>
 
-              <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
-                <div className="inline-flex items-center gap-2 text-sm text-slate-600">
-                  <span className="text-amber-500">🏷️</span>
-                  <span>{industry}</span>
-                </div>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                {tags.length > 0 ? (
+                  tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
+                      data-testid="business-agent-detail-industry-tag"
+                    >
+                      <span className="text-amber-500">🏷️</span>
+                      {tag}
+                    </span>
+                  ))
+                ) : null}
               </div>
 
               <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-slate-600">
