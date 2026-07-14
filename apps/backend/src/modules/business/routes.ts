@@ -32,6 +32,7 @@ import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
+import { canBusinessDeployAgent } from "./deployment-access";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import {
   autoProvisionPhoneNumber,
@@ -49,7 +50,6 @@ import {
   sendBusinessEmail,
   validateLocalPart
 } from "../email/ses-mail-service";
-import { isBillingEnabled } from "../../lib/stripe";
 import {
   buildDashboardActivities,
   sumInvoiceTotalCents
@@ -1312,17 +1312,13 @@ businessRoutes.post("/setup", async (c) => {
     const authUser = c.get("authUser");
     const input = businessSetupSchema.parse(await c.req.json());
 
-    if (input.deploy && isBillingEnabled()) {
-      const billed = await prisma.business.findFirst({
-        where: { ownerId: authUser.id },
-        orderBy: { createdAt: "desc" },
-        select: { subscriptionStatus: true }
-      });
-
-      const active =
-        billed?.subscriptionStatus === "active" || billed?.subscriptionStatus === "trialing";
-
-      if (!active) {
+if (input.deploy) {
+      const access = await canBusinessDeployAgent(authUser.id);
+      if (!access.allowed) {
+        console.warn("[business.setup] deploy blocked by subscription enforcement", {
+          ownerId: authUser.id,
+          enforcement: access.subscriptionEnforcementEnabled
+        });
         return errorResponse(
           c,
           "An active subscription is required before activating your AI agent.",

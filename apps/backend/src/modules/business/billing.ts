@@ -4,6 +4,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
+import { canBusinessDeployAgent } from "./deployment-access";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 
@@ -138,7 +139,10 @@ export async function createCheckoutSession(c: Context) {
 // GET /business/billing/status — current subscription state for the buyer.
 export async function getBillingStatus(c: Context) {
   const authUser = c.get("authUser");
-  const business = await getOwnerBusiness(authUser.id);
+  const [business, access] = await Promise.all([
+    getOwnerBusiness(authUser.id),
+    canBusinessDeployAgent(authUser.id)
+  ]);
   const status = business?.subscriptionStatus ?? "inactive";
 
   return successResponse(c, {
@@ -147,7 +151,13 @@ export async function getBillingStatus(c: Context) {
     active: ACTIVE_STATUSES.has(status),
     priceId: business?.subscriptionPriceId ?? null,
     currentPeriodEnd: business?.currentPeriodEnd ?? null,
-    stripeCustomerId: business?.stripeCustomerId ?? null
+    stripeCustomerId: business?.stripeCustomerId ?? null,
+    // The explicit deployment permission — clients must use this instead of
+    // inferring access from raw Stripe status.
+    deploymentAccess: {
+      allowed: access.allowed,
+      subscriptionEnforcementEnabled: access.subscriptionEnforcementEnabled
+    }
   });
 }
 

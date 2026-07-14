@@ -137,7 +137,16 @@ const envSchema = z.object({
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional()
+  STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional(),
+
+  /**
+   * Platform access policy: when false (current default), every authenticated
+   * BUSINESS owner may deploy/activate their agents regardless of Stripe
+   * subscription state. Stripe billing data keeps updating normally either
+   * way — deployment access and billing state are separate concepts.
+   * Accepts true/false/1/0.
+   */
+  ENFORCE_AGENT_SUBSCRIPTION: booleanFromEnv.default(false)
 });
 
 function isDevOnlyUrl(url: string): boolean {
