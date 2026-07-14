@@ -62,6 +62,16 @@ import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind, A
 const REVIEW_LOCK_MESSAGE = "Agent is under review";
 const LIVE_PUBLISH_LOCK_MESSAGE = "Agent is live — publishing is locked";
 
+const BUILDER_TABS: readonly BuilderTab[] = ["build", "test", "configure", "publish"];
+
+function isBuilderTab(value: string | null): value is BuilderTab {
+  return Boolean(value) && (BUILDER_TABS as readonly string[]).includes(value as string);
+}
+
+function testInputsStashKey(workflowId: string): string {
+  return `triven-builder-test-inputs:${workflowId || "draft"}`;
+}
+
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
   const router = useRouter();
 
@@ -352,11 +362,26 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   async function connectGmail() {
     setConnectingGmail(true);
     setMessage("Connecting Google...");
-
-    // Return to this exact builder page after OAuth; drop any stale gmail
-    // status param so the callback's own gmail=connected doesn't duplicate.
     const returnTo = new URL(window.location.href);
     returnTo.searchParams.delete("gmail");
+    returnTo.searchParams.set("tab", activeTab);
+    try {
+      window.sessionStorage.setItem(
+        testInputsStashKey(currentWorkflowIdRef.current),
+        JSON.stringify({
+          businessName,
+          businessType,
+          calendarId,
+          timeZone,
+          appointmentService,
+          callerNumber,
+          callerName,
+          triggerMessage
+        })
+      );
+    } catch {
+      // Storage unavailable/full — the connection itself must still proceed.
+    }
 
     const result = await getGmailOAuthUrl(`${returnTo.pathname}${returnTo.search}`);
 
@@ -446,6 +471,54 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     void loadWorkflow();
     void loadGmailStatus();
     void loadTestDeployment();
+  }, [workflowId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    const tabParam = url.searchParams.get("tab");
+    const gmailParam = url.searchParams.get("gmail");
+
+    if (isBuilderTab(tabParam)) setActiveTab(tabParam);
+    if (gmailParam === "connected") setMessage("Google connected");
+    else if (gmailParam === "failed") setMessage("Google connection failed — please try again");
+
+    if (tabParam !== null || gmailParam !== null) {
+      url.searchParams.delete("tab");
+      url.searchParams.delete("gmail");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+
+    try {
+      const key = testInputsStashKey(workflowId);
+      const raw = window.sessionStorage.getItem(key) ?? window.sessionStorage.getItem(testInputsStashKey(""));
+      if (raw) {
+        window.sessionStorage.removeItem(key);
+        window.sessionStorage.removeItem(testInputsStashKey(""));
+        const saved = JSON.parse(raw) as Record<string, unknown>;
+        const str = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
+
+        const savedBusinessName = str(saved.businessName);
+        const savedBusinessType = str(saved.businessType);
+        const savedCalendarId = str(saved.calendarId);
+        const savedTimeZone = str(saved.timeZone);
+        const savedService = str(saved.appointmentService);
+        const savedCallerNumber = str(saved.callerNumber);
+        const savedCallerName = str(saved.callerName);
+        const savedTriggerMessage = str(saved.triggerMessage);
+
+        if (savedBusinessName) setBusinessName(savedBusinessName);
+        if (savedBusinessType) setBusinessType(savedBusinessType);
+        if (savedCalendarId) setCalendarId(savedCalendarId);
+        if (savedTimeZone) setTimeZone(savedTimeZone);
+        if (savedService) setAppointmentService(savedService);
+        if (savedCallerNumber) setCallerNumber(savedCallerNumber);
+        if (savedCallerName) setCallerName(savedCallerName);
+        if (savedTriggerMessage) setTriggerMessage(savedTriggerMessage);
+      }
+    } catch {
+      // Corrupted/blocked storage — the page still works, just without restore.
+    }
   }, [workflowId]);
 
   function addNodeFromLibrary(nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) {
@@ -715,13 +788,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const pendingMessages = isCallStart
       ? previousMessages
       : [
-          ...previousMessages,
-          {
-            role: "user" as const,
-            content: cleanMessage,
-            createdAt: new Date().toISOString()
-          }
-        ];
+        ...previousMessages,
+        {
+          role: "user" as const,
+          content: cleanMessage,
+          createdAt: new Date().toISOString()
+        }
+      ];
 
     setConversationTranscript(pendingMessages);
 
