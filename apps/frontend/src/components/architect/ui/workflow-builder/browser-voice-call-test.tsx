@@ -577,6 +577,17 @@ export function BrowserVoiceCallTest({
                                 </>
                             )}
                         </div>
+
+                        {vapiSession?.unresolvedVariables?.length ? (
+                            <p
+                                className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
+                                data-testid="builder-browser-call-unresolved-variables"
+                            >
+                                Unresolved variables removed from the prompt:{" "}
+                                {vapiSession.unresolvedVariables.map((name) => `{{${name}}}`).join(", ")}. Check the
+                                spelling on the AI Voice Conversation node.
+                            </p>
+                        ) : null}
                     </div>
 
                     <div className="flex items-center gap-2">

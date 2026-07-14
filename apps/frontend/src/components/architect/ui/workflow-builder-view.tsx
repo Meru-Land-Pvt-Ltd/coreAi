@@ -141,6 +141,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes, selectedNodeId]
   );
 
+  // Node ids + labels whitelist {{node.prop}}-style tokens in the unknown-
+  // variable warnings shown while writing prompts/first messages.
+  const variableNodePrefixes = useMemo(
+    () =>
+      nodes.flatMap((node) =>
+        [node.id, String(node.data.title ?? node.data.label ?? "")].filter(Boolean)
+      ),
+    [nodes]
+  );
+
   const listingStatus = workflow?.listings?.[0]?.status;
   const isUnderReview = listingStatus === "PENDING_REVIEW";
   const isLive = listingStatus === "APPROVED";
@@ -971,6 +981,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onUpdateNodeData={updateSelectedNodeData}
       onDeleteNode={deleteSelectedNode}
       connectorOwnership="architect"
+      variableNodePrefixes={variableNodePrefixes}
     />
   );
 

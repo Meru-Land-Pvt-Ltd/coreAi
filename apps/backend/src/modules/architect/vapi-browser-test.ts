@@ -1,4 +1,4 @@
-import { VOICE_NODE_TYPES, normalizeTimeZone } from "@coreai/shared";
+import { VOICE_NODE_TYPES, extractPromptVariables, normalizeTimeZone } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
@@ -41,6 +41,8 @@ export type VapiBrowserTestSession = {
   voiceId: string | null;
   transcriber: string;
   dryRun: true;
+  /** {{variables}} nothing could fill — stripped before the prompt reached Vapi. */
+  unresolvedVariables: string[];
 };
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
@@ -245,9 +247,11 @@ const currentDate = dateInZone(now, timeZone);
     .filter(Boolean)
     .map((text) => fillNodeTokens(text, tokens))
     .join("\n\n");
-  const nodeInstructions = stripLeftoverTokens(
-    resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, { assistantName, businessName })
-  );
+  const nodeInstructionsResolved = resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, {
+    assistantName,
+    businessName
+  });
+  const nodeInstructions = stripLeftoverTokens(nodeInstructionsResolved);
 
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
@@ -275,14 +279,32 @@ Live call handling:
     ]
   });
 
+  // The architect's own First message is kept whenever it renders to anything
+  // non-empty; the generic greeting is only the fallback for a blank result.
   const customFirstMessageRaw = fillNodeTokens(str(ai, "firstMessage"), tokens);
-  const customFirstMessage = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, { assistantName, businessName });
+  const customFirstMessageResolved = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, {
+    assistantName,
+    businessName
+  });
+  const customFirstMessage = stripLeftoverTokens(customFirstMessageResolved);
 
   const firstMessage = buildAgentFirstMessage({
     assistantName,
     businessName,
     customFirstMessage
   });
+
+  // Whatever is still {{unresolved}} at this point was stripped — surface it
+  // to the Test panel so a typo'd variable never disappears silently.
+  const unresolvedVariables = Array.from(
+    new Set([
+      ...extractPromptVariables(nodeInstructionsResolved),
+      ...extractPromptVariables(customFirstMessageResolved)
+    ])
+  );
+  if (unresolvedVariables.length) {
+    console.warn("[vapi-browser-test] unresolved prompt variables stripped", { workflowId, unresolvedVariables });
+  }
 
   // ---- Create/update the per-workflow browser-test assistant (no phone) ----
   console.log("[vapi-browser-test] resolved identity", {
@@ -416,6 +438,7 @@ Live call handling:
     voiceName: selectedVoiceName,
     voiceId: selectedVoiceId || null,
     transcriber: `${env.VAPI_TRANSCRIBER_PROVIDER}/${env.VAPI_TRANSCRIBER_MODEL}`,
-    dryRun: true
+    dryRun: true,
+    unresolvedVariables
   };
 }

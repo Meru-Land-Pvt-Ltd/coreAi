@@ -1,4 +1,9 @@
-import { EMAIL_TEMPLATE_VARIABLES, VOICE_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
+import {
+  EMAIL_TEMPLATE_VARIABLES,
+  VOICE_NODE_TYPES,
+  findUnknownPromptVariables,
+  getNodeDefinition
+} from "@coreai/shared";
 import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
@@ -21,7 +26,36 @@ type CalendarConnection = {
 type NodePropsPanel = {
   selectedNode: BuilderNode;
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
+  /** Node ids/labels from the graph — whitelists {{node.prop}}-style tokens. */
+  variableNodePrefixes?: string[];
 };
+
+/**
+ * Amber inline warning for {{variables}} the platform cannot fill. Unknown
+ * variables never error a call — they are silently stripped before the prompt
+ * reaches Vapi — so this note is how a typo gets caught while typing.
+ */
+function UnknownVariablesNote({
+  text,
+  nodePrefixes,
+  testId
+}: {
+  text: string;
+  nodePrefixes?: string[];
+  testId: string;
+}) {
+  const unknown = findUnknownPromptVariables(text, { nodePrefixes });
+
+  if (!unknown.length) return null;
+
+  return (
+    <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800" data-testid={testId}>
+      Unknown {unknown.length === 1 ? "variable" : "variables"}:{" "}
+      {unknown.map((name) => `{{${name}}}`).join(", ")} — not recognized, so {unknown.length === 1 ? "it" : "they"} will
+      be removed at test/deploy time. Check the spelling (e.g. {"{{business.name}}"}, {"{{customer.name}}"}).
+    </p>
+  );
+}
 
 type CalendarPanel = NodePropsPanel & { calendar: CalendarConnection; ownership: ConnectorOwnership };
 
@@ -34,7 +68,8 @@ export function NodeInspector({
   calendarConnected = false,
   calendarEmail = null,
   connectingCalendar = false,
-  onConnectCalendar
+  onConnectCalendar,
+  variableNodePrefixes
 }: {
   selectedNode: BuilderNode | null;
   onClearSelection: () => void;
@@ -46,6 +81,8 @@ export function NodeInspector({
   calendarEmail?: string | null;
   connectingCalendar?: boolean;
   onConnectCalendar?: () => void;
+  /** Node ids/labels from the graph — whitelists {{node.prop}}-style tokens in warnings. */
+  variableNodePrefixes?: string[];
 }) {
   if (!selectedNode) return <EmptyProperties />;
 
@@ -58,7 +95,7 @@ export function NodeInspector({
 
   const ownership = connectorOwnership;
   const type = String(selectedNode.data.type ?? "");
-  const base: NodePropsPanel = { selectedNode, onUpdateNodeData };
+  const base: NodePropsPanel = { selectedNode, onUpdateNodeData, variableNodePrefixes };
 
   let panel: ReactNode;
 
@@ -949,7 +986,7 @@ function PhoneCallTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPane
   );
 }
 
-function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function AiVoiceConversationProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
 
   return (
@@ -1025,6 +1062,11 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
             onChange={set("firstMessage")}
             placeholder="e.g. Thanks for calling {{business.name}} — how can I help?"
           />
+          <UnknownVariablesNote
+            text={str("firstMessage")}
+            nodePrefixes={variableNodePrefixes}
+            testId="node-inspector-first-message-variable-warning"
+          />
         </div>
       </Section>
 
@@ -1035,6 +1077,11 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
         <div className="mt-4">
           <Label>System prompt</Label>
           <TextArea value={str("systemPrompt")} onChange={set("systemPrompt")} height="h-44" mono />
+          <UnknownVariablesNote
+            text={str("systemPrompt")}
+            nodePrefixes={variableNodePrefixes}
+            testId="node-inspector-system-prompt-variable-warning"
+          />
         </div>
 
         <p className="mt-2 text-[11px] leading-5 text-slate-400">
@@ -1050,6 +1097,11 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
           onChange={(event) => onUpdateNodeData("customInstructions", event.target.value)}
           placeholder="Enter reusable rules for this agent template…"
           className="h-48 w-full resize-y overflow-y-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/50"
+        />
+        <UnknownVariablesNote
+          text={str("customInstructions")}
+          nodePrefixes={variableNodePrefixes}
+          testId="node-inspector-custom-instructions-variable-warning"
         />
 
         <p className="mt-2 text-[11px] text-slate-400" data-testid="ai-custom-instructions-note">

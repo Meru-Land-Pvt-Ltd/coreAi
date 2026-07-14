@@ -1,3 +1,4 @@
+import { extractPromptVariables, findUnknownPromptVariables } from "@coreai/shared";
 import { describe, expect, it } from "vitest";
 import {
   LIVE_VAPI_RUNTIME_VARIABLES,
@@ -55,6 +56,26 @@ describe("fillPromptTemplateTokens", () => {
     expect(fillPromptTemplateTokens("Plain greeting.", values, { stripUnresolved: true })).toBe(
       "Plain greeting."
     );
+  });
+});
+
+describe("unknown-variable warnings (shared helpers)", () => {
+  it("extracts {{tokens}} deduped in order of appearance", () => {
+    expect(extractPromptVariables("Hi {{a}}, {{ b }} and {{a}} again.")).toEqual(["a", "b"]);
+    expect(extractPromptVariables("no tokens here")).toEqual([]);
+  });
+
+  it("flags only variables the platform cannot fill, in any spelling", () => {
+    const text =
+      "Welcome to {{business.name}} — I'm {{Assistant Name}}. Your {{appointment.service}} with {{busines.nam}} and {{foo}}.";
+    expect(findUnknownPromptVariables(text)).toEqual(["busines.nam", "foo"]);
+  });
+
+  it("whitelists node-scoped tokens via node prefixes", () => {
+    const text = "{{AI Voice Conversation.firstMessage}} vs {{Some Other Node.prop}}";
+    expect(
+      findUnknownPromptVariables(text, { nodePrefixes: ["node-1", "AI Voice Conversation"] })
+    ).toEqual(["Some Other Node.prop"]);
   });
 });
 

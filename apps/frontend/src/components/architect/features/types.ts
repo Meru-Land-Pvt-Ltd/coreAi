@@ -159,6 +159,8 @@ export type ArchitectVapiBrowserTestSession = {
   voiceId: string | null;
   transcriber: string;
   dryRun: true;
+  /** {{variables}} nothing could fill — stripped before the prompt reached Vapi. */
+  unresolvedVariables?: string[];
 };
 
 export type ArchitectTestDeploymentStatus = {
