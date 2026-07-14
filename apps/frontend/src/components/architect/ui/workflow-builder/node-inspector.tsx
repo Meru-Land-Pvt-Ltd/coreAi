@@ -1000,8 +1000,8 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
 
       </Section>
 
-      {/* <Section title="Conversation">
-        <Label>Language</Label>
+      <Section title="Conversation">
+        {/* <Label>Language</Label>
         <SelectBox
           value={str("language", "en-US")}
           onChange={set("language")}
@@ -1016,7 +1016,7 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
         <div className="mt-4">
           <Label>Speaking speed</Label>
           <SelectBox value={str("speakingSpeed", "1.0")} onChange={set("speakingSpeed")} options={["0.8", "0.9", "1.0", "1.1", "1.2"]} />
-        </div>
+        </div> */}
 
         <div className="mt-4">
           <Label>First message</Label>
@@ -1026,7 +1026,7 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData }: NodePropsP
             placeholder="e.g. Thanks for calling {{business.name}} — how can I help?"
           />
         </div>
-      </Section> */}
+      </Section>
 
       <Section title="Intelligence">
         <Label>AI model</Label>

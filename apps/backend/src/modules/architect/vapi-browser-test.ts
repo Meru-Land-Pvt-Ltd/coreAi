@@ -5,6 +5,7 @@ import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import {
   buildAgentFirstMessage,
   buildAgentSystemPrompt,
+  fillPromptTemplateTokens,
   resolveAssistantName,
   resolveNodeTemplateVariables
 } from "../agent-runtime/prompt-builder";
@@ -15,17 +16,6 @@ import {
   findSandboxBusiness
 } from "./test-deployment";
 import { deployVapiAssistant, isRealId, isVapiConfigured } from "./vapi-connector";
-
-/**
- * Architect Browser Call Test powered by Vapi web calls.
- *
- * Creates/updates a per-workflow TEST assistant on the architect's sandbox
- * business (no Twilio number is assigned or reserved — the browser is the
- * audio channel). Tool calls route through the existing Vapi webhook via
- * assistant metadata.businessId; booking and SMS run as dry-runs because the
- * sandbox agent is flagged `testDryRun`. Calendar availability may read the
- * architect's connected Google Calendar (read-only).
- */
 
 export type VapiBrowserTestInput = {
   businessName?: string;
@@ -87,15 +77,12 @@ function dateInZone(date: Date, timeZone: string): string {
   }
 }
 
-/** Fill legacy {{token}} placeholders in node prompt text with test values. */
 function fillNodeTokens(text: string, tokens: Record<string, string>): string {
-  let result = text;
+  return fillPromptTemplateTokens(text, tokens);
+}
 
-  for (const [key, value] of Object.entries(tokens)) {
-    result = result.replaceAll(`{{${key}}}`, value);
-  }
-
-  return result;
+function stripLeftoverTokens(text: string): string {
+  return fillPromptTemplateTokens(text, {}, { stripUnresolved: true });
 }
 
 export async function startArchitectVapiBrowserTest(
@@ -182,6 +169,9 @@ export async function startArchitectVapiBrowserTest(
   const businessType = input.businessType?.trim() || "service business";
   const calendarId = input.calendarId?.trim() || "primary";
   const timeZone = normalizeTimeZone(input.timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
+  const callerName = input.callerName?.trim() || "the caller";
+  const callerPhone = input.callerPhone?.trim() || "";
+  const appointmentService = input.appointmentService?.trim() || "General Consultation";
   const services =
     input.services?.length ? input.services : ["Consultation", "Appointment booking", "General inquiry"];
   const faqs = input.faqs?.length ? input.faqs : [];
@@ -222,22 +212,31 @@ export async function startArchitectVapiBrowserTest(
   const capabilities = workflowCapabilities(workflow.workflowJson);
   const now = new Date();
 
+const currentDate = dateInZone(now, timeZone);
   const tokens: Record<string, string> = {
     assistantName,
-    assistant_name: assistantName,
-    business_name: businessName,
     businessName,
-    business_type: businessType,
     businessType,
-    contact_name: businessName,
-    business_hours: "not provided",
-    services_list: services.join(", "),
-    fallback_response: "Let me take a message and have the team call you back shortly.",
-    calendar_booking_rules: "",
-    custom_instructions: str(ai, "customInstructions", "(none)"),
-    silence_policy: "",
+    contactName: businessName,
+    businessHours: "not provided",
+    services: services.join(", "),
+    servicesList: services.join(", "),
+    faqs: faqs.join("\n"),
+    customerName: callerName,
+    callerName,
+    customerPhone: callerPhone,
+    callerPhone,
+    appointmentService,
+    service: appointmentService,
+    bookingLabel: "appointment",
+    calendarId,
+    fallbackResponse: "Let me take a message and have the team call you back shortly.",
+    calendarBookingRules: "",
+    customInstructions: str(ai, "customInstructions", "(none)"),
+    silencePolicy: "",
     currentDateTime: now.toLocaleString("en-US", { timeZone }),
-    currentDate: dateInZone(now, timeZone),
+    currentDate,
+    todayDate: currentDate,
     tomorrowDate: dateInZone(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone),
     timeZone
   };
@@ -246,7 +245,9 @@ export async function startArchitectVapiBrowserTest(
     .filter(Boolean)
     .map((text) => fillNodeTokens(text, tokens))
     .join("\n\n");
-  const nodeInstructions = resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, { assistantName, businessName });
+  const nodeInstructions = stripLeftoverTokens(
+    resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, { assistantName, businessName })
+  );
 
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
