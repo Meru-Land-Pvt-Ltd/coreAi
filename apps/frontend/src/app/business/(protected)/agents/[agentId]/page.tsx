@@ -128,7 +128,6 @@ type ApiListing = {
   updatedAt?: string;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
-  pricingModel?: string | null;
   freeTrialEnabled?: boolean | null;
   trialDays?: number | null;
 };
