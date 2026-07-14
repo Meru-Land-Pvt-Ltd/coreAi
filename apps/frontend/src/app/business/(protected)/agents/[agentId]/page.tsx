@@ -122,6 +122,9 @@ type ApiListing = {
   updatedAt?: string;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
+  pricingModel?: string | null;
+  freeTrialEnabled?: boolean | null;
+  trialDays?: number | null;
 };
 
 type ListingApiResponse = {
@@ -615,15 +618,42 @@ export default function BusinessAgentDetailPage() {
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-green-700" data-testid="business-owned-agent-active">
                     Active
                   </span>
-                ) : (
+                ) : ownedAgent ? (
+                  (listing?.pricingModel ?? "SUBSCRIPTION") === "FREE" ? null : (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
-                    ⚡ $0 for the first 7 days
+                    ⚡ $0 for the first {listing?.trialDays ?? 7} days
                   </span>
-                )}
+                  )
+                ) : null}
 
-                <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
-                  <span className="text-lg font-medium text-slate-500">/month</span>
+                {/* Pricing Display */}
+                <div className="mt-3">
+                  {(listing?.pricingModel ?? "SUBSCRIPTION") === "FREE" ? (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-extrabold tracking-tight text-slate-900">Free</span>
+                      <span className="text-sm font-medium text-slate-500">forever</span>
+                    </div>
+                  ) : (listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME" ? (
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-600">one-time</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-500">Pay once, use forever — no recurring fees.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
+                        <span className="text-lg font-medium text-slate-500">/month</span>
+                      </div>
+                      {!ownedAgent && (listing?.freeTrialEnabled !== false) ? (
+                        <p className="mt-1 text-sm text-slate-500">
+                          Try free for {listing?.trialDays ?? 7} days, then <strong className="text-slate-700">${price}/mo</strong> — cancel anytime.
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
 
                 {ownedAgent ? (
@@ -635,7 +665,7 @@ export default function BusinessAgentDetailPage() {
                         data-testid="owned-agent-detail-pay-now"
                         className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
                       >
-                        Pay ${price}
+                        {(listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME" ? `Buy now — $${price}` : `Pay $${price}/mo`}
                         <ArrowIcon />
                       </Link>
                     ) : null}
@@ -652,7 +682,31 @@ export default function BusinessAgentDetailPage() {
                       </Link>
                     ) : null}
                   </div>
-                ) : null}
+                ) : (
+                  /* Not yet purchased — show Get / Buy CTA */
+                  <div className="mt-5">
+                    <Link
+                      ref={heroCtaRef}
+                      href={checkoutPath}
+                      data-testid="agent-detail-get-agent"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
+                    >
+                      {(listing?.pricingModel ?? "SUBSCRIPTION") === "FREE"
+                        ? "Install for Free"
+                        : (listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME"
+                        ? `Buy now — $${price}`
+                        : (listing?.freeTrialEnabled !== false)
+                        ? `Start ${listing?.trialDays ?? 7}-day free trial`
+                        : `Subscribe — $${price}/mo`}
+                      <ArrowIcon />
+                    </Link>
+                    {(listing?.pricingModel ?? "SUBSCRIPTION") === "SUBSCRIPTION" && (listing?.freeTrialEnabled !== false) ? (
+                      <p className="mt-2 text-center text-xs text-slate-400">
+                        No charge during your {listing?.trialDays ?? 7}-day trial — cancel anytime.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
 
                 {showPayButton ? (
                   <p className="mt-3 text-xs text-slate-500" data-testid="owned-agent-detail-pay-note">

@@ -32,6 +32,9 @@ type Agent = {
     supportedLlms: string[];
     whatYouGet: string[];
     createdAt?: string;
+    pricingModel?: string | null;
+    freeTrialEnabled?: boolean | null;
+    trialDays?: number | null;
 };
 
 type ApiArchitectProfile = {
@@ -89,6 +92,9 @@ type ApiListing = {
     installCount?: number;
     architect?: ApiArchitect | null;
     workflow?: ApiWorkflow | null;
+    pricingModel?: string | null;
+    freeTrialEnabled?: boolean | null;
+    trialDays?: number | null;
 };
 
 type ListingsApiResponse = {
@@ -437,12 +443,15 @@ function mapListingToAgent(listing: ApiListing): Agent {
             listing.architect?.email ||
             "Core Architect",
         isNew: isRecentlyCreated(listing.createdAt),
-        freeTrial: (listing.priceCents ?? 0) === 0,
+        freeTrial: (listing.priceCents ?? 0) === 0 || listing.pricingModel === "FREE" || Boolean(listing.freeTrialEnabled),
         tags: listing.tags ?? [],
         requiredConnectors: listing.requiredConnectors ?? [],
         supportedLlms: listing.supportedLlms ?? [],
         whatYouGet: getWhatYouGetItems(listing),
-        createdAt: listing.createdAt
+        createdAt: listing.createdAt,
+        pricingModel: listing.pricingModel,
+        freeTrialEnabled: listing.freeTrialEnabled,
+        trialDays: listing.trialDays
     };
 }
 
@@ -863,10 +872,22 @@ export default function MarketplacePage() {
                                     </p>
 
                                     <div className="mt-5 flex flex-wrap items-center gap-3">
-                                        <span className="text-2xl font-black text-slate-900" data-testid="business-protected-marketplace-featured-agent-price-text">
-                                            ${featuredAgent.price}
-                                        </span>
-                                        <span className="text-sm text-slate-500">one-time</span>
+                                        {featuredAgent.pricingModel === "FREE" ? (
+                                            <span className="text-2xl font-black text-slate-900" data-testid="business-protected-marketplace-featured-agent-price-text">
+                                                Free
+                                            </span>
+                                        ) : (
+                                            <>
+                                                <span className="text-2xl font-black text-slate-900" data-testid="business-protected-marketplace-featured-agent-price-text">
+                                                    ${featuredAgent.price}
+                                                </span>
+                                                {featuredAgent.pricingModel !== "ONE_TIME" && (
+                                                    <span className="text-sm text-slate-500">
+                                                        /month
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
                                     </div>
 
                                     <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -885,7 +906,11 @@ export default function MarketplacePage() {
                                                 data-testid="business-marketplace-featured-open"
                                                 className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                                             >
-                                                Start 7 days free trial
+                                                {featuredAgent.pricingModel === "FREE"
+                                                    ? "Install Agent"
+                                                    : featuredAgent.freeTrialEnabled
+                                                        ? `Start ${featuredAgent.trialDays ?? 7} days free trial`
+                                                        : "Get Agent"}
                                             </button>
                                         )}
 
@@ -1460,13 +1485,33 @@ function AgentDetailsModal({
 
                 <div className="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50/60 px-6 py-5 sm:px-8">
                     <div>
-                        <span
-                            className="text-3xl font-extrabold text-slate-900"
-                            data-testid="business-marketplace-agent-details-modal-price"
-                        >
-                            ${agent.price}
-                        </span>
-                        <span className="ml-2 text-sm text-slate-500">one-time</span>
+                        {agent.pricingModel === "FREE" ? (
+                            <span
+                                className="text-3xl font-extrabold text-slate-900"
+                                data-testid="business-marketplace-agent-details-modal-price"
+                            >
+                                Free
+                            </span>
+                        ) : (
+                            <>
+                                <span
+                                    className="text-3xl font-extrabold text-slate-900"
+                                    data-testid="business-marketplace-agent-details-modal-price"
+                                >
+                                    ${agent.price}
+                                </span>
+                                {agent.pricingModel !== "ONE_TIME" && (
+                                    <span className="ml-2 text-sm text-slate-500">
+                                        /month
+                                    </span>
+                                )}
+                                {agent.freeTrialEnabled ? (
+                                    <span className="block text-xs font-semibold text-amber-600 mt-1">
+                                        ⏱ Includes {agent.trialDays ?? 7}-day free trial
+                                    </span>
+                                ) : null}
+                            </>
+                        )}
                     </div>
 
                     {isOwned ? (
@@ -1483,7 +1528,11 @@ function AgentDetailsModal({
                             data-testid="business-marketplace-agent-details-modal-start-trial"
                             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
                         >
-                            Start free trial
+                            {agent.pricingModel === "FREE"
+                                ? "Install agent"
+                                : agent.freeTrialEnabled
+                                    ? `Start ${agent.trialDays ?? 7}-day free trial`
+                                    : "Get agent"}
                         </Link>
                     )}
                 </div>
@@ -1521,9 +1570,16 @@ function AgentGridCard({
                         🤖
                     </span>
 
-                    <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-protected-marketplace-agent-price-text">
-                        ${agent.price}
-                    </span>
+                    <div className="text-right">
+                        <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="business-protected-marketplace-agent-price-text">
+                            {agent.pricingModel === "FREE" ? "Free" : agent.pricingModel === "ONE_TIME" ? `$${agent.price}` : `$${agent.price}/mo`}
+                        </span>
+                        {agent.pricingModel !== "FREE" && agent.freeTrialEnabled ? (
+                            <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mt-1 block">
+                                {agent.trialDays ?? 7}-Day Trial
+                            </span>
+                        ) : null}
+                    </div>
                 </div>
 
                 <h3 className="mt-4 flex items-center gap-2 text-lg font-bold text-slate-900" data-testid="business-protected-marketplace-agent-is-new-heading">
@@ -1633,9 +1689,16 @@ function AgentListCard({
             </div>
 
             <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-3">
-                <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-protected-marketplace-agent-price-text-2">
-                    ${agent.price}
-                </span>
+                <div className="text-right">
+                    <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="business-protected-marketplace-agent-price-text-2">
+                        {agent.pricingModel === "FREE" ? "Free" : agent.pricingModel === "ONE_TIME" ? `$${agent.price}` : `$${agent.price}/mo`}
+                    </span>
+                    {agent.pricingModel !== "FREE" && agent.freeTrialEnabled ? (
+                        <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mt-1 block">
+                            {agent.trialDays ?? 7}-Day Trial
+                        </span>
+                    ) : null}
+                </div>
 
                 <button
                     type="button"

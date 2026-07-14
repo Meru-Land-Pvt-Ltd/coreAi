@@ -70,6 +70,9 @@ type ListingAccess = {
     amountCents: number;
     phoneNumberFee?: { label: string; amountCents: number } | null;
     purchaseStatus: string | null;
+    pricingModel?: string | null;
+    freeTrialEnabled?: boolean | null;
+    trialDays?: number | null;
     usagePricing?: {
         perMinuteUsd: number;
         services: Array<{ code: string; name: string; unit: string; unitPriceUsd: number }>;
@@ -524,10 +527,10 @@ const nextSteps = [
     "Set business hours"
 ];
 
-function formatTrialDate() {
+function formatTrialDate(days = 7) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const date = new Date();
-    date.setDate(date.getDate() + 7);
+    date.setDate(date.getDate() + days);
 
     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
@@ -639,7 +642,9 @@ export default function BusinessCheckoutPage() {
     const [confirmation, setConfirmation] = useState(false);
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
 
-    const trialDate = useMemo(() => formatTrialDate(), []);
+    const isFree = listingAccess?.pricingModel === "FREE";
+    const trialDays = listingAccess?.trialDays ?? 7;
+    const trialDate = useMemo(() => formatTrialDate(trialDays), [trialDays]);
     const selectedCountry = useMemo(
         () => countries.find((country) => country.countryCode === countryCode) ?? countries[0],
         [countries, countryCode]
@@ -668,20 +673,25 @@ export default function BusinessCheckoutPage() {
     const canPayNow = listingAccess?.canPayNow ?? (
         listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false
     );
-    const isPurchaseMode = usageMode || canPayNow;
+    const isPurchaseMode = usageMode || canPayNow || isFree;
     const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
     const checkoutBlocked = !usageMode && hasActiveAccess && !canPayNow;
-    const dueTodayAmount = isPurchaseMode ? payTotal : 0;
-    const checkoutButtonLabel = isPurchaseMode
-        ? `Pay $${payTotal.toFixed(2)}`
-        : "Start 7-day free trial";
-    const mobileCheckoutButtonLabel = isPurchaseMode
-        ? `Pay $${payTotal.toFixed(2)}`
-        : "Start free trial";
+    const dueTodayAmount = isFree ? 0 : (isPurchaseMode ? payTotal : 0);
+    const checkoutButtonLabel = isFree
+        ? "Install Agent"
+        : isPurchaseMode
+            ? `Pay $${payTotal.toFixed(2)}`
+            : `Start ${trialDays}-day free trial`;
+    const mobileCheckoutButtonLabel = isFree
+        ? "Install Agent"
+        : isPurchaseMode
+            ? `Pay $${payTotal.toFixed(2)}`
+            : "Start free trial";
 
     const formReady =
         authReady &&
-        ((usageMode && usageSummaryReady) ||
+        (isFree ||
+        (usageMode && usageSummaryReady) ||
         (paymentTab !== "credit" ||
             (validations.card &&
                 validations.expiry &&
@@ -942,10 +952,10 @@ export default function BusinessCheckoutPage() {
         try {
             const response = await apiPost<StartTrialResponse | PurchaseResponse>(endpoint, {
                 listingId,
-                paymentMethodId: testPaymentMethodForBrand(brand),
-                billingName: cardName.trim(),
+                paymentMethodId: isFree ? "free_installation" : testPaymentMethodForBrand(brand),
+                billingName: isFree ? "Free Install" : cardName.trim(),
                 billingEmail: email.trim(),
-                billingAddress: formatBillingAddress(
+                billingAddress: isFree ? "Free Installation" : formatBillingAddress(
                     addressLine,
                     zip,
                     selectedCountry?.name ?? countryCode
@@ -1025,19 +1035,33 @@ export default function BusinessCheckoutPage() {
                                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
                                     <h2 className="text-xl font-bold tracking-tight" data-testid="business-protected-checkout-payment-method-heading">Payment method</h2>
                                     <p className="mb-6 mt-1 text-sm text-slate-500" data-testid="business-protected-checkout-you-won-apos-t-be-charged-until-text">
-                                        {isPurchaseMode
-                                            ? "Your card will be charged today for this agent."
-                                            : "You won&apos;t be charged until your 7-day trial ends."}
+                                        {isFree
+                                            ? "This agent is free. No charge will be applied."
+                                            : isPurchaseMode
+                                                ? "Your card will be charged today for this agent."
+                                                : `You won&apos;t be charged until your ${trialDays}-day trial ends.`}
                                     </p>
 
+                                    {!isFree ? (
                                     <div className="flex overflow-x-auto" role="tablist" aria-label="Payment options">
                                         <PaymentTabButton active={paymentTab === "credit"} onClick={() => setPaymentTab("credit")} testId="checkout-payment-tab-credit">
                                             <CardIcon />
                                             Credit card
                                         </PaymentTabButton>
                                     </div>
+                                    ) : null}
 
-                                    {paymentTab === "credit" ? (
+                                    {isFree ? (
+                                        <div className="-mt-px rounded-b-xl rounded-tr-xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-orange-50/60 p-6 sm:p-8 text-center shadow-sm">
+                                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600 mb-4 ring-8 ring-amber-50">
+                                                <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            </div>
+                                            <h3 className="text-lg font-bold text-slate-900">Free Installation</h3>
+                                            <p className="mt-2 text-sm text-slate-600 max-w-sm mx-auto">
+                                                This agent is free to install. No payment method or credit card details are required.
+                                            </p>
+                                        </div>
+                                    ) : paymentTab === "credit" ? (
                                         <div className="-mt-px rounded-b-xl rounded-tr-xl border border-gray-200 p-5 sm:p-6">
                                             <div>
                                                 <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-card-number-label">
@@ -1282,8 +1306,9 @@ export default function BusinessCheckoutPage() {
                                     </p>
                                     ) : (
                                     <p className="mt-3 text-center text-xs text-slate-400">
-                                        You&apos;ll be charged{" "}
-                                        <span className="font-medium text-slate-500" data-testid="business-protected-checkout-purchase-amount-text">${dueTodayAmount.toFixed(2)}</span> today.
+                                        {isFree
+                                            ? "This agent is free. No charge today."
+                                            : `You'll be charged $${dueTodayAmount.toFixed(2)} today.`}
                                     </p>
                                     )}
 
@@ -1323,6 +1348,9 @@ export default function BusinessCheckoutPage() {
                                         isUsageMode={usageMode}
                                         phoneFeeLabel={phoneFee?.label ?? null}
                                         phoneFeeAmount={phoneFeeAmount}
+                                        pricingModel={listingAccess?.pricingModel}
+                                        freeTrialEnabled={listingAccess?.freeTrialEnabled}
+                                        trialDays={listingAccess?.trialDays}
                                     />
                                 )}
                             </aside>
@@ -1367,6 +1395,8 @@ export default function BusinessCheckoutPage() {
                     agentName={listingName}
                     onSetup={() => router.push(businessSetupPath(listingId ?? undefined))}
                     onDashboard={() => router.push(BUSINESS_MARKETPLACE_PATH)}
+                    pricingModel={listingAccess?.pricingModel}
+                    trialDays={listingAccess?.trialDays}
                 />
             )}
 
@@ -1600,7 +1630,10 @@ function OrderSummary({
     postpaidRate = null,
     isUsageMode = false,
     phoneFeeLabel = null,
-    phoneFeeAmount = 0
+    phoneFeeAmount = 0,
+    pricingModel = "subscription",
+    freeTrialEnabled = true,
+    trialDays = 7
 }: {
     trialDate: string;
     includedItems: string[];
@@ -1614,6 +1647,9 @@ function OrderSummary({
     isUsageMode?: boolean;
     phoneFeeLabel?: string | null;
     phoneFeeAmount?: number;
+    pricingModel?: string | null;
+    freeTrialEnabled?: boolean | null;
+    trialDays?: number | null;
 }) {
     const priceLabel = price.toFixed(2);
     const dueTodayLabel = dueTodayAmount.toFixed(2);
@@ -1663,20 +1699,20 @@ function OrderSummary({
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">
-                        <PriceRow label={isUsageMode ? "Usage amount" : "Agent price"} value={`$${priceLabel}`} />
+                        <PriceRow label={isUsageMode ? "Usage amount" : "Agent price"} value={pricingModel === "FREE" ? "Free" : `$${priceLabel}`} />
                         {phoneFeeAmount > 0 ? (
                             <PriceRow
                                 label={phoneFeeLabel ?? "AI Receptionist No."}
                                 value={`$${phoneFeeAmount.toFixed(2)}`}
                             />
                         ) : null}
-                        {isPurchaseMode ? null : (
-                            <PriceRow label="7-day free trial" value={`−$${trialDiscountLabel}`} green />
+                        {isPurchaseMode || pricingModel === "FREE" ? null : (
+                            <PriceRow label={`${trialDays}-day free trial`} value={`−$${trialDiscountLabel}`} green />
                         )}
                         {!isUsageMode ? (
                             <PriceRow
                                 label="Post-paid execution fees"
-                                value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(4)}/minute`}
+                                value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(2)}`}
                                 muted
                             />
                         ) : null}
@@ -1687,8 +1723,8 @@ function OrderSummary({
                     <div className="flex items-baseline justify-between">
                         <div>
                             <span className="text-lg font-bold text-slate-900" data-testid="business-protected-checkout-due-today-text-2">Due today</span>
-                            {!isPurchaseMode ? (
-                                <span className="block text-xs font-normal text-slate-400" data-testid="business-protected-checkout-free-for-7-days-text">Free for 7 days</span>
+                            {!isPurchaseMode && pricingModel !== "FREE" ? (
+                                <span className="block text-xs font-normal text-slate-400" data-testid="business-protected-checkout-free-for-7-days-text">Free for {trialDays} days</span>
                             ) : null}
                         </div>
 
@@ -1707,14 +1743,20 @@ function OrderSummary({
                     </div>
                     )}
                     <p className="mt-3 text-xs leading-5 text-slate-400">
-                        Usage starts on the purchase date, is invoiced on the 1st, and is due by the 7th.
+                        {isUsageMode
+                            ? "This invoice covers usage already consumed. Payment is due immediately."
+                            : isPurchaseMode
+                            ? pricingModel === "ONE_TIME"
+                                ? "This is a one-time purchase. No future charges or renewals."
+                                : "Your subscription begins today. You'll be billed monthly on this date."
+                            : `Your ${trialDays}-day free trial starts now. You won't be charged until ${trialDate}.`}
                     </p>
                 </div>
 
-                {isPurchaseMode ? null : (
+                {isPurchaseMode || pricingModel === "FREE" ? null : (
                 <div className="mx-6 mb-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
                     <p className="flex items-center gap-2 text-sm font-semibold text-amber-800" data-testid="business-protected-checkout-your-7-day-trial-includes-text">
-                        ⏱ Your 7-day trial includes:
+                        ⏱ Your {trialDays}-day trial includes:
                     </p>
 
                     <ul className="mt-2 space-y-1 text-xs text-amber-700">
@@ -1744,12 +1786,16 @@ function ConfirmationView({
     email,
     agentName,
     onSetup,
-    onDashboard
+    onDashboard,
+    pricingModel = "subscription",
+    trialDays = 7
 }: {
     email: string;
     agentName: string;
     onSetup: () => void;
     onDashboard: () => void;
+    pricingModel?: string | null;
+    trialDays?: number | null;
 }) {
     return (
         <main className="fade-up mx-auto max-w-2xl px-5 py-14 text-center sm:py-16">
@@ -1763,10 +1809,22 @@ function ConfirmationView({
 
             <p className="mt-2 text-lg text-slate-600">{agentName} is now active.</p>
 
-            <p className="mt-4 text-sm text-slate-500" data-testid="business-protected-checkout-your-7-day-free-trial-has-started-text">
-                Your 7-day free trial has started. We&apos;ll send setup instructions to{" "}
-                <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
-            </p>
+            {pricingModel === "FREE" ? (
+                <p className="mt-4 text-sm text-slate-500">
+                    Your free agent is installed. We&apos;ll send setup instructions to{" "}
+                    <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
+                </p>
+            ) : pricingModel === "ONE_TIME" ? (
+                <p className="mt-4 text-sm text-slate-500">
+                    Your one-time purchase is complete. We&apos;ll send setup instructions to{" "}
+                    <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
+                </p>
+            ) : (
+                <p className="mt-4 text-sm text-slate-500" data-testid="business-protected-checkout-your-7-day-free-trial-has-started-text">
+                    Your {trialDays}-day free trial has started. We&apos;ll send setup instructions to{" "}
+                    <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
+                </p>
+            )}
 
             <div className="mt-8 rounded-2xl bg-gray-50 p-6 text-left sm:p-8">
                 <p className="mb-4 font-bold text-slate-900" data-testid="business-protected-checkout-next-steps-text">Next steps</p>

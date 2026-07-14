@@ -332,7 +332,9 @@ paymentRoutes.get("/history", async (c) => {
       listing: {
         select: {
           id: true,
-          name: true
+          name: true,
+          pricingModel: true,
+          trialDays: true
         }
       }
     }
@@ -351,7 +353,9 @@ paymentRoutes.get("/billing", async (c) => {
       listing: {
         select: {
           id: true,
-          name: true
+          name: true,
+          pricingModel: true,
+          trialDays: true
         }
       }
     }
@@ -360,7 +364,10 @@ paymentRoutes.get("/billing", async (c) => {
   const activeStatuses: string[] = ["TRIALING", "SUCCEEDED", "PENDING"];
 
   // Unique agents the business has purchased/started, with the price paid.
-  const agentMap = new Map<string, { id: string; name: string; priceCents: number }>();
+  const agentMap = new Map<
+    string,
+    { id: string; name: string; priceCents: number; pricingModel?: string | null; trialDays?: number | null }
+  >();
 
   for (const payment of payments) {
     if (!payment.listing) continue;
@@ -370,7 +377,9 @@ paymentRoutes.get("/billing", async (c) => {
     agentMap.set(payment.listing.id, {
       id: payment.listing.id,
       name: payment.listing.name,
-      priceCents: payment.amountCents
+      priceCents: payment.amountCents,
+      pricingModel: payment.listing.pricingModel,
+      trialDays: payment.listing.trialDays
     });
   }
 
@@ -606,7 +615,10 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     select: {
       id: true,
       name: true,
-      priceCents: true
+      priceCents: true,
+      pricingModel: true,
+      freeTrialEnabled: true,
+      trialDays: true
     }
   });
 
@@ -648,6 +660,9 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     listingId: listing.id,
     listingName: listing.name,
     amountCents: listing.priceCents,
+    pricingModel: listing.pricingModel,
+    freeTrialEnabled: listing.freeTrialEnabled,
+    trialDays: listing.trialDays,
     phoneNumberFee: phoneFee
       ? { label: phoneFee.label, amountCents: phoneFee.amountCents }
       : null,
@@ -661,7 +676,7 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
         unitPriceUsd: service.updatedCostMicroUsd / 1_000_000
       }))
     },
-    canStartTrial: !anyPayment,
+    canStartTrial: listing.freeTrialEnabled && !anyPayment,
     hasActiveAccess: Boolean(activePayment),
     trialUsed: anyPayment,
     canPayNow,
@@ -737,6 +752,10 @@ paymentRoutes.post("/start-trial", async (c) => {
     return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
   }
 
+  if (!listing.freeTrialEnabled) {
+    return errorResponse(c, "Free trial is not enabled for this agent", 400, "TRIAL_NOT_ENABLED");
+  }
+
   const existingPayments = await prisma.payment.findMany({
     where: {
       userId: authUser.id,
@@ -804,6 +823,8 @@ paymentRoutes.post("/start-trial", async (c) => {
     }
   });
 
+  const trialDays = listing.trialDays || 7;
+
   const payment = await prisma.payment.create({
     data: {
       userId: authUser.id,
@@ -814,7 +835,7 @@ paymentRoutes.post("/start-trial", async (c) => {
       status: "TRIALING",
       stripeCustomerId: customerId,
       stripePaymentId: attachedPaymentMethodId,
-      description: `7-day trial for ${listing.name}`,
+      description: `${trialDays}-day trial for ${listing.name}`,
       ...paymentBillingData(billingDetails)
     },
     include: {
@@ -870,7 +891,7 @@ paymentRoutes.post("/start-trial", async (c) => {
       payment,
       subscriptionId: null,
       assignedPhoneNumber,
-      trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      trialEndsAt: new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
     },
     "Trial started",
     201
@@ -878,12 +899,6 @@ paymentRoutes.post("/start-trial", async (c) => {
 });
 
 paymentRoutes.post("/purchase", async (c) => {
-  const stripe = getStripeClient();
-
-  if (!stripe || !isStripeConfigured()) {
-    return errorResponse(c, "Stripe is not configured", 500, "STRIPE_NOT_CONFIGURED");
-  }
-
   const body = await c.req.json().catch(() => null);
   const parsed = purchaseSchema.safeParse(body);
 
@@ -906,6 +921,96 @@ paymentRoutes.post("/purchase", async (c) => {
 
   if (!listing) {
     return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
+  }
+
+  // Bypass Stripe for FREE agent installations
+  if (listing.pricingModel === "FREE") {
+    const existingPayments = await prisma.payment.findMany({
+      where: {
+        userId: authUser.id,
+        listingId
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const activePayment = resolveActivePayment(existingPayments);
+
+    if (activePayment?.status === "SUCCEEDED") {
+      return successResponse(c, {
+        payment: activePayment,
+        alreadyActive: true
+      });
+    }
+
+    const payment = await prisma.payment.create({
+      data: {
+        userId: authUser.id,
+        businessId,
+        listingId: listing.id,
+        amountCents: 0,
+        currency: "usd",
+        status: "SUCCEEDED",
+        stripeCustomerId: null,
+        stripePaymentId: null,
+        description: `Free installation of ${listing.name}`,
+        lineItemsJson: [] as never,
+        ...paymentBillingData(billingDetails)
+      },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    let assignedPhoneNumber: string | null = null;
+    try {
+      const provisioned = await autoProvisionPhoneNumberForPurchase({
+        buyerUserId: authUser.id,
+        businessId,
+        listingId: listing.id
+      });
+      assignedPhoneNumber = provisioned?.phoneNumber ?? null;
+    } catch (error) {
+      console.error("[phone-provision] free-purchase provisioning failed (non-fatal)", {
+        listingId: listing.id,
+        error
+      });
+    }
+
+    try {
+      const invoice = await buildInvoiceData(payment, authUser);
+      await sendPaymentSuccessEmail({
+        to: authUser.email,
+        name: invoice.businessName,
+        setupUrl: setupUrlForListing(listing.id),
+        invoice
+      });
+    } catch (error) {
+      console.error("Payment success email failed (non-fatal)", error);
+    }
+
+    await notifyArchitectOfNewSale({ listingId: listing.id, agentPriceCents: 0 });
+
+    return successResponse(
+      c,
+      {
+        payment,
+        subscriptionId: null,
+        assignedPhoneNumber
+      },
+      "Purchase completed",
+      201
+    );
+  }
+
+  // ── Paid path — Stripe is required beyond this point ──────────────────────
+  const stripe = getStripeClient();
+  if (!stripe || !isStripeConfigured()) {
+    return errorResponse(c, "Stripe is not configured", 500, "STRIPE_NOT_CONFIGURED");
   }
 
   const existingPayments = await prisma.payment.findMany({
@@ -1175,4 +1280,40 @@ paymentRoutes.post("/purchase", async (c) => {
     "Purchase completed",
     201
   );
+});
+
+paymentRoutes.post("/cancel-agent/:listingId", async (c) => {
+  const authUser = c.get("authUser");
+  const listingId = c.req.param("listingId");
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      userId: authUser.id,
+      listingId
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  const activePayment = resolveActivePayment(payments);
+  if (!activePayment) {
+    return errorResponse(c, "No active access found for this agent", 404, "ACTIVE_ACCESS_NOT_FOUND");
+  }
+
+  await prisma.$transaction([
+    prisma.payment.update({
+      where: { id: activePayment.id },
+      data: { status: "CANCELED" }
+    }),
+    prisma.installedAgent.updateMany({
+      where: {
+        business: { ownerId: authUser.id },
+        listingId
+      },
+      data: {
+        status: "INACTIVE"
+      }
+    })
+  ]);
+
+  return successResponse(c, null, "Subscription cancelled successfully");
 });

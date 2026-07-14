@@ -1558,11 +1558,13 @@ export function ConfigurePanel({
                     onEdit={() => goToStep(3)}
                     rows={[
                       { label: "Model", value: priceModelLabel },
-                      { label: "Execution fee", value: `$${configure.pricing.executionFee.toFixed(2)} / execution` },
-                      {
-                        label: "Free trial",
-                        value: configure.pricing.freeTrialEnabled ? `${configure.pricing.trialDays}-day trial` : "Off"
-                      }
+                      ...(configure.pricing.pricingModel !== "free" ? [
+                        { label: "Execution fee", value: `$${configure.pricing.executionFee.toFixed(2)} / execution` },
+                        {
+                          label: "Free trial",
+                          value: configure.pricing.freeTrialEnabled ? `${configure.pricing.trialDays}-day trial` : "Off"
+                        }
+                      ] : [])
                     ]}
                   />
                   <ReviewSection
