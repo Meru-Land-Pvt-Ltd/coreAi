@@ -22,6 +22,7 @@ import {
   getMarketplaceListing,
   saveBusinessMailSetup,
   saveBusinessSetup,
+  sendBusinessTestSms,
   sendMailSetupTestEmail,
   testCallRouting,
   type BusinessEmailAliasData,
@@ -31,7 +32,8 @@ import {
   type BuyerCustomFieldValue,
   type BuyerSetupFieldDef,
   type CallRoutingResult,
-  type PlatformPhoneOption
+  type PlatformPhoneOption,
+  type TestSmsResult
 } from "@/components/business/features/api";
 
 const DASHBOARD_ROUTE = "/business/dashboard" as Route;
@@ -2265,6 +2267,35 @@ function StepDeploy({
   testResult: CallRoutingResult | null;
   onTestCallRouting: () => void;
 }) {
+  const [smsTestPhone, setSmsTestPhone] = useState("");
+  const [smsTesting, setSmsTesting] = useState(false);
+  const [smsTestResult, setSmsTestResult] = useState<TestSmsResult | null>(null);
+  const [smsTestError, setSmsTestError] = useState("");
+
+  const onSendTestSms = async () => {
+    const to = smsTestPhone.trim();
+    if (!to) {
+      setSmsTestError("Enter a phone number you own and have consent to text.");
+      setSmsTestResult(null);
+      return;
+    }
+    if (!to.startsWith("+")) {
+      setSmsTestError("Include the country code in E.164 format — e.g. +15551234567 for US numbers.");
+      setSmsTestResult(null);
+      return;
+    }
+    setSmsTesting(true);
+    setSmsTestError("");
+    setSmsTestResult(null);
+    const res = await sendBusinessTestSms({ to });
+    setSmsTesting(false);
+    if (res.success && res.data) {
+      setSmsTestResult(res.data);
+    } else {
+      setSmsTestError(res.error || "Could not send the test SMS.");
+    }
+  };
+
   return (
     <div className={CARD}>
       <h2 className={H2}>Test &amp; go live</h2>
@@ -2339,6 +2370,90 @@ function StepDeploy({
                   </span>
                 </li>
               ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+
+      <div className={SECTION} data-testid="business-setup-test-sms">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className={SECTION_TITLE}>Test SMS</h3>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Send a sample appointment confirmation from the shared Triven SMS number to a US phone you own and
+              have consent to text. The country code is required — E.164 format, e.g. +15551234567.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <input
+            type="tel"
+            value={smsTestPhone}
+            onChange={(event) => setSmsTestPhone(event.target.value)}
+            placeholder="+15551234567"
+            data-testid="business-setup-test-sms-phone"
+            className="w-56 rounded-full border border-gray-200 px-4 py-2 text-sm text-slate-700 focus:border-amber-300 focus:outline-none"
+          />
+          <button
+            type="button"
+            data-testid="business-setup-test-sms-send"
+            disabled={smsTesting}
+            onClick={onSendTestSms}
+            className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300"
+          >
+            {smsTesting ? "Sending…" : "Send test SMS"}
+          </button>
+        </div>
+
+        {smsTestError ? (
+          <div
+            className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+            data-testid="business-setup-test-sms-error"
+          >
+            {smsTestError}
+          </div>
+        ) : null}
+
+        {smsTestResult ? (
+          <div className="mt-4">
+            <div
+              className={`rounded-xl px-4 py-3 text-sm font-semibold ${
+                smsTestResult.sent || smsTestResult.simulated ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
+              }`}
+              data-testid="business-setup-test-sms-summary"
+            >
+              {smsTestResult.simulated
+                ? `Simulated — no Twilio request was made; nothing was delivered to ${smsTestResult.to}.`
+                : smsTestResult.testCredentials
+                  ? `Accepted with Twilio test credentials — nothing was delivered to ${smsTestResult.to}.`
+                  : `Sent — Twilio accepted the message to ${smsTestResult.to}.`}
+            </div>
+
+            <ul className="mt-3 space-y-1 text-xs text-slate-500" data-testid="business-setup-test-sms-details">
+              {smsTestResult.messageSid ? (
+                <li data-testid="business-setup-test-sms-sid">
+                  Message SID: <span className="break-all font-mono text-slate-700">{smsTestResult.messageSid}</span>
+                </li>
+              ) : null}
+              {smsTestResult.status ? (
+                <li data-testid="business-setup-test-sms-status">
+                  Status: <span className="font-semibold text-slate-700">{smsTestResult.status}</span>
+                </li>
+              ) : null}
+              {smsTestResult.from ? (
+                <li data-testid="business-setup-test-sms-from">
+                  Shared sender: <span className="font-mono text-slate-700">{smsTestResult.from}</span>
+                </li>
+              ) : null}
+              <li data-testid="business-setup-test-sms-simulated">
+                Simulated: <span className="font-semibold text-slate-700">{smsTestResult.simulated ? "yes" : "no"}</span>
+              </li>
+              {smsTestResult.mode ? (
+                <li data-testid="business-setup-test-sms-mode">
+                  Mode: <span className="font-semibold text-slate-700">{smsTestResult.mode}</span>
+                </li>
+              ) : null}
             </ul>
           </div>
         ) : null}

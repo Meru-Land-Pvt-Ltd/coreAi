@@ -17,6 +17,8 @@
     "seed:admin": "tsx scripts/seed-admin.ts",
     "seed:countries": "tsx scripts/seed-countries.ts",
     "cleanup:draft-agents": "tsx scripts/cleanup-draft-agents.ts",
+    "mark:sms-sender": "tsx scripts/mark-platform-sms-sender.ts",
+    "test:twilio-sms": "tsx scripts/test-twilio-sms.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
-import { sendTwilioSms } from "./twilio-connector";
+import { sendTrackedSms } from "../notifications/sms-notification-service";
 import {
   createGmailDraft,
   readGmailEmail,
@@ -233,11 +233,14 @@ type RunnerContext = {
   };
   sentSms?: {
     id: string | null;
+    messageSid?: string | null;
     to: string;
     body: string;
     mode: WorkflowRunMode;
     providerCalled: boolean;
     twilioTestMode: boolean;
+    executionId?: string | null;
+    status?: string | null;
   };
   queuedSms?: {
     to: string;
@@ -840,24 +843,47 @@ async function runSmsConnectorNode({
   }
 
   if (mode === "live") {
-    const sentSms = await sendTwilioSms({
+    const outcome = await sendTrackedSms({
       to: actionTo,
       body: actionBody,
-      fromPhoneNumber: context.business?.phoneNumber
+      messageType: "MISSED_CALL_TEXT_BACK",
+      businessId: context.business?.id ?? null,
+      installedAgentId: context.installedAgentId ?? null
     });
 
+    if (!outcome.sent) {
+      context.sentSms = {
+        id: null,
+        to: actionTo,
+        body: actionBody,
+        mode,
+        providerCalled: outcome.attempted,
+        twilioTestMode: false,
+        executionId: outcome.executionId
+      };
+      logs.push(createLog(node, "error", `Twilio SMS failed: ${outcome.error ?? "unknown error"}`, context.sentSms));
+      return;
+    }
+
     context.sentSms = {
-      ...sentSms,
-      mode
+      id: outcome.messageSid,
+      messageSid: outcome.messageSid,
+      to: actionTo,
+      body: actionBody,
+      mode,
+      providerCalled: !outcome.simulated,
+      twilioTestMode: outcome.simulated,
+      executionId: outcome.executionId,
+      status: outcome.status
     };
 
     logs.push(
       createLog(
         node,
         "success",
-        sentSms.twilioTestMode
-          ? "Twilio test credentials accepted the SMS request. No real SMS was delivered."
-          : "Twilio SMS sent successfully.",
+        outcome.simulated
+          ? "Twilio test mode accepted the SMS request. No real SMS was delivered."
+          : "Twilio SMS sent through the shared Triven Messaging Service.",
         context.sentSms
       )
     );

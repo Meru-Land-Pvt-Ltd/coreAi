@@ -6,6 +6,27 @@ businesses (launch vertical: dental practices).
 Stack: Twilio (telephony + SMS) · Vapi (AI voice) · Google Calendar (booking),
 routed **per business** by the inbound Twilio `To`/`Called` number.
 
+## SMS architecture (2026-07-14)
+
+Outbound SMS no longer uses the buyer's number as sender. All transactional SMS
+(missed-call text-backs, appointment confirmations, test SMS) goes through
+**one global Twilio Messaging Service** (`TWILIO_MESSAGING_SERVICE_SID`) with
+**one shared Triven sender** (`TWILIO_SHARED_SMS_NUMBER`, flagged
+`isPlatformSmsSender=true`, excluded from buyer inventory). Buyers keep a
+dedicated **voice** number, which appears inside SMS bodies as the callback
+number ("For assistance call {businessPhone}"). Every send creates an
+`SmsExecution` row; delivery-status callbacks land on
+`POST /architect/connectors/twilio/message-status`. Appointment confirmations
+are idempotent on `appointment-confirmation:{appointmentId}` — booking and
+notification tools can both fire without double-texting. Shared-sender SMS is
+**one-way** in Phase 1: STOP/START/HELP via Messaging Service Advanced
+Opt-Out, and replies to the shared number are never associated with a business
+(no inference heuristics) — they are logged unmatched and answered with empty
+TwiML. Dedicated-number inbound SMS keeps its existing conversational flow.
+SMS recipients must be explicit E.164 (bare 10-digit numbers are rejected as
+ambiguous). Live US sending requires the approved A2P campaign. See
+`docs/production-twilio-setup.md`.
+
 Routing chain:
 
 ```
@@ -87,7 +108,7 @@ without the real provider:
 
 - **Twilio voice webhook** → correct TwiML `<Dial>` / `<Reject>` returned.
 - **Twilio missed-call dial result** (`DialCallStatus`) → text-back workflow triggered.
-- **Twilio SMS send** → exercised via `TWILIO_TEST_MODE` (accepted, no real SMS billed).
+- **Twilio SMS send** → exercised via `TWILIO_SMS_MODE=SIMULATED` or `TWILIO_TEST_CREDENTIALS` (no real SMS billed).
 - **Twilio inbound SMS** → context-aware AI reply + booking path.
 - **Vapi tool-call webhook** → `book_appointment` returns `status:"booked"`.
 - **Google Calendar** → event created via the per-business OAuth connector.
@@ -106,8 +127,12 @@ without the real provider:
 | `BACKEND_URL` | yes | Public URL Twilio/Vapi post to (must match for signature checks) |
 | `FRONTEND_URL` | yes | Used for OAuth redirects |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | yes (live) | Twilio credentials |
-| `TWILIO_PHONE_NUMBER` **or** `TWILIO_MESSAGING_SERVICE_SID` | yes (live) | SMS sender fallback |
-| `TWILIO_TEST_MODE` | optional | `true` uses Twilio magic test numbers (no real SMS) |
+| `TWILIO_MESSAGING_SERVICE_SID` | yes (live SMS) | The ONE global Messaging Service every outbound SMS goes through |
+| `TWILIO_SHARED_SMS_NUMBER` | yes (live SMS) | Shared Triven SMS sender (reserved; never a buyer number) |
+| `TWILIO_SMS_STATUS_CALLBACK_URL` | optional | Defaults to `${BACKEND_URL}/architect/connectors/twilio/message-status` |
+| `TWILIO_SMS_MODE` | optional | `SIMULATED` \| `TWILIO_TEST_CREDENTIALS` \| `LIVE` (default LIVE; must be LIVE in prod) |
+| `TWILIO_TEST_ACCOUNT_SID` / `TWILIO_TEST_AUTH_TOKEN` | test mode only | Twilio TEST credentials for `TWILIO_TEST_CREDENTIALS` mode |
+| `TWILIO_TEST_MODE` | deprecated | `true` maps to `TWILIO_SMS_MODE=SIMULATED` (no Twilio request) |
 | `TWILIO_VALIDATE_SIGNATURE` | optional | `true` enforces `X-Twilio-Signature` (enable in prod) |
 | `TWILIO_FORWARD_TO_PHONE` | optional | Global fallback forward number |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | yes (booking) | Google OAuth (Gmail + Calendar scope) |
@@ -116,7 +141,7 @@ without the real provider:
 | `VAPI_DEFAULT_ASSISTANT_ID` / `VAPI_DEFAULT_PHONE_NUMBER_ID` | optional | Per-business overrides win; env is the default |
 | `GOOGLE_CALENDAR_DEFAULT_TIMEZONE` | optional | Defaults to `America/New_York` |
 
-No-cost local run: set `TWILIO_TEST_MODE=true` and leave `TWILIO_VALIDATE_SIGNATURE` unset.
+No-cost local run: set `TWILIO_SMS_MODE=SIMULATED` and leave `TWILIO_VALIDATE_SIGNATURE` unset.
 
 ---
 
@@ -142,7 +167,7 @@ export BACKEND_URL="http://localhost:8787"
 export FRONTEND_URL="http://localhost:3000"
 ```
 
-1. `npm run dev` (backend + frontend), `TWILIO_TEST_MODE=true`.
+1. `npm run dev` (backend + frontend), `TWILIO_SMS_MODE=SIMULATED`.
 2. Seed numbers (§6), then run the wizard / `POST /business/setup` to create a business
    and capture the assigned number as `<ASSIGNED_NUMBER>`.
 3. Exercise the flow (use `--data-urlencode` for any field containing `+`):
@@ -171,7 +196,7 @@ Full payloads (Vapi tool-call, setup body, expected outputs): `docs/missed-call-
 ## 8. How to run a live ngrok + Twilio test
 
 1. Set live env: real `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`, `VAPI_API_KEY`,
-   Google OAuth creds; unset `TWILIO_TEST_MODE`.
+   Google OAuth creds; set `TWILIO_SMS_MODE=LIVE`.
 2. Start backend, then expose it:
    ```bash
    ngrok http 8787
@@ -198,8 +223,8 @@ Full payloads (Vapi tool-call, setup body, expected outputs): `docs/missed-call-
 - **Signature enforcement in prod** — `TWILIO_VALIDATE_SIGNATURE` must be on and verified live.
 - **AI reply quality / booking parser hardening** — natural-language date/time parsing
   needs real-world coverage (timezones, ambiguous phrasing, no-availability cases).
-- **Observability** — delivery/failure tracking, retries, and alerting for SMS/voice/calendar errors.
-- **Compliance** — A2P 10DLC registration, opt-out (STOP/HELP) handling, consent records.
+- **Observability** — SMS delivery/failure tracking now lands in `SmsExecution` (status callbacks wired); retries and alerting still open, as is voice/calendar error tracking.
+- **Compliance** — shared-sender A2P 10DLC **campaign submitted, approval pending** (no live US sending until approved); STOP/START/HELP handled by the Messaging Service (Advanced Opt-Out); consent records still open.
 - **Multi-number scale** — pool exhaustion handling and per-business number lifecycle (release/reassign).
 
 ---

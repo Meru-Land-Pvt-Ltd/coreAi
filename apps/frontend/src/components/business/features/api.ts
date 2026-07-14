@@ -230,6 +230,26 @@ export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPh
   return apiPost<CallRoutingResult>("/business/setup/test-call-routing", body);
 }
 
+/** Result of a test SMS sent through the shared Triven Messaging Service. */
+export type TestSmsResult = {
+  sent: boolean;
+  simulated: boolean;
+  /** True when Twilio test credentials were used — accepted, never delivered. */
+  testCredentials?: boolean;
+  mode?: "SIMULATED" | "TWILIO_TEST_CREDENTIALS" | "LIVE";
+  messageSid: string | null;
+  status: string | null;
+  messagingServiceSid: string | null;
+  from: string | null;
+  to: string;
+  executionId: string | null;
+};
+
+/** Send one appointment-style test SMS to a consented E.164 number (Step 4). */
+export function sendBusinessTestSms(body: { to: string }) {
+  return apiPost<TestSmsResult>("/business/setup/test-sms", body);
+}
+
 /* ---- Mail Setup (proxy email alias on reply.triven.ai) ---- */
 
 export type BusinessEmailAliasData = {

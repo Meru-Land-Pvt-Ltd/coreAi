@@ -7,6 +7,7 @@ import { assignPlatformNumber, unassignPlatformNumber } from "../business/phone-
 import {
   PhoneNumberServiceError,
   configureWebhooks,
+  normalizeA2pStatus,
   normalizeE164,
   purchaseNumber,
   releaseNumber,
@@ -112,7 +113,8 @@ adminPhoneNumberRoutes.get("/", async (c) => {
       smsWebhookUrl: n.smsWebhookUrl,
       webhookStatus: n.webhookStatus,
       complianceStatus: n.complianceStatus ?? "UNKNOWN",
-      a2pStatus: n.a2pStatus ?? "UNKNOWN",
+      a2pStatus: normalizeA2pStatus(n.a2pStatus),
+      isPlatformSmsSender: n.isPlatformSmsSender,
       lastSyncedAt: n.lastSyncedAt,
       lastError: n.lastError,
       createdAt: n.createdAt
@@ -258,6 +260,15 @@ adminPhoneNumberRoutes.post("/:id/assign", async (c) => {
 
   const record = await prisma.platformPhoneNumber.findUnique({ where: { id } });
   if (!record) return errorResponse(c, "Phone number not found.", 404, "NUMBER_NOT_FOUND");
+
+  if (record.isPlatformSmsSender) {
+    return errorResponse(
+      c,
+      "This number is the reserved shared Triven SMS sender. It can never be assigned to a business, installed agent, or buyer.",
+      409,
+      "PLATFORM_SMS_SENDER_NOT_ASSIGNABLE"
+    );
+  }
 
   if (record.status !== "AVAILABLE") {
     const reason =

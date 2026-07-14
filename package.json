@@ -28,11 +28,13 @@
     "postinstall": "npm run build:shared"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "firebase": "^12.15.0",
     "firebase-admin": "^14.0.0",
     "lucide-react": "^1.24.0",
-    "pdfkit": "^0.19.1"
+    "pdfkit": "^0.19.1",
+    "twilio": "^6.0.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6"

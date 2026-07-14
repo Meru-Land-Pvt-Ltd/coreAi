@@ -8,7 +8,7 @@ datasource db {
 }
 
 model User {
-  id                   String                @id @default(cuid())
+  id                   String                 @id @default(cuid())
   email                String
   passwordHash         String?
   role                 UserRole
@@ -17,9 +17,9 @@ model User {
   location             String?
   timezone             String?
   profilePhotoUrl      String?
-  isSuspended          Boolean               @default(false)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  isSuspended          Boolean                @default(false)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
   listings             AgentListing[]
   architectProfile     ArchitectProfile?
   businesses           Business[]
@@ -42,29 +42,29 @@ model User {
 }
 
 model ArchitectProfile {
-  id               String          @id @default(cuid())
-  userId           String          @unique
-  title            String?
-  displayName      String?
-  tagline          String?
-  bio              String?
-  portfolioUrl     String?
-  githubUrl        String?
-  linkedinUrl      String?
-  twitterHandle    String?
-  experienceBand   String?
-  skills           String[]
-  approvalStatus   ArchitectStatus @default(PENDING)
-  rating           Float           @default(0)
-  completedJobs    Int             @default(0)
+  id                String          @id @default(cuid())
+  userId            String          @unique
+  title             String?
+  displayName       String?
+  tagline           String?
+  bio               String?
+  portfolioUrl      String?
+  githubUrl         String?
+  linkedinUrl       String?
+  twitterHandle     String?
+  experienceBand    String?
+  skills            String[]
+  approvalStatus    ArchitectStatus @default(PENDING)
+  rating            Float           @default(0)
+  completedJobs     Int             @default(0)
   notificationPrefs Json?
-  privacyPrefs     Json?
-  payoutSchedule   Json?
-  agentsPaused     Boolean         @default(false)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  hourlyRateCents  Int?
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  privacyPrefs      Json?
+  payoutSchedule    Json?
+  agentsPaused      Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  hourlyRateCents   Int?
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([approvalStatus])
 }
@@ -89,7 +89,7 @@ model WorkflowDefinition {
   architectUserId      String
   listings             AgentListing[]
   installedAgents      InstalledAgent[]
-  workflowRuns    WorkflowRun[]
+  workflowRuns         WorkflowRun[]
   architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
@@ -251,33 +251,34 @@ model Business {
   workflowRuns    WorkflowRun[]
   emailAliases    BusinessEmailAlias[]
   emailMessages   EmailMessage[]
+  smsExecutions   SmsExecution[]
 
   @@index([ownerId])
   @@index([type])
 }
 
 model BusinessProfile {
-  id                String   @id @default(cuid())
-  businessId        String   @unique
-  serviceArea       String?
-  bookingUrl        String?
-  teamPhone         String?
-  businessSize      String?
+  id                    String    @id @default(cuid())
+  businessId            String    @unique
+  serviceArea           String?
+  bookingUrl            String?
+  teamPhone             String?
+  businessSize          String?
   onboardingCompletedAt DateTime?
   onboardingSkippedAt   DateTime?
   onboardingDataJson    Json?
-  hoursJson         Json?
-  tone              String   @default("friendly")
-  escalationRules   String?
-  services          String[]
-  faqsJson          Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  calendarId        String?  @default("primary")
-  timeZone          String   @default("America/New_York")
-  vapiAssistantId   String?
-  vapiPhoneNumberId String?
-  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  hoursJson             Json?
+  tone                  String    @default("friendly")
+  escalationRules       String?
+  services              String[]
+  faqsJson              Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  calendarId            String?   @default("primary")
+  timeZone              String    @default("America/New_York")
+  vapiAssistantId       String?
+  vapiPhoneNumberId     String?
+  business              Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 model BusinessPhoneNumber {
@@ -385,23 +386,23 @@ model Lead {
 }
 
 model Appointment {
-  id              String   @id @default(cuid())
-  businessId      String
-  conversationId  String?
-  customerPhone   String
-  customerName    String?
-  service         String?
-  startAt         DateTime
-  endAt           DateTime
-  timeZone        String?
-  calendarEventId String?
+  id                String   @id @default(cuid())
+  businessId        String
+  conversationId    String?
+  customerPhone     String
+  customerName      String?
+  service           String?
+  startAt           DateTime
+  endAt             DateTime
+  timeZone          String?
+  calendarEventId   String?
   /// Google Calendar event htmlLink — lets the buyer open the booking on the calendar.
   calendarEventLink String?
-  status          String   @default("BOOKED")
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  status            String   @default("BOOKED")
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([customerPhone])
@@ -410,36 +411,36 @@ model Appointment {
 }
 
 model VapiCall {
-  id             String    @id @default(cuid())
-  businessId     String
-  installedAgentId String?
-  conversationId String?
-  callId         String    @unique
-  customerPhone  String
-  status         String    @default("STARTED")
-  transcript     String?
-  summary        String?
-  metadataJson   Json?
-  durationSeconds Int?
-  durationMinutes Float?
-  smsCount       Int       @default(0)
+  id                    String                @id @default(cuid())
+  businessId            String
+  installedAgentId      String?
+  conversationId        String?
+  callId                String                @unique
+  customerPhone         String
+  status                String                @default("STARTED")
+  transcript            String?
+  summary               String?
+  metadataJson          Json?
+  durationSeconds       Int?
+  durationMinutes       Float?
+  smsCount              Int                   @default(0)
   /// Vapi-reported total call cost (vendor actual).
-  vapiCostMicroUsd Int?
+  vapiCostMicroUsd      Int?
   /// Sum of admin-board actual vendor rates for this execution.
-  actualCostMicroUsd Int?
+  actualCostMicroUsd    Int?
   /// Sum of admin-board updated rates — used for buyer billing.
-  billedCostMicroUsd Int?
-  usageLineItemsJson Json?
+  billedCostMicroUsd    Int?
+  usageLineItemsJson    Json?
   vapiCostBreakdownJson Json?
-  billingMonth   String?
-  billingRecordedAt DateTime?
-  usageInvoiceId String?
-  startedAt      DateTime  @default(now())
-  endedAt        DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  business       Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  usageInvoice   BusinessUsageInvoice? @relation(fields: [usageInvoiceId], references: [id], onDelete: SetNull)
+  billingMonth          String?
+  billingRecordedAt     DateTime?
+  usageInvoiceId        String?
+  startedAt             DateTime              @default(now())
+  endedAt               DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  business              Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  usageInvoice          BusinessUsageInvoice? @relation(fields: [usageInvoiceId], references: [id], onDelete: SetNull)
 
   @@index([businessId])
   @@index([businessId, billingMonth])
@@ -450,47 +451,49 @@ model VapiCall {
 }
 
 model PlatformPhoneNumber {
-  id               String              @id @default(cuid())
-  phoneNumber      String              @unique
+  id                  String              @id @default(cuid())
+  phoneNumber         String              @unique
   /// Normalized E.164 form of phoneNumber (backfilled; canonical for lookups going forward).
-  e164             String?             @unique
-  provider         ConnectorProvider   @default(TWILIO)
-  status           PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid        String?             @unique
+  e164                String?             @unique
+  provider            ConnectorProvider   @default(TWILIO)
+  status              PlatformPhoneStatus @default(AVAILABLE)
+  twilioSid           String?             @unique
   /// Provider-agnostic number id (alias for twilioSid; future non-Twilio providers).
-  providerNumberId String?
-  country          String?
-  region           String?
-  locality         String?
+  providerNumberId    String?
+  country             String?
+  region              String?
+  locality            String?
   /// e.g. { "voice": true, "sms": false, "mms": false }
-  capabilities     Json?
-  voiceEnabled     Boolean             @default(true)
-  smsEnabled       Boolean             @default(true)
-  mmsEnabled       Boolean?
-  businessId       String?
-  buyerUserId      String?
-  installedAgentId String?
-  assignedAt       DateTime?
+  capabilities        Json?
+  voiceEnabled        Boolean             @default(true)
+  smsEnabled          Boolean             @default(true)
+  mmsEnabled          Boolean?
+  businessId          String?
+  buyerUserId         String?
+  installedAgentId    String?
+  assignedAt          DateTime?
   /// When the one-time number fee was billed to the buyer (once per number;
   /// cleared when the number returns to AVAILABLE).
-  feeBilledAt      DateTime?
+  feeBilledAt         DateTime?
   /// Admin provisioning metadata (numbers purchased through the admin panel).
-  purchasedByAdminId String?
-  purchasedAt        DateTime?
-  releasedAt         DateTime?
-  voiceWebhookUrl    String?
-  smsWebhookUrl      String?
-  webhookStatus      PhoneWebhookStatus @default(UNKNOWN)
-  complianceStatus   String?
-  a2pStatus          String?
-  lastSyncedAt       DateTime?
-  lastError          String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  purchasedByAdminId  String?
+  purchasedAt         DateTime?
+  releasedAt          DateTime?
+  voiceWebhookUrl     String?
+  smsWebhookUrl       String?
+  webhookStatus       PhoneWebhookStatus  @default(UNKNOWN)
+  complianceStatus    String?
+  a2pStatus           String?
+  isPlatformSmsSender Boolean             @default(false)
+  lastSyncedAt        DateTime?
+  lastError           String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([status])
   @@index([businessId])
   @@index([installedAgentId])
+  @@index([isPlatformSmsSender, status])
 }
 
 /// Structured record of privileged admin actions (phone provisioning, assignment, release…).
@@ -509,15 +512,15 @@ model AdminAuditLog {
 }
 
 model Payment {
-  id          String        @id @default(cuid())
-  userId      String
-  businessId  String?
-  listingId   String?
-  amountCents Int           @default(0)
-  currency    String        @default("usd")
-  status      PaymentStatus @default(PENDING)
-  architectEarningStatus ArchitectEarningStatus @default(PENDING)
-  architectEarningReviewedAt DateTime?
+  id                               String                 @id @default(cuid())
+  userId                           String
+  businessId                       String?
+  listingId                        String?
+  amountCents                      Int                    @default(0)
+  currency                         String                 @default("usd")
+  status                           PaymentStatus          @default(PENDING)
+  architectEarningStatus           ArchitectEarningStatus @default(PENDING)
+  architectEarningReviewedAt       DateTime?
   architectEarningReviewedByUserId String?
 
   stripeCustomerId     String?
@@ -529,16 +532,16 @@ model Payment {
   billingEmail   String?
   billingAddress String?
 
-  description String?
+  description   String?
   /// Buyer-facing fee breakdown: [{ label, amountCents }] — agent price plus
   /// the "AI Receptionist No." number fee when one was provisioned.
   lineItemsJson Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business Business?    @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  listing AgentListing? @relation(fields: [listingId], references: [id])
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  listing  AgentListing? @relation(fields: [listingId], references: [id])
 
   @@index([userId])
   @@index([businessId])
@@ -593,8 +596,8 @@ model ArchitectPayoutMethod {
   architectUserId         String   @unique
   bankName                String?
   accountHolderName       String?
-  accountNumber           String?  // Legacy only. New Stripe Connect methods never store a full account number.
-  ifscCode                String?  // Legacy only. Stripe collects IFSC/ABA routing details directly.
+  accountNumber           String? // Legacy only. New Stripe Connect methods never store a full account number.
+  ifscCode                String? // Legacy only. Stripe collects IFSC/ABA routing details directly.
   country                 String   @default("IN")
   currency                String   @default("inr")
   accountLast4            String?
@@ -633,33 +636,33 @@ model ArchitectPayout {
 }
 
 model UserLoginHistory {
-  id          String              @id @default(cuid())
+  id          String             @id @default(cuid())
   userId      String
   deviceLabel String
   location    String?
   ipMasked    String?
   userAgent   String?
-  status      LoginHistoryStatus  @default(SUCCESS)
-  createdAt   DateTime            @default(now())
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      LoginHistoryStatus @default(SUCCESS)
+  createdAt   DateTime           @default(now())
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
 }
 
 model UserActiveSession {
-  id          String    @id @default(cuid())
-  userId      String
-  tokenSid    String    @unique
-  deviceLabel String
-  location    String?
-  ipMasked    String?
-  userAgent   String?
-  lastActiveAt DateTime @default(now())
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String    @id @default(cuid())
+  userId       String
+  tokenSid     String    @unique
+  deviceLabel  String
+  location     String?
+  ipMasked     String?
+  userAgent    String?
+  lastActiveAt DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([revokedAt])
@@ -667,14 +670,14 @@ model UserActiveSession {
 }
 
 model ArchitectRefundSettlement {
-  id              String                      @id @default(cuid())
+  id              String                 @id @default(cuid())
   architectUserId String
   action          ArchitectRefundAction
   amountCents     Int
-  status          RefundSettlementStatus      @default(PENDING)
+  status          RefundSettlementStatus @default(PENDING)
   breakdown       Json
-  createdAt       DateTime                    @default(now())
-  updatedAt       DateTime                    @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   @@index([architectUserId])
   @@index([status])
@@ -824,9 +827,9 @@ enum NodeRunStatus {
 }
 
 enum ContextLinkType {
-  BACKLINK        // Load full memory from an earlier node into a later one
-  REFERENCE       // Soft dependency / traceability
-  SUMMARY_SOURCE  // Target summary was derived from source node
+  BACKLINK // Load full memory from an earlier node into a later one
+  REFERENCE // Soft dependency / traceability
+  SUMMARY_SOURCE // Target summary was derived from source node
 }
 
 enum ContextLinkStatus {
@@ -837,33 +840,33 @@ enum ContextLinkStatus {
 
 // One execution of an entire workflow (user clicks Run, or live event fires).
 model WorkflowRun {
-  id                String            @id @default(cuid())
+  id                String             @id @default(cuid())
   workflowId        String
   installedAgentId  String?
   businessId        String?
   triggeredByUserId String?
-  mode              WorkflowRunMode   @default(TEST)
-  status            WorkflowRunStatus   @default(RUNNING)
+  mode              WorkflowRunMode    @default(TEST)
+  status            WorkflowRunStatus  @default(RUNNING)
   threadId          String?
   inputJson         Json?
   outputJson        Json?
   errorMessage      String?
-  startedAt         DateTime          @default(now())
+  startedAt         DateTime           @default(now())
   finishedAt        DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  workflow       WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  installedAgent InstalledAgent?    @relation(fields: [installedAgentId], references: [id])
-  business       Business?          @relation(fields: [businessId], references: [id])
-  triggeredBy    User?              @relation(fields: [triggeredByUserId], references: [id])
-  nodeRuns       NodeRun[]
-  contextLinks   ContextLink[]
-  durationMs       Int?      /// Total run duration in milliseconds
-  totalTokenInput  Int?      @default(0)
-  totalTokenOutput Int?      @default(0)
-  totalCostCents   Int?      @default(0)
-  currentNodeId    String?   /// Last node that executed in this run
-  metadataJson     Json?     /// Extra workflow-level metadata
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  workflow          WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  installedAgent    InstalledAgent?    @relation(fields: [installedAgentId], references: [id])
+  business          Business?          @relation(fields: [businessId], references: [id])
+  triggeredBy       User?              @relation(fields: [triggeredByUserId], references: [id])
+  nodeRuns          NodeRun[]
+  contextLinks      ContextLink[]
+  durationMs        Int? /// Total run duration in milliseconds
+  totalTokenInput   Int?               @default(0)
+  totalTokenOutput  Int?               @default(0)
+  totalCostCents    Int?               @default(0)
+  currentNodeId     String? /// Last node that executed in this run
+  metadataJson      Json? /// Extra workflow-level metadata
 
   @@index([currentNodeId])
   @@index([workflowId])
@@ -885,28 +888,28 @@ model NodeRun {
   executionOrder Int           @default(0)
   threadId       String?
 
-  inputJson      Json?
-  outputJson     Json?
-  summary        String?
-  variablesJson  Json?
-  filesJson      Json?
+  inputJson     Json?
+  outputJson    Json?
+  summary       String?
+  variablesJson Json?
+  filesJson     Json?
 
-  provider       String?
-  model          String?
-  costCents      Int?
-  tokenInput     Int?
-  tokenOutput    Int?
+  provider    String?
+  model       String?
+  costCents   Int?
+  tokenInput  Int?
+  tokenOutput Int?
 
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  durationMs     Int?
-  errorMessage   String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  durationMs   Int?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  workflowRun       WorkflowRun   @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
-  outgoingLinks     ContextLink[] @relation("ContextLinkFrom")
-  incomingLinks     ContextLink[] @relation("ContextLinkTo")
+  workflowRun   WorkflowRun   @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  outgoingLinks ContextLink[] @relation("ContextLinkFrom")
+  incomingLinks ContextLink[] @relation("ContextLinkTo")
 
   @@index([workflowRunId])
   @@index([workflowRunId, nodeId])
@@ -916,24 +919,25 @@ model NodeRun {
 
 // Back-link: fromNodeRun = memory source, toNodeRun = node that reads it.
 model ContextLink {
-  id             String          @id @default(cuid())
-  workflowRunId  String
-  fromNodeRunId  String
-  toNodeRunId    String
-  linkType       ContextLinkType @default(BACKLINK)
-  reason         String?
-  createdAt      DateTime        @default(now())
+  id            String          @id @default(cuid())
+  workflowRunId String
+  fromNodeRunId String
+  toNodeRunId   String
+  linkType      ContextLinkType @default(BACKLINK)
+  reason        String?
+  createdAt     DateTime        @default(now())
 
-  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
-  fromNodeRun NodeRun     @relation("ContextLinkFrom", fields: [fromNodeRunId], references: [id], onDelete: Cascade)
-  toNodeRun   NodeRun     @relation("ContextLinkTo", fields: [toNodeRunId], references: [id], onDelete: Cascade)
-  linkStatus ContextLinkStatus @default(ACTIVE)
+  workflowRun WorkflowRun       @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  fromNodeRun NodeRun           @relation("ContextLinkFrom", fields: [fromNodeRunId], references: [id], onDelete: Cascade)
+  toNodeRun   NodeRun           @relation("ContextLinkTo", fields: [toNodeRunId], references: [id], onDelete: Cascade)
+  linkStatus  ContextLinkStatus @default(ACTIVE)
 
   @@index([workflowRunId])
   @@index([fromNodeRunId])
   @@index([toNodeRunId])
   @@index([linkStatus])
 }
+
 // ---- Proxy email (Amazon SES on reply.triven.ai) ----
 
 enum EmailAliasStatus {
@@ -976,27 +980,27 @@ enum EmailPurpose {
 
 /// One buyer-branded proxy sender identity (<business-slug>@reply.triven.ai).
 model BusinessEmailAlias {
-  id                String                 @id @default(cuid())
-  businessId        String
-  installedAgentId  String?
-  buyerUserId       String
-  localPart         String
-  domain            String                 @default("reply.triven.ai")
-  emailAddress      String                 @unique
-  displayName       String
-  forwardToEmail    String?
-  replyHandlingMode EmailReplyHandlingMode @default(TRIVEN_AND_FORWARD)
+  id                          String                 @id @default(cuid())
+  businessId                  String
+  installedAgentId            String?
+  buyerUserId                 String
+  localPart                   String
+  domain                      String                 @default("reply.triven.ai")
+  emailAddress                String                 @unique
+  displayName                 String
+  forwardToEmail              String?
+  replyHandlingMode           EmailReplyHandlingMode @default(TRIVEN_AND_FORWARD)
   /// Buyer toggle: send customers booking-confirmation / follow-up emails.
-  customerConfirmationEnabled Boolean @default(true)
+  customerConfirmationEnabled Boolean                @default(true)
   /// Buyer toggle: send the team internal call-summary / lead emails.
-  internalSummaryEnabled      Boolean @default(true)
-  status            EmailAliasStatus       @default(ACTIVE)
-  provider          String                 @default("SES")
-  sesIdentityStatus String?
-  lastVerifiedAt    DateTime?
-  lastError         String?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  internalSummaryEnabled      Boolean                @default(true)
+  status                      EmailAliasStatus       @default(ACTIVE)
+  provider                    String                 @default("SES")
+  sesIdentityStatus           String?
+  lastVerifiedAt              DateTime?
+  lastError                   String?
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
 
   business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages EmailMessage[]
@@ -1069,17 +1073,17 @@ enum UsageServiceUnit {
 
 /// Vendor / infrastructure line item used to bill agent execution (e.g. Twilio, Deepgram).
 model PlatformUsageService {
-  id                 String           @id @default(cuid())
-  code               String           @unique
-  name               String
-  role               String?
-  unit               UsageServiceUnit   @default(PER_MINUTE)
-  actualCostMicroUsd Int
+  id                  String           @id @default(cuid())
+  code                String           @unique
+  name                String
+  role                String?
+  unit                UsageServiceUnit @default(PER_MINUTE)
+  actualCostMicroUsd  Int
   updatedCostMicroUsd Int
-  isActive           Boolean          @default(true)
-  sortOrder          Int              @default(0)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  isActive            Boolean          @default(true)
+  sortOrder           Int              @default(0)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   @@index([isActive, sortOrder])
 }
@@ -1124,18 +1128,78 @@ model BusinessUsageInvoice {
 }
 
 model BusinessUsageInvoiceLineItem {
-  id                 String               @id @default(cuid())
-  invoiceId          String
-  serviceCode        String
-  serviceName        String
-  unit               UsageServiceUnit
-  quantity           Float
-  unitPriceMicroUsd  Int
-  amountMicroUsd     Int
-  createdAt          DateTime             @default(now())
+  id                String           @id @default(cuid())
+  invoiceId         String
+  serviceCode       String
+  serviceName       String
+  unit              UsageServiceUnit
+  quantity          Float
+  unitPriceMicroUsd Int
+  amountMicroUsd    Int
+  createdAt         DateTime         @default(now())
 
   invoice BusinessUsageInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@unique([invoiceId, serviceCode])
   @@index([invoiceId])
+}
+
+enum SmsProvider {
+  TWILIO
+}
+
+enum SmsMessageType {
+  APPOINTMENT_CONFIRMATION
+  TEST_SMS
+  MISSED_CALL_TEXT_BACK
+  WORKFLOW_SMS
+}
+
+enum SmsExecutionStatus {
+  QUEUED
+  ACCEPTED
+  SENDING
+  SENT
+  DELIVERED
+  UNDELIVERED
+  FAILED
+  SIMULATED
+}
+
+model SmsExecution {
+  id                   String             @id @default(cuid())
+  businessId           String?
+  installedAgentId     String?
+  appointmentId        String?
+  /// Idempotency key, e.g. "appointment-confirmation:{appointmentId}" — the
+  /// unique constraint is what makes duplicate triggers safe under concurrency.
+  dedupeKey            String?            @unique
+  provider             SmsProvider        @default(TWILIO)
+  messageSid           String?            @unique
+  messagingServiceSid  String?
+  messageType          SmsMessageType     @default(WORKFLOW_SMS)
+  toPhone              String
+  fromPhone            String?
+  body                 String
+  status               SmsExecutionStatus @default(QUEUED)
+  errorCode            String?
+  errorMessage         String?
+  numSegments          Int?
+  providerCostMicroUsd Int?
+  currency             String?
+  queuedAt             DateTime?
+  sentAt               DateTime?
+  deliveredAt          DateTime?
+  failedAt             DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([installedAgentId])
+  @@index([appointmentId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([toPhone, createdAt])
 }

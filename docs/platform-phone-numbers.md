@@ -1,13 +1,14 @@
 # Platform Phone Numbers — DB-Managed Inventory
 
-Last updated: 2026-07-03
+Last updated: 2026-07-14
 
 Phone numbers are **database inventory**, never env config. Production supports many numbers across many businesses.
 
 ## Data model
 
-- **`PlatformPhoneNumber`** — the CoreAI-owned pool. One row per number: `phoneNumber` (E.164, unique), `provider` (TWILIO), `status` (AVAILABLE | ASSIGNED | DISABLED), `twilioSid`/`providerNumberId` (PN…), `country`/`region`/`locality`, `capabilities` (`{voice, sms, mms}`), `businessId` + `assignedAt` once assigned.
+- **`PlatformPhoneNumber`** — the Triven-owned pool. One row per number: `phoneNumber` (E.164, unique), `provider` (TWILIO), `status` (AVAILABLE | ASSIGNED | DISABLED), `twilioSid`/`providerNumberId` (PN…), `country`/`region`/`locality`, `capabilities` (`{voice, sms, mms}`), `businessId` + `assignedAt` once assigned, and `isPlatformSmsSender` (role flag for the ONE reserved shared SMS sender).
 - **`BusinessPhoneNumber`** — the live mapping used by call routing: `phoneNumber`, `provider`, `businessId`, `installedAgentId`, `forwardToPhone`, `isActive`, `configJson`.
+- **`SmsExecution`** — one row per outbound SMS through the shared Messaging Service (Message SID, status, delivery timestamps, Twilio errors, segments, cost).
 
 Rules enforced by the backend:
 
@@ -15,17 +16,31 @@ Rules enforced by the backend:
 - Buyers only ever see AVAILABLE numbers plus their own assigned number — never another business's.
 - Assignment/deploy writes run in a **transaction** with a re-check, so two concurrent deploys can't grab the same number, and no half-assigned state is possible.
 - "Assigned to you" in the UI is server-computed (`businessId === currentBusiness.id`), never inferred client-side.
+- The shared SMS sender (`isPlatformSmsSender=true`, currently `+17252202182`) is **excluded from buyer inventory, auto-provisioning, and admin assignment** — every path returns `PLATFORM_SMS_SENDER_NOT_ASSIGNABLE`. Buyer numbers are **voice numbers**; all SMS leaves through the shared sender, and the buyer number only appears inside message bodies as the callback number.
+- Buyer voice-number provisioning is **not blocked** on the buyer number's A2P status (buyer numbers don't send SMS); Phase 1 SMS compliance rides on the shared sender's approved campaign.
 
-## Seed one number
+## Seed one number (buyer voice inventory)
+
+Use the number's REAL Twilio capabilities — capability (`sms`) and role (`isPlatformSmsSender`) are separate; an SMS-capable buyer number is still never used as a sender:
 
 ```bash
 npm run seed:platform-phone-numbers --workspace=@coreai/backend -- \
   --provider=TWILIO \
-  --number=+17252202182 \
-  --sid=PN8b3aac460ad6aaa746ac30e34a298984 \
-  --country=US --region=NV --locality="Las Vegas" \
-  --voice=true --sms=false --mms=false
+  --number=+1XXXXXXXXXX \
+  --sid=PNxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  --country=US \
+  --voice=true --sms=true --mms=false
 ```
+
+## Reserve the shared SMS sender
+
+After the number exists in `PlatformPhoneNumber` (seed or admin sync):
+
+```bash
+npm run mark:sms-sender --workspace=@coreai/backend -- --number=+17252202182
+```
+
+Sets `isPlatformSmsSender=true, smsEnabled=true`; refuses a number that is currently assigned to a buyer. Admin "Sync Twilio numbers" also auto-flags the number configured in `TWILIO_SHARED_SMS_NUMBER`.
 
 ## Import many (CSV)
 
@@ -37,7 +52,7 @@ CSV header:
 
 ```csv
 phoneNumber,provider,twilioSid,country,region,locality,voice,sms,mms,status
-+17252202182,TWILIO,PN8b3aac460ad6aaa746ac30e34a298984,US,NV,Las Vegas,true,false,false,AVAILABLE
++1XXXXXXXXXX,TWILIO,PNxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,US,NV,Las Vegas,true,true,false,AVAILABLE
 ```
 
 Seeding is idempotent (upsert by `phoneNumber`). **Assigned numbers get metadata-only updates** — status/businessId/assignedAt are never touched, so a live business's number can't be released by a seed run. `--release-demo` is a dev-only escape hatch that refuses to run with `NODE_ENV=production`.

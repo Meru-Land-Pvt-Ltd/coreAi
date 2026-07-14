@@ -141,6 +141,8 @@ export async function findBuyerPlatformNumber(input: {
   return prisma.platformPhoneNumber.findFirst({
     where: {
       status: "ASSIGNED",
+      // The shared Triven SMS sender can never be a buyer's number.
+      isPlatformSmsSender: false,
       OR: [
         ...(input.businessId ? [{ businessId: input.businessId }] : []),
         { businessId: null, buyerUserId: input.buyerUserId }
@@ -167,14 +169,21 @@ export async function claimAvailableInventoryNumber(
   links: AssignmentLinks
 ): Promise<PlatformPhoneNumber | null> {
   const candidates = await prisma.platformPhoneNumber.findMany({
-    where: { status: "AVAILABLE", provider: "TWILIO", voiceEnabled: true, smsEnabled: true },
+    where: {
+      status: "AVAILABLE",
+      provider: "TWILIO",
+      voiceEnabled: true,
+      smsEnabled: true,
+      // The reserved shared Triven SMS sender is never buyer inventory.
+      isPlatformSmsSender: false
+    },
     orderBy: { createdAt: "asc" },
     take: INVENTORY_CLAIM_CANDIDATES
   });
 
   for (const candidate of candidates) {
     const claimed = await prisma.platformPhoneNumber.updateMany({
-      where: { id: candidate.id, status: "AVAILABLE" },
+      where: { id: candidate.id, status: "AVAILABLE", isPlatformSmsSender: false },
       data: {
         status: "ASSIGNED",
         businessId: links.businessId,

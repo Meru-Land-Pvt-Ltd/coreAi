@@ -30,6 +30,8 @@ import {
 } from "./billing";
 import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice } from "./usage-billing";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
+import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
+import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import {
   autoProvisionPhoneNumber,
@@ -657,6 +659,8 @@ async function loadPhoneOptions(businessId: string | null) {
   const numbers = await prisma.platformPhoneNumber.findMany({
     where: {
       provider: "TWILIO",
+      // The reserved shared Triven SMS sender is never shown to buyers.
+      isPlatformSmsSender: false,
       OR: [{ status: "AVAILABLE" }, ...(businessId ? [{ businessId }] : [])]
     },
     orderBy: [{ status: "asc" }, { createdAt: "asc" }]
@@ -881,6 +885,85 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     resolveReason: diagnostics.resolveReason,
     checks
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /business/setup/test-sms — send one appointment-style test SMS to a
+// consented number through the shared Triven Messaging Service. Honest by
+// design: a Twilio failure is an error; the SIMULATED / TWILIO_TEST_CREDENTIALS
+// / LIVE mode is explicit (TWILIO_SMS_MODE) and reported in the response.
+// ---------------------------------------------------------------------------
+businessRoutes.post("/setup/test-sms", async (c) => {
+  const authUser = c.get("authUser");
+
+  const body: Record<string, unknown> = await c.req
+    .json()
+    .then((parsed: unknown) => (isRecord(parsed) ? parsed : {}))
+    .catch(() => ({}));
+
+  // Explicit E.164 only — a bare 10-digit number is ambiguous and rejected.
+  const recipient = validateSmsRecipientE164(typeof body.to === "string" ? body.to : "");
+  if (!recipient.ok) {
+    return errorResponse(c, recipient.error, 422, "INVALID_PHONE_NUMBER");
+  }
+  const to = recipient.e164;
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    include: {
+      profile: { select: { timeZone: true } },
+      phoneNumbers: includeActivePhoneNumbers(),
+      installedAgents: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true } }
+    }
+  });
+
+  const businessName = business?.name || "your business";
+  const businessPhone = business?.phoneNumbers?.[0]?.phoneNumber ?? "";
+  const message = [
+    `Hi there,`,
+    ``,
+    `This is a test of your ${businessName} appointment confirmations from Triven.`,
+    ``,
+    ...(businessPhone ? [`For assistance call ${businessPhone}.`, ``] : []),
+    `Reply STOP to opt out.`
+  ].join("\n");
+
+  const outcome = await sendTrackedSms({
+    to,
+    body: message,
+    messageType: "TEST_SMS",
+    businessId: business?.id ?? null,
+    installedAgentId: business?.installedAgents?.[0]?.id ?? null
+  });
+
+  if (!outcome.sent) {
+    return errorResponse(c, outcome.error ?? "Could not send the test SMS.", 500, "TEST_SMS_FAILED");
+  }
+
+  const mode = resolveTwilioSmsMode();
+  const simulated = mode === "SIMULATED";
+  return successResponse(
+    c,
+    {
+      // "sent" = Twilio accepted a real API request (test credentials never deliver).
+      sent: !simulated,
+      simulated,
+      testCredentials: mode === "TWILIO_TEST_CREDENTIALS",
+      mode,
+      messageSid: outcome.messageSid,
+      status: outcome.status,
+      messagingServiceSid: outcome.messagingServiceSid,
+      from: outcome.from ?? (mode === "LIVE" ? env.TWILIO_SHARED_SMS_NUMBER ?? null : null),
+      to,
+      executionId: outcome.executionId
+    },
+    simulated
+      ? "Test SMS simulated (no Twilio request)"
+      : mode === "TWILIO_TEST_CREDENTIALS"
+        ? "Test SMS accepted with Twilio test credentials (not delivered)"
+        : "Test SMS sent"
+  );
 });
 
 type SetupChecklistItem = {
@@ -1274,6 +1357,15 @@ businessRoutes.post("/setup", async (c) => {
       targetPlatform = await prisma.platformPhoneNumber.findFirst({ where: { phoneNumber: selectedNumber } });
     }
 
+    if (targetPlatform?.isPlatformSmsSender) {
+      return errorResponse(
+        c,
+        "That number is the reserved shared Triven SMS sender and cannot be used as a business number.",
+        409,
+        "PLATFORM_SMS_SENDER_NOT_ASSIGNABLE"
+      );
+    }
+
     if (
       targetPlatform &&
       targetPlatform.status === "ASSIGNED" &&
@@ -1496,6 +1588,7 @@ businessRoutes.post("/setup", async (c) => {
 
           if (
             !fresh ||
+            fresh.isPlatformSmsSender ||
             (fresh.businessId && fresh.businessId !== business.id) ||
             // Reserved for a different buyer at purchase time.
             (!fresh.businessId && fresh.buyerUserId && fresh.buyerUserId !== authUser.id)

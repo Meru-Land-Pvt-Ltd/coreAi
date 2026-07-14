@@ -1,33 +1,29 @@
 import type { Prisma, PlatformPhoneNumber } from "@prisma/client";
-
-/**
- * Shared platform-number assignment semantics, mirroring the buyer setup
- * transaction in business/routes.ts: runtime call/SMS routing reads
- * BusinessPhoneNumber first, so BOTH rows must always change together.
- *
- * Callers run these inside their own prisma.$transaction so they can add
- * flow-specific steps (buyer setup releases the previous number; admin
- * assignment validates statuses) around the same core writes.
- */
+import { PhoneNumberServiceError } from "../admin/twilio-number-service";
 
 export type PhoneAssignmentTx = Prisma.TransactionClient;
 
-/**
- * Point a platform number at a business/agent:
- * BusinessPhoneNumber upserted as the active routing row (forwardToPhone is
- * preserved on update unless explicitly provided), PlatformPhoneNumber marked
- * ASSIGNED with the assignment links.
- */
 export async function assignPlatformNumber(
   tx: PhoneAssignmentTx,
   input: {
-    platform: Pick<PlatformPhoneNumber, "id" | "phoneNumber" | "provider" | "twilioSid">;
+    platform: Pick<
+      PlatformPhoneNumber,
+      "id" | "phoneNumber" | "provider" | "twilioSid" | "isPlatformSmsSender"
+    >;
     businessId: string;
     installedAgentId: string | null;
     buyerUserId?: string | null;
     forwardToPhone?: string | null;
   }
 ) {
+  if (input.platform.isPlatformSmsSender) {
+    throw new PhoneNumberServiceError(
+      "This number is the reserved shared Triven SMS sender and cannot be assigned to a business.",
+      409,
+      "PLATFORM_SMS_SENDER_NOT_ASSIGNABLE"
+    );
+  }
+
   const mapping = await tx.businessPhoneNumber.upsert({
     where: { phoneNumber: input.platform.phoneNumber },
     update: {
@@ -63,13 +59,6 @@ export async function assignPlatformNumber(
   return { mapping, platform };
 }
 
-/**
- * Detach a platform number from its business/agent:
- * the BusinessPhoneNumber routing row is deactivated (kept for history —
- * project convention, matching buyer setup), and the PlatformPhoneNumber
- * assignment links are cleared. Status returns to AVAILABLE only from
- * ASSIGNED — DISABLED/ARCHIVED/RELEASED lifecycles are preserved.
- */
 export async function unassignPlatformNumber(
   tx: PhoneAssignmentTx,
   input: { platform: Pick<PlatformPhoneNumber, "id" | "phoneNumber" | "status"> }
@@ -86,8 +75,6 @@ export async function unassignPlatformNumber(
       installedAgentId: null,
       buyerUserId: null,
       assignedAt: null,
-      // The one-time number fee follows the assignment — the next buyer of
-      // this number must be billed afresh.
       feeBilledAt: null,
       ...(input.platform.status === "ASSIGNED" ? { status: "AVAILABLE" as const } : {})
     }

@@ -13,6 +13,7 @@ import {
 } from "./gmail-connector";
 import {
   handleTwilioInboundSms,
+  handleTwilioMessageStatus,
   handleTwilioMissedCall,
   handleTwilioVoice,
   handleTwilioVoiceAction,
@@ -98,6 +99,8 @@ architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction)
 architectRoutes.post("/connectors/twilio/voice-action/:workflowId", handleTwilioVoiceAction);
 architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
+// SMS delivery-status callback (https://triven.ai/api/architect/connectors/twilio/message-status).
+architectRoutes.post("/connectors/twilio/message-status", handleTwilioMessageStatus);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
 // Stripe signs this public Connect webhook; it must be registered before auth.
