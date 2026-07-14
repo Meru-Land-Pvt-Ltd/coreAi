@@ -372,3 +372,81 @@ export function updateAdminPricingService(
 ) {
   return apiPatch<{ service: AdminUsageService }>(`/admin/pricing/services/${id}`, body);
 }
+
+/* ------------------------------- Platform mail ------------------------------- */
+
+export type AdminEmailAliasStatus = "ACTIVE" | "DISABLED" | "ARCHIVED";
+
+export type AdminEmailAliasLastMessage = {
+  id: string;
+  subject: string;
+  status: string;
+  purpose: string;
+  toEmail: string;
+  createdAt: string;
+};
+
+export type AdminEmailAlias = {
+  id: string;
+  businessId: string;
+  business: { id: string; name: string } | null;
+  localPart: string;
+  emailAddress: string;
+  displayName: string;
+  forwardToEmail: string | null;
+  replyHandlingMode: string;
+  customerConfirmationEnabled: boolean;
+  internalSummaryEnabled: boolean;
+  status: AdminEmailAliasStatus;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * EmailMessage status counts (QUEUED, SENT, DELIVERED, FAILED, RECEIVED,
+   * BOUNCED, COMPLAINED, REJECTED, SUPPRESSED). Missing keys mean 0.
+   */
+  counts: Record<string, number>;
+  lastMessage: AdminEmailAliasLastMessage | null;
+};
+
+export type AdminEmailSuppression = {
+  id: string;
+  emailAddress: string;
+  reason: string;
+  source: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function getAdminEmailAliases(params: { search?: string; page?: number; limit?: number } = {}) {
+  return apiGet<AdminPaged<AdminEmailAlias>>(`/admin/email-aliases${query(params)}`);
+}
+
+export function disableAdminEmailAlias(id: string) {
+  return apiPost<{ alias: AdminEmailAlias }>(`/admin/email-aliases/${id}/disable`, {});
+}
+
+export function archiveAdminEmailAlias(id: string) {
+  return apiPost<{ alias: AdminEmailAlias }>(`/admin/email-aliases/${id}/archive`, {});
+}
+
+export function resendTestAdminEmailAlias(id: string) {
+  return apiPost<{ messageId: string; dryRun: boolean }>(`/admin/email-aliases/${id}/resend-test`, {});
+}
+
+export function getAdminEmailAliasActivity(id: string) {
+  return apiGet<{
+    alias: { id: string; emailAddress: string };
+    counts: Record<string, number>;
+    lastMessage: AdminEmailAliasLastMessage | null;
+  }>(`/admin/email-aliases/${id}/activity`);
+}
+
+export function getAdminEmailSuppressions(params: { page?: number; limit?: number } = {}) {
+  return apiGet<AdminPaged<AdminEmailSuppression>>(`/admin/email-suppressions${query(params)}`);
+}
+
+export function reactivateAdminEmailSuppression(id: string) {
+  return apiPost<{ suppression: AdminEmailSuppression }>(`/admin/email-suppressions/${id}/reactivate`, {});
+}

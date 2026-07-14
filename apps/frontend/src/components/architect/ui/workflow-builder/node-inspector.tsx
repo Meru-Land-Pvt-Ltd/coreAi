@@ -1,4 +1,4 @@
-import { VOICE_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
+import { EMAIL_TEMPLATE_VARIABLES, VOICE_NODE_TYPES, getNodeDefinition } from "@coreai/shared";
 import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
@@ -69,7 +69,8 @@ export function NodeInspector({
     panel = <CalendarAvailabilityProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.bookAppointment) {
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
-  } else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
+  } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
+  else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
@@ -1135,6 +1136,136 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
             value={str("confirmationMessage")}
             onChange={set("confirmationMessage")}
             placeholder="Said after a successful booking"
+          />
+        </div>
+      </Section>
+    </>
+  );
+}
+
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function SendEmailProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  const recipientType = str("recipientType", "customer");
+  const customRecipient = str("customRecipient");
+  const customRecipientInvalid = customRecipient !== "" && !EMAIL_ADDRESS_PATTERN.test(customRecipient);
+
+  return (
+    <>
+      <Section title="Recipient">
+        <Label>Send to</Label>
+        <SelectBox
+          value={recipientType}
+          onChange={set("recipientType")}
+          options={[
+            { value: "customer", label: "Customer email (collected on the call)" },
+            { value: "team", label: "Buyer / team email (Mail Setup forward-to)" },
+            { value: "custom", label: "Custom address" },
+            { value: "variable", label: "Workflow variable" }
+          ]}
+        />
+
+        {recipientType === "custom" ? (
+          <div className="mt-4">
+            <TextInput
+              value={customRecipient}
+              onChange={set("customRecipient")}
+              placeholder="e.g. frontdesk@business.com"
+            />
+            {customRecipientInvalid ? (
+              <p className="mt-2 text-[11px] leading-5 text-red-500" data-testid="send-email-recipient-error">
+                Enter a valid email address.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {recipientType === "variable" ? (
+          <div className="mt-4">
+            <TextInput
+              value={str("recipientVariable")}
+              onChange={set("recipientVariable")}
+              placeholder="e.g. customer.email"
+            />
+          </div>
+        ) : null}
+
+        <div className="mt-4">
+          <Label>CC</Label>
+          <TextInput value={str("ccTemplate")} onChange={set("ccTemplate")} placeholder="comma-separated emails (optional)" />
+        </div>
+
+        <div className="mt-4">
+          <Label>BCC</Label>
+          <TextInput value={str("bccTemplate")} onChange={set("bccTemplate")} placeholder="comma-separated emails (optional)" />
+        </div>
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400" data-testid="send-email-cc-note">
+          CC/BCC addresses are validated and deduplicated at send time. BCC is never shown to recipients.
+        </p>
+      </Section>
+
+      <Section title="Message">
+        <Label>Purpose</Label>
+        <SelectBox
+          value={str("purpose", "auto")}
+          onChange={set("purpose")}
+          options={[
+            { value: "auto", label: "Auto (confirmation when booked, follow-up otherwise)" },
+            { value: "BOOKING_CONFIRMATION", label: "Appointment confirmation" },
+            { value: "CUSTOMER_FOLLOW_UP", label: "Follow-up" },
+            { value: "CALL_SUMMARY", label: "Call summary" },
+            { value: "INTERNAL_NOTIFICATION", label: "Internal notification" }
+          ]}
+        />
+
+        <div className="mt-4">
+          <Label>Subject</Label>
+          <TextInput
+            value={str("subjectTemplate")}
+            onChange={set("subjectTemplate")}
+            placeholder="e.g. Your {{serviceName}} appointment with {{businessName}}"
+          />
+        </div>
+
+        <div className="mt-4">
+          <Label>Text body</Label>
+          <TextArea height="h-32" value={str("bodyTemplate")} onChange={set("bodyTemplate")} />
+        </div>
+
+        <div className="mt-4">
+          <Label>HTML body (optional)</Label>
+          <TextArea mono height="h-32" value={str("htmlTemplate")} onChange={set("htmlTemplate")} />
+        </div>
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400" data-testid="send-email-variables">
+          Allowed variables: {EMAIL_TEMPLATE_VARIABLES.map((name) => `{{${name}}}`).join(", ")}. Unknown variables are
+          removed at send time and HTML is sanitized.
+        </p>
+      </Section>
+
+      <Section title="Failure handling" last>
+        <Label>If sending fails</Label>
+        <SelectBox
+          value={str("continueOnFailure", "true")}
+          onChange={set("continueOnFailure")}
+          options={[
+            { value: "true", label: "Continue the workflow" },
+            { value: "false", label: "Stop this branch" }
+          ]}
+        />
+
+        <div className="mt-4">
+          <Label>Fallback</Label>
+          <SelectBox
+            value={str("fallbackBehavior", "skip")}
+            onChange={set("fallbackBehavior")}
+            options={[
+              { value: "skip", label: "Skip silently" },
+              { value: "notify_team", label: "Notify the team by email" }
+            ]}
           />
         </div>
       </Section>

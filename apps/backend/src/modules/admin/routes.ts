@@ -480,16 +480,70 @@ adminRoutes.get("/contact-submissions", async (c) => {
 
 adminRoutes.get("/email-aliases", async (c) => {
   const { page, limit, skip } = parsePagination(c);
+  const search = (c.req.query("search") ?? "").trim();
 
-  const [items, total] = await Promise.all([
+  const where = search
+    ? {
+        OR: [
+          { emailAddress: { contains: search, mode: "insensitive" as const } },
+          { displayName: { contains: search, mode: "insensitive" as const } },
+          { business: { name: { contains: search, mode: "insensitive" as const } } }
+        ]
+      }
+    : {};
+
+  const [aliases, total] = await Promise.all([
     prisma.businessEmailAlias.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
       include: { business: { select: { id: true, name: true } } }
     }),
-    prisma.businessEmailAlias.count()
+    prisma.businessEmailAlias.count({ where })
   ]);
+
+  const aliasIds = aliases.map((alias) => alias.id);
+  const [statusRows, lastMessages] = await Promise.all([
+    aliasIds.length
+      ? prisma.emailMessage.groupBy({
+          by: ["aliasId", "status"],
+          where: { aliasId: { in: aliasIds } },
+          _count: { _all: true }
+        })
+      : Promise.resolve([]),
+    aliasIds.length
+      ? prisma.emailMessage.findMany({
+          where: { aliasId: { in: aliasIds } },
+          orderBy: { createdAt: "desc" },
+          distinct: ["aliasId"],
+          select: {
+            id: true,
+            aliasId: true,
+            subject: true,
+            status: true,
+            purpose: true,
+            toEmail: true,
+            createdAt: true
+          }
+        })
+      : Promise.resolve([])
+  ]);
+
+  const countsByAlias = new Map<string, Record<string, number>>();
+  for (const row of statusRows) {
+    if (!row.aliasId) continue;
+    const bucket = countsByAlias.get(row.aliasId) ?? {};
+    bucket[row.status] = row._count._all;
+    countsByAlias.set(row.aliasId, bucket);
+  }
+  const lastByAlias = new Map(lastMessages.map((message) => [message.aliasId, message]));
+
+  const items = aliases.map((alias) => ({
+    ...alias,
+    counts: countsByAlias.get(alias.id) ?? {},
+    lastMessage: lastByAlias.get(alias.id) ?? null
+  }));
 
   return successResponse(c, { items, total, page, limit });
 });
@@ -525,4 +579,55 @@ adminRoutes.post("/email-aliases/:id/resend-test", async (c) => {
 
   if (!result.ok) return errorResponse(c, result.error, 422, "TEST_EMAIL_FAILED");
   return successResponse(c, { messageId: result.messageId, dryRun: result.dryRun }, "Test email sent");
+});
+
+/** Delivery/bounce/complaint counts for one alias — admin diagnostics. */
+adminRoutes.get("/email-aliases/:id/activity", async (c) => {
+  const id = c.req.param("id");
+  const alias = await prisma.businessEmailAlias.findUnique({ where: { id } });
+  if (!alias) return errorResponse(c, "Alias not found", 404, "ALIAS_NOT_FOUND");
+
+  const [byStatus, lastMessage] = await Promise.all([
+    prisma.emailMessage.groupBy({
+      by: ["status"],
+      where: { aliasId: id },
+      _count: { _all: true }
+    }),
+    prisma.emailMessage.findFirst({
+      where: { aliasId: id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, subject: true, status: true, purpose: true, toEmail: true, createdAt: true }
+    })
+  ]);
+
+  const counts = Object.fromEntries(byStatus.map((row) => [row.status, row._count._all]));
+  return successResponse(c, { alias: { id: alias.id, emailAddress: alias.emailAddress }, counts, lastMessage });
+});
+
+/* ---- Suppression list (permanent bounces / complaints) ---- */
+
+adminRoutes.get("/email-suppressions", async (c) => {
+  const { page, limit, skip } = parsePagination(c);
+  const [items, total] = await Promise.all([
+    prisma.emailSuppression.findMany({ orderBy: { updatedAt: "desc" }, skip, take: limit }),
+    prisma.emailSuppression.count()
+  ]);
+  return successResponse(c, { items, total, page, limit });
+});
+
+/**
+ * Reactivation only deactivates the local block. Complaints stay suppressed —
+ * emailing someone who marked mail as spam again risks the whole domain.
+ */
+adminRoutes.post("/email-suppressions/:id/reactivate", async (c) => {
+  const id = c.req.param("id");
+  const entry = await prisma.emailSuppression.findUnique({ where: { id } });
+  if (!entry) return errorResponse(c, "Suppression not found", 404, "SUPPRESSION_NOT_FOUND");
+  if (/complain/i.test(entry.reason)) {
+    return errorResponse(c, "Complaint suppressions cannot be reactivated.", 422, "COMPLAINT_LOCKED");
+  }
+
+  const updated = await prisma.emailSuppression.update({ where: { id }, data: { active: false } });
+  console.log(`[email] admin reactivated recipient ${updated.emailAddress}`);
+  return successResponse(c, { suppression: updated }, "Recipient reactivated");
 });

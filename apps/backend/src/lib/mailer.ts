@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import MailComposer from "nodemailer/lib/mail-composer";
 import PDFDocument from "pdfkit";
+import { buildRawMimeMessage } from "./mime";
 import { env, isProduction } from "../config/env";
 
 const verificationCodeExpirationMinutes = Number(
@@ -26,7 +26,7 @@ const logoUrl =
 
 /**
  * All platform email goes out through Amazon SES. Every message picks its
- * sender identity by purpose; nodemailer is used only as a MIME composer so
+ * sender identity by purpose; lib/mime.ts composes the raw MIME so
  * attachments (invoice PDFs) ride along in a single SES raw send.
  *
  * otp            → SES_FROM_NO_REPLY  (verification codes, no-reply)
@@ -67,9 +67,9 @@ function getSesClient(): SESv2Client {
   return sesClient;
 }
 
-/** Sender identity per purpose; legacy SMTP_FROM is the last-resort fallback. */
+/** Sender identity per purpose; SES_FROM_NO_REPLY is the shared fallback. */
 export function fromAddressFor(purpose: PlatformEmailPurpose): string | undefined {
-  const noReply = env.SES_FROM_NO_REPLY ?? process.env.SMTP_FROM ?? process.env.SMTP_USER;
+  const noReply = env.SES_FROM_NO_REPLY;
   switch (purpose) {
     case "billing":
       return env.SES_FROM_BILLING ?? noReply;
@@ -106,22 +106,23 @@ export async function sendPlatformEmail(input: PlatformEmailInput): Promise<void
   }
 
   // Raw MIME so attachments and the display-name From header survive intact.
-  const mime = new MailComposer({
+  const raw = buildRawMimeMessage({
     from,
     to: input.to,
     subject: input.subject,
     text: input.text,
-    ...(input.html ? { html: input.html } : {}),
-    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+    html: input.html,
+    attachments: input.attachments,
     // OTP mail is intentionally no-reply; everything else offers a reply path.
-    ...(input.purpose !== "otp" && env.SES_REPLY_TO ? { replyTo: env.SES_REPLY_TO } : {})
-  }).compile();
-
-  const raw = await new Promise<Buffer>((resolve, reject) => {
-    mime.build((error, buffer) => (error ? reject(error) : resolve(buffer)));
+    replyTo: input.purpose !== "otp" && env.SES_REPLY_TO ? env.SES_REPLY_TO : undefined
   });
 
-  await getSesClient().send(new SendEmailCommand({ Content: { Raw: { Data: raw } } }));
+  await getSesClient().send(
+    new SendEmailCommand({
+      Content: { Raw: { Data: raw } },
+      ...(env.SES_CONFIGURATION_SET ? { ConfigurationSetName: env.SES_CONFIGURATION_SET } : {})
+    })
+  );
 }
 
 type VerificationEmailPurpose = "sign_in" | "email_update";

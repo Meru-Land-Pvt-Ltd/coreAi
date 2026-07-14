@@ -16,10 +16,12 @@
     "list:numbers": "tsx scripts/list-platform-numbers.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",
     "seed:countries": "tsx scripts/seed-countries.ts",
-    "cleanup:draft-agents": "tsx scripts/cleanup-draft-agents.ts"
+    "cleanup:draft-agents": "tsx scripts/cleanup-draft-agents.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
+    "@aws-sdk/client-s3": "^3.1085.0",
     "@aws-sdk/client-sesv2": "^3.1083.0",
     "@coreai/shared": "*",
     "@google/genai": "^2.10.0",
@@ -29,6 +31,7 @@
     "@langchain/google-genai": "^2.2.0",
     "@langchain/openai": "^1.5.5",
     "@prisma/client": "6.19.0",
+    "bullmq": "^5.80.2",
     "dotenv": "^17.4.2",
     "googleapis": "^173.0.0",
     "hono": "^4.12.26",
@@ -43,6 +46,7 @@
     "@types/pdfkit": "^0.17.6",
     "prisma": "6.19.0",
     "tsx": "^4.5.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }

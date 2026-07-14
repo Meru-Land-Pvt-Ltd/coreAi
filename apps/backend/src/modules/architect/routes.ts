@@ -38,7 +38,12 @@ import {
   getTemplateBySlug,
   listTemplateCards
 } from "./templates";
-import { loadArchitectEarnings, countSalesByListingIds, effectiveEarningStatus } from "./payout-earnings";
+import {
+  loadArchitectEarnings,
+  countSalesByListingIds,
+  effectiveEarningStatus,
+  sumApprovedEarningsCents
+} from "./payout-earnings";
 import {
   getArchitectTestDeploymentStatus,
   startArchitectTestDeployment,
@@ -53,6 +58,7 @@ import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
+import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 
 const voicePreviewSchema = z.object({
   presetId: z.string().trim().optional(),
@@ -289,30 +295,18 @@ architectRoutes.get("/ai/providers", async (c) => {
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
 
-/** My Agents dashboard stats — live counts, executions, 30d revenue (no hardcoded UI values). */
+/** My Agents dashboard stats — live counts, buyer executions, and approved total earnings. */
 architectRoutes.get("/agents/stats", async (c) => {
   try {
     const authUser = c.get("authUser");
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const prevMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
     const dayMs = 24 * 60 * 60 * 1000;
     const cutoff30 = new Date(now.getTime() - 30 * dayMs);
     const cutoff60 = new Date(now.getTime() - 60 * dayMs);
 
-    // LIVE buyer/production runs on this architect's agents.
-    // Exclude TEST panel runs and ARCHITECT_TEST sandbox installs.
-    const buyerExecutionWhere = {
-      mode: "LIVE" as const,
-      workflow: { architectUserId: authUser.id },
-      NOT: {
-        installedAgent: {
-          configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" }
-        }
-      }
-    };
-
-    const [listings, workflows, sales, executionsThisMonth, executionsPrevMonth, executionsTotal] =
+    const [listings, workflows, sales, architectInstalledAgentRows] =
       await Promise.all([
         prisma.agentListing.findMany({
           where: { architectUserId: authUser.id },
@@ -323,22 +317,65 @@ architectRoutes.get("/agents/stats", async (c) => {
           select: { id: true, createdAt: true }
         }),
         loadArchitectEarnings(authUser.id),
-        prisma.workflowRun.count({
+        prisma.installedAgent.findMany({
           where: {
-            ...buyerExecutionWhere,
-            createdAt: { gte: monthStart }
-          }
-        }),
-        prisma.workflowRun.count({
-          where: {
-            ...buyerExecutionWhere,
-            createdAt: { gte: prevMonthStart, lt: monthStart }
-          }
-        }),
-        prisma.workflowRun.count({
-          where: buyerExecutionWhere
+            listing: { architectUserId: authUser.id }
+          },
+          select: { id: true, listingId: true, businessId: true, configJson: true }
         })
       ]);
+
+    // Do this check in application code. A Prisma JSON-path `NOT` filter can also
+    // exclude SQL NULL/missing paths, which hid ordinary marketplace installs.
+    const architectInstalledAgents = architectInstalledAgentRows.filter((agent) => {
+      const config = agent.configJson;
+      if (!config || typeof config !== "object" || Array.isArray(config)) return true;
+      return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
+    });
+
+    // Reuse the exact execution calculation shown to buyers in Business → My Agents,
+    // then sum every installed copy of this architect's listings across businesses.
+    const architectAgentIds = new Set(architectInstalledAgents.map((agent) => agent.id));
+    const businessIds = [...new Set(architectInstalledAgents.map((agent) => agent.businessId))];
+    const allBusinessAgents = businessIds.length
+      ? await prisma.installedAgent.findMany({
+          where: { businessId: { in: businessIds } },
+          select: { id: true, listingId: true, businessId: true }
+        })
+      : [];
+    const agentsByBusiness = new Map<string, Array<{ id: string; listingId: string | null }>>();
+    for (const agent of allBusinessAgents) {
+      const agents = agentsByBusiness.get(agent.businessId) ?? [];
+      agents.push({ id: agent.id, listingId: agent.listingId });
+      agentsByBusiness.set(agent.businessId, agents);
+    }
+
+    const executionTotals = await Promise.all(
+      businessIds.map(async (businessId) => {
+        const installedAgents = agentsByBusiness.get(businessId) ?? [];
+        const [allTime, currentMonth, previousMonth] = await Promise.all([
+          buildInstalledAgentRunStats(businessId, installedAgents),
+          buildInstalledAgentRunStats(businessId, installedAgents, { start: monthStart }),
+          buildInstalledAgentRunStats(businessId, installedAgents, {
+            start: prevMonthStart,
+            end: monthStart
+          })
+        ]);
+        const sumArchitectRuns = (stats: Map<string, { runs: number }>) =>
+          [...stats.entries()].reduce(
+            (sum, [agentId, value]) => sum + (architectAgentIds.has(agentId) ? value.runs : 0),
+            0
+          );
+        return {
+          total: sumArchitectRuns(allTime),
+          current: sumArchitectRuns(currentMonth),
+          previous: sumArchitectRuns(previousMonth)
+        };
+      })
+    );
+    const executionsTotal = executionTotals.reduce((sum, value) => sum + value.total, 0);
+    const executionsThisMonth = executionTotals.reduce((sum, value) => sum + value.current, 0);
+    const executionsPrevMonth = executionTotals.reduce((sum, value) => sum + value.previous, 0);
 
     // Match GET /architect/listings agent uniqueness (one card per workflow + orphan drafts).
     const seenWorkflowIds = new Set<string>();
@@ -371,6 +408,7 @@ architectRoutes.get("/agents/stats", async (c) => {
           effectiveEarningStatus(sale) !== "REJECTED"
       )
       .reduce((sum, sale) => sum + sale.earningsCents, 0);
+    const totalEarningsCents = sumApprovedEarningsCents(sales);
 
     function percentChange(current: number, previous: number): number | null {
       if (previous <= 0) return current > 0 ? 100 : null;
@@ -386,6 +424,7 @@ architectRoutes.get("/agents/stats", async (c) => {
       executionsThisMonth,
       executionsPrevMonth,
       executionsChangePercent: percentChange(executionsThisMonth, executionsPrevMonth),
+      totalEarningsCents,
       revenue30dCents,
       revenuePrev30dCents,
       revenueChangePercent: percentChange(revenue30dCents, revenuePrev30dCents)

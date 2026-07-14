@@ -623,10 +623,18 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
     defaultConfig: {
       recipientType: "customer",
+      customRecipient: "",
+      recipientVariable: "",
+      ccTemplate: "",
+      bccTemplate: "",
       subjectTemplate: "",
       bodyTemplate: "",
+      htmlTemplate: "",
+      purpose: "auto",
       includeCallSummary: "false",
-      includeBookingDetails: "true"
+      includeBookingDetails: "true",
+      continueOnFailure: "true",
+      fallbackBehavior: "skip"
     },
     capability: "email.send",
     requiredVariables: [],
@@ -677,6 +685,19 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   def({ type: "logic.error_handler", label: "Error Handler", category: "logic", description: "Fallback workflow on error.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } }),
   def({ type: "logic.ab_test", label: "A/B Test", category: "logic", description: "Split traffic between variants.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } })
 ];
+
+/** Template variables allowed in Send Email subject/body templates (shared by builder UI and send-time rendering). */
+export const EMAIL_TEMPLATE_VARIABLES = [
+  "customerName",
+  "customerEmail",
+  "businessName",
+  "appointmentDate",
+  "appointmentTime",
+  "businessPhone",
+  "businessAddress",
+  "callSummary",
+  "serviceName"
+] as const;
 
 /** Reusable connector-requirement descriptors (single source so nodes stay DRY). */
 const REQ = {

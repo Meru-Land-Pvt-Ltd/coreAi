@@ -1780,6 +1780,8 @@ function MailSetupSection({
   const [localPart, setLocalPart] = useState("");
   const [forwardToEmail, setForwardToEmail] = useState("");
   const [replyMode, setReplyMode] = useState<BusinessEmailAliasData["replyHandlingMode"]>("TRIVEN_AND_FORWARD");
+  const [customerEmailsEnabled, setCustomerEmailsEnabled] = useState(true);
+  const [summaryEmailsEnabled, setSummaryEmailsEnabled] = useState(true);
   const [availability, setAvailability] = useState<{ available: boolean; reason: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -1797,6 +1799,8 @@ function MailSetupSection({
         setLocalPart(res.data.alias.localPart);
         setForwardToEmail(res.data.alias.forwardToEmail ?? "");
         setReplyMode(res.data.alias.replyHandlingMode);
+        setCustomerEmailsEnabled(res.data.alias.customerConfirmationEnabled ?? true);
+        setSummaryEmailsEnabled(res.data.alias.internalSummaryEnabled ?? true);
         onAliasChange(res.data.alias);
       } else {
         setLocalPart(res.data.suggestedLocalPart);
@@ -1839,7 +1843,9 @@ function MailSetupSection({
       localPart,
       displayName,
       forwardToEmail: forwardToEmail.trim() || undefined,
-      replyHandlingMode: replyMode
+      replyHandlingMode: replyMode,
+      customerConfirmationEnabled: customerEmailsEnabled,
+      internalSummaryEnabled: summaryEmailsEnabled
     });
     setBusy(false);
 
@@ -1958,6 +1964,37 @@ function MailSetupSection({
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="flex items-start gap-2.5 text-sm text-slate-600" htmlFor="mail-toggle-customer">
+          <input
+            data-testid="business-setup-mail-toggle-customer"
+            id="mail-toggle-customer"
+            type="checkbox"
+            checked={customerEmailsEnabled}
+            onChange={(e) => setCustomerEmailsEnabled(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
+          />
+          <span>
+            <span className="font-semibold text-slate-700">Email customers</span>
+            <span className="block text-xs text-slate-500">Booking confirmations and follow-ups after calls.</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5 text-sm text-slate-600" htmlFor="mail-toggle-summary">
+          <input
+            data-testid="business-setup-mail-toggle-summary"
+            id="mail-toggle-summary"
+            type="checkbox"
+            checked={summaryEmailsEnabled}
+            onChange={(e) => setSummaryEmailsEnabled(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
+          />
+          <span>
+            <span className="font-semibold text-slate-700">Email my team call summaries</span>
+            <span className="block text-xs text-slate-500">Lead details and call summaries to your forward-to address.</span>
+          </span>
+        </label>
       </div>
 
       <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5" data-testid="business-setup-mail-preview">

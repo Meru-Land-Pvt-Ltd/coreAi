@@ -53,6 +53,28 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
 
+  email-worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: coreai-email-worker
+    restart: unless-stopped
+    # Same image as backend; only the entrypoint differs.
+    command: ["node", "dist/email-worker.js"]
+    env_file:
+      - apps/backend/.env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      BACKEND_URL: ${BACKEND_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: .

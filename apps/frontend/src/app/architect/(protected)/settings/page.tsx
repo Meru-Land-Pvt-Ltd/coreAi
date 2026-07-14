@@ -103,7 +103,7 @@ const PRIVACY_TOGGLES = [
   { key: "showSalesCount", label: "Show sales count", description: "Display total installs on your public profile." },
   { key: "showRating", label: "Show rating", description: "Display your architect rating publicly." },
   { key: "allowBuyerMessages", label: "Allow buyer messages", description: "Let buyers contact you from listing pages." },
-  { key: "analyticsCookies", label: "Analytics cookies", description: "Help us improve CORE with usage analytics." },
+  { key: "analyticsCookies", label: "Analytics cookies", description: "Help us improve Triven with usage analytics." },
   { key: "marketingCookies", label: "Marketing cookies", description: "Receive personalized marketplace tips." }
 ];
 
@@ -874,7 +874,7 @@ export default function ArchitectSettingsPage() {
             {activeTab === "storefront" ? (
               <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-storefront">
                 <h2 className="text-lg font-bold text-slate-900">Public Profile &amp; Storefront</h2>
-                <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the CORE marketplace. Make it count.</p>
+                <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the Triven marketplace. Make it count.</p>
                 <form onSubmit={handleSaveStorefront} className="mt-6 space-y-8">
                   <div>
                     <h3 className="mb-4 text-base font-semibold text-slate-900">Display identity</h3>
@@ -1038,7 +1038,7 @@ export default function ArchitectSettingsPage() {
             {activeTab === "notifications" ? (
               <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-notifications">
                 <h2 className="text-lg font-bold text-slate-900">Notification Preferences</h2>
-                <p className="mt-1 text-sm text-slate-500">Choose how and when CORE contacts you about your agent business.</p>
+                <p className="mt-1 text-sm text-slate-500">Choose how and when Triven contacts you about your agent business.</p>
                 <div className="mt-6 overflow-x-auto">
                   <table className="min-w-[560px] w-full">
                     <thead>
@@ -1182,7 +1182,7 @@ export default function ArchitectSettingsPage() {
                       <button type="button" onClick={() => showToast("Downloading tax form")} className="text-sm font-semibold text-amber-700 hover:text-amber-800">Download 1099-K →</button>
                     </div>
                   </div>
-                  <p className="mt-3 text-xs text-slate-400">CORE reports earnings for architects crossing annual reporting thresholds.</p>
+                  <p className="mt-3 text-xs text-slate-400">Triven reports earnings for architects crossing annual reporting thresholds.</p>
                 </div>
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Revenue split</h3>
@@ -1190,7 +1190,7 @@ export default function ArchitectSettingsPage() {
                   <div className="flex items-center gap-4">
                     <div className="text-center"><div className="text-2xl font-extrabold text-amber-600">{settings?.payouts.architectSharePercent ?? 70}%</div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">You</div></div>
                     <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-200"><div className="h-full bg-gradient-to-r from-amber-400 to-amber-600" style={{ width: `${settings?.payouts.architectSharePercent ?? 70}%` }} /></div>
-                    <div className="text-center"><div className="text-2xl font-extrabold text-slate-400">{100 - (settings?.payouts.architectSharePercent ?? 70)}%</div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CORE</div></div>
+                    <div className="text-center"><div className="text-2xl font-extrabold text-slate-400">{100 - (settings?.payouts.architectSharePercent ?? 70)}%</div><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Triven</div></div>
                   </div>
                     <p className="mt-4 text-sm text-slate-600">This applies to all agent sales and covers hosting, marketplace listing, payment processing, and customer support infrastructure.</p>
                     <Link href={ARCHITECT_PAYOUTS_PATH} className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800">View full fee schedule →</Link>
@@ -1232,7 +1232,7 @@ export default function ArchitectSettingsPage() {
                 ))}
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-2 text-base font-semibold text-slate-900">Data Processing Agreement</h3>
-                  <p className="text-sm text-slate-500">As an architect processing buyer data through your agents, you are bound by the CORE DPA.</p>
+                  <p className="text-sm text-slate-500">As an architect processing buyer data through your agents, you are bound by the Triven DPA.</p>
                   <div className="mt-4 flex flex-wrap items-center gap-4">
                     <button type="button" onClick={() => showToast("Opening DPA")} className="text-sm font-semibold text-amber-700 hover:text-amber-800">View Data Processing Agreement →</button>
                     <button type="button" onClick={() => showToast("DPA download requested")} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Download your executed DPA</button>

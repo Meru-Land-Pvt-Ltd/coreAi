@@ -5,7 +5,16 @@ import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { escapeXml, sendTwilioSms } from "./twilio-connector";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
-import { sendCustomerFollowUpEmail, sendInternalNotificationEmail } from "../email/ses-mail-service";
+import { enqueueEmail } from "../email/email-queue";
+import {
+  extractSendEmailNodeConfig,
+  fillEmailTemplate,
+  resolveVariableRecipient,
+  sanitizeOutboundHtml,
+  type EmailTemplateVariables,
+  type SendEmailNodeConfig
+} from "../email/email-node-config";
+import { TEAM_RECIPIENT } from "../email/ses-mail-service";
 import {
   createGoogleCalendarAppointment,
   getDefaultAppointmentWindow,
@@ -1442,6 +1451,8 @@ type DentalToolConfig = {
   confirmationMessage: string;
   /** What a booking is called for this business: appointment, reservation, consultation, quote request… */
   bookingLabel: string;
+  /** Architect-authored Send Email node config (validated); null when the workflow has no email node. */
+  emailNode: SendEmailNodeConfig | null;
 };
 
 /**
@@ -1455,9 +1466,10 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
   const agent = await prisma.installedAgent.findFirst({
     where: { businessId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
-    select: { configJson: true }
+    select: { configJson: true, workflow: { select: { workflowJson: true } } }
   });
   const configJson = (agent?.configJson as Record<string, unknown> | null) ?? {};
+  const emailNode = extractSendEmailNodeConfig(agent?.workflow?.workflowJson ?? null);
   const legacy = (configJson.dentalConfig ?? {}) as Record<string, unknown>;
   const scheduling = (configJson.scheduling ?? {}) as Record<string, unknown>;
   const cfg = { ...legacy, ...scheduling };
@@ -1489,7 +1501,8 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
       "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]"
     ),
     confirmationMessage: str(cfg.confirmationMessage),
-    bookingLabel: strOr(cfg.bookingLabel ?? cfg.bookingType ?? customBookingLabelOf(configJson), "appointment")
+    bookingLabel: strOr(cfg.bookingLabel ?? cfg.bookingType ?? customBookingLabelOf(configJson), "appointment"),
+    emailNode
   };
 }
 
@@ -2249,16 +2262,147 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     const appointmentTime = argStr(args, ["appointment_time", "time"]) || "";
     const appointmentWhen = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || null;
 
-    if (customerEmail) {
+    // Architect-authored Send Email node templates take over composition when
+    // present; the hardcoded copy below stays as the no-template default.
+    const emailNode = ctx.dental?.emailNode ?? null;
+    const useNodeTemplate = Boolean(emailNode && (emailNode.bodyTemplate || emailNode.htmlTemplate));
+    let templatedTeamHandled = false;
+
+    if (useNodeTemplate && emailNode) {
+      const templateVars: EmailTemplateVariables = {
+        customerName: customerName || "",
+        customerEmail: customerEmail || "",
+        businessName: ctx.business.businessName,
+        appointmentDate,
+        appointmentTime,
+        businessPhone: ctx.business.businessPhoneNumber || "",
+        businessAddress: "",
+        callSummary: ctx.summary || "",
+        serviceName: service
+      };
+
+      const to =
+        emailNode.recipientType === "team"
+          ? TEAM_RECIPIENT
+          : emailNode.recipientType === "custom"
+            ? emailNode.customRecipient
+            : emailNode.recipientType === "variable"
+              ? resolveVariableRecipient(emailNode.recipientVariable, templateVars) ?? ""
+              : customerEmail || "";
+
+      if (!to) {
+        console.log("[vapi-webhook] send_email node: no recipient resolved — skipped");
+      } else {
+        const purpose =
+          emailNode.purpose !== "auto"
+            ? emailNode.purpose
+            : emailNode.recipientType === "team"
+              ? "INTERNAL_NOTIFICATION"
+              : appointmentWhen
+                ? "BOOKING_CONFIRMATION"
+                : "CUSTOMER_FOLLOW_UP";
+        const subject =
+          fillEmailTemplate(emailNode.subjectTemplate, templateVars) ||
+          (appointmentWhen
+            ? `Appointment confirmation with ${ctx.business.businessName}`
+            : `Message from ${ctx.business.businessName}`);
+        const textBody = fillEmailTemplate(emailNode.bodyTemplate, templateVars);
+        const htmlBody = emailNode.htmlTemplate
+          ? sanitizeOutboundHtml(fillEmailTemplate(emailNode.htmlTemplate, templateVars))
+          : undefined;
+        const idempotencyKey = ctx.callId ? `send_email_node:${ctx.callId}:${to.toLowerCase()}` : null;
+
+        try {
+          const nodeResult = await enqueueEmail(
+            {
+              kind: "business_email",
+              input: {
+                businessId: ctx.business.businessId,
+                to,
+                cc: emailNode.cc,
+                bcc: emailNode.bcc,
+                subject,
+                textBody: textBody || subject,
+                htmlBody,
+                purpose,
+                idempotencyKey,
+                metadata: { source: "send_email_node" }
+              }
+            },
+            { idempotencyKey }
+          );
+
+          if (emailNode.recipientType === "team") {
+            teamEmailSent = nodeResult.ok;
+            templatedTeamHandled = nodeResult.ok;
+          } else {
+            customerEmailSent = nodeResult.ok;
+          }
+
+          if (!nodeResult.ok) {
+            console.log(`[vapi-webhook] send_email node failed: ${nodeResult.error}`);
+            if (emailNode.fallbackBehavior === "notify_team") {
+              const fallbackKey = ctx.callId ? `send_email_fallback:${ctx.callId}` : null;
+              await enqueueEmail(
+                {
+                  kind: "internal_notification",
+                  input: {
+                    businessId: ctx.business.businessId,
+                    businessName: ctx.business.businessName,
+                    purpose: "INTERNAL_NOTIFICATION",
+                    idempotencyKey: fallbackKey,
+                    fields: {
+                      caller: customerName || null,
+                      phone: customerPhone || null,
+                      email: customerEmail || null,
+                      requestedService: service,
+                      summary: `Automated email could not be sent (${nodeResult.error ?? "unknown error"}).`,
+                      nextAction: "Contact the customer manually"
+                    }
+                  }
+                },
+                { idempotencyKey: fallbackKey }
+              ).catch(() => null);
+            }
+            if (!emailNode.continueOnFailure) {
+              return {
+                success: false,
+                error: "email_failed",
+                customer_sms_sent: customerSmsSent,
+                team_sms_sent: teamSmsSent,
+                customer_email_sent: false,
+                team_email_sent: teamEmailSent,
+                patient_sms_sent: customerSmsSent,
+                dentist_sms_sent: teamSmsSent
+              };
+            }
+          }
+        } catch (error) {
+          console.error("[vapi-webhook] send_email node error (non-fatal)", error);
+        }
+      }
+    } else if (customerEmail) {
       try {
-        const emailResult = await sendCustomerFollowUpEmail({
-          businessId: ctx.business.businessId,
-          customerEmail,
-          customerName: customerName || null,
-          businessName: ctx.business.businessName,
-          serviceName: service,
-          appointmentTime: appointmentWhen
-        });
+        // Vapi retries the same tool call on webhook timeouts — same call +
+        // same recipient must never email twice.
+        const idempotencyKey = ctx.callId
+          ? `booking_confirmation:${ctx.callId}:${customerEmail.toLowerCase()}`
+          : null;
+        const emailResult = await enqueueEmail(
+          {
+            kind: "customer_follow_up",
+            input: {
+              businessId: ctx.business.businessId,
+              customerEmail,
+              customerName: customerName || null,
+              businessName: ctx.business.businessName,
+              serviceName: service,
+              appointmentTime: appointmentWhen,
+              idempotencyKey
+            }
+          },
+          { idempotencyKey }
+        );
         customerEmailSent = emailResult.ok;
         if (!emailResult.ok) console.log(`[vapi-webhook] customer email skipped: ${emailResult.error}`);
       } catch (error) {
@@ -2266,20 +2410,31 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
       }
     }
 
-    try {
-      const internalResult = await sendInternalNotificationEmail({
-        businessId: ctx.business.businessId,
-        businessName: ctx.business.businessName,
-        purpose: "INTERNAL_NOTIFICATION",
-        fields: {
-          caller: customerName || null,
-          phone: customerPhone || null,
-          email: customerEmail || null,
-          requestedService: service,
-          summary: ctx.summary || null,
-          nextAction: appointmentWhen ? `Booking confirmed for ${appointmentWhen}` : "Follow up with the caller"
-        }
-      });
+    // The templated node email already covered the team when it targeted them.
+    if (!templatedTeamHandled) try {
+      const idempotencyKey = ctx.callId
+        ? `internal_notification:${ctx.callId}:${appointmentDate}:${appointmentTime}`
+        : null;
+      const internalResult = await enqueueEmail(
+        {
+          kind: "internal_notification",
+          input: {
+            businessId: ctx.business.businessId,
+            businessName: ctx.business.businessName,
+            purpose: "INTERNAL_NOTIFICATION",
+            idempotencyKey,
+            fields: {
+              caller: customerName || null,
+              phone: customerPhone || null,
+              email: customerEmail || null,
+              requestedService: service,
+              summary: ctx.summary || null,
+              nextAction: appointmentWhen ? `Booking confirmed for ${appointmentWhen}` : "Follow up with the caller"
+            }
+          }
+        },
+        { idempotencyKey }
+      );
       teamEmailSent = internalResult.ok;
       if (!internalResult.ok) console.log(`[vapi-webhook] internal email skipped: ${internalResult.error}`);
     } catch (error) {
@@ -2428,19 +2583,26 @@ export async function handleVapiWebhook(c: Context) {
       // End-of-call: email the buyer a call summary via their proxy alias.
       // Fire-and-forget — the webhook response never waits on SES.
       if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
-        sendInternalNotificationEmail({
-          businessId: businessContext.businessId,
-          businessName: businessContext.businessName,
-          purpose: "CALL_SUMMARY",
-          fields: {
-            caller: null,
-            phone: customerPhone || null,
-            email: null,
-            requestedService: null,
-            summary: summary || transcript?.slice(0, 2000) || null,
-            nextAction: "Review the call summary and follow up if needed"
-          }
-        })
+        enqueueEmail(
+          {
+            kind: "internal_notification",
+            input: {
+              businessId: businessContext.businessId,
+              businessName: businessContext.businessName,
+              purpose: "CALL_SUMMARY",
+              idempotencyKey: callId ? `call_summary:${callId}:business-email` : null,
+              fields: {
+                caller: null,
+                phone: customerPhone || null,
+                email: null,
+                requestedService: null,
+                summary: summary || transcript?.slice(0, 2000) || null,
+                nextAction: "Review the call summary and follow up if needed"
+              }
+            }
+          },
+          { idempotencyKey: callId ? `call_summary:${callId}:business-email` : null }
+        )
           .then((result) => {
             if (!result.ok) console.log(`[vapi-webhook] call summary email skipped: ${result.error}`);
           })

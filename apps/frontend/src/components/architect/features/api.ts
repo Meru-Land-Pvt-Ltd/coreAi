@@ -30,6 +30,7 @@ export type ArchitectAgentsStats = {
   executionsThisMonth: number;
   executionsPrevMonth: number;
   executionsChangePercent: number | null;
+  totalEarningsCents: number;
   revenue30dCents: number;
   revenuePrev30dCents: number;
   revenueChangePercent: number | null;
