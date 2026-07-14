@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  deleteBusinessAccount,
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
   getBusinessCalendarStatus,
@@ -562,6 +563,7 @@ export function BusinessSettingsView() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const initials = getInitials(profileForm.fullName || accountEmail || "User");
   const pwStrength = passwordStrength(passwordForm.next);
@@ -899,8 +901,19 @@ export function BusinessSettingsView() {
     showToast(result.error ?? "Could not revoke sessions");
   }
 
-  function handleDeleteAccount() {
-    if (deleteConfirm !== "DELETE") return;
+  async function handleDeleteAccount() {
+    if (deleteConfirm !== "DELETE" || deleting) return;
+
+    setDeleting(true);
+    const result = await deleteBusinessAccount(deleteConfirm);
+    setDeleting(false);
+
+    if (!result.success) {
+      showToast(result.error ?? "Could not delete your account");
+      return;
+    }
+
+    // The account and all business data are gone server-side — end the session.
     setDeleteModalOpen(false);
     logout();
   }
@@ -1906,12 +1919,12 @@ export function BusinessSettingsView() {
               </button>
               <button
                 type="button"
-                disabled={deleteConfirm !== "DELETE"}
-                onClick={handleDeleteAccount}
+                disabled={deleteConfirm !== "DELETE" || deleting}
+                onClick={() => void handleDeleteAccount()}
                 data-testid="business-settings-delete-confirm"
                 className="rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-50"
               >
-                Permanently delete
+                {deleting ? "Deleting…" : "Permanently delete"}
               </button>
             </div>
           </div>

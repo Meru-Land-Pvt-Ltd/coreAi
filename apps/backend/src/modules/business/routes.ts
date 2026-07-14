@@ -688,6 +688,55 @@ async function loadPhoneOptions(businessId: string | null) {
 
   return { availablePhoneNumbers, selectedPlatformPhoneNumberId };
 }
+async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string) {
+  const agent = await prisma.installedAgent.findUnique({
+    where: { id: installedAgentId },
+    select: { id: true, status: true, business: { select: { ownerId: true } } }
+  });
+  // One business can never see or modify another business's agent.
+  if (!agent || agent.business.ownerId !== ownerId) return null;
+  return agent;
+}
+
+businessRoutes.post("/agents/:installedAgentId/pause", async (c) => {
+  const authUser = c.get("authUser");
+  const agent = await loadOwnedInstalledAgent(authUser.id, c.req.param("installedAgentId"));
+
+  if (!agent) return errorResponse(c, "Agent not found.", 404, "AGENT_NOT_FOUND");
+  if (agent.status === "PAUSED") {
+    return successResponse(c, { installedAgentId: agent.id, status: "PAUSED" }, "Agent is already paused");
+  }
+  if (agent.status !== "ACTIVE") {
+    return errorResponse(c, "Only an active agent can be paused.", 409, "AGENT_NOT_ACTIVE");
+  }
+
+  const updated = await prisma.installedAgent.update({
+    where: { id: agent.id },
+    data: { status: "PAUSED" }
+  });
+
+  return successResponse(c, { installedAgentId: updated.id, status: updated.status }, "Agent paused");
+});
+
+businessRoutes.post("/agents/:installedAgentId/resume", async (c) => {
+  const authUser = c.get("authUser");
+  const agent = await loadOwnedInstalledAgent(authUser.id, c.req.param("installedAgentId"));
+
+  if (!agent) return errorResponse(c, "Agent not found.", 404, "AGENT_NOT_FOUND");
+  if (agent.status === "ACTIVE") {
+    return successResponse(c, { installedAgentId: agent.id, status: "ACTIVE" }, "Agent is already active");
+  }
+  if (agent.status !== "PAUSED") {
+    return errorResponse(c, "Only a paused agent can be resumed.", 409, "AGENT_NOT_PAUSED");
+  }
+
+  const updated = await prisma.installedAgent.update({
+    where: { id: agent.id },
+    data: { status: "ACTIVE" }
+  });
+
+  return successResponse(c, { installedAgentId: updated.id, status: updated.status }, "Agent resumed");
+});
 
 businessRoutes.get("/setup/phone-numbers", async (c) => {
   const authUser = c.get("authUser");

@@ -61,6 +61,8 @@ type ResolvedAgent = {
   forwardToPhone?: string;
   /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
   routingMode?: string;
+  /** Buyer paused this agent — no AI answer, no text-back, no AI SMS replies. */
+  agentPaused?: boolean;
   business?: BusinessRuntimeContext;
   /** How the number resolved (diagnostics only — never affects call behavior). */
   matchedBusinessPhoneNumberId?: string;
@@ -282,6 +284,7 @@ function toResolvedAgent(opts: {
     workflowJson: installedAgent.workflow?.workflowJson ?? null,
     forwardToPhone: opts.forwardToPhone ?? undefined,
     routingMode: readRoutingMode(installedAgent.configJson),
+    agentPaused: installedAgent.status === "PAUSED",
     business: buildBusinessContext(business, phoneNumber, installedAgent),
     matchedBusinessPhoneNumberId: opts.matchedBusinessPhoneNumberId,
     matchedPlatformPhoneNumberId: opts.matchedPlatformPhoneNumberId,
@@ -1081,6 +1084,17 @@ export async function handleTwilioVoice(c: Context) {
     return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
   }
 
+  // Buyer paused the agent: the AI never answers. Calls still reach a human
+  // when a forwarding number exists; otherwise a polite unavailable message.
+  if (agent.agentPaused) {
+    if (forwardToPhone) {
+      logDiag("agent_paused_forwarding_to_human");
+      return dialForward(c, forwardToPhone, agent.workflowId, calledNumber);
+    }
+    logDiag("agent_paused");
+    return sayTwiml(c, "This assistant is temporarily unavailable. Please try again later.");
+  }
+
   const hasDeployedAssistant = Boolean(assistantId && assistantId !== env.VAPI_DEFAULT_ASSISTANT_ID);
   const aiShouldAnswer = agent.routingMode
     ? shouldAnswerWithAiByMode(agent.routingMode, agent.business?.hours, agent.business?.timeZone)
@@ -1152,6 +1166,11 @@ export async function handleTwilioVoiceAction(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
+  // Paused agents never run the missed-call text-back workflow.
+  if (agent.agentPaused) {
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
   await runMissedCallAgent({
     agent,
     callerNumber,
@@ -1175,7 +1194,8 @@ export async function handleTwilioMissedCall(c: Context) {
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
-  if (!agent || !callerNumber) {
+  // Paused agents never run the missed-call text-back workflow.
+  if (!agent || !callerNumber || agent.agentPaused) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
@@ -1230,6 +1250,19 @@ export async function handleTwilioInboundSms(c: Context) {
   const agent = await resolveAgent({ calledNumber: businessNumber, workflowId });
 
   if (!agent || !customerPhone || !incomingBody) {
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
+  // Paused agents never reply — the inbound message is still recorded so the
+  // buyer sees it after resuming.
+  if (agent.agentPaused) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "INBOUND",
+      body: incomingBody,
+      providerId: readBodyString(body, ["MessageSid", "SmsSid"])
+    }).catch(() => null);
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 

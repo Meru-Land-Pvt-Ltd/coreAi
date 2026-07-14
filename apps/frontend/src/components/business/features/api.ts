@@ -299,6 +299,27 @@ export function sendMailSetupTestEmail(to?: string) {
   return apiPost<{ messageId: string; dryRun: boolean }>("/business/mail-setup/test-email", to ? { to } : {});
 }
 
+/** Permanently delete the buyer account and all business data (server-side). */
+export function deleteBusinessAccount(confirmation: string) {
+  return apiPost<{ deleted: boolean }>("/business/settings/danger/delete-account", { confirmation });
+}
+
+/** Pause a deployed agent — it stops responding on its number until resumed. */
+export function pauseInstalledAgent(installedAgentId: string) {
+  return apiPost<{ installedAgentId: string; status: string }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/pause`,
+    {}
+  );
+}
+
+/** Resume a paused agent. */
+export function resumeInstalledAgent(installedAgentId: string) {
+  return apiPost<{ installedAgentId: string; status: string }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/resume`,
+    {}
+  );
+}
+
 export function getBusinessCalendarStatus() {
   return apiGet<BusinessCalendarStatus>("/business/connectors/google-calendar/status");
 }

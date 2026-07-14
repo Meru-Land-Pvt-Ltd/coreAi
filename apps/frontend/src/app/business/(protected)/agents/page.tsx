@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
 import { getAuthToken, getAuthUser } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
@@ -47,6 +48,8 @@ type ApiPurchasedAgent = {
     purchaseId: string;
     purchasedAt: string;
     purchaseStatus: string;
+    installedAgentId?: string | null;
+    installedAgentStatus?: string | null;
     listing: ApiListing;
 };
 
@@ -66,7 +69,19 @@ type OwnedAgent = {
     tags: string[];
     purchaseStatus: string;
     purchasedAt: string;
+    installedAgentId: string | null;
+    installedAgentStatus: string | null;
 };
+
+/** Setup is complete once the agent was deployed (ACTIVE) — PAUSED still counts. */
+function isSetupCompleted(agent: OwnedAgent) {
+    const status = (agent.installedAgentStatus ?? "").toUpperCase();
+    return Boolean(agent.installedAgentId) && (status === "ACTIVE" || status === "PAUSED");
+}
+
+function isAgentPaused(agent: OwnedAgent) {
+    return (agent.installedAgentStatus ?? "").toUpperCase() === "PAUSED";
+}
 
 // Trial runs for TRIAL_DAYS from the purchase date. Day of purchase = 7 left,
 // counting down to 0 when the trial has fully elapsed.
@@ -148,7 +163,9 @@ function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {
             "Triven Architect",
         tags: listing.tags ?? [],
         purchaseStatus: entry.purchaseStatus,
-        purchasedAt: entry.purchasedAt
+        purchasedAt: entry.purchasedAt,
+        installedAgentId: entry.installedAgentId ?? null,
+        installedAgentStatus: entry.installedAgentStatus ?? null
     };
 }
 
@@ -229,6 +246,29 @@ export default function BusinessMyAgentsPage() {
         router.push(businessAgentDetailPath(agent.listingId));
     }
 
+    /** Pause ⇄ resume, reflecting the new status on the card immediately. */
+    async function togglePause(agent: OwnedAgent): Promise<string | null> {
+        if (!agent.installedAgentId) return "This agent has not been deployed yet.";
+
+        const response = isAgentPaused(agent)
+            ? await resumeInstalledAgent(agent.installedAgentId)
+            : await pauseInstalledAgent(agent.installedAgentId);
+
+        if (!response.success || !response.data) {
+            return response.error ?? "Could not update the agent.";
+        }
+
+        const nextStatus = response.data.status;
+        setAgents((current) =>
+            current.map((item) =>
+                item.installedAgentId === agent.installedAgentId
+                    ? { ...item, installedAgentStatus: nextStatus }
+                    : item
+            )
+        );
+        return null;
+    }
+
     if (!authReady) {
         return <main className="min-h-screen bg-gray-50" />;
     }
@@ -287,6 +327,7 @@ export default function BusinessMyAgentsPage() {
                                     onSetup={() => setupAgent(agent)}
                                     onPay={() => payAgent(agent)}
                                     onOpen={() => openAgent(agent)}
+                                    onTogglePause={() => togglePause(agent)}
                                 />
                             ))}
                         </div>
@@ -313,17 +354,54 @@ function OwnedAgentCard({
     agent,
     onSetup,
     onPay,
-    onOpen
+    onOpen,
+    onTogglePause
 }: {
     agent: OwnedAgent;
     onSetup: () => void;
     onPay: () => void;
     onOpen: () => void;
+    /** Resolves with an error message, or null on success. */
+    onTogglePause: () => Promise<string | null>;
 }) {
     const { isTrial, daysLeft, trialEnded } = getTrialInfo(agent.purchasedAt, agent.purchaseStatus);
+    const setupCompleted = isSetupCompleted(agent);
+    const paused = isAgentPaused(agent);
     const badge = trialEnded
         ? { label: "Trial ended", className: "bg-red-50 text-red-700" }
-        : statusBadge(agent.purchaseStatus);
+        : paused
+          ? { label: "Paused", className: "bg-gray-100 text-slate-600" }
+          : statusBadge(agent.purchaseStatus);
+
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [pausing, setPausing] = useState(false);
+    const [menuError, setMenuError] = useState("");
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!menuOpen) return;
+
+        function onPointerDown(event: MouseEvent) {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setMenuOpen(false);
+            }
+        }
+
+        document.addEventListener("mousedown", onPointerDown);
+        return () => document.removeEventListener("mousedown", onPointerDown);
+    }, [menuOpen]);
+
+    async function handleTogglePause() {
+        setPausing(true);
+        setMenuError("");
+        const error = await onTogglePause();
+        setPausing(false);
+        if (error) {
+            setMenuError(error);
+            return;
+        }
+        setMenuOpen(false);
+    }
 
     return (
         <article
@@ -355,6 +433,84 @@ function OwnedAgentCard({
                         <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-my-agent-price-text">
                             ${agent.price}
                         </span>
+
+                        {setupCompleted ? (
+                            <div ref={menuRef} className="relative">
+                                <button
+                                    type="button"
+                                    aria-label="Agent actions"
+                                    aria-haspopup="menu"
+                                    aria-expanded={menuOpen}
+                                    data-testid={`business-my-agent-menu-${agent.listingId}`}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setMenuError("");
+                                        setMenuOpen((open) => !open);
+                                    }}
+                                    className="grid h-8 w-8 place-items-center rounded-lg text-lg font-bold leading-none text-slate-400 transition hover:bg-gray-100 hover:text-slate-700"
+                                >
+                                    ⋮
+                                </button>
+
+                                {menuOpen ? (
+                                    <div
+                                        role="menu"
+                                        data-testid={`business-my-agent-menu-dropdown-${agent.listingId}`}
+                                        className="absolute right-0 top-9 z-20 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-xl"
+                                        onClick={(event) => event.stopPropagation()}
+                                    >
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            data-testid={`business-my-agent-menu-edit-${agent.listingId}`}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                onSetup();
+                                            }}
+                                            className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50"
+                                        >
+                                            Edit Configuration
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            disabled={pausing}
+                                            data-testid={`business-my-agent-menu-pause-${agent.listingId}`}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                void handleTogglePause();
+                                            }}
+                                            className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50 disabled:opacity-50"
+                                        >
+                                            {pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            data-testid={`business-my-agent-menu-view-${agent.listingId}`}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                onOpen();
+                                            }}
+                                            className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50"
+                                        >
+                                            View details
+                                        </button>
+
+                                        {menuError ? (
+                                            <p
+                                                className="px-4 py-2 text-xs font-semibold text-red-600"
+                                                data-testid={`business-my-agent-menu-error-${agent.listingId}`}
+                                            >
+                                                {menuError}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
 
@@ -395,6 +551,16 @@ function OwnedAgentCard({
                     >
                         Pay To Continue
                     </button>
+                ) : setupCompleted ? (
+                    // Setup is done — the ⋮ menu above replaces the Setup button.
+                    <p
+                        className={`rounded-xl py-2.5 text-center text-sm font-semibold ${
+                            paused ? "bg-gray-100 text-slate-500" : "bg-green-50 text-green-700"
+                        }`}
+                        data-testid={`business-my-agent-live-status-${agent.listingId}`}
+                    >
+                        {paused ? "Paused — not answering calls or texts" : "Live and answering"}
+                    </p>
                 ) : (
                     <button
                         type="button"
