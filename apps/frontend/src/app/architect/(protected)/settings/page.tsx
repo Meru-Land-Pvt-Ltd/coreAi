@@ -1170,6 +1170,7 @@ export default function ArchitectSettingsPage() {
                   </div>
                   <button type="button" onClick={() => void handleSavePayoutSchedule()} disabled={saving} data-testid="architect-settings-save-payout-schedule" className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Save schedule</button>
                 </div>
+                {/* Tax information hidden for now — re-enable once tax reporting ships.
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Tax information</h3>
                   <div className="space-y-3">
@@ -1184,6 +1185,7 @@ export default function ArchitectSettingsPage() {
                   </div>
                   <p className="mt-3 text-xs text-slate-400">Triven reports earnings for architects crossing annual reporting thresholds.</p>
                 </div>
+                */}
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Revenue split</h3>
                   <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5">
