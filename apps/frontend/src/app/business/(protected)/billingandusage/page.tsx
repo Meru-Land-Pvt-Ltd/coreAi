@@ -42,6 +42,8 @@ type BillingAgent = {
     id: string;
     name: string;
     priceCents: number;
+    pricingModel?: string | null;
+    trialDays?: number | null;
 };
 
 type Billing = {
@@ -300,6 +302,21 @@ export default function BusinessBillingUsagePage() {
         }
     }
 
+    async function cancelAgentSubscription(agentId: string) {
+        if (!window.confirm("Are you sure you want to cancel this agent subscription?")) return;
+        try {
+            const response = await apiPost(`/payments/cancel-agent/${agentId}`, {});
+            if (response.success) {
+                showToast("Subscription cancelled successfully");
+                window.location.reload();
+            } else {
+                showToast(response.error ?? "Failed to cancel subscription");
+            }
+        } catch (error) {
+            showToast(error instanceof Error ? error.message : "Failed to cancel subscription");
+        }
+    }
+
     const totalAgentFees = formatCurrencyCents(billing?.summary.totalAgentFeesPaidCents);
     const nextCharge = formatCurrencyCents(billing?.summary.nextChargeCents ?? 0);
     const currentMonthExecution = formatCurrencyCents(Math.round((usage?.totalBilledUsd ?? 0) * 100));
@@ -390,16 +407,35 @@ export default function BusinessBillingUsagePage() {
                                 <p className="px-4 py-4 text-sm text-slate-400">No purchased agents yet.</p>
                             ) : agents.map((agent) => (
                                 <div key={agent.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <p className="truncate text-sm font-semibold text-slate-800">{agent.name}</p>
-                                        <p className="text-xs text-slate-400">One-time purchase</p>
+                                        <p className="text-xs text-slate-400">
+                                            {agent.pricingModel === "FREE"
+                                                ? "Free agent"
+                                                : agent.pricingModel === "ONE_TIME"
+                                                    ? "One-time purchase"
+                                                    : "Monthly subscription"}
+                                        </p>
                                     </div>
-                                    <span className="shrink-0 font-mono text-sm font-bold text-green-700">{formatCurrencyCents(agent.priceCents)} paid</span>
+                                    <div className="flex items-center gap-4">
+                                        <span className="shrink-0 font-mono text-sm font-bold text-green-700">
+                                            {agent.pricingModel === "FREE" ? "Free" : `${formatCurrencyCents(agent.priceCents)} paid`}
+                                        </span>
+                                        {agent.pricingModel === "SUBSCRIPTION" ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => cancelAgentSubscription(agent.id)}
+                                                className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700"
+                                            >
+                                                Cancel
+                                            </button>
+                                        ) : null}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                         <div className="mt-4 flex items-center justify-between text-sm font-semibold">
-                            <span className="text-slate-500">Total one-time amount paid</span>
+                            <span className="text-slate-500">Total amount paid</span>
                             <span className="font-mono text-slate-900">{totalAgentFees}</span>
                         </div>
                     </div>

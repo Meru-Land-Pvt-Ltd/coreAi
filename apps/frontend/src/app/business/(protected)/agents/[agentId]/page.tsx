@@ -122,6 +122,9 @@ type ApiListing = {
   updatedAt?: string;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
+  pricingModel?: string | null;
+  freeTrialEnabled?: boolean | null;
+  trialDays?: number | null;
 };
 
 type ListingApiResponse = {
@@ -616,14 +619,26 @@ export default function BusinessAgentDetailPage() {
                     Active
                   </span>
                 ) : (
+                  (listing?.pricingModel ?? "SUBSCRIPTION") === "FREE" ? null : (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
-                    ⚡ $0 for the first 7 days
+                    ⚡ $0 for the first {listing?.trialDays ?? 7} days
                   </span>
+                  )
                 )}
 
                 <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
-                  <span className="text-lg font-medium text-slate-500">/month</span>
+                  {(listing?.pricingModel ?? "SUBSCRIPTION") === "FREE" ? (
+                    <span className="text-4xl font-extrabold tracking-tight text-slate-900">Free</span>
+                  ) : (
+                    <>
+                      <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
+                      {(listing?.pricingModel ?? "SUBSCRIPTION") === "SUBSCRIPTION" ? (
+                        <span className="text-lg font-medium text-slate-500">
+                          /month
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </div>
 
                 {ownedAgent ? (

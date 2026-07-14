@@ -163,6 +163,7 @@ async function buildRecommendations(challenges: string[]) {
     name: listing.name,
     description: listing.shortDescription ?? listing.description ?? "",
     priceCents: listing.priceCents ?? 0,
+    pricingModel: (listing.pricingModel as string | null) ?? "subscription",
     rating: listing.architect?.architectProfile?.rating ?? 4.8,
     installCount: listing._count.installedAgents,
     matchedChallenges,

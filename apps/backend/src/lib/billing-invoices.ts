@@ -15,7 +15,7 @@ export type PaymentWithListing = {
   billingEmail?: string | null;
   billingAddress?: string | null;
   lineItemsJson?: unknown;
-  listing?: { id: string; name: string } | null;
+  listing?: { id: string; name: string; trialDays?: number | null; pricingModel?: string | null } | null;
 };
 
 /**
@@ -100,11 +100,12 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
 
       listingsWithTrialInvoice.add(payment.listingId);
       const agentName = payment.listing?.name ?? "Agent";
+      const trialDays = payment.listing?.trialDays ?? 7;
 
       invoices.push({
         id: payment.id,
         createdAt: payment.createdAt.toISOString(),
-        description: payment.description ?? `7-day trial for ${agentName}`,
+        description: payment.description ?? `${trialDays}-day trial for ${agentName}`,
         amountCents: payment.amountCents,
         displayAmountCents: 0,
         currency: payment.currency,
@@ -152,11 +153,12 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
     if (!convertedInPlace) continue;
 
     const agentName = payment.listing?.name ?? "Agent";
+    const trialDays = payment.listing?.trialDays ?? 7;
 
     invoices.push({
       id: `${payment.id}-trial`,
       createdAt: payment.createdAt.toISOString(),
-      description: `7-day trial for ${agentName}`,
+      description: `${trialDays}-day trial for ${agentName}`,
       amountCents: payment.amountCents,
       displayAmountCents: 0,
       currency: payment.currency,
@@ -210,10 +212,11 @@ export function buildDashboardActivities(
     const agentName = payment.listing?.name ?? "Agent";
 
     if (payment.status === PaymentStatus.TRIALING) {
+      const trialDays = payment.listing?.trialDays ?? 7;
       activities.push({
         id: `trial-${payment.id}`,
         type: "trial_started",
-        text: `Started 7-day free trial for ${agentName}`,
+        text: `Started ${trialDays}-day free trial for ${agentName}`,
         badge: "Trial started",
         tone: "amber",
         createdAt: payment.createdAt.toISOString()
