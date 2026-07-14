@@ -32,6 +32,8 @@ type Agent = {
     supportedLlms: string[];
     whatYouGet: string[];
     createdAt?: string;
+    /** Real listing icon from Configure; shown on marketplace cards. */
+    iconUrl?: string | null;
 };
 
 type ApiArchitectProfile = {
@@ -82,6 +84,7 @@ type ApiListing = {
     tags?: string[];
     industryTags?: string[];
     category?: string | null;
+    iconUrl?: string | null;
     requiredConnectors?: string[];
     supportedLlms?: string[];
     createdAt?: string;
@@ -442,8 +445,44 @@ function mapListingToAgent(listing: ApiListing): Agent {
         requiredConnectors: listing.requiredConnectors ?? [],
         supportedLlms: listing.supportedLlms ?? [],
         whatYouGet: getWhatYouGetItems(listing),
-        createdAt: listing.createdAt
+        createdAt: listing.createdAt,
+        iconUrl: listing.iconUrl?.trim() || null
     };
+}
+
+/** Speech-bubble-with-dots fallback matching the marketplace card reference. */
+function AgentCardIcon({ iconUrl, size = 12 }: { iconUrl?: string | null; size?: 12 | 14 }) {
+    const box = size === 14 ? "h-14 w-14 rounded-2xl" : "h-12 w-12 rounded-xl";
+    const svg = size === 14 ? "h-7 w-7" : "h-6 w-6";
+
+    if (iconUrl) {
+        return (
+            <span className={`relative grid ${box} shrink-0 place-items-center overflow-hidden bg-amber-50 ring-1 ring-amber-100`}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- listing icons may be data URLs */}
+                <img src={iconUrl} alt="" className="h-full w-full object-cover" />
+            </span>
+        );
+    }
+
+    return (
+        <span className={`grid ${box} shrink-0 place-items-center bg-amber-50 text-amber-600 ring-1 ring-amber-100`}>
+            <svg
+                className={svg}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+            >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                <circle cx="8.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
+                <circle cx="12" cy="10.5" r="1" fill="currentColor" stroke="none" />
+                <circle cx="15.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
+            </svg>
+        </span>
+    );
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
@@ -1517,9 +1556,7 @@ function AgentGridCard({
         >
             <div className="flex-1 p-6">
                 <div className="flex items-start justify-between">
-                    <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                        🤖
-                    </span>
+                    <AgentCardIcon iconUrl={agent.iconUrl} />
 
                     <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-protected-marketplace-agent-price-text">
                         ${agent.price}
@@ -1539,7 +1576,7 @@ function AgentGridCard({
                     <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text">
                         {agent.category}
                     </span>
-
+                        
                     {agent.industries.length > 0 ? (
                         agent.industries.map((tag) => (
                             <span
@@ -1603,9 +1640,7 @@ function AgentListCard({
             data-testid={`business-marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg sm:flex-row sm:items-center"
         >
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                🤖
-            </span>
+            <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
 
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

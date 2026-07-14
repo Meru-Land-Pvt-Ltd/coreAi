@@ -26,6 +26,11 @@ export function TestPanel({
   hasGmailFlow,
   isVoiceWorkflow,
   isDentalWorkflow,
+  needsAnyTestConnection = false,
+  needsGoogleConnection = false,
+  needsCalendarConnection = false,
+  needsTwilioConnection = false,
+  needsVapiConnection = false,
   gmailConnected,
   gmailEmail,
   calendarConnected,
@@ -72,6 +77,11 @@ export function TestPanel({
   hasGmailFlow: boolean;
   isVoiceWorkflow: boolean;
   isDentalWorkflow: boolean;
+  needsAnyTestConnection?: boolean;
+  needsGoogleConnection?: boolean;
+  needsCalendarConnection?: boolean;
+  needsTwilioConnection?: boolean;
+  needsVapiConnection?: boolean;
   gmailConnected: boolean;
   gmailEmail: string | null;
   calendarConnected: boolean;
@@ -147,14 +157,14 @@ export function TestPanel({
   );
 
   const sandboxReady = testDeployment?.status === "READY";
+  const subtitle = isVoiceWorkflow
+    ? null
+    : "Send a sample trigger through the workflow and watch each step run in real time.";
   const heading = isDentalWorkflow
     ? "Dental AI Receptionist test"
     : isVoiceWorkflow
       ? "Test AI Voice Agent"
       : "Test console";
-  const subtitle = isVoiceWorkflow
-    ? "Test the AI in browser first. No call, SMS, or real calendar event is created. Live sandbox can be used later."
-    : "Send a sample trigger through the workflow and watch each step run in real time.";
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -162,12 +172,14 @@ export function TestPanel({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-test-panel-console-heading">{heading}</h2>
-            <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-send-a-sample-trigger-through-the-workflow-text">
-              {subtitle}
-            </p>
+            {subtitle ? (
+              <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-send-a-sample-trigger-through-the-workflow-text">
+                {subtitle}
+              </p>
+            ) : null}
             {hasGmailFlow ? (
               <p className="mt-2 text-xs font-medium text-blue-600" data-testid="architect-ui-workflow-builder-test-panel-gmail-connected-gmail-connected-gmail-email-gmail-text">
-                {gmailConnected ? `Gmail connected: ${gmailEmail ?? "Gmail"}` : "Gmail flow selected. Connect Gmail before a live Gmail run."}
+                {gmailConnected ? `Gmail connected: ${gmailEmail ?? "Gmail"}` : "Connect Gmail before a live Gmail run."}
               </p>
             ) : null}
           </div>
@@ -385,7 +397,7 @@ export function TestPanel({
               <>
                 <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-business-text">
-                    {isVoiceWorkflow ? "Test business" : "Business"}
+                    {isVoiceWorkflow ? "TEST BUSINESS NAME" : "Business"}
                   </span>
                   <input data-testid="builder-test-business-name-input"
                     type="text"
@@ -398,7 +410,7 @@ export function TestPanel({
                 {isVoiceWorkflow ? (
                   <>
                     <label data-testid="builder-test-appointment-service-label">
-                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Appointment service</span>
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Test Appointment service</span>
                       <input data-testid="builder-test-appointment-service-input"
                         type="text"
                         value={appointmentService}
@@ -414,7 +426,7 @@ export function TestPanel({
           </div>
         </div>
 
-        {isVoiceWorkflow || hasGmailFlow ? (
+        {needsAnyTestConnection ? (
           <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="builder-test-connections">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-architect-test-connections-heading">Architect test connections</h3>
@@ -428,50 +440,56 @@ export function TestPanel({
               </button>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-google-card">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gmail / Google account</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-google-status">
-                  {gmailConnected ? `Google connected: ${gmailEmail ?? "connected"}` : "Not connected"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-permission">
-                  Calendar permission: {calendarConnected ? "connected" : "missing"}
-                </p>
-                {gmailConnected && !calendarConnected ? (
-                  <p className="mt-1 text-xs font-semibold text-amber-700" data-testid="builder-test-calendar-reconnect-hint">
-                    Reconnect Google to grant Calendar permission.
+              {needsGoogleConnection ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-google-card">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gmail / Google account</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-google-status">
+                    {gmailConnected ? `Google connected: ${gmailEmail ?? "connected"}` : "Not connected"}
                   </p>
-                ) : null}
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={onConnectGmail}
-                    disabled={connectingGmail}
-                    data-testid="builder-test-connect-google"
-                    className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
-                  >
-                    {connectingGmail ? "Connecting..." : gmailConnected ? "Reconnect Google" : "Connect Google"}
-                  </button>
-                  {gmailConnected ? (
+                  {needsCalendarConnection ? (
+                    <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-permission">
+                      Calendar permission: {calendarConnected ? "connected" : "missing"}
+                    </p>
+                  ) : null}
+                  {needsCalendarConnection && gmailConnected && !calendarConnected ? (
+                    <p className="mt-1 text-xs font-semibold text-amber-700" data-testid="builder-test-calendar-reconnect-hint">
+                      Reconnect Google to grant Calendar permission.
+                    </p>
+                  ) : null}
+                  <div className="mt-3 flex gap-2">
                     <button
                       type="button"
-                      onClick={onDisconnectGoogle}
-                      data-testid="builder-test-disconnect-google"
-                      className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                      onClick={onConnectGmail}
+                      disabled={connectingGmail}
+                      data-testid="builder-test-connect-google"
+                      className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
                     >
-                      Disconnect Google
+                      {connectingGmail ? "Connecting..." : gmailConnected ? "Reconnect Google" : "Connect Google"}
                     </button>
-                  ) : null}
+                    {gmailConnected ? (
+                      <button
+                        type="button"
+                        onClick={onDisconnectGoogle}
+                        data-testid="builder-test-disconnect-google"
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                      >
+                        Disconnect Google
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-calendar-card">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Google Calendar</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-calendar-status-text">
-                  {calendarConnected ? "Connected" : "Missing permission"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-id-text">Calendar ID: {calendarId || "primary"}</p>
-                <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-timezone-text">Timezone: {timeZone || "America/Los_Angeles"}</p>
-              </div>
-              {isVoiceWorkflow ? (
+              ) : null}
+              {needsCalendarConnection ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-calendar-card">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Google Calendar</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-calendar-status-text">
+                    {calendarConnected ? "Connected" : "Missing permission"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-id-text">Calendar ID: {calendarId || "primary"}</p>
+                  <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-calendar-timezone-text">Timezone: {timeZone || "America/Los_Angeles"}</p>
+                </div>
+              ) : null}
+              {needsTwilioConnection ? (
                 <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-twilio-card">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Twilio test number</p>
                   <p className="mt-1 font-mono text-sm font-semibold text-slate-800" data-testid="builder-test-twilio-number">
@@ -482,7 +500,7 @@ export function TestPanel({
                   </p>
                 </div>
               ) : null}
-              {isVoiceWorkflow ? (
+              {needsVapiConnection ? (
                 <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-vapi-card">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Vapi assistant</p>
                   <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-vapi-status">

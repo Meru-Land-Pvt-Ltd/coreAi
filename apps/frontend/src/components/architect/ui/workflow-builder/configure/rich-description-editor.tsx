@@ -68,11 +68,22 @@ export function RichDescriptionEditor({
     }
   }, [value]);
 
+  function stripImages(editor: HTMLDivElement) {
+    editor.querySelectorAll("img").forEach((img) => img.remove());
+  }
+
+  function syncValue() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    stripImages(editor);
+    onChange(editor.innerHTML);
+  }
+
   function runCommand(command: EditorCommand) {
     if (disabled) return;
     editorRef.current?.focus();
     document.execCommand(command);
-    onChange(editorRef.current?.innerHTML ?? "");
+    syncValue();
   }
 
   return (
@@ -104,7 +115,19 @@ export function RichDescriptionEditor({
         contentEditable={!disabled}
         suppressContentEditableWarning
         data-placeholder={placeholder}
-        onInput={() => onChange(editorRef.current?.innerHTML ?? "")}
+        onInput={syncValue}
+        onPaste={(event) => {
+          event.preventDefault();
+          const text = event.clipboardData.getData("text/plain");
+          document.execCommand("insertText", false, text);
+          syncValue();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
         className="configure-editor min-h-[150px] px-4 py-3.5 text-[14.5px] leading-relaxed text-slate-700 outline-none"
       />
       <style>{`

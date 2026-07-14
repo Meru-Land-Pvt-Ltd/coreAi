@@ -16,7 +16,6 @@ import {
   type ArchitectAgentsStats
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
-import { getAuthUser } from "@/lib/auth";
 import { architectPublishingStatusPath, architectAnalyticsPath } from "@/lib/routes";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
@@ -280,6 +279,32 @@ function CheckIcon() {
   );
 }
 
+function formatRelativeTime(value: string | null | undefined): string {
+  if (!value) return "just now";
+  const ms = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "just now";
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return formatDate(value);
+}
+
+function formatUsdFromCents(cents: number): string {
+  return `$${Math.max(0, Math.round(cents / 100)).toLocaleString("en-US")}`;
+}
+
+function StarGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="text-amber-400">
+      <path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4L12 17.8 6.2 20.3l1.1-6.4L2.6 9.3l6.5-.9L12 2.5z" />
+    </svg>
+  );
+}
+
 function StatusPill({ status }: { status: AgentStatus }) {
   const style = STATUS_STYLES[status];
   return (
@@ -303,31 +328,69 @@ function StatusPill({ status }: { status: AgentStatus }) {
 
 function StatusBand({ agent }: { agent: ArchitectListing }) {
   if (agent.status === "PENDING_REVIEW") {
+    const review = agent.reviewProgress ?? {
+      percent: 75,
+      passed: 3,
+      total: 4,
+      items: [
+        { label: "Listing details", done: true },
+        { label: "Compliance checks", done: true },
+        { label: "Marketplace ready", done: true },
+        { label: "Manual review", done: false }
+      ]
+    };
     return (
       <div className="ma-band border-t border-amber-100 bg-amber-50/60 px-5 py-3" data-testid={`my-agents-review-notice-${agent.id}`}>
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-amber-700">Review in progress</span>
-          <span className="text-xs text-amber-600">Pending</span>
+          <span className="text-xs font-medium text-amber-700">Review progress</span>
+          <span className="text-xs font-semibold text-amber-600">{review.percent}%</span>
         </div>
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-amber-100">
-          <div className="h-full w-2/3 rounded-full bg-amber-500" />
+          <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, Math.max(0, review.percent))}%` }} />
         </div>
-        <p className="ma-extra mt-1.5 text-xs text-amber-600">Will be live in 24–48 hrs after review</p>
+        <p className="mt-1.5 text-xs text-amber-700">
+          {review.passed} of {review.total} checks passed
+        </p>
+        <ul className="ma-extra mt-2 space-y-1">
+          {review.items.map((item) => (
+            <li key={item.label} className="flex items-center gap-1.5 text-xs text-amber-800/80">
+              {item.done ? (
+                <span className="text-green-600">
+                  <CheckIcon />
+                </span>
+              ) : (
+                <span className="inline-block h-3 w-3 rounded-full border border-amber-400" />
+              )}
+              {item.label}
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }
 
   if (agent.status === "DRAFT") {
+    const draft = agent.draftProgress ?? {
+      stepsCompleted: 0,
+      stepsTotal: 7,
+      percent: 0,
+      missing: ["Name", "Tagline", "Category", "Industry", "Description", "Pricing", "Compliance"]
+    };
     return (
       <div className="ma-band border-t border-gray-100 bg-slate-50 px-5 py-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-slate-500">Completion</span>
-          <span className="text-xs text-slate-400">Draft</span>
+          <span className="text-xs font-semibold text-slate-500">{draft.percent}%</span>
         </div>
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
-          <div className="h-full w-1/3 rounded-full bg-slate-400" />
+          <div className="h-full rounded-full bg-slate-400" style={{ width: `${Math.min(100, Math.max(0, draft.percent))}%` }} />
         </div>
-        <p className="ma-extra mt-1.5 text-xs text-slate-500">Finish setup and publish to go live</p>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {draft.stepsCompleted} of {draft.stepsTotal} steps completed
+        </p>
+        {draft.missing.length ? (
+          <p className="ma-extra mt-1 text-xs text-slate-400">Missing: {draft.missing.slice(0, 3).join(", ")}</p>
+        ) : null}
       </div>
     );
   }
@@ -345,26 +408,39 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
   if (agent.status === "PAUSED") {
     return (
       <div className="ma-band border-t border-amber-100 bg-amber-50/60 px-5 py-3" data-testid={`my-agents-paused-notice-${agent.id}`}>
-        <p className="text-xs font-medium text-amber-700">Paused removed from marketplace. Reactivate anytime from Settings.</p>
+        <p className="text-xs font-medium text-amber-700">Paused — removed from marketplace. Reactivate anytime.</p>
       </div>
     );
   }
 
-  // APPROVED / live — surface the real listing facts we have.
+  // APPROVED / live
+  const executions = agent.executionCount ?? 0;
+  const revenue = agent.revenueCents ?? 0;
+  const rating = agent.rating != null && agent.rating > 0 ? agent.rating : null;
   return (
     <div className="ma-band grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
       <div>
-        <div className="text-[11px] text-slate-400">Price</div>
-        <div className="text-sm font-bold text-amber-600">{formatMoney(agent.priceCents)}</div>
+        <div className="text-[11px] text-slate-400">Executions</div>
+        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-executions-${agent.id}`}>
+          {executions.toLocaleString("en-US")}
+        </div>
       </div>
       <div>
-        <div className="text-[11px] text-slate-400">Connectors</div>
-        <div className="text-sm font-bold text-slate-900">{agent.requiredConnectors.length}</div>
+        <div className="text-[11px] text-slate-400">Revenue</div>
+        <div className="text-sm font-bold text-amber-600" data-testid={`my-agents-revenue-${agent.id}`}>
+          {formatUsdFromCents(revenue)}
+        </div>
       </div>
       <div>
-        <div className="text-[11px] text-slate-400">Installed</div>
-        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-install-count-${agent.id}`}>
-          {agent.installCount ?? 0}
+        <div className="text-[11px] text-slate-400">Rating</div>
+        <div className="flex items-center gap-1 text-sm font-bold text-slate-900" data-testid={`my-agents-rating-${agent.id}`}>
+          {rating != null ? (
+            <>
+              {rating.toFixed(1)} <StarGlyph />
+            </>
+          ) : (
+            <span className="text-slate-400">—</span>
+          )}
         </div>
       </div>
     </div>
@@ -377,10 +453,14 @@ function builderHrefFor(agent: ArchitectListing): Route {
 
 function FooterActions({
   agent,
-  onDuplicate
+  onDuplicate,
+  onPause,
+  onDelete
 }: {
   agent: ArchitectListing;
   onDuplicate: (agent: ArchitectListing) => void;
+  onPause: (agent: ArchitectListing) => void;
+  onDelete: (agent: ArchitectListing) => void;
 }) {
   const stop = (event: React.MouseEvent) => event.stopPropagation();
   const builderHref = builderHrefFor(agent);
@@ -388,30 +468,61 @@ function FooterActions({
 
   if (agent.status === "APPROVED") {
     return (
-      <button
-        type="button"
-        onClick={(event) => {
-          stop(event);
-          onDuplicate(agent);
-        }}
-        data-testid={`my-agents-duplicate-${agent.id}-button`}
-        className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
-      >
-        Duplicate
-      </button>
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        <Link
+          data-testid={`my-agents-edit-${agent.id}-link`}
+          href={builderHref}
+          onClick={stop}
+          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+        >
+          Edit
+        </Link>
+        <button
+          type="button"
+          onClick={(event) => {
+            stop(event);
+            onPause(agent);
+          }}
+          data-testid={`my-agents-pause-${agent.id}-button`}
+          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-amber-50 hover:text-amber-700"
+        >
+          Pause
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            stop(event);
+            onDuplicate(agent);
+          }}
+          data-testid={`my-agents-duplicate-${agent.id}-button`}
+          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
+        >
+          Duplicate
+        </button>
+      </div>
     );
   }
 
   if (agent.status === "PENDING_REVIEW") {
     return (
-      <Link
-        data-testid={`my-agents-update-${agent.id}-link`}
-        href={statusHref}
-        onClick={stop}
-        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
-      >
-        View status <ArrowIcon />
-      </Link>
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        <Link
+          data-testid={`my-agents-feedback-${agent.id}-link`}
+          href={statusHref}
+          onClick={stop}
+          className="rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
+        >
+          View Feedback
+        </Link>
+        <Link
+          data-testid={`my-agents-update-${agent.id}-link`}
+          href={builderHref}
+          onClick={stop}
+          className="rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
+        >
+          Update &amp; Resubmit
+        </Link>
+      </div>
     );
   }
 
@@ -421,14 +532,29 @@ function FooterActions({
 
   if (agent.status === "DRAFT") {
     return (
-      <Link
-        data-testid={`my-agents-update-${agent.id}-link`}
-        href={builderHref}
-        onClick={stop}
-        className="ma-continue inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
-      >
-        Continue Building <ArrowIcon />
-      </Link>
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        <Link
+          data-testid={`my-agents-update-${agent.id}-link`}
+          href={builderHref}
+          onClick={stop}
+          className="ma-continue inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
+        >
+          Continue Building <ArrowIcon />
+        </Link>
+        {agentCanBeDeleted(agent) ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              stop(event);
+              onDelete(agent);
+            }}
+            data-testid={`my-agents-delete-${agent.id}-button`}
+            className="rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50"
+          >
+            Delete
+          </button>
+        ) : null}
+      </div>
     );
   }
 
@@ -447,30 +573,48 @@ function FooterActions({
 
 function AgentCard({
   agent,
-  architectName,
   index,
   animate,
   onOpen,
   onDots,
-  onDuplicate
+  onDuplicate,
+  onPause,
+  onDelete
 }: {
   agent: ArchitectListing;
-  architectName: string;
   index: number;
   animate: boolean;
   onOpen: (agent: ArchitectListing) => void;
   onDots: (event: React.MouseEvent, agentId: string) => void;
   onDuplicate: (agent: ArchitectListing) => void;
+  onPause: (agent: ArchitectListing) => void;
+  onDelete: (agent: ArchitectListing) => void;
 }) {
   const style = STATUS_STYLES[agent.status];
   const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
+  const iconUrl = agent.iconUrl?.trim() || null;
+  const category =
+    agent.category?.trim() ||
+    agent.industryTags?.[0]?.trim() ||
+    agent.tags?.[0]?.trim() ||
+    "AI Agent";
+  const title = agent.name?.trim() || "Untitled Agent";
+  const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
+  const description = agent.shortDescription?.trim() || agent.tagline?.trim() || "No description added yet.";
+  const activityAt = agent.updatedAt || agent.submittedAt || agent.createdAt;
+  const activityLabel =
+    agent.status === "PENDING_REVIEW"
+      ? `Submitted ${formatRelativeTime(agent.submittedAt || agent.createdAt)}`
+      : agent.status === "DRAFT"
+        ? `Last edited ${formatRelativeTime(activityAt)}`
+        : `Updated ${formatRelativeTime(activityAt)}`;
 
   return (
     <article
       data-testid={`my-agents-card-${agent.id}`}
       role="button"
       tabIndex={0}
-      aria-label={`${agent.name}, ${style.label}. Press Enter to open.`}
+      aria-label={`${title}, ${style.label}. Press Enter to open.`}
       onClick={() => onOpen(agent)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -484,8 +628,18 @@ function AgentCard({
       }`}
     >
       <div className="ma-top flex items-start justify-between px-5 pb-3 pt-5">
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${style.iconBg} ${style.iconBorder} ${style.iconText}`}>
-          <PhoneGlyph />
+        <span
+          className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border ${
+            iconUrl ? "border-amber-100 bg-white" : `${style.iconBg} ${style.iconBorder} ${style.iconText}`
+          }`}
+          data-testid={`my-agents-icon-${agent.id}`}
+        >
+          {iconUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- icons can be data URLs
+            <img src={iconUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <PhoneGlyph />
+          )}
         </span>
 
         <div className="ma-top-actions flex items-center gap-1">
@@ -496,7 +650,7 @@ function AgentCard({
             onClick={(event) => onDots(event, agent.id)}
             data-testid={`my-agents-menu-${agent.id}-button`}
             aria-haspopup="true"
-            aria-label={`More actions for ${agent.name}`}
+            aria-label={`More actions for ${title}`}
             className="-mr-1 rounded-md p-1 text-slate-300 transition-colors hover:bg-gray-50 hover:text-slate-500 focus-visible:ring-2 focus-visible:ring-amber-400"
           >
             <DotsIcon />
@@ -506,40 +660,32 @@ function AgentCard({
 
       <div className="ma-body min-w-0 px-5 pb-3">
         <h2 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
-          {agent.name}
+          {title}
         </h2>
 
-        <p className="mt-0.5 truncate text-xs text-slate-500" data-testid="architect-ui-my-agents-view-agent-workflow-from-agent-workflow-marketplace-package-text">
-          by {architectName}
+        <p
+          className="mt-0.5 truncate text-xs text-slate-500"
+          data-testid={`my-agents-category-${agent.id}`}
+        >
+          {category}
         </p>
 
-        <p className="ma-desc mt-2 line-clamp-2 text-sm leading-relaxed text-slate-500" data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text">
-          {agent.shortDescription || "No description added yet."}
+        <p
+          className={`ma-desc mt-2 line-clamp-2 text-sm leading-relaxed ${hasDescription ? "text-slate-500" : "italic text-slate-400"}`}
+          data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text"
+        >
+          {description}
         </p>
-
-        <div className="ma-extra mt-2.5 flex flex-wrap gap-1.5">
-          {agent.tags.length ? (
-            agent.tags.slice(0, 3).map((tag) => (
-              <span key={`${agent.id}-${tag}`} className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-slate-600" data-testid="architect-ui-my-agents-view-tag-text">
-                {tag}
-              </span>
-            ))
-          ) : (
-            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-slate-500" data-testid="architect-ui-my-agents-view-no-tags-text">
-              No tags
-            </span>
-          )}
-        </div>
       </div>
 
       <StatusBand agent={agent} />
 
       <div className="ma-foot flex items-center justify-between gap-2 border-t border-gray-100 px-5 py-3">
         <span className="ma-updated whitespace-nowrap text-xs text-slate-400" data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text">
-          Created {formatDate(agent.createdAt)}
+          {activityLabel}
         </span>
         <div className="flex items-center gap-1">
-          <FooterActions agent={agent} onDuplicate={onDuplicate} />
+          <FooterActions agent={agent} onDuplicate={onDuplicate} onPause={onPause} onDelete={onDelete} />
         </div>
       </div>
     </article>
@@ -754,7 +900,6 @@ export function MyAgentsView() {
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
   const [stats, setStats] = useState<ArchitectAgentsStats>(EMPTY_AGENT_STATS);
   const [loading, setLoading] = useState(true);
-  const [architectName, setArchitectName] = useState("Architect");
   const [filter, setFilter] = useState<AgentFilter>("ALL");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
@@ -766,12 +911,6 @@ export function MyAgentsView() {
   const [reactivating, setReactivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-
-  useEffect(() => {
-    const user = getAuthUser();
-    const name = user?.fullName?.trim() || user?.email?.trim() || "Architect";
-    setArchitectName(name);
-  }, []);
 
   // Honor a ?filter=live (or status) query so other pages can deep-link here.
   useEffect(() => {
@@ -945,6 +1084,18 @@ export function MyAgentsView() {
     setReactivateAgent(null);
     setToast(`“${reactivateAgent.name}” is live again.`);
     await loadAgents();
+  }
+
+  function requestPauseAgent(agent: ArchitectListing) {
+    void (async () => {
+      const result = await updateArchitectListingStatus(agent.id, "PAUSED");
+      if (!result.success) {
+        setToast(result.error ?? "Could not pause this agent.");
+        return;
+      }
+      setToast(`“${agent.name}” is paused.`);
+      await loadAgents();
+    })();
   }
 
   function requestDeleteAgent(agent: ArchitectListing) {
@@ -1202,12 +1353,13 @@ export function MyAgentsView() {
               <AgentCard
                 key={agent.id}
                 agent={agent}
-                architectName={architectName}
                 index={index}
                 animate
                 onOpen={openAgent}
                 onDots={openMenu}
                 onDuplicate={duplicateAgent}
+                onPause={requestPauseAgent}
+                onDelete={requestDeleteAgent}
               />
             ))}
           </div>

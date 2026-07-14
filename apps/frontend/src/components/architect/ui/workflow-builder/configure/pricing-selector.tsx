@@ -11,20 +11,20 @@ const PRICING_MODELS: {
     key: "free",
     label: "Free",
     description: "No charge — grow installs and reviews",
-    testId: "configure-pricing-free"
+    testId: "configure-pricing-free",
   },
   {
     key: "one_time",
     label: "One-time purchase",
     description: "Single upfront payment",
-    testId: "configure-pricing-onetime"
+    testId: "configure-pricing-onetime",
   },
   {
     key: "subscription",
     label: "Monthly subscription",
     description: "Recurring revenue per install",
-    testId: "configure-pricing-monthly"
-  }
+    testId: "configure-pricing-monthly",
+  },
 ];
 
 const TRIAL_DAY_OPTIONS = [3, 7, 14];
@@ -36,7 +36,7 @@ function formatMoney(value: number): string {
 export function PricingSelector({
   pricing,
   onChange,
-  disabled = false
+  disabled = false,
 }: {
   pricing: AgentConfigurePricing;
   onChange: (next: Partial<AgentConfigurePricing>) => void;
@@ -54,7 +54,9 @@ export function PricingSelector({
   return (
     <div className="space-y-8">
       <fieldset>
-        <legend className="mb-3 text-[13.5px] font-semibold text-slate-700">Pricing model</legend>
+        <legend className="mb-3 text-[13.5px] font-semibold text-slate-700">
+          Pricing model
+        </legend>
         <div className="grid gap-3 sm:grid-cols-3">
           {PRICING_MODELS.map((model) => {
             const active = pricing.pricingModel === model.key;
@@ -80,12 +82,24 @@ export function PricingSelector({
                       : "absolute right-3 top-3 flex h-5 w-5 scale-75 items-center justify-center rounded-full bg-amber-500 text-white opacity-0 transition-all"
                   }
                 >
-                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    className="h-3 w-3"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M20 6 9 17l-5-5" />
                   </svg>
                 </span>
-                <span className="block text-sm font-semibold text-slate-900">{model.label}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">{model.description}</span>
+                <span className="block text-sm font-semibold text-slate-900">
+                  {model.label}
+                </span>
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  {model.description}
+                </span>
               </button>
             );
           })}
@@ -95,11 +109,19 @@ export function PricingSelector({
       {!isFree ? (
         <div className="grid gap-7 sm:grid-cols-2">
           <div>
-            <label className="mb-2 block text-[13.5px] font-semibold text-slate-700" htmlFor="configure-price">
-              Price {pricing.pricingModel === "subscription" ? "(USD / month)" : "(USD)"}
+            <label
+              className="mb-2 block text-[13.5px] font-semibold text-slate-700"
+              htmlFor="configure-price"
+            >
+              Price{" "}
+              {pricing.pricingModel === "subscription"
+                ? "(USD / month)"
+                : "(USD)"}
             </label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400">$</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400">
+                $
+              </span>
               <input
                 id="configure-price"
                 data-testid="configure-price-input"
@@ -107,39 +129,21 @@ export function PricingSelector({
                 min={0}
                 step={1}
                 inputMode="decimal"
-                value={Number.isFinite(pricing.price) ? String(pricing.price) : ""}
+                value={
+                  Number.isFinite(pricing.price) ? String(pricing.price) : ""
+                }
                 disabled={disabled}
-                onChange={(event) => onChange({ price: Math.max(0, Number(event.target.value) || 0) })}
+                onChange={(event) =>
+                  onChange({
+                    price: Math.max(0, Number(event.target.value) || 0),
+                  })
+                }
                 className="w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-8 pr-4 text-base font-bold text-slate-900 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
               />
             </div>
-            <p className="mt-1.5 text-xs text-slate-400">Similar agents: <span className="font-semibold text-slate-500">$75–$150</span></p>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-[13.5px] font-semibold text-slate-700" htmlFor="configure-exec-fee">
-              Execution fee
-            </label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400">$</span>
-              <input
-                id="configure-exec-fee"
-                data-testid="configure-execution-fee-input"
-                type="number"
-                min={0}
-                step={0.01}
-                inputMode="decimal"
-                placeholder="1.00"
-                value={Number.isFinite(pricing.executionFee) && pricing.executionFee !== 0 ? String(pricing.executionFee) : ""}
-                disabled={disabled}
-                onChange={(event) => onChange({ executionFee: Math.max(0, Number(event.target.value) || 0) })}
-                className="w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-8 pr-24 text-base font-bold text-slate-900 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-medium text-slate-400">/ execution</span>
-            </div>
-            <p className="mt-1.5 text-xs text-slate-400">Optional extra charge per completed AI interaction.</p>
-            <p className="mt-1 text-xs text-slate-400">
-              1 execution = one completed AI voice interaction. Email follow-up inside that interaction is included.
+            <p className="mt-1.5 text-xs text-slate-400">
+              Similar agents:{" "}
+              <span className="font-semibold text-slate-500">$75–$150</span>
             </p>
           </div>
         </div>
@@ -148,8 +152,12 @@ export function PricingSelector({
       <div className="rounded-2xl border border-gray-100 bg-gray-50/40 p-5">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-slate-800">Offer a free trial</p>
-            <p className="mt-0.5 text-xs text-slate-400">Trials lift conversion by roughly 40% on paid agents.</p>
+            <p className="text-sm font-semibold text-slate-800">
+              Offer a free trial
+            </p>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Trials lift conversion by roughly 40% on paid agents.
+            </p>
           </div>
           <button
             type="button"
@@ -157,7 +165,9 @@ export function PricingSelector({
             role="switch"
             aria-checked={pricing.freeTrialEnabled}
             disabled={disabled}
-            onClick={() => onChange({ freeTrialEnabled: !pricing.freeTrialEnabled })}
+            onClick={() =>
+              onChange({ freeTrialEnabled: !pricing.freeTrialEnabled })
+            }
             className={pricing.freeTrialEnabled ? "toggle on" : "toggle"}
           >
             <span className="knob" />
@@ -165,8 +175,14 @@ export function PricingSelector({
         </div>
         {pricing.freeTrialEnabled ? (
           <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold text-slate-600">Trial length</p>
-            <div className="inline-flex gap-2" role="radiogroup" aria-label="Trial length">
+            <p className="mb-2 text-xs font-semibold text-slate-600">
+              Trial length
+            </p>
+            <div
+              className="inline-flex gap-2"
+              role="radiogroup"
+              aria-label="Trial length"
+            >
               {TRIAL_DAY_OPTIONS.map((days) => (
                 <button
                   key={days}
@@ -197,7 +213,15 @@ export function PricingSelector({
         <div className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-amber-400/10 blur-3xl" />
         <div className="relative">
           <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-400">
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M3 3v18h18" />
               <path d="m7 14 3-4 3 2 4-6" />
             </svg>
@@ -206,7 +230,11 @@ export function PricingSelector({
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-sm text-slate-300">
-                At <span className="font-bold text-white">{installs.toLocaleString("en-US")}</span> installs, you&apos;d earn
+                At{" "}
+                <span className="font-semibold text-white">
+                  {installs.toLocaleString("en-US")}
+                </span>{" "}
+                installs, you&apos;d earn
               </p>
               <p className="mt-1 text-[44px] font-extrabold leading-none tracking-tight sm:text-[52px]">
                 <span
@@ -216,16 +244,17 @@ export function PricingSelector({
                   {formatMoney(architectEarnings)}
                 </span>
               </p>
-              <p className="mt-2 text-xs text-slate-400">
-                Plus <span className="font-semibold text-slate-200">${pricing.executionFee.toFixed(2)}</span> per execution in fees, paid straight to you.
-              </p>
             </div>
             <div className="text-right">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> You keep {keepPercent}%
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> You
+                keep {keepPercent}%
               </div>
               <p className="mt-2 text-xs text-slate-400">
-                Triven takes {commission}% · <span className="font-semibold text-slate-300">{formatMoney(platformCut)}</span>
+                Triven takes {commission}% ·{" "}
+                <span className="font-semibold text-slate-300">
+                  {formatMoney(platformCut)}
+                </span>
               </p>
             </div>
           </div>
@@ -233,7 +262,9 @@ export function PricingSelector({
           <div className="mt-6">
             <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
               <span>Projected installs</span>
-              <span className="font-semibold text-slate-200">{installs.toLocaleString("en-US")} / month</span>
+              <span className="font-semibold text-slate-200">
+                {installs.toLocaleString("en-US")} / month
+              </span>
             </div>
             <input
               data-testid="configure-installs-range"

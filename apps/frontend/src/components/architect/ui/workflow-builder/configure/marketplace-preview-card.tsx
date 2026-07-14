@@ -5,10 +5,12 @@ import { BuilderIcon } from "../icons";
 
 export function MarketplacePreviewCard({
   configure,
-  architectName
+  architectName,
+  showPrice = true
 }: {
   configure: AgentConfigureData;
   architectName: string;
+  showPrice?: boolean;
 }) {
   const name = configure.basics.agentName.trim() || "Your agent";
   const tagline = configure.basics.tagline.trim() || "Your tagline appears here";
@@ -26,18 +28,24 @@ export function MarketplacePreviewCard({
       className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
       data-testid="configure-preview-card"
     >
-      <div className="relative h-24">
+      <div className="relative z-0 h-24">
         {cover ? (
           <img src={cover} alt="Listing cover" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-100 via-amber-50 to-white" />
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500"
+            data-testid="configure-preview-default-cover"
+          />
         )}
-        <span className="absolute right-2.5 top-2.5 rounded-full bg-white/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm backdrop-blur">
+        <span className="absolute right-2.5 top-2.5 z-10 rounded-full bg-white/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm backdrop-blur">
           {configure.basics.category}
         </span>
       </div>
-      <div className="p-4 pt-0">
-        <div className="-mt-6 mb-2.5 flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-md ring-4 ring-white">
+      <div className="relative z-10 p-4 pt-0">
+        <div
+          className="relative z-10 -mt-6 mb-2.5 flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-md ring-4 ring-white"
+          data-testid="configure-preview-icon"
+        >
           {configure.basics.iconUrl ? (
             <img src={configure.basics.iconUrl} alt="Agent icon" className="h-full w-full object-cover" />
           ) : (
@@ -54,19 +62,18 @@ export function MarketplacePreviewCard({
         >
           {tagline}
         </p>
-        <div className="mt-2.5 flex items-center gap-1">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <BuilderIcon key={index} name="star" className="h-3.5 w-3.5 text-amber-400" />
-          ))}
-          <span className="ml-1 text-[11px] font-semibold text-slate-400">New</span>
-        </div>
+
         <p className="mt-1.5 truncate text-[11px] text-slate-400">
           by <span className="font-medium text-slate-600">{architectName}</span>
         </p>
         <div className="mt-3.5 flex items-center justify-between border-t border-gray-50 pt-3">
-          <span className="text-base font-extrabold text-slate-900" data-testid="configure-preview-price">
-            {priceLabel}
-          </span>
+          {showPrice ? (
+            <span className="text-base font-extrabold text-slate-900" data-testid="configure-preview-price">
+              {priceLabel}
+            </span>
+          ) : (
+            <span />
+          )}
           <span className="inline-flex cursor-default select-none items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
             Install
           </span>

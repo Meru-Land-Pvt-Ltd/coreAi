@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { requiredConnectorKeys } from "@coreai/shared";
+import { normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -1608,29 +1608,185 @@ architectRoutes.post("/workflows/:workflowId/submit-review", submitWorkflowForRe
 architectRoutes.post("/workflows/:workflowId/publish", publishWorkflowListing);
 architectRoutes.get("/workflows/:workflowId/marketplace-preview", getWorkflowMarketplacePreview);
 
+/** My Agents card fields — prefer Configure draft when present so cards stay real-time. */
+function myAgentsCardFieldsFromConfigure(
+  configureJson: unknown,
+  seed: { name?: string | null; description?: string | null }
+) {
+  const configure = normalizeAgentConfigure(configureJson, {
+    name: seed.name,
+    tagline: seed.description,
+    description: seed.description
+  });
+  const includedFeatures = configure.media.includedFeatures.map((feature) => feature.trim()).filter(Boolean);
+  const screenshotUrls = configure.media.screenshotUrls.map((url) => url.trim()).filter(Boolean);
+  return {
+    name: configure.basics.agentName.trim() || seed.name?.trim() || "Untitled Agent",
+    shortDescription:
+      configure.basics.shortDescription.trim() ||
+      configure.basics.tagline.trim() ||
+      seed.description?.trim() ||
+      "",
+    tagline: configure.basics.tagline.trim() || null,
+    category: configure.basics.category.trim() || null,
+    tags: configure.basics.industryTags,
+    industryTags: configure.basics.industryTags,
+    iconUrl: configure.basics.iconUrl.trim() || null,
+    includedFeatures,
+    screenshotUrls,
+    coverUrl: screenshotUrls[0] ?? null
+  };
+}
+
+function plainConfigureText(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Seven Configure milestones for draft completion % on My Agents cards. */
+function computeDraftProgress(configureJson: unknown, seed: { name?: string | null; description?: string | null }) {
+  const configure = normalizeAgentConfigure(configureJson, {
+    name: seed.name,
+    tagline: seed.description,
+    description: seed.description
+  });
+  const checks = configure.compliance.complianceChecks;
+  const steps: Array<{ label: string; done: boolean }> = [
+    { label: "Name", done: configure.basics.agentName.trim().length >= 2 },
+    { label: "Tagline", done: configure.basics.tagline.trim().length >= 10 },
+    { label: "Category", done: Boolean(configure.basics.category.trim()) },
+    { label: "Industry", done: configure.basics.industryTags.length > 0 },
+    { label: "Description", done: plainConfigureText(configure.media.fullDescription).length >= 100 },
+    {
+      label: "Pricing",
+      done: configure.pricing.pricingModel === "free" || configure.pricing.price > 0
+    },
+    {
+      label: "Compliance",
+      done: Boolean(checks.guidelines && checks.tested && checks.accurate && checks.terms)
+    }
+  ];
+  const stepsCompleted = steps.filter((step) => step.done).length;
+  const stepsTotal = steps.length;
+  return {
+    stepsCompleted,
+    stepsTotal,
+    percent: Math.round((stepsCompleted / stepsTotal) * 100),
+    missing: steps.filter((step) => !step.done).map((step) => step.label)
+  };
+}
+
+function computeReviewProgress(listing: {
+  category: string | null;
+  priceCents: number;
+  pricingModel?: string | null;
+  complianceChecks: unknown;
+}) {
+  const checksRaw =
+    listing.complianceChecks && typeof listing.complianceChecks === "object" && !Array.isArray(listing.complianceChecks)
+      ? (listing.complianceChecks as Record<string, unknown>)
+      : {};
+  const complianceDone = Boolean(
+    checksRaw.guidelines && checksRaw.tested && checksRaw.accurate && checksRaw.terms
+  );
+  const pricingDone =
+    listing.pricingModel === "FREE" || listing.priceCents > 0 || listing.priceCents === 0;
+  const items = [
+    { label: "Listing details", done: true },
+    { label: "Compliance checks", done: complianceDone },
+    { label: "Marketplace ready", done: Boolean(listing.category?.trim()) && pricingDone },
+    { label: "Manual review", done: false }
+  ];
+  const passed = items.filter((item) => item.done).length;
+  return {
+    percent: Math.round((passed / items.length) * 100),
+    passed,
+    total: items.length,
+    items
+  };
+}
+
 architectRoutes.get("/listings", async (c) => {
   const authUser = c.get("authUser");
   const statusFilter = c.req.query("status");
 
-  const allListings = await prisma.agentListing.findMany({
-    where: {
-      architectUserId: authUser.id
-    },
-    include: {
-      workflow: true,
-      _count: {
-        select: { installedAgents: true }
+  const [allListings, sales, profile, installedAgents] = await Promise.all([
+    prisma.agentListing.findMany({
+      where: {
+        architectUserId: authUser.id
+      },
+      include: {
+        workflow: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            configureJson: true,
+            updatedAt: true
+          }
+        },
+        _count: {
+          select: { installedAgents: true }
+        }
+      },
+      orderBy: {
+        createdAt: "desc"
       }
-    },
-    orderBy: {
-      createdAt: "desc"
-    }
-  });
-  const sales = await loadArchitectEarnings(authUser.id);
+    }),
+    loadArchitectEarnings(authUser.id),
+    prisma.architectProfile.findUnique({
+      where: { userId: authUser.id },
+      select: { rating: true }
+    }),
+    prisma.installedAgent.findMany({
+      where: { listing: { architectUserId: authUser.id } },
+      select: { id: true, listingId: true, businessId: true, configJson: true }
+    })
+  ]);
+
+  const revenueByListing = new Map<string, number>();
   const installCountByListing = new Map<string, number>();
   for (const sale of sales) {
     installCountByListing.set(sale.listingId, (installCountByListing.get(sale.listingId) ?? 0) + 1);
+    if (effectiveEarningStatus(sale) === "REJECTED") continue;
+    revenueByListing.set(
+      sale.listingId,
+      (revenueByListing.get(sale.listingId) ?? 0) + sale.earningsCents
+    );
   }
+
+  const buyerInstalls = installedAgents.filter((agent) => {
+    const config = agent.configJson;
+    if (!config || typeof config !== "object" || Array.isArray(config)) return true;
+    return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
+  });
+  const executionByListing = new Map<string, number>();
+  const businessIds = [...new Set(buyerInstalls.map((agent) => agent.businessId))];
+  const agentsByBusiness = new Map<string, Array<{ id: string; listingId: string | null }>>();
+  for (const agent of buyerInstalls) {
+    const list = agentsByBusiness.get(agent.businessId) ?? [];
+    list.push({ id: agent.id, listingId: agent.listingId });
+    agentsByBusiness.set(agent.businessId, list);
+  }
+  await Promise.all(
+    businessIds.map(async (businessId) => {
+      const agents = agentsByBusiness.get(businessId) ?? [];
+      const stats = await buildInstalledAgentRunStats(businessId, agents);
+      for (const agent of agents) {
+        if (!agent.listingId) continue;
+        const runs = stats.get(agent.id)?.runs ?? 0;
+        executionByListing.set(
+          agent.listingId,
+          (executionByListing.get(agent.listingId) ?? 0) + runs
+        );
+      }
+    })
+  );
+
+  const architectRating = typeof profile?.rating === "number" ? profile.rating : null;
+
   const seenWorkflowIds = new Set<string>();
   const listings = allListings
     .filter((listing) => {
@@ -1639,38 +1795,121 @@ architectRoutes.get("/listings", async (c) => {
       seenWorkflowIds.add(listing.workflowId);
       return true;
     })
-    .map(({ _count, ...listing }) => ({
-      ...listing,
-      installCount: installCountByListing.get(listing.id) ?? 0
-    }));
+    .map(({ _count, workflow, ...listing }) => {
+      const configureFields = workflow
+        ? myAgentsCardFieldsFromConfigure(workflow.configureJson, {
+            name: workflow.name || listing.name,
+            description: workflow.description ?? listing.shortDescription
+          })
+        : null;
+      const screenshotUrls =
+        listing.screenshotUrls?.length
+          ? listing.screenshotUrls
+          : configureFields?.screenshotUrls ?? [];
+      const tags =
+        listing.industryTags?.length
+          ? listing.industryTags
+          : listing.tags?.length
+            ? listing.tags
+            : configureFields?.tags ?? [];
+      const includedFeatures =
+        listing.includedFeatures?.length
+          ? listing.includedFeatures
+          : configureFields?.includedFeatures ?? [];
+      const draftProgress = computeDraftProgress(workflow?.configureJson ?? null, {
+        name: workflow?.name || listing.name,
+        description: workflow?.description ?? listing.shortDescription
+      });
+      const reviewProgress = computeReviewProgress(listing);
+      return {
+        ...listing,
+        name: listing.name?.trim() || configureFields?.name || "Untitled Agent",
+        shortDescription:
+          listing.shortDescription?.trim() ||
+          configureFields?.shortDescription ||
+          "",
+        tagline: listing.tagline ?? configureFields?.tagline ?? null,
+        category: listing.category ?? configureFields?.category ?? null,
+        tags,
+        industryTags: listing.industryTags?.length
+          ? listing.industryTags
+          : configureFields?.industryTags ?? [],
+        iconUrl: listing.iconUrl ?? configureFields?.iconUrl ?? null,
+        includedFeatures,
+        screenshotUrls,
+        coverUrl: screenshotUrls[0] ?? configureFields?.coverUrl ?? null,
+        installCount: installCountByListing.get(listing.id) ?? _count.installedAgents ?? 0,
+        executionCount: executionByListing.get(listing.id) ?? 0,
+        revenueCents: revenueByListing.get(listing.id) ?? 0,
+        rating: architectRating,
+        draftProgress,
+        reviewProgress,
+        updatedAt: listing.updatedAt ?? listing.createdAt,
+        submittedAt: listing.submittedAt ?? null,
+        workflow: workflow
+          ? { id: workflow.id, name: workflow.name, description: workflow.description }
+          : null
+      };
+    });
 
   // Workflows the architect saved or imported (builder/template) but hasn't
   // published yet → their DRAFT agents. Never hidden.
   const workflows = await prisma.workflowDefinition.findMany({
     where: { architectUserId: authUser.id },
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, description: true, createdAt: true }
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+      configureJson: true
+    }
   });
   const drafts = workflows
     .filter((workflow) => !seenWorkflowIds.has(workflow.id))
-    .map((workflow) => ({
-      id: `draft-${workflow.id}`,
-      workflowId: workflow.id,
-      name: workflow.name,
-      shortDescription: workflow.description ?? "",
-      description: workflow.description ?? null,
-      priceCents: 0,
-      status: "DRAFT" as const,
-      tags: [] as string[],
-      requiredConnectors: [] as string[],
-      supportedLlms: [] as string[],
-      installCount: 0,
-      createdAt: workflow.createdAt,
-      workflow: null
-    }));
+    .map((workflow) => {
+      const card = myAgentsCardFieldsFromConfigure(workflow.configureJson, {
+        name: workflow.name,
+        description: workflow.description
+      });
+      const draftProgress = computeDraftProgress(workflow.configureJson, {
+        name: workflow.name,
+        description: workflow.description
+      });
+      return {
+        id: `draft-${workflow.id}`,
+        workflowId: workflow.id,
+        name: card.name,
+        shortDescription: card.shortDescription,
+        description: workflow.description ?? null,
+        tagline: card.tagline,
+        category: card.category,
+        priceCents: 0,
+        status: "DRAFT" as const,
+        tags: card.tags,
+        industryTags: card.industryTags,
+        iconUrl: card.iconUrl,
+        includedFeatures: card.includedFeatures,
+        screenshotUrls: card.screenshotUrls,
+        coverUrl: card.coverUrl,
+        requiredConnectors: [] as string[],
+        supportedLlms: [] as string[],
+        installCount: 0,
+        executionCount: 0,
+        revenueCents: 0,
+        rating: architectRating,
+        draftProgress,
+        reviewProgress: null,
+        createdAt: workflow.createdAt,
+        updatedAt: workflow.updatedAt,
+        submittedAt: null,
+        workflow: null
+      };
+    });
 
   const combined = [...listings, ...drafts].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
   );
   const result = statusFilter ? combined.filter((agent) => agent.status === statusFilter) : combined;
 

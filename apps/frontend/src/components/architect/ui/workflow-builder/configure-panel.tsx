@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   AGENT_CATEGORIES,
   AGENT_INDUSTRIES,
@@ -167,7 +168,8 @@ export function ConfigurePanel({
   onPriceChange,
   ensureWorkflowId,
   onSubmitted,
-  onSave
+  onSave,
+  onGoPublish
 }: {
   workflowId: string;
   architectName: string;
@@ -186,6 +188,8 @@ export function ConfigurePanel({
   ensureWorkflowId: () => Promise<string | null>;
   onSubmitted?: () => void;
   onSave?: () => void;
+  /** Last-step Review CTA: leave Configure and open the Publish tab. */
+  onGoPublish?: () => void;
 }) {
   const [configure, setConfigure] = useState<AgentConfigureData>(() =>
     defaultAgentConfigure({
@@ -411,7 +415,7 @@ export function ConfigurePanel({
     [ensureWorkflowId, isLocked, pushToast, workflowId]
   );
 
-  /* ---- Step validation (step 3 = Pricing & Compliance, step 4 = Requirements) ---- */
+  /* ---- Step validation ---- */
   const validateStep = useCallback(
     (target: number): boolean => {
       const errors: Record<string, string> = {};
@@ -428,12 +432,21 @@ export function ConfigurePanel({
         }
       }
 
-      if (target === 2 && plainTextLength(configure.media.fullDescription) < 100) {
-        errors.fullDescription = "Describe your agent in at least 100 characters.";
+      if (target === 2) {
+        if (plainTextLength(configure.media.fullDescription) < 100) {
+          errors.fullDescription = "Describe your agent in at least 100 characters.";
+        }
       }
 
       if (target === 3 && configure.pricing.pricingModel !== "free" && configure.pricing.price <= 0) {
         errors.price = "Set a price greater than $0, or switch to Free.";
+      }
+
+      if (target === 4) {
+        const checks = configure.compliance.complianceChecks;
+        if (!checks.guidelines || !checks.tested || !checks.accurate || !checks.terms) {
+          errors.complianceChecks = "Complete all four “Before you publish” checks to continue.";
+        }
       }
 
       setFieldErrors(errors);
@@ -471,6 +484,46 @@ export function ConfigurePanel({
     const checks = configure.compliance.complianceChecks;
     return checks.guidelines && checks.tested && checks.accurate && checks.terms;
   }, [configure.compliance.complianceChecks]);
+
+  /** Review step CTA — validate + save draft, then hand off to the Publish tab. */
+  const handleGoPublish = useCallback(async () => {
+    if (isLocked) return;
+
+    const issues = validateConfigureForSubmit(configure);
+    if (issues.length > 0) {
+      const first = issues[0];
+      pushToast(first?.message ?? "Complete the required fields first.", "error");
+      if (first) goToStep(first.step);
+      return;
+    }
+
+    if (!complianceComplete) {
+      pushToast("Complete all compliance checks in Step 4 first.", "error");
+      goToStep(4);
+      return;
+    }
+
+    const id = workflowId || (await ensureWorkflowId());
+    if (!id) {
+      pushToast("Add a node in Build so the agent can be saved first.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+    await persistDraft();
+    setSubmitting(false);
+    onGoPublish?.();
+  }, [
+    complianceComplete,
+    configure,
+    ensureWorkflowId,
+    goToStep,
+    isLocked,
+    onGoPublish,
+    persistDraft,
+    pushToast,
+    workflowId
+  ]);
 
   const handleSubmit = useCallback(async () => {
     if (isLocked || submitting) return;
@@ -630,6 +683,10 @@ export function ConfigurePanel({
   );
 
   const displayName = configure.basics.agentName.trim() || agentName.trim() || "your agent";
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   /* ---- Review summary values (step 5, read-only) ---- */
   const enabledIntegrationLabels = REQUIRED_INTEGRATION_DEFS.filter(
@@ -715,7 +772,15 @@ export function ConfigurePanel({
           </div>
         ) : null}
 
-        <StepProgress labels={STEP_LABELS} current={step} maxVisited={maxVisited} onGoto={goToStep} />
+        <StepProgress
+          labels={STEP_LABELS}
+          current={step}
+          maxVisited={maxVisited}
+          onGoto={(target) => {
+            if (target > step && !validateStep(step)) return;
+            goToStep(target);
+          }}
+        />
 
         {/* ============ STEP 1: DETAILS ============ */}
         {step === 1 ? (
@@ -973,7 +1038,7 @@ export function ConfigurePanel({
                   <span className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-600">live</span>
                 </div>
                 <div className="max-w-xs">
-                  <MarketplacePreviewCard configure={configure} architectName={architectName} />
+                  <MarketplacePreviewCard configure={configure} architectName={architectName} showPrice={false} />
                 </div>
               </div>
             </div>
@@ -1496,6 +1561,7 @@ export function ConfigurePanel({
               {/* Compliance lives HERE (Step 4) — data handling + required publish checks. */}
               <div className="border-t border-gray-100 pt-7">
                 <ComplianceChecklist compliance={configure.compliance} disabled={isLocked} onChange={updateCompliance} />
+                <FieldError message={fieldErrors.complianceChecks} testId="configure-error-compliance" />
               </div>
             </div>
           </div>
@@ -1508,7 +1574,7 @@ export function ConfigurePanel({
               index={5}
               kicker="Review"
               title="Review & submit"
-              subtitle="One last look. Edit anything, then send it to our review team."
+              subtitle="One last look. Edit anything, then continue to Publish to submit for review."
             />
             <div className="px-6 py-7 sm:px-8">
               <div className="grid gap-7 lg:grid-cols-[1fr,300px]">
@@ -1660,7 +1726,8 @@ export function ConfigurePanel({
                 type="button"
                 data-testid="configure-continue"
                 onClick={() => void handleContinue()}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg"
+                disabled={step === 4 && !complianceComplete}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0"
               >
                 Continue
                 <BuilderIcon name="chevron" className="h-4 w-4 -rotate-90" />
@@ -1669,73 +1736,86 @@ export function ConfigurePanel({
               <button
                 type="button"
                 data-testid="configure-submit-review"
-                onClick={() => void handleSubmit()}
+                onClick={() => void (onGoPublish ? handleGoPublish() : handleSubmit())}
                 disabled={submitting || isLocked || !complianceComplete}
                 className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-7 py-3 text-[14.5px] font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0"
               >
                 <BuilderIcon name="send" className="h-4 w-4" />
-                {submitting ? "Submitting..." : isLocked && !submitted ? "Publishing locked" : "Submit for review"}
+                {submitting
+                  ? "Saving..."
+                  : isLocked && !submitted
+                    ? "Publishing locked"
+                    : onGoPublish
+                      ? "Continue to Publish"
+                      : "Submit for review"}
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Success modal */}
-      {submitted ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" data-testid="configure-success-modal">
-          <div className="w-full max-w-md rounded-3xl bg-white p-8 text-center shadow-2xl">
-            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-lg">
-              <BuilderIcon name="send" className="h-10 w-10 text-white" />
-            </div>
-            <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">You&apos;re in review! 🎉</h3>
-            <p className="mt-2.5 text-[14.5px] leading-relaxed text-slate-600">
-              {displayName} has been submitted to the Triven Marketplace. We&apos;ll email you within 24–48 hours.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button
-                type="button"
-                data-testid="configure-success-stay"
-                onClick={() => {
-                  // Close the modal first, then let the parent reload the
-                  // workflow (which re-locks the panel server-side).
-                  setSubmitted(false);
-                  onSubmitted?.();
-                }}
-                className="flex-1 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
-              >
-                Stay in builder
-              </button>
-              <Link
-                href={"/architect/agents" as Route}
-                data-testid="configure-success-view-agents"
-                onClick={() => onSubmitted?.()}
-                className="flex-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg"
-              >
-                View My Agents
-              </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* Success modal + toasts — portaled to body so fixed isn't trapped by .builder-view */}
+      {portalReady
+        ? createPortal(
+            <>
+              {submitted ? (
+                <div
+                  className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+                  data-testid="configure-success-modal"
+                >
+                  <div className="w-full max-w-md rounded-3xl bg-white p-8 text-center shadow-2xl">
+                    <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-lg">
+                      <BuilderIcon name="send" className="h-10 w-10 text-white" />
+                    </div>
+                    <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">You&apos;re in review! 🎉</h3>
+                    <p className="mt-2.5 text-[14.5px] leading-relaxed text-slate-600">
+                      {displayName} has been submitted to the Triven Marketplace. We&apos;ll email you within 24–48 hours.
+                    </p>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        data-testid="configure-success-stay"
+                        onClick={() => {
+                          setSubmitted(false);
+                          onSubmitted?.();
+                        }}
+                        className="flex-1 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
+                      >
+                        Stay in builder
+                      </button>
+                      <Link
+                        href={"/architect/agents" as Route}
+                        data-testid="configure-success-view-agents"
+                        onClick={() => onSubmitted?.()}
+                        className="flex-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg"
+                      >
+                        View My Agents
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
-      {/* Toasts */}
-      <div className="pointer-events-none fixed bottom-5 right-6 z-[90] flex flex-col items-end gap-2.5">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            data-testid="configure-toast"
-            className="pointer-events-auto flex max-w-sm items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 text-[13.5px] font-medium text-slate-700 shadow-xl"
-          >
-            {toast.type === "error" ? (
-              <BuilderIcon name="info" className="h-5 w-5 flex-none text-red-500" />
-            ) : (
-              <BuilderIcon name="check" className="h-5 w-5 flex-none text-green-500" />
-            )}
-            <span>{toast.message}</span>
-          </div>
-        ))}
-      </div>
+              <div className="pointer-events-none fixed bottom-5 right-6 z-[210] flex flex-col items-end gap-2.5">
+                {toasts.map((toast) => (
+                  <div
+                    key={toast.id}
+                    data-testid="configure-toast"
+                    className="pointer-events-auto flex max-w-sm items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 text-[13.5px] font-medium text-slate-700 shadow-xl"
+                  >
+                    {toast.type === "error" ? (
+                      <BuilderIcon name="info" className="h-5 w-5 flex-none text-red-500" />
+                    ) : (
+                      <BuilderIcon name="check" className="h-5 w-5 flex-none text-green-500" />
+                    )}
+                    <span>{toast.message}</span>
+                  </div>
+                ))}
+              </div>
+            </>,
+            document.body
+          )
+        : null}
     </section>
   );
 }
