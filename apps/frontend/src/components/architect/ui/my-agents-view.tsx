@@ -351,11 +351,26 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
   }
 
   // APPROVED / live — surface the real listing facts we have.
+  const pricingModel = agent.pricingModel ?? (agent.priceCents === 0 ? "FREE" : "SUBSCRIPTION");
+  const billingBadge =
+    pricingModel === "FREE" ? null : pricingModel === "ONE_TIME" ? (
+      <span className="ml-1 inline-flex items-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+        One-time
+      </span>
+    ) : (
+      <span className="ml-1 inline-flex items-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+        Monthly
+      </span>
+    );
+
   return (
     <div className="ma-band grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
       <div>
         <div className="text-[11px] text-slate-400">Price</div>
-        <div className="text-sm font-bold text-amber-600">{formatMoney(agent.priceCents)}</div>
+        <div className="flex items-center text-sm font-bold text-amber-600" data-testid={`my-agents-price-${agent.id}`}>
+          {pricingModel === "FREE" ? "Free" : formatMoney(agent.priceCents)}
+          {billingBadge}
+        </div>
       </div>
       <div>
         <div className="text-[11px] text-slate-400">Connectors</div>

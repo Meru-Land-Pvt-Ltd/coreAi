@@ -47,6 +47,8 @@ export type ArchitectListing = {
   shortDescription: string;
   description: string | null;
   priceCents: number;
+  /** Billing model stored in the DB: FREE | ONE_TIME | SUBSCRIPTION */
+  pricingModel?: "FREE" | "ONE_TIME" | "SUBSCRIPTION" | null;
   status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
   tags: string[];
   requiredConnectors: string[];

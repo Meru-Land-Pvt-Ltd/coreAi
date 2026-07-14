@@ -1712,7 +1712,7 @@ function OrderSummary({
                         {!isUsageMode ? (
                             <PriceRow
                                 label="Post-paid execution fees"
-                                value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(4)}/minute`}
+                                value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(2)}`}
                                 muted
                             />
                         ) : null}
@@ -1743,7 +1743,13 @@ function OrderSummary({
                     </div>
                     )}
                     <p className="mt-3 text-xs leading-5 text-slate-400">
-                        Usage starts on the purchase date, is invoiced on the 1st, and is due by the 7th.
+                        {isUsageMode
+                            ? "This invoice covers usage already consumed. Payment is due immediately."
+                            : isPurchaseMode
+                            ? pricingModel === "ONE_TIME"
+                                ? "This is a one-time purchase. No future charges or renewals."
+                                : "Your subscription begins today. You'll be billed monthly on this date."
+                            : `Your ${trialDays}-day free trial starts now. You won't be charged until ${trialDate}.`}
                     </p>
                 </div>
 

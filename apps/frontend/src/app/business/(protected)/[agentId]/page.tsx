@@ -599,7 +599,7 @@ export default function BusinessAgentDetailPage() {
                   ) : (
                     <>
                       <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
-                      {pricingModel === "subscription" ? (
+                      {pricingModel === "SUBSCRIPTION" ? (
                         <span className="text-lg font-medium text-slate-500">
                           /month
                         </span>
