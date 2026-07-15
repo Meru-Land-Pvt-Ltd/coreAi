@@ -1,1 +1,2 @@
-ALTER TABLE "Business" ADD ("billingPostalCode" VARCHAR2(255));
+-- AlterTable
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "billingPostalCode" TEXT;
