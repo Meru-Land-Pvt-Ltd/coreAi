@@ -290,9 +290,9 @@ export async function generateVoicePreview(input: {
           text,
           model_id: "eleven_multilingual_v2",
           voice_settings: {
-            stability: 0.5,
+            stability: 0.65,
             similarity_boost: 0.75,
-            use_speaker_boost: true
+            use_speaker_boost: false
           }
         })
       }

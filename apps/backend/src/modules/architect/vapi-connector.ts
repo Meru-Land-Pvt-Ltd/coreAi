@@ -725,6 +725,10 @@ export type DeployVapiAssistantInput = {
   voice?: string | null;
   voiceProvider?: string | null;
   voiceId?: string | null;
+  stability?: number | null;
+  similarityBoost?: number | null;
+  style?: number | null;
+  useSpeakerBoost?: boolean | null;
   /** BCP-47-ish node value ("en-US", "en-GB", "es", "hi"); mapped per transcriber model. */
   language?: string | null;
   /** ElevenLabs speed multiplier as node string ("0.8"–"1.2"); 11labs voices only. */
@@ -751,6 +755,10 @@ export async function deployVapiAssistant({
   voice,
   voiceProvider,
   voiceId,
+  stability,
+  similarityBoost,
+  style,
+  useSpeakerBoost,
   language,
   speakingSpeed,
   serverUrl,
@@ -832,10 +840,10 @@ export async function deployVapiAssistant({
     voiceResolution.config.provider === "11labs"
       ? {
           ...voiceResolution.config,
-          stability: 0.71,
-          similarityBoost: 0.75,
-          style: 0.0,
-          useSpeakerBoost: false,
+          stability: typeof stability === "number" ? stability : 0.65,
+          similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
+          style: typeof style === "number" ? style : 0.0,
+          useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
           ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
         }
       : voiceResolution.config;
