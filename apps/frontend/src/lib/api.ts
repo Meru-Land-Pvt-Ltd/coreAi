@@ -113,9 +113,9 @@ export async function apiPatch<T>(
   }
 }
 
-export async function apiDelete<T>(path: string): Promise<ApiResponse<T>> {
+export async function apiDelete<T>(path: string, body?: object): Promise<ApiResponse<T>> {
   try {
-    const response = await apiClient.delete<ApiResponse<T>>(path);
+    const response = await apiClient.delete<ApiResponse<T>>(path, body ? { data: body } : undefined);
     return response.data;
   } catch (error) {
     return normalizeAxiosError<T>(error);

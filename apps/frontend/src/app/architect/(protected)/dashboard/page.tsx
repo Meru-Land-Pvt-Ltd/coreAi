@@ -397,6 +397,23 @@ export default function ArchitectDashboardPage() {
     setLoading(false);
   }, []);
 
+  const [payout, setPayout] = useState<ArchitectPayoutSummary | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadPayoutSummary() {
+      const result = await getArchitectPayoutSummary();
+      if (mounted && result.success && result.data) setPayout(result.data);
+    }
+
+    void loadPayoutSummary();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   useEffect(() => {
     void loadListings();
   }, [loadListings]);

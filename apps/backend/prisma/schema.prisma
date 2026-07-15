@@ -318,6 +318,7 @@ model InstalledAgent {
   workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   workflowRuns WorkflowRun[]
 
+  @@unique([businessId, listingId])
   @@index([businessId])
   @@index([workflowId])
   @@index([listingId])
@@ -421,6 +422,8 @@ model VapiCall {
   status                String                @default("STARTED")
   transcript            String?
   summary               String?
+  /// Vapi call recording URL — only present when the workflow's End Flow node has call recording enabled.
+  recordingUrl          String?
   metadataJson          Json?
   durationSeconds       Int?
   durationMinutes       Float?

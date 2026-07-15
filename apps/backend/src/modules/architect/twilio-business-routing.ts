@@ -74,6 +74,30 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/[^+\d]/g, "").trim();
 }
 
+/**
+ * Whether the workflow graph opts into SMS conversations. AI SMS auto-replies
+ * run only when the architect placed an SMS-capable node — the Inbound SMS
+ * Trigger, a Send SMS action, or the Missed Call Trigger (whose text-back
+ * conversation continues over SMS). Legacy installs without a graph keep the
+ * previous always-reply behavior.
+ */
+const SMS_CAPABLE_NODE_TYPES = new Set([
+  "trigger.twilio_inbound_sms",
+  "trigger.twilio_missed_call",
+  "send_sms"
+]);
+
+export function workflowSupportsSmsReplies(workflowJson: unknown): boolean {
+  const nodes = (workflowJson as { nodes?: unknown } | null)?.nodes;
+
+  if (!Array.isArray(nodes) || nodes.length === 0) return true;
+
+  return nodes.some((node) => {
+    const data = (node as { data?: Record<string, unknown> } | null)?.data;
+    return SMS_CAPABLE_NODE_TYPES.has(String(data?.type ?? ""));
+  });
+}
+
 async function parseBody(c: Context): Promise<Record<string, unknown>> {
   const contentType = c.req.header("content-type") ?? "";
 
@@ -1263,6 +1287,25 @@ export async function handleTwilioInboundSms(c: Context) {
       body: incomingBody,
       providerId: readBodyString(body, ["MessageSid", "SmsSid"])
     }).catch(() => null);
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
+  // Workflows without any SMS-capable node (e.g. voice-only agents) record the
+  // inbound text but never auto-reply — the SMS trigger node now has real effect.
+  if (!workflowSupportsSmsReplies(agent.workflowJson)) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "INBOUND",
+      body: incomingBody,
+      providerId: readBodyString(body, ["MessageSid", "SmsSid"])
+    }).catch(() => null);
+
+    console.log("[inbound-sms] no SMS-capable node in workflow — recorded without reply", {
+      workflowId: agent.workflowId,
+      businessId: agent.business?.businessId ?? null
+    });
+
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 

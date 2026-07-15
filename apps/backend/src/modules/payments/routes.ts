@@ -29,33 +29,12 @@ import {
 import { getStripeClient, isStripeConfigured } from "./stripe";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import { OWNED_PAYMENT_STATUSES, resolveActivePayment } from "../business/purchase-access";
 
 export const paymentRoutes = new Hono();
 
 paymentRoutes.use("*", requireAuth);
 paymentRoutes.use("*", requireRole(["BUSINESS"]));
-
-// Payments with one of these statuses count as an owned/purchased agent.
-const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
-  PaymentStatus.TRIALING,
-  PaymentStatus.SUCCEEDED,
-  PaymentStatus.PENDING
-];
-
-function resolveActivePayment<T extends { status: PaymentStatus; createdAt: Date }>(payments: T[]) {
-  const trialCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const owned = payments.filter((payment) =>
-    OWNED_PAYMENT_STATUSES.includes(payment.status) &&
-    (payment.status !== PaymentStatus.TRIALING || payment.createdAt.getTime() > trialCutoff)
-  );
-
-  return (
-    owned.find((payment) => payment.status === PaymentStatus.SUCCEEDED) ??
-    owned.find((payment) => payment.status === PaymentStatus.TRIALING) ??
-    owned.find((payment) => payment.status === PaymentStatus.PENDING) ??
-    null
-  );
-}
 
 function currentMonthStart(): Date {
   const now = new Date();
@@ -1173,13 +1152,6 @@ paymentRoutes.post("/purchase", async (c) => {
       "Purchase completed",
       201
     );
-  }
-
-  if (activePayment?.status === "PENDING") {
-    return successResponse(c, {
-      payment: activePayment,
-      alreadyActive: true
-    });
   }
 
   // Direct purchase (no trial): allot the number first, then charge the agent

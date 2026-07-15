@@ -330,7 +330,10 @@ export async function startArchitectTestDeployment(
       ? priorAssistantId
       : undefined;
 
+  const recordingEnabled = bool(nodeData(nodes, VOICE_NODE_TYPES.endFlow), "callRecording", true);
+
   const assistant = await deployVapiAssistant({
+    recordingEnabled,
     name: `Sandbox Test — ${workflow.name || businessName}`,
     firstMessage,
     systemPrompt,

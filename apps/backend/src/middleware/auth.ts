@@ -68,7 +68,10 @@ export async function requireAuth(c: Context, next: Next) {
   }
 }
 
-export function requireRole(roles: JwtUserRole[]) {
+export function requireRole(
+  roles: JwtUserRole[],
+  denied?: { message?: string; code?: string }
+) {
   return async (c: Context, next: Next) => {
     const authUser = c.get("authUser");
 
@@ -77,7 +80,7 @@ export function requireRole(roles: JwtUserRole[]) {
     }
 
     if (!roles.includes(authUser.role)) {
-      return errorResponse(c, "Forbidden", 403, "FORBIDDEN");
+      return errorResponse(c, denied?.message ?? "Forbidden", 403, denied?.code ?? "FORBIDDEN");
     }
 
     await next();

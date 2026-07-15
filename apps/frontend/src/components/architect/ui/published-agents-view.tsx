@@ -69,7 +69,7 @@ export function PublishedAgentsView() {
                   </span>
                   <div className="min-w-0">
                     <h2 className="truncate text-lg font-black text-slate-950" data-testid="architect-ui-published-agents-view-agent-heading">{agent.name}</h2>
-                    <p className="mt-1 text-sm font-bold text-amber-700" data-testid="architect-ui-published-agents-view-core-marketplace-agent-text">CORE Marketplace Agent</p>
+                    <p className="mt-1 text-sm font-bold text-amber-700" data-testid="architect-ui-published-agents-view-core-marketplace-agent-text">Triven Marketplace Agent</p>
                   </div>
                 </div>
 

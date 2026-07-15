@@ -32,7 +32,10 @@ import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
+import { Prisma } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
+import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
+import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import {
   autoProvisionPhoneNumber,
@@ -165,7 +168,13 @@ function buildAgentEventActivities(params: {
     createdAt: Date;
   }>;
   missedCallLeads: Array<{ id: string; phoneNumber: string; name: string | null; createdAt: Date }>;
-  vapiCalls: Array<{ id: string; customerPhone: string; status: string; createdAt: Date }>;
+  vapiCalls: Array<{
+    id: string;
+    customerPhone: string;
+    status: string;
+    createdAt: Date;
+    recordingUrl?: string | null;
+  }>;
 }) {
   const activities: Array<{
     id: string;
@@ -175,6 +184,8 @@ function buildAgentEventActivities(params: {
     tone: "green" | "amber" | "slate";
     check?: boolean;
     createdAt: string;
+    /** Call recording playback — present only when recording was enabled for the call. */
+    recordingUrl?: string;
   }> = [];
 
   for (const appointment of params.appointments) {
@@ -215,7 +226,8 @@ function buildAgentEventActivities(params: {
       text: `${params.agentName} handled an AI voice call with ${call.customerPhone}`,
       badge: "AI call",
       tone: "slate",
-      createdAt: call.createdAt.toISOString()
+      createdAt: call.createdAt.toISOString(),
+      ...(call.recordingUrl ? { recordingUrl: call.recordingUrl } : {})
     });
   }
 
@@ -360,7 +372,14 @@ businessRoutes.get("/dashboard", async (c) => {
     prisma.vapiCall.findMany({
       where: { businessId: business.id, createdAt: { gte: chartStart } },
       orderBy: { createdAt: "desc" },
-      select: { id: true, customerPhone: true, status: true, createdAt: true, billedCostMicroUsd: true }
+      select: {
+        id: true,
+        customerPhone: true,
+        status: true,
+        createdAt: true,
+        billedCostMicroUsd: true,
+        recordingUrl: true
+      }
     }),
     // Month-over-month metric counts (calls handled = AI voice calls + missed calls captured).
     prisma.vapiCall.count({ where: { businessId: business.id, createdAt: { gte: monthStart } } }),
@@ -756,8 +775,36 @@ function isPublicHttpsUrl(url: string): boolean {
   return url.startsWith("https://") && !/localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.\d+\./i.test(url);
 }
 
+// Pre-purchase try-before-buy: a sandboxed, time-capped browser demo call for
+// a marketplace listing. No purchase required — the demo has no tools, no
+// recording, fictional business data, and a per-buyer daily limit.
+businessRoutes.post("/marketplace/listings/:listingId/demo-call", async (c) => {
+  const authUser = c.get("authUser");
+  const listingId = c.req.param("listingId");
+
+  if (!listingId) {
+    return errorResponse(c, "Listing id is required", 422, "LISTING_ID_REQUIRED");
+  }
+
+  try {
+    const session = await startMarketplaceDemoCall(authUser.id, listingId);
+    return successResponse(c, { session }, "Demo call ready");
+  } catch (error) {
+    if (error instanceof MarketplaceDemoError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    console.error("[marketplace-demo] failed", error);
+    return errorResponse(c, "Could not start the demo call.", 500, "DEMO_FAILED");
+  }
+});
+
 businessRoutes.post("/setup/test-call-routing", async (c) => {
   const authUser = c.get("authUser");
+
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
   const backendUrl = env.BACKEND_URL.replace(/\/$/, "");
   const webhookUrl = `${backendUrl}/architect/connectors/twilio/voice`;
   const backendPublic = isPublicHttpsUrl(backendUrl);
@@ -850,9 +897,9 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 
   const assignedPlatform = business
     ? await prisma.platformPhoneNumber.findFirst({
-        where: { businessId: business.id },
-        orderBy: { assignedAt: "desc" }
-      })
+      where: { businessId: business.id },
+      orderBy: { assignedAt: "desc" }
+    })
     : null;
 
   const number =
@@ -897,7 +944,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 
   const assignedToThisBusiness = Boolean(
     (business && platformForNumber && platformForNumber.businessId === business.id) ||
-      (business && businessPhoneForNumber && businessPhoneForNumber.businessId === business.id)
+    (business && businessPhoneForNumber && businessPhoneForNumber.businessId === business.id)
   );
 
   const installedAgent = businessPhoneForNumber?.installedAgent ?? business?.installedAgents?.[0] ?? null;
@@ -944,6 +991,11 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 // ---------------------------------------------------------------------------
 businessRoutes.post("/setup/test-sms", async (c) => {
   const authUser = c.get("authUser");
+
+  // Sends a real SMS through the shared platform sender — purchased buyers only.
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
 
   const body: Record<string, unknown> = await c.req
     .json()
@@ -1144,25 +1196,25 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
       : null,
     profile: profile
       ? {
-          bookingUrl: profile.bookingUrl,
-          teamPhone: profile.teamPhone,
-          calendarId: profile.calendarId,
-          timeZone: normalizeTimeZone(profile.timeZone),
-          tone: profile.tone,
-          escalationRules: profile.escalationRules,
-          services: profile.services,
-          faqs: profile.faqsJson ?? [],
-          hours: profile.hoursJson ?? [],
-          vapiAssistantId: profile.vapiAssistantId,
-          vapiPhoneNumberId: profile.vapiPhoneNumberId
-        }
+        bookingUrl: profile.bookingUrl,
+        teamPhone: profile.teamPhone,
+        calendarId: profile.calendarId,
+        timeZone: normalizeTimeZone(profile.timeZone),
+        tone: profile.tone,
+        escalationRules: profile.escalationRules,
+        services: profile.services,
+        faqs: profile.faqsJson ?? [],
+        hours: profile.hoursJson ?? [],
+        vapiAssistantId: profile.vapiAssistantId,
+        vapiPhoneNumberId: profile.vapiPhoneNumberId
+      }
       : null,
     phoneNumber: phone
       ? {
-          phoneNumber: phone.phoneNumber,
-          forwardToPhone: phone.forwardToPhone,
-          twilioPhoneNumberSid: phone.twilioPhoneNumberSid
-        }
+        phoneNumber: phone.phoneNumber,
+        forwardToPhone: phone.forwardToPhone,
+        twilioPhoneNumberSid: phone.twilioPhoneNumberSid
+      }
       : null,
     installedAgent: installedAgent
       ? { id: installedAgent.id, name: installedAgent.name, status: installedAgent.status }
@@ -1181,10 +1233,10 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
     blockers: readiness.blockers,
     voiceSelection: voiceConfig
       ? {
-          name: typeof voiceConfig.name === "string" ? voiceConfig.name : null,
-          voiceId: typeof voiceConfig.voiceId === "string" ? voiceConfig.voiceId : null,
-          provider: typeof voiceConfig.provider === "string" ? voiceConfig.provider : null
-        }
+        name: typeof voiceConfig.name === "string" ? voiceConfig.name : null,
+        voiceId: typeof voiceConfig.voiceId === "string" ? voiceConfig.voiceId : null,
+        provider: typeof voiceConfig.provider === "string" ? voiceConfig.provider : null
+      }
       : null,
     answeringMode:
       phoneRoutingConfig && typeof phoneRoutingConfig.mode === "string"
@@ -1194,29 +1246,29 @@ function serializeSetup(business: LoadedBusiness | null, calendar: { connected: 
     customInstructions: typeof config?.customInstructions === "string" ? config.customInstructions : null,
     customFields: Array.isArray(config?.customFields)
       ? (config.customFields as Array<Record<string, unknown>>)
-          .filter((item) => typeof item === "object" && item !== null)
-          .map((item) => ({
-            key: typeof item.key === "string" ? item.key : "",
-            label: typeof item.label === "string" ? item.label : "",
-            value:
-              typeof item.value === "string" || typeof item.value === "boolean" || typeof item.value === "number"
-                ? item.value
-                : Array.isArray(item.value)
-                  ? item.value.filter((entry): entry is string => typeof entry === "string")
-                  : ""
-          }))
-          .filter((item) => item.key)
+        .filter((item) => typeof item === "object" && item !== null)
+        .map((item) => ({
+          key: typeof item.key === "string" ? item.key : "",
+          label: typeof item.label === "string" ? item.label : "",
+          value:
+            typeof item.value === "string" || typeof item.value === "boolean" || typeof item.value === "number"
+              ? item.value
+              : Array.isArray(item.value)
+                ? item.value.filter((entry): entry is string => typeof entry === "string")
+                : ""
+        }))
+        .filter((item) => item.key)
       : [],
     // Buyer setup schema snapshot saved at install time — lets the setup form
     // re-render the agent-specific fields without re-fetching the listing.
     buyerSetupSchema: normalizeBuyerSetupFields(config?.buyerSetupSchema),
     silence: silenceConfig
       ? {
-          repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
-          reprompt1: typeof silenceConfig.reprompt1 === "string" ? silenceConfig.reprompt1 : null,
-          reprompt2: typeof silenceConfig.reprompt2 === "string" ? silenceConfig.reprompt2 : null,
-          goodbye: typeof silenceConfig.goodbye === "string" ? silenceConfig.goodbye : null
-        }
+        repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
+        reprompt1: typeof silenceConfig.reprompt1 === "string" ? silenceConfig.reprompt1 : null,
+        reprompt2: typeof silenceConfig.reprompt2 === "string" ? silenceConfig.reprompt2 : null,
+        goodbye: typeof silenceConfig.goodbye === "string" ? silenceConfig.goodbye : null
+      }
       : null
   };
 }
@@ -1315,6 +1367,12 @@ businessRoutes.post("/mail-setup", async (c) => {
 
 businessRoutes.post("/mail-setup/test-email", async (c) => {
   const authUser = c.get("authUser");
+
+  // Sends a real email through the platform proxy — purchased buyers only.
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
   const body = (await c.req.json().catch(() => ({}))) as { to?: string };
 
   const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
@@ -1361,7 +1419,7 @@ businessRoutes.post("/setup", async (c) => {
     const authUser = c.get("authUser");
     const input = businessSetupSchema.parse(await c.req.json());
 
-if (input.deploy) {
+    if (input.deploy) {
       const access = await canBusinessDeployAgent(authUser.id);
       if (!access.allowed) {
         console.warn("[business.setup] deploy blocked by subscription enforcement", {
@@ -1430,16 +1488,38 @@ if (input.deploy) {
       listingId: input.listingId || undefined
     });
 
-    // Validate buyer answers against the listing's architect-defined setup
-    // schema. Required fields are only enforced on the final deploy so
-    // incremental "save progress" calls still succeed; invalid values
-    // (bad email/URL/number, options outside the allowed list) always fail.
+    const agentForAccessCheck =
+      existing?.installedAgents?.find(
+        (agent) => input.listingId && agent.listingId === input.listingId
+      ) ??
+      existing?.installedAgents?.[0] ??
+      null;
+
+    const setupAccess = await canBusinessRunSetup({
+      userId: authUser.id,
+      requestedListingId: input.listingId || null,
+      requestedWorkflowId: input.workflowId || null,
+      resolvedListingId: resolved.listingId ?? null,
+      existingAgent: agentForAccessCheck
+        ? { listingId: agentForAccessCheck.listingId, workflowId: agentForAccessCheck.workflowId }
+        : null
+    });
+
+    if (!setupAccess.allowed) {
+      return errorResponse(
+        c,
+        "Purchase this agent before configuring, deploying, or testing it.",
+        403,
+        "PURCHASE_REQUIRED"
+      );
+    }
+
     const setupListingId = input.listingId || existing?.installedAgents?.[0]?.listingId || resolved.listingId || null;
     const setupListing = setupListingId
       ? await prisma.agentListing.findUnique({
-          where: { id: setupListingId },
-          select: { requiredBuyerSetup: true }
-        })
+        where: { id: setupListingId },
+        select: { requiredBuyerSetup: true }
+      })
       : null;
     const buyerSetupFields = normalizeBuyerSetupFields(setupListing?.requiredBuyerSetup);
 
@@ -1483,12 +1563,12 @@ if (input.deploy) {
 
     const business = existing
       ? await prisma.business.update({
-          where: { id: existing.id },
-          data: { name: input.businessName, type: input.businessType }
-        })
+        where: { id: existing.id },
+        data: { name: input.businessName, type: input.businessType }
+      })
       : await prisma.business.create({
-          data: { ownerId: authUser.id, name: input.businessName, type: input.businessType }
-        });
+        data: { ownerId: authUser.id, name: input.businessName, type: input.businessType }
+      });
 
     await prisma.businessProfile.upsert({
       where: { businessId: business.id },
@@ -1550,20 +1630,28 @@ if (input.deploy) {
       }
     };
 
-    const existingAgent = existing?.installedAgents?.[0] ?? null;
+    const existingAgent =
+      existing?.installedAgents?.find(
+        (agent) => resolved.listingId && agent.listingId === resolved.listingId
+      ) ??
+      existing?.installedAgents?.[0] ??
+      null;
 
-    const installedAgent = existingAgent
-      ? await prisma.installedAgent.update({
-          where: { id: existingAgent.id },
-          data: {
-            workflowId: resolved.workflow.id,
-            listingId: resolved.listingId ?? undefined,
-            name: resolved.workflow.name,
-            status: "ACTIVE",
-            configJson: configJson as never
-          }
-        })
-      : await prisma.installedAgent.create({
+    let installedAgent;
+    if (existingAgent) {
+      installedAgent = await prisma.installedAgent.update({
+        where: { id: existingAgent.id },
+        data: {
+          workflowId: resolved.workflow.id,
+          listingId: resolved.listingId ?? undefined,
+          name: resolved.workflow.name,
+          status: "ACTIVE",
+          configJson: configJson as never
+        }
+      });
+    } else {
+      try {
+        installedAgent = await prisma.installedAgent.create({
           data: {
             businessId: business.id,
             workflowId: resolved.workflow.id,
@@ -1573,6 +1661,29 @@ if (input.deploy) {
             configJson: configJson as never
           }
         });
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) {
+          throw error;
+        }
+
+        const concurrent = await prisma.installedAgent.findFirst({
+          where: { businessId: business.id, listingId: resolved.listingId ?? null },
+          orderBy: { createdAt: "desc" }
+        });
+
+        if (!concurrent) throw error;
+
+        installedAgent = await prisma.installedAgent.update({
+          where: { id: concurrent.id },
+          data: {
+            workflowId: resolved.workflow.id,
+            name: resolved.workflow.name,
+            status: "ACTIVE",
+            configJson: configJson as never
+          }
+        });
+      }
+    }
 
     const forward = normalizePhoneNumber(input.forwardToPhone || "");
     let businessPhone: Awaited<ReturnType<typeof prisma.businessPhoneNumber.findFirst>> = null;

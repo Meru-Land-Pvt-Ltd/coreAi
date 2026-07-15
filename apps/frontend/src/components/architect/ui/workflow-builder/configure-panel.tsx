@@ -937,17 +937,28 @@ export function ConfigurePanel({
                   <span className="text-[13.5px] font-semibold text-slate-700">
                     Full description <span className="text-amber-500">*</span>
                   </span>
-                  <span className="text-xs font-medium text-slate-400">
+                  <span
+                    className={`text-xs font-medium ${plainTextLength(configure.media.fullDescription) > 2000 ? "text-red-500" : "text-slate-400"}`}
+                    data-testid="configure-description-counter"
+                  >
                     {plainTextLength(configure.media.fullDescription)} / 2000
                   </span>
                 </div>
                 <RichDescriptionEditor
                   value={configure.media.fullDescription}
                   disabled={isLocked}
-                  onChange={(fullDescription) => updateMedia({ fullDescription })}
+                  onChange={(fullDescription) => {
+                    // Enforce the 2,000-character limit: block additions past
+                    // the cap but always allow deletions back under it.
+                    const nextLength = plainTextLength(fullDescription);
+                    const currentLength = plainTextLength(configure.media.fullDescription);
+                    if (nextLength <= 2000 || nextLength < currentLength) {
+                      updateMedia({ fullDescription });
+                    }
+                  }}
                 />
                 <div className="mt-1.5 flex items-center justify-between">
-                  <p className="text-[12.5px] text-slate-400">Minimum 100 characters.</p>
+                  <p className="text-[12.5px] text-slate-400">Minimum 100 characters · maximum 2,000.</p>
                   <FieldError message={fieldErrors.fullDescription} testId="configure-error-full-description" />
                 </div>
               </div>

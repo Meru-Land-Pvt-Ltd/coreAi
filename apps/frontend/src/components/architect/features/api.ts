@@ -9,6 +9,7 @@ import type {
   ArchitectTestDeploymentInput,
   ArchitectTestDeploymentStatus,
   ArchitectWorkflow,
+  ArchitectVapiBrowserTestCallEndReason,
   ArchitectVapiBrowserTestSession,
   GmailConnectorStatus,
   WorkflowRunResult,
@@ -254,8 +255,11 @@ export function updateArchitectListingStatus(
   });
 }
 
-export function deleteArchitectListing(listingId: string) {
-  return apiDelete<{ listingId: string; workflowId: string | null }>(`/architect/listings/${listingId}`);
+export function deleteArchitectListing(listingId: string, reason?: string) {
+  return apiDelete<{ listingId: string; workflowId: string | null; softDeleted?: boolean }>(
+    `/architect/listings/${listingId}`,
+    reason ? { reason } : undefined
+  );
 }
 
 export type ArchitectPayoutMethod = {
@@ -745,6 +749,13 @@ export function startArchitectVapiBrowserTest(
   );
 }
 
+/** Fetch the real Vapi endedReason for a finished browser-test call. */
+export function getArchitectVapiBrowserTestCallEndReason(callId: string) {
+  return apiGet<{ endReason: ArchitectVapiBrowserTestCallEndReason }>(
+    `/architect/vapi-browser-test/calls/${encodeURIComponent(callId)}/end-reason`
+  );
+}
+
 /* ---- Architect Configure flow (marketplace template metadata) ---- */
 
 export type WorkflowConfigureListingSummary = {
@@ -929,6 +940,8 @@ export type ArchitectSettingsPayload = {
     lastPayoutAt: string | null;
   };
   payoutSchedule: ArchitectPayoutSchedule;
+  /** Computed next payout date from the saved schedule. */
+  nextPayoutAt?: string;
   danger: {
     obligations: {
       agents: ArchitectRefundAgent[];
@@ -981,14 +994,29 @@ export function saveArchitectNotificationPrefs(body: Record<string, { email?: bo
   return apiPut<{ notifications: Record<string, unknown> }>("/architect/settings/notifications", body);
 }
 
+export const PAYOUT_WEEKDAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday"
+] as const;
+
 export type ArchitectPayoutSchedule = {
   frequency: "Weekly" | "Bi-weekly" | "Monthly";
-  day: "1st" | "15th" | "Last day of month";
+  /** Monthly payout day: "1", "15", "last", or a custom day "2".."28". */
+  monthlyDay: string;
+  /** Weekly payouts repeat on this weekday. */
+  weeklyDay: (typeof PAYOUT_WEEKDAYS)[number];
+  /** Bi-weekly payouts repeat every 14 days from this date (YYYY-MM-DD). */
+  firstPayoutDate: string | null;
   thresholdCents: number;
 };
 
 export function saveArchitectPayoutSchedule(body: ArchitectPayoutSchedule) {
-  return apiPut<{ payoutSchedule: ArchitectPayoutSchedule }>(
+  return apiPut<{ payoutSchedule: ArchitectPayoutSchedule; nextPayoutAt?: string }>(
     "/architect/settings/payouts/schedule",
     body
   );

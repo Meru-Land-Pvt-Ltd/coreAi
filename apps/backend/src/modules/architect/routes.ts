@@ -55,7 +55,8 @@ import {
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
-import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
+import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
+import { buildArchitectAgentAnalytics } from "./agent-analytics";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
@@ -312,7 +313,13 @@ architectRoutes.post("/voices/preview", requireAuth, async (c) => {
 });
 
 architectRoutes.use("*", requireAuth);
-architectRoutes.use("*", requireRole(["ARCHITECT"]));
+architectRoutes.use(
+  "*",
+  requireRole(["ARCHITECT"], {
+    message: "Architect access is required.",
+    code: "ARCHITECT_ACCESS_REQUIRED"
+  })
+);
 
 architectRoutes.get("/ai/providers", async (c) => {
   const registry = getProviderRegistry();
@@ -392,6 +399,15 @@ architectRoutes.get("/agents/:listingId/analytics/export", async (c) => {
 });
 
 /** My Agents dashboard stats — live counts, buyer executions, and approved total earnings. */
+// Live Agent Analytics: real executions/revenue/per-agent metrics for the
+// analytics page, aggregated per UI time range in a single response.
+architectRoutes.get("/agents/analytics", async (c) => {
+  const authUser = c.get("authUser");
+  const listingId = c.req.query("listingId")?.trim() || null;
+  const analytics = await buildArchitectAgentAnalytics(authUser.id, listingId);
+  return successResponse(c, analytics);
+});
+
 architectRoutes.get("/agents/stats", async (c) => {
   try {
     const authUser = c.get("authUser");
@@ -1595,6 +1611,22 @@ architectRoutes.post("/workflows/:workflowId/vapi-browser-test/start", async (c)
   }
 });
 
+architectRoutes.get("/vapi-browser-test/calls/:callId/end-reason", async (c) => {
+  const authUser = c.get("authUser");
+  const callId = c.req.param("callId");
+
+  if (!callId) {
+    return errorResponse(c, "Call id is required", 422, "CALL_ID_REQUIRED");
+  }
+
+  try {
+    const endReason = await getArchitectVapiBrowserTestCallEndReason(authUser.id, callId);
+    return successResponse(c, { endReason }, "Call end reason");
+  } catch (error) {
+    return handleTestDeploymentError(c, error);
+  }
+});
+
 architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
   try {
     const authUser = c.get("authUser");
@@ -1811,7 +1843,10 @@ architectRoutes.get("/listings", async (c) => {
   const [allListings, sales, profile, installedAgents] = await Promise.all([
     prisma.agentListing.findMany({
       where: {
-        architectUserId: authUser.id
+        architectUserId: authUser.id,
+        // Soft-deleted live listings stay in the DB (earnings history) but
+        // disappear from My Agents.
+        NOT: { AND: [{ status: "SUSPENDED" }, { rejectionReason: { startsWith: "[deleted by architect]" } }] }
       },
       include: {
         workflow: {
@@ -2107,14 +2142,19 @@ const architectListingStatusTransitions: Partial<
 > = {
   PENDING_REVIEW: ["DRAFT"],
   REJECTED: ["DRAFT"],
+  // Live agents can be paused (removed from the marketplace) and resumed.
+  APPROVED: ["PAUSED"],
   PAUSED: ["APPROVED"]
 };
 
-const DELETABLE_LISTING_STATUSES = ["DRAFT", "REJECTED"] as const;
+const DELETABLE_LISTING_STATUSES = ["DRAFT", "REJECTED", "PENDING_REVIEW", "APPROVED", "PAUSED"] as const;
 
 architectRoutes.delete("/listings/:listingId", async (c) => {
   const authUser = c.get("authUser");
   const listingId = c.req.param("listingId");
+
+  const body = (await c.req.json().catch(() => ({}))) as { reason?: unknown };
+  const deleteReason = typeof body.reason === "string" ? body.reason.trim() : "";
 
   const listing = await prisma.agentListing.findFirst({
     where: {
@@ -2123,7 +2163,7 @@ architectRoutes.delete("/listings/:listingId", async (c) => {
     },
     include: {
       _count: {
-        select: { installedAgents: true }
+        select: { installedAgents: true, payments: true }
       }
     }
   });
@@ -2139,6 +2179,45 @@ architectRoutes.delete("/listings/:listingId", async (c) => {
       409,
       "LISTING_NOT_DELETABLE"
     );
+  }
+
+  // Any listing with sales history must be soft-deleted — hard deletion nulls
+  // Payment.listingId and erases architect earnings.
+  const isLive =
+    listing.status === "APPROVED" || listing.status === "PAUSED" || listing._count.payments > 0;
+
+  if (isLive) {
+    // Live agents are soft-deleted: hard deletion would null Payment.listingId
+    // and erase the architect's earnings history, and would strand buyer
+    // installs. Suspending removes it from the marketplace and My Agents
+    // while preserving sales records and installed buyer agents.
+    if (deleteReason.length < 5) {
+      return errorResponse(
+        c,
+        "A deletion reason is required when removing a live agent.",
+        422,
+        "DELETE_REASON_REQUIRED"
+      );
+    }
+
+    await prisma.agentListing.update({
+      where: { id: listingId },
+      data: {
+        status: "SUSPENDED",
+        publishStatus: "UNPUBLISHED",
+        rejectionReason: `[deleted by architect] ${deleteReason}`
+      }
+    });
+
+    console.warn("[architect] live listing removed (soft delete)", {
+      listingId,
+      architectUserId: authUser.id,
+      previousStatus: listing.status,
+      installs: listing._count.installedAgents,
+      reason: deleteReason
+    });
+
+    return successResponse(c, { listingId, workflowId: listing.workflowId, softDeleted: true }, "Agent deleted");
   }
 
   if (listing._count.installedAgents > 0) {

@@ -50,10 +50,6 @@ function nodesOf(workflowJson: unknown): NodeLike[] {
   return Array.isArray(nodes) ? (nodes as NodeLike[]) : [];
 }
 
-/**
- * Workflow is used only to check if this installed agent has a voice node.
- * Buyer setup is the source of truth for live business identity.
- */
 function voiceNodeData(workflowJson: unknown): Record<string, unknown> | null {
   const node = nodesOf(workflowJson).find(
     (n) => (n.data?.type as string) === VOICE_NODE_TYPES.voiceConversation
@@ -61,11 +57,14 @@ function voiceNodeData(workflowJson: unknown): Record<string, unknown> | null {
   return node?.data ? (node.data as Record<string, unknown>) : null;
 }
 
-/**
- * Architect-authored instructions on the voice node. The stock template is
- * skipped — it would duplicate the generic receptionist rules — so only a
- * genuinely customized prompt or extra instructions reach the live prompt.
- */
+/** End Flow node's "Call recording" toggle — recording stays on unless explicitly disabled. */
+function endFlowRecordingEnabled(workflowJson: unknown): boolean {
+  const node = nodesOf(workflowJson).find((n) => (n.data?.type as string) === VOICE_NODE_TYPES.endFlow);
+  const value = (node?.data as Record<string, unknown> | undefined)?.callRecording;
+
+  return !(value === false || String(value ?? "").trim().toLowerCase() === "false");
+}
+
 function architectNodeInstructions(voiceNode: Record<string, unknown>): string {
   const parts: string[] = [];
 
@@ -441,7 +440,8 @@ export async function deployInstalledAgentVoiceAssistant(
     language: cleanString(voiceNode.language),
     speakingSpeed: cleanString(voiceNode.speakingSpeed),
     serverUrl: webhookUrl,
-    existingAssistantId
+    existingAssistantId,
+    recordingEnabled: endFlowRecordingEnabled(installedAgent.workflow.workflowJson)
   });
 
   if (business.profile) {

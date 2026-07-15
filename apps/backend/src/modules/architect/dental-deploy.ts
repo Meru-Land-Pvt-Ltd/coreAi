@@ -225,6 +225,7 @@ export async function deployDentalWorkflow({
 
   const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
   const assistant = await deployVapiAssistant({
+    recordingEnabled: bool(end, "callRecording", true),
     name: `${practiceName} - ${assistantName}`,
     firstMessage,
     systemPrompt,

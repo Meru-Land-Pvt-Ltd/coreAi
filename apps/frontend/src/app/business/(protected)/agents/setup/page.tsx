@@ -42,7 +42,6 @@ const STEP_STORAGE_KEY = "biz-setup-step";
 const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 const TRIVEN_VOICE_NAME = "Triven Voice";
 const DEFAULT_VOICE_PROVIDER = "11labs";
-const PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
 const DEFAULT_ASSISTANT_NAME = "AI Assistant";
 
 const STEPS = [
@@ -461,7 +460,6 @@ function SetupWizard() {
 
   function buildVoiceFields(): { voice: string; voiceProvider: string; voiceId: string } {
     const normalizedVoice = normalizeVoiceChoice(voiceChoice);
-
     if (normalizedVoice === "custom") {
       return {
         voice: "custom",
@@ -470,28 +468,10 @@ function SetupWizard() {
       };
     }
 
-    if (normalizedVoice === PLATFORM_DEFAULT_VOICE_ID) {
-      return {
-        voice: PLATFORM_DEFAULT_VOICE_ID,
-        voiceProvider: DEFAULT_VOICE_PROVIDER,
-        voiceId: PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID
-      };
-    }
-
-    const preset = VOICE_PRESETS.find((item) => item.id === normalizedVoice);
-
-    if (preset) {
-      return {
-        voice: normalizedVoice,
-        voiceProvider: DEFAULT_VOICE_PROVIDER,
-        voiceId: preset.voiceId?.trim() || ""
-      };
-    }
-
     return {
-      voice: PLATFORM_DEFAULT_VOICE_ID,
+      voice: normalizedVoice,
       voiceProvider: DEFAULT_VOICE_PROVIDER,
-      voiceId: PLATFORM_DEFAULT_ELEVENLABS_VOICE_ID
+      voiceId: ""
     };
   }
 

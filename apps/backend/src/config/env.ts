@@ -103,9 +103,17 @@ const envSchema = z.object({
   VAPI_DEFAULT_VOICE_ID: z.string().default("Savannah"),
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
   VAPI_ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),
+
+  VAPI_DEFAULT_LLM_PROVIDER: z.string().default("openai"),
+  VAPI_DEFAULT_LLM_MODEL: z.string().default("gpt-4o-mini"),
+  VAPI_ANTHROPIC_ENABLED: booleanFromEnv.default(false),
+  VAPI_ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
   VAPI_TRANSCRIBER_PROVIDER: z.string().default("deepgram"),
   VAPI_TRANSCRIBER_MODEL: z.string().default("nova-3"),
   VAPI_ENABLE_BOOKING_TOOLS: booleanFromEnv.default(true),
+
+  /** Platform-wide cap on marketplace demo call starts per day (cost control). */
+  MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
 
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -205,6 +213,20 @@ if (parsedEnv.NODE_ENV === "production") {
 
   if (!parsedEnv.TWILIO_VALIDATE_SIGNATURE) {
     problems.push("TWILIO_VALIDATE_SIGNATURE must be true in production.");
+  }
+
+  // Without the shared secret, the Vapi webhook accepts unsigned posts —
+  // spoofed end-of-call reports would create billing/usage rows.
+  if (parsedEnv.VAPI_API_KEY && !parsedEnv.VAPI_WEBHOOK_SECRET) {
+    problems.push(
+      "VAPI_WEBHOOK_SECRET is required in production when VAPI_API_KEY is set — unsigned Vapi webhooks must be rejected."
+    );
+  }
+
+  if (parsedEnv.VAPI_API_KEY && !parsedEnv.VAPI_PUBLIC_KEY) {
+    console.warn(
+      "[env] VAPI_PUBLIC_KEY is not set — browser voice tests and marketplace demo calls will be unavailable."
+    );
   }
 
   if (parsedEnv.TWILIO_TEST_MODE) {
