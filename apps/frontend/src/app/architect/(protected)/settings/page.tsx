@@ -32,7 +32,6 @@ import { readProfilePhotoFile } from "@/lib/profile-photo";
 
 type SettingsTab =
   | "profile"
-  | "storefront"
   | "security"
   | "notifications"
   | "payouts"
@@ -41,7 +40,6 @@ type SettingsTab =
 
 const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
   { id: "profile", label: "Profile" },
-  { id: "storefront", label: "Public Storefront" },
   { id: "security", label: "Security" },
   { id: "notifications", label: "Notifications" },
   { id: "payouts", label: "Payouts" },
@@ -116,9 +114,19 @@ const PRIVACY_GROUPS = [
 
 const DEFAULT_PAYOUT_SCHEDULE: ArchitectPayoutSchedule = {
   frequency: "Monthly",
-  day: "1st",
+  monthlyDay: "1",
+  weeklyDay: "Monday",
+  firstPayoutDate: null,
   thresholdCents: 5000
 };
+
+const PAYOUT_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+
+function formatPayoutDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Pending first payout";
+  return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
 
 function formatUsd(cents: number) {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -339,6 +347,7 @@ export default function ArchitectSettingsPage() {
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, { email: boolean; push: boolean; locked?: boolean }>>({});
   const [privacyPrefs, setPrivacyPrefs] = useState<Record<string, boolean>>({});
   const [payoutSchedule, setPayoutSchedule] = useState<ArchitectPayoutSchedule>(DEFAULT_PAYOUT_SCHEDULE);
+  const [nextPayoutAt, setNextPayoutAt] = useState<string | null>(null);
   const [exportingData, setExportingData] = useState(false);
 
   const showToast = useCallback((message: string) => {
@@ -407,6 +416,7 @@ export default function ArchitectSettingsPage() {
     if (result.data.payoutSchedule) {
       setPayoutSchedule(result.data.payoutSchedule);
     }
+    setNextPayoutAt(result.data.nextPayoutAt ?? null);
   }, []);
 
   useEffect(() => {
@@ -441,6 +451,20 @@ export default function ArchitectSettingsPage() {
     try {
       const photoDataUrl = await readProfilePhotoFile(file);
       setProfilePhotoPreview(photoDataUrl);
+
+      // Persist immediately — waiting for "Save changes" made selected photos
+      // silently disappear when users navigated away.
+      const photoResult = await saveArchitectProfilePhoto(photoDataUrl);
+      if (!photoResult.success) {
+        showToast(photoResult.error ?? "Could not save profile photo");
+        return;
+      }
+
+      const savedUrl = photoResult.data?.profile?.profilePhotoUrl ?? photoDataUrl;
+      setSavedProfilePhotoUrl(savedUrl);
+      setProfilePhotoPreview(null);
+      updateAuthUser({ profilePhotoUrl: savedUrl });
+      showToast("Profile photo updated ✓");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not read profile photo");
     } finally {
@@ -571,6 +595,7 @@ export default function ArchitectSettingsPage() {
     setSaving(false);
     if (result.success) {
       if (result.data?.payoutSchedule) setPayoutSchedule(result.data.payoutSchedule);
+      if (result.data?.nextPayoutAt) setNextPayoutAt(result.data.nextPayoutAt);
       showToast("Payout schedule saved ✓");
     } else {
       showToast(result.error ?? "Could not save payout schedule");
@@ -871,116 +896,6 @@ export default function ArchitectSettingsPage() {
               </section>
             ) : null}
 
-            {activeTab === "storefront" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-storefront">
-                <h2 className="text-lg font-bold text-slate-900">Public Profile &amp; Storefront</h2>
-                <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the Triven marketplace. Make it count.</p>
-                <form onSubmit={handleSaveStorefront} className="mt-6 space-y-8">
-                  <div>
-                    <h3 className="mb-4 text-base font-semibold text-slate-900">Display identity</h3>
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <label htmlFor="displayName" className="mb-1.5 block text-sm font-medium text-slate-700">Display name</label>
-                      <input id="displayName" data-testid="architect-settings-display-name" value={storefrontForm.displayName} onChange={(e) => setStorefrontForm((c) => ({ ...c, displayName: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" />
-                      <p className="mt-1.5 text-xs text-slate-400">This appears on all your agent listings.</p>
-                    </div>
-                    <div className="sm:col-span-2 flex flex-wrap items-center gap-5">
-                      <div className="flex h-[100px] w-[100px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-bold text-white" data-testid="architect-settings-storefront-avatar">{storefrontInitials}</div>
-                      <div>
-                        <p className="text-sm font-medium text-slate-700">Marketplace photo</p>
-                        <label className="mt-2 inline-flex cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">
-                          Upload marketplace photo
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg"
-                            className="sr-only"
-                            data-testid="architect-settings-marketplace-photo"
-                            onChange={(event) => {
-                              if (event.target.files?.[0]) showToast("Marketplace photo selected");
-                            }}
-                          />
-                        </label>
-                        <p className="mt-1.5 text-xs text-slate-400">Recommended: professional headshot, 400x400px minimum.</p>
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-semibold text-green-700">
-                        Identity Verified
-                      </span>
-                    </div>
-                    {settings?.storefront ? (
-                      <div className="sm:col-span-2 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5" data-testid="architect-settings-storefront-tier">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 px-3 py-1.5 text-sm font-bold text-white shadow-sm shadow-amber-200">
-                            {settings.storefront.approvalStatus === "APPROVED" ? "Gold Architect" : "Architect"}
-                          </span>
-                          <span className="text-sm text-slate-500">
-                            Rating <span className="font-semibold text-slate-700">{settings.storefront.rating.toFixed(1)}</span>
-                            · {settings.storefront.completedJobs} completed jobs
-                          </span>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                  </div>
-                  <div className="border-t border-gray-100 pt-7">
-                    <h3 className="mb-4 text-base font-semibold text-slate-900">Bio &amp; expertise</h3>
-                    <div className="grid gap-5 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <label htmlFor="tagline" className="mb-1.5 block text-sm font-medium text-slate-700">Tagline</label>
-                      <input id="tagline" maxLength={80} data-testid="architect-settings-tagline" value={storefrontForm.tagline} onChange={(e) => setStorefrontForm((c) => ({ ...c, tagline: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" />
-                      <p className="mt-1.5 text-right text-xs text-slate-400">{storefrontForm.tagline.length}/80</p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label htmlFor="bio" className="mb-1.5 block text-sm font-medium text-slate-700">Full bio</label>
-                      <textarea id="bio" rows={4} maxLength={500} data-testid="architect-settings-bio" value={storefrontForm.bio} onChange={(e) => setStorefrontForm((c) => ({ ...c, bio: e.target.value }))} className="w-full resize-y rounded-xl border border-gray-200 px-4 py-3 text-sm" />
-                      <p className="mt-1.5 text-right text-xs text-slate-400">{storefrontForm.bio.length}/500</p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <span className="mb-2 block text-sm font-medium text-slate-700">Specialization tags (max 5)</span>
-                      <div className="flex flex-wrap gap-2">
-                        {SPECIALIZATION_TAGS.map((tag) => {
-                          const selected = storefrontForm.skills.includes(tag);
-                          return (
-                            <button key={tag} type="button" data-testid={`architect-settings-tag-${tag.toLowerCase()}`} onClick={() => toggleSkill(tag)} className={`rounded-full border px-3.5 py-1.5 text-[13px] font-semibold transition ${selected ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>{tag}</button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="sm:max-w-xs">
-                      <label htmlFor="experience" className="mb-1.5 block text-sm font-medium text-slate-700">Years of experience</label>
-                      <select id="experience" data-testid="architect-settings-experience" value={storefrontForm.experienceBand} onChange={(e) => setStorefrontForm((c) => ({ ...c, experienceBand: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
-                        {["1–2", "3–5", "5–10", "10+"].map((band) => <option key={band} value={band}>{band}</option>)}
-                      </select>
-                    </div>
-                    </div>
-                  </div>
-                  <div className="border-t border-gray-100 pt-7">
-                    <h3 className="mb-4 text-base font-semibold text-slate-900">Links</h3>
-                    <div className="grid gap-5 sm:grid-cols-2">
-                    <div>
-                      <label htmlFor="portfolio" className="mb-1.5 block text-sm font-medium text-slate-700">Portfolio website</label>
-                      <input id="portfolio" data-testid="architect-settings-portfolio" value={storefrontForm.portfolioUrl} onChange={(e) => setStorefrontForm((c) => ({ ...c, portfolioUrl: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
-                    </div>
-                    <div>
-                      <label htmlFor="github" className="mb-1.5 block text-sm font-medium text-slate-700">GitHub profile</label>
-                      <input id="github" data-testid="architect-settings-github" value={storefrontForm.githubUrl} onChange={(e) => setStorefrontForm((c) => ({ ...c, githubUrl: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
-                    </div>
-                    <div>
-                      <label htmlFor="linkedin" className="mb-1.5 block text-sm font-medium text-slate-700">LinkedIn</label>
-                      <input id="linkedin" data-testid="architect-settings-linkedin" value={storefrontForm.linkedinUrl} onChange={(e) => setStorefrontForm((c) => ({ ...c, linkedinUrl: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
-                    </div>
-                    <div>
-                      <label htmlFor="twitter" className="mb-1.5 block text-sm font-medium text-slate-700">Twitter / X</label>
-                      <input id="twitter" data-testid="architect-settings-twitter" value={storefrontForm.twitterHandle} onChange={(e) => setStorefrontForm((c) => ({ ...c, twitterHandle: e.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm" />
-                    </div>
-                  </div>
-                  </div>
-                  <button type="submit" disabled={saving} data-testid="architect-settings-save-storefront" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save storefront</button>
-                </form>
-              </section>
-            ) : null}
-
             {activeTab === "security" ? (
               <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-security">
                 <h2 className="text-lg font-bold text-slate-900">Security</h2>
@@ -1131,20 +1046,69 @@ export default function ArchitectSettingsPage() {
                         <option value="Monthly">Monthly</option>
                       </select>
                     </div>
-                    <div>
-                      <label htmlFor="payoutDay" className="mb-1.5 block text-sm font-medium text-slate-700">Payout day</label>
-                      <select
-                        id="payoutDay"
-                        value={payoutSchedule.day}
-                        onChange={(e) => setPayoutSchedule((c) => ({ ...c, day: e.target.value as ArchitectPayoutSchedule["day"] }))}
-                        data-testid="architect-settings-payout-day"
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
-                      >
-                        <option value="1st">1st</option>
-                        <option value="15th">15th</option>
-                        <option value="Last day of month">Last day of month</option>
-                      </select>
-                    </div>
+                    {payoutSchedule.frequency === "Monthly" ? (
+                      <div>
+                        <label htmlFor="payoutDay" className="mb-1.5 block text-sm font-medium text-slate-700">Payout date</label>
+                        <select
+                          id="payoutDay"
+                          value={["1", "15", "last"].includes(payoutSchedule.monthlyDay) ? payoutSchedule.monthlyDay : "custom"}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setPayoutSchedule((c) => ({ ...c, monthlyDay: value === "custom" ? "5" : value }));
+                          }}
+                          data-testid="architect-settings-payout-day"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                        >
+                          <option value="1">1st</option>
+                          <option value="15">15th</option>
+                          <option value="last">Last day of month</option>
+                          <option value="custom">Custom date (1–28)</option>
+                        </select>
+                        {!["1", "15", "last"].includes(payoutSchedule.monthlyDay) ? (
+                          <input
+                            type="number"
+                            min={1}
+                            max={28}
+                            value={payoutSchedule.monthlyDay}
+                            onChange={(e) => {
+                              const day = Math.min(28, Math.max(1, Number.parseInt(e.target.value || "1", 10) || 1));
+                              setPayoutSchedule((c) => ({ ...c, monthlyDay: String(day) }));
+                            }}
+                            data-testid="architect-settings-payout-custom-day"
+                            className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                          />
+                        ) : null}
+                      </div>
+                    ) : payoutSchedule.frequency === "Bi-weekly" ? (
+                      <div>
+                        <label htmlFor="payoutFirstDate" className="mb-1.5 block text-sm font-medium text-slate-700">First payout date</label>
+                        <input
+                          id="payoutFirstDate"
+                          type="date"
+                          value={payoutSchedule.firstPayoutDate ?? ""}
+                          onChange={(e) => setPayoutSchedule((c) => ({ ...c, firstPayoutDate: e.target.value || null }))}
+                          data-testid="architect-settings-payout-first-date"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                        />
+                        <p className="mt-1 text-xs text-slate-400">Repeats every 14 days from this date.</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label htmlFor="payoutWeekday" className="mb-1.5 block text-sm font-medium text-slate-700">Payout day</label>
+                        <select
+                          id="payoutWeekday"
+                          value={payoutSchedule.weeklyDay}
+                          onChange={(e) => setPayoutSchedule((c) => ({ ...c, weeklyDay: e.target.value as ArchitectPayoutSchedule["weeklyDay"] }))}
+                          data-testid="architect-settings-payout-weekday"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                        >
+                          {PAYOUT_WEEKDAYS.map((day) => (
+                            <option key={day} value={day}>{day}</option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-xs text-slate-400">Repeats every week on this day.</p>
+                      </div>
+                    )}
                     <div>
                       <label htmlFor="payoutThreshold" className="mb-1.5 block text-sm font-medium text-slate-700">Minimum threshold</label>
                       <div className="flex">
@@ -1166,7 +1130,9 @@ export default function ArchitectSettingsPage() {
                   <p className="mt-2 text-xs text-slate-400">Earnings below this amount roll over to the next payout period.</p>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                     <span className="text-sm text-slate-700">Next scheduled payout</span>
-                    <span className="text-sm font-bold text-amber-700">{settings?.payouts.lastPayoutAt ? `Last paid ${formatDateTime(settings.payouts.lastPayoutAt)}` : "Pending first payout"}</span>
+                    <span className="text-sm font-bold text-amber-700" data-testid="architect-settings-next-payout">
+                      {nextPayoutAt ? formatPayoutDate(nextPayoutAt) : "Pending first payout"}
+                    </span>
                   </div>
                   <button type="button" onClick={() => void handleSavePayoutSchedule()} disabled={saving} data-testid="architect-settings-save-payout-schedule" className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Save schedule</button>
                 </div>

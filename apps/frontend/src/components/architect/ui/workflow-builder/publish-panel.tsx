@@ -9,6 +9,8 @@ export function PublishPanel({
   agentName,
   tagline,
   price,
+  nodeCount = 0,
+  connectionCount = 0,
   authorName,
   saving,
   statusMessage = "",
@@ -22,6 +24,8 @@ export function PublishPanel({
   agentName: string;
   tagline: string;
   price: string;
+  nodeCount?: number;
+  connectionCount?: number;
   authorName: string;
   saving: boolean;
   statusMessage?: string;
@@ -48,7 +52,6 @@ export function PublishPanel({
         (configure.basics.industryTags ?? [])
           .map((tag) => tag.trim())
           .filter(Boolean)
-          .slice(0, 3)
       );
       setCoverUrl(configure.media.screenshotUrls?.[0] ?? null);
       setIconUrl(configure.basics.iconUrl || null);
@@ -58,8 +61,11 @@ export function PublishPanel({
     };
   }, [workflowId]);
 
-  const previewTags = tags.length > 0 ? tags : category ? [category] : ["Business Automation"];
-  const coverCategory = category || previewTags[0] || "Business Automation";
+  // Selected category first, then industry tags (deduped) — never fabricate a
+  // default when the architect actually picked categories.
+  const previewTags = [...new Set([category, ...tags].filter(Boolean))];
+  if (previewTags.length === 0) previewTags.push("Business Automation");
+  const coverCategory = category || previewTags[0];
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -142,10 +148,17 @@ export function PublishPanel({
           <div className="lg:col-span-2">
             <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-publish-panel-readiness-checklist-text">Readiness checklist</p>
             <div className="space-y-3.5 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-              <ChecklistItem done title="Workflow configured" text="5 nodes - 4 connections" />
-              <ChecklistItem done title="Test run passed" text="Last run completed in 1.6s" />
-              <ChecklistItem done title="Pricing set" text={`$${price} / month - 14-day trial`} />
-              <ChecklistItem title="Add a cover image" text="Optional, but boosts installs by about 40%" />
+              <ChecklistItem
+                done={nodeCount > 0}
+                title="Workflow configured"
+                text={`${nodeCount} node${nodeCount === 1 ? "" : "s"} - ${connectionCount} connection${connectionCount === 1 ? "" : "s"}`}
+              />
+              <ChecklistItem done title="Pricing set" text={`$${price} / month`} />
+              <ChecklistItem
+                done={Boolean(coverUrl)}
+                title="Add a cover image"
+                text={coverUrl ? "Cover image added" : "Optional, but boosts installs by about 40%"}
+              />
             </div>
             {errorMessage ? (
               <div

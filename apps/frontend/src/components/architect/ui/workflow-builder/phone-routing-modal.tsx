@@ -103,7 +103,7 @@ export function PhoneRoutingModal({
           <div>
             <h3 className="text-base font-black text-slate-900" data-testid="phone-routing-title">Phone setup &amp; call forwarding</h3>
             <p className="mt-1 text-xs text-slate-500">
-              Your customers can keep calling your existing number. If you enable call forwarding, missed/unanswered calls are forwarded to the CoreAI number and answered by your AI receptionist.
+              Your customers can keep calling your existing number. If you enable call forwarding, missed/unanswered calls are forwarded to the Triven number and answered by your AI receptionist.
             </p>
           </div>
           <button type="button" onClick={onClose} data-testid="phone-routing-close" className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600" aria-label="Close">✕</button>
@@ -137,7 +137,7 @@ export function PhoneRoutingModal({
 
         {/* Step 3 */}
         <section className="mt-4">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Step 3 · Your CoreAI AI forwarding number</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Step 3 · Your Triven AI forwarding number</p>
           <div className="mt-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 font-mono text-sm font-bold text-violet-700" data-testid="phone-routing-assigned-number">
             {assignedNumber ?? "Assigned when you save"}
           </div>

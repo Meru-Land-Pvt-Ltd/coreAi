@@ -169,14 +169,8 @@ function UnderReviewPanel({
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" data-testid="publishing-status-while-you-wait">
         <h3 className="mb-3 text-sm font-semibold text-slate-900">While you wait</h3>
         <div className="flex flex-col items-start gap-3">
-          <button
-            type="button"
-            onClick={onEditSubmission}
-            data-testid="publishing-status-edit-submission"
-            className="border-0 bg-transparent p-0 text-sm font-medium text-amber-700 hover:underline"
-          >
-            Edit submission
-          </button>
+          {/* Under-review agents are not editable — cancel the submission
+              first (returns the agent to Draft), then edit and resubmit. */}
           <button
             type="button"
             onClick={onCancelSubmission}

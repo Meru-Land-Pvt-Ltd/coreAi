@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { apiGet } from "@/lib/api";
 
 const ANALYTICS_STYLES = `
   :root {
@@ -318,7 +319,9 @@ function lastNDayLabels(n){
 const last3Months = () => MONTHS6.slice(-3);
 
 const ZERO_RANGE = { exec:0, sr:0, avg:0, rev:0, dExec:'0', dSr:'0%', dAvg:'0', dRev:'$0', proj:'$0', execN:6, revKind:'month6' };
-const RANGES = {
+// Server analytics injected by the page component (real executions/revenue).
+const SERVER = (typeof DATA === 'object' && DATA) ? DATA : null;
+const RANGES = SERVER && SERVER.ranges ? SERVER.ranges : {
   '7D':  Object.assign({}, ZERO_RANGE, { execN:7,  revKind:'day' }),
   '30D': Object.assign({}, ZERO_RANGE, { execN:4,  revKind:'week4' }),
   '90D': Object.assign({}, ZERO_RANGE, { execN:3,  revKind:'month3' }),
@@ -334,7 +337,14 @@ function execLabels(key,n){
   return lastNDayLabels(n);
 }
 function genExecSeries(key){
-  const r = RANGES[key], n = r.execN;
+  const r = RANGES[key] || RANGES['30D'];
+  if (r.execSeries) {
+    const s = r.execSeries;
+    const successTotal = s.success.reduce((a,b)=>a+b,0);
+    const failTotal = s.fail.reduce((a,b)=>a+b,0);
+    return { labels:s.labels.slice(), success:s.success.slice(), fail:s.fail.slice(), successTotal, failTotal };
+  }
+  const n = r.execN;
   const labels = execLabels(key, n);
   const success = labels.map(()=>0);
   const fail = labels.map(()=>0);
@@ -344,7 +354,11 @@ function splitAgents(vals){
   return vals.map(()=>({a:0,b:0,c:0}));
 }
 function genRevSeries(key){
-  const r = RANGES[key];
+  const r = RANGES[key] || RANGES['30D'];
+  if (r.revSeries) {
+    const vals = r.revSeries.vals.slice();
+    return { labels: r.revSeries.labels.slice(), vals, agents: vals.map(v => ({ a: v, b: 0, c: 0 })) };
+  }
   const kind = r.revKind;
   let n, labels;
   if(kind==='day'){ n=7; labels=lastNDayLabels(7); }
@@ -356,12 +370,13 @@ function genRevSeries(key){
   return { labels, vals, agents: splitAgents(vals) };
 }
 function genSpark(){
+  if (SERVER && Array.isArray(SERVER.spark) && SERVER.spark.length) return SERVER.spark.slice(-12);
   return [0,0,0,0,0,0,0,0,0,0,0,0];
 }
 
 const FAILURES = [];
 const COHORTS = [];
-const AGENTS = [];
+const AGENTS = SERVER && Array.isArray(SERVER.agents) ? SERVER.agents : [];
 
 function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
 function animateValue(el, to, opts){
@@ -742,16 +757,40 @@ return function(){ try{clearTimeout(feedTimer);}catch(e){} try{clearTimeout(rzT)
 
 export default function ArchitectAgentAnalyticsPage() {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // undefined = loading; null = fetch failed (script falls back to zeros).
+  const [analytics, setAnalytics] = useState<Record<string, unknown> | null | undefined>(undefined);
 
   useEffect(() => {
+    let mounted = true;
+
+    async function loadAnalytics() {
+      const listingId =
+        typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("listingId") : null;
+      const result = await apiGet<Record<string, unknown>>(
+        `/architect/agents/analytics${listingId ? `?listingId=${encodeURIComponent(listingId)}` : ""}`
+      );
+      if (mounted) setAnalytics(result.success ? (result.data ?? null) : null);
+    }
+
+    void loadAnalytics();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (analytics === undefined) return;
+
     const ac = new AbortController();
     let cleanup: (() => void) | undefined;
     try {
       // eslint-disable-next-line no-new-func
-      const run = new Function("signal", ANALYTICS_SCRIPT) as (
-        signal: AbortSignal
+      const run = new Function("signal", "DATA", ANALYTICS_SCRIPT) as (
+        signal: AbortSignal,
+        data: Record<string, unknown> | null
       ) => (() => void) | undefined;
-      cleanup = run(ac.signal);
+      cleanup = run(ac.signal, analytics);
     } catch {
       /* analytics script failed to initialize */
     }
@@ -759,7 +798,7 @@ export default function ArchitectAgentAnalyticsPage() {
       ac.abort();
       if (typeof cleanup === "function") cleanup();
     };
-  }, []);
+  }, [analytics]);
 
   return (
     <div

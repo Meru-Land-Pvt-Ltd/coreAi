@@ -113,6 +113,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [startingLive, setStartingLive] = useState(false);
   const [stoppingLive, setStoppingLive] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Context-specific loader text so users can tell which action is running.
+  const [loadingLabel, setLoadingLabel] = useState("Loading Builder...");
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("Unsaved changes");
@@ -338,7 +340,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [setEdges, blockIfUnderReview]
   );
 
-  async function loadWorkflow() {
+  async function loadWorkflow(label = "Loading Builder...") {
+    setLoadingLabel(label);
     if (!currentWorkflowIdRef.current) {
       setWorkflow({
         id: "",
@@ -749,7 +752,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       configureResult.data.configure.basics.agentName.trim() || name || "Your agent";
     setPublishSuccessName(submittedName);
     setMessage("Submitted for review");
-    void loadWorkflow();
+    void loadWorkflow("Publishing your agent...");
   }
 
   function setConversationTranscript(next: ArchitectConversationMessage[]) {
@@ -988,11 +991,29 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setRunning(false);
   }
 
+  // Preview content mirrors the actual architecture: assistant name and
+  // greeting from the voice node, sample turns matched to real capabilities.
+  const nodeTypeOf = (node: BuilderNode): string => {
+    const data = node.data as Record<string, unknown>;
+    return String(data.type ?? data.kind ?? "");
+  };
+  const previewVoiceData = (nodes.find((node) => nodeTypeOf(node) === "voice_conversation")?.data ?? {}) as Record<string, unknown>;
+  const previewAssistantName =
+    typeof previewVoiceData.assistantName === "string" ? previewVoiceData.assistantName.trim() : "";
+  const previewGreeting = (typeof previewVoiceData.firstMessage === "string" ? previewVoiceData.firstMessage : "")
+    .replace(/\{\{[^}]*\}\}/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const previewCanBook = nodes.some((node) => nodeTypeOf(node) === "book_appointment");
+  const previewCanText = nodes.some((node) =>
+    ["send_sms", "trigger.twilio_inbound_sms", "trigger.twilio_missed_call"].includes(nodeTypeOf(node))
+  );
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
-        <div className="rounded-2xl border border-amber-100 bg-white px-5 py-3 text-sm font-black text-amber-700 shadow-sm">
-          Loading Builder...
+        <div className="rounded-2xl border border-amber-100 bg-white px-5 py-3 text-sm font-black text-amber-700 shadow-sm" data-testid="builder-loading-label">
+          {loadingLabel}
         </div>
       </div>
     );
@@ -1240,7 +1261,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             }}
             onSubmitted={() => {
               setMessage("Submitted for review");
-              void loadWorkflow();
+              void loadWorkflow("Applying configuration...");
             }}
             onGoPublish={() => setActiveTab("publish")}
             onSave={() => void saveAgent()}
@@ -1253,6 +1274,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             agentName={agentName}
             tagline={tagline}
             price={price}
+            nodeCount={nodes.length}
+            connectionCount={edges.length}
             authorName={architectName}
             saving={saving}
             statusMessage={message}
@@ -1281,6 +1304,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         businessName={businessName.trim() || "Your business"}
+        assistantName={previewAssistantName}
+        greeting={previewGreeting}
+        agentPurpose={tagline.trim()}
+        canBook={previewCanBook}
+        canText={previewCanText}
       />
 
       {typeof document !== "undefined" && publishSuccessName

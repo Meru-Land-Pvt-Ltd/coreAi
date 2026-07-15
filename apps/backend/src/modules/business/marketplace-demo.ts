@@ -290,7 +290,15 @@ export async function startMarketplaceDemoCall(
   }
 
   const industry = demoIndustry(listing);
-  const assistantName = str(voiceNode, "assistantName", "Ava");
+  // Default the demo persona's name to the selected voice so the spoken name
+  // always matches the voice's gender (e.g. the "adam" preset introduces
+  // itself as Adam, never as a female fallback name).
+  const voicePresetName = str(voiceNode, "voiceName", str(voiceNode, "voice"));
+  const fallbackName =
+    voicePresetName && voicePresetName !== "custom" && voicePresetName !== "triven-default"
+      ? voicePresetName.replace(/^./, (ch) => ch.toUpperCase())
+      : "Alex";
+  const assistantName = str(voiceNode, "assistantName", fallbackName);
   const demoBusinessName = `Demo ${industry.replace(/^./, (ch) => ch.toUpperCase())} Studio`;
 
   const systemPrompt = buildDemoSystemPrompt({

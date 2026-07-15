@@ -8,7 +8,9 @@ import {
   createArchitectWorkflow,
   deleteArchitectWorkflow,
   getArchitectListings,
-  getArchitectWorkflow
+  getArchitectPayoutSummary,
+  getArchitectWorkflow,
+  type ArchitectPayoutSummary
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { formatMoney } from "@/components/architect/ui/architect-ui";
@@ -124,17 +126,37 @@ function NaPanel({ message, testId }: { message: string; testId?: string }) {
   );
 }
 
-// Empty revenue chart frame (gridlines + month axis) shown until real revenue
-// data is wired up. Renders a graph shell rather than a "no data" message.
-function EmptyRevenueChart() {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-  const yLabels = ["$8K", "$6K", "$4K", "$2K", "$0"];
+function formatUsd(cents: number): string {
+  const dollars = cents / 100;
+  if (Math.abs(dollars) >= 1000) {
+    return `$${(dollars / 1000).toFixed(dollars % 1000 === 0 ? 0 : 1)}K`;
+  }
+  return `$${dollars.toFixed(dollars % 1 === 0 ? 0 : 2)}`;
+}
+
+type RevenueChartPoint = { label: string; confirmedCents: number; pendingCents: number };
+
+// Revenue chart: real per-period earnings from /architect/payouts/summary.
+// Falls back to the empty frame (gridlines + axis) when there is no revenue.
+function RevenueChart({ points }: { points: RevenueChartPoint[] }) {
+  const totals = points.map((point) => point.confirmedCents + point.pendingCents);
+  const maxCents = Math.max(...totals, 0);
+  const hasData = maxCents > 0;
+
+  // Round the scale up to a clean step so y labels read like $2K/$4K/….
+  const scaleCents = hasData ? Math.max(Math.ceil(maxCents / 400) * 400, 400) : 800000;
+  const yLabels = Array.from({ length: 5 }, (_, index) =>
+    formatUsd(Math.round((scaleCents * (4 - index)) / 4))
+  );
+
+  const months = hasData ? points.map((point) => point.label) : ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+
   return (
-    <div data-testid="architect-dashboard-revenue-empty-chart">
+    <div data-testid={hasData ? "architect-dashboard-revenue-chart" : "architect-dashboard-revenue-empty-chart"}>
       <div className="flex gap-3">
         <div className="flex h-56 w-10 shrink-0 flex-col justify-between py-0 text-right text-[11px] text-slate-300">
-          {yLabels.map((label) => (
-            <span key={label}>{label}</span>
+          {yLabels.map((label, index) => (
+            <span key={`${label}-${index}`}>{label}</span>
           ))}
         </div>
         <div className="relative h-56 flex-1 border-b border-slate-200">
@@ -143,14 +165,41 @@ function EmptyRevenueChart() {
               <span key={index} className="h-px w-full bg-slate-100" />
             ))}
           </div>
+          {hasData ? (
+            <div className="absolute inset-0 flex items-end justify-between gap-2 px-1">
+              {points.map((point, index) => {
+                const confirmedHeight = Math.round((point.confirmedCents / scaleCents) * 100);
+                const pendingHeight = Math.round((point.pendingCents / scaleCents) * 100);
+                return (
+                  <div
+                    key={`${point.label}-${index}`}
+                    className="flex h-full flex-1 flex-col items-center justify-end"
+                    data-testid="architect-dashboard-revenue-bar"
+                    title={`${point.label}: ${formatUsd(point.confirmedCents + point.pendingCents)}`}
+                  >
+                    {pendingHeight > 0 ? (
+                      <div
+                        className="w-full max-w-[42px] rounded-t-md bg-amber-200"
+                        style={{ height: `${Math.max(pendingHeight, 1)}%` }}
+                      />
+                    ) : null}
+                    <div
+                      className={`w-full max-w-[42px] bg-amber-500 ${pendingHeight > 0 ? "" : "rounded-t-md"}`}
+                      style={{ height: `${confirmedHeight > 0 ? Math.max(confirmedHeight, 1) : 0}%` }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="absolute inset-x-0 bottom-0 h-px bg-slate-200" />
         </div>
       </div>
       <div className="mt-3 flex gap-3">
         <div className="w-10 shrink-0" />
         <div className="flex flex-1 justify-between text-[11px] font-medium text-slate-400" data-testid="architect-dashboard-revenue-x-axis">
-          {months.map((month) => (
-            <span key={month}>{month}</span>
+          {months.map((month, index) => (
+            <span key={`${month}-${index}`}>{month}</span>
           ))}
         </div>
       </div>
@@ -236,6 +285,23 @@ export default function ArchitectDashboardPage() {
     const result = await getArchitectListings();
     if (result.success && result.data) setListings(result.data.listings);
     setLoading(false);
+  }, []);
+
+  const [payout, setPayout] = useState<ArchitectPayoutSummary | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadPayoutSummary() {
+      const result = await getArchitectPayoutSummary();
+      if (mounted && result.success && result.data) setPayout(result.data);
+    }
+
+    void loadPayoutSummary();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -386,10 +452,10 @@ export default function ArchitectDashboardPage() {
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
           <MetricCard
             label="Total Earnings"
-            value="$0"
+            value={payout ? formatMoney(payout.totalEarningsCents) : "—"}
             hint={
               <span className="font-semibold text-green-600" data-testid="architect-dashboard-earnings-this-month-text">
-                +$0 this month
+                +{payout ? formatMoney(payout.thisMonthEarningsCents) : "$0"} this month
               </span>
             }
             testId="architect-dashboard-total-earnings-text"
@@ -446,7 +512,7 @@ export default function ArchitectDashboardPage() {
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-8" data-testid="architect-dashboard-revenue-section">
           <h2 className="text-lg font-bold text-slate-900" data-testid="architect-dashboard-revenue-overview-heading">Revenue Overview</h2>
           <div className="mt-6">
-            <EmptyRevenueChart />
+            <RevenueChart points={payout?.chart.points ?? []} />
           </div>
         </section>
 
@@ -584,14 +650,59 @@ export default function ArchitectDashboardPage() {
               <h2 className="text-lg font-bold text-slate-900">Activity</h2>
             </div>
             <div className="mt-5">
-              <NaPanel message="No recent activity." testId="architect-dashboard-activity-na" />
+              {payout && payout.sales.length > 0 ? (
+                <ul className="divide-y divide-gray-100" data-testid="architect-dashboard-activity-list">
+                  {payout.sales.slice(0, 6).map((sale) => (
+                    <li key={sale.id} className="flex items-center justify-between gap-3 py-3" data-testid="architect-dashboard-activity-row">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-800">
+                          {sale.businessName || "A business"} installed {sale.listingName}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-400">
+                          {new Date(sale.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          {sale.architectEarningStatus === "PENDING" ? " · pending" : ""}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-mono text-sm font-bold text-green-600">
+                        +{formatMoney(sale.earningsCents)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <NaPanel message="No recent activity." testId="architect-dashboard-activity-na" />
+              )}
             </div>
           </div>
 
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
             <h2 className="text-lg font-bold text-slate-900">This Month&apos;s Earnings</h2>
             <div className="mt-5">
-              <NaPanel message="No earnings data yet." testId="architect-dashboard-earnings-na" />
+              {payout ? (
+                <div data-testid="architect-dashboard-earnings-panel">
+                  <p className="font-mono text-3xl font-black tabular-nums text-slate-900" data-testid="architect-dashboard-earnings-month-value">
+                    {formatMoney(payout.thisMonthEarningsCents)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">{payout.thisMonthLabel}</p>
+
+                  <div className="mt-5 space-y-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Sales this month</span>
+                      <span className="font-semibold text-slate-800">{payout.thisMonthSalesCount}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Available balance</span>
+                      <span className="font-semibold text-slate-800">{formatMoney(payout.availableBalanceCents)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Pending clearance</span>
+                      <span className="font-semibold text-slate-800">{formatMoney(payout.pendingCents)}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <NaPanel message="No earnings data yet." testId="architect-dashboard-earnings-na" />
+              )}
             </div>
           </div>
         </section>

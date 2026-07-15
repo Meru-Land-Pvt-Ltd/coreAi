@@ -293,7 +293,7 @@ export default function ArchitectPayoutsPage() {
                   <span className="font-mono text-slate-700">{formatUsd(data.nextPayout.grossSalesCents)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">CORE platform fee (30%)</span>
+                  <span className="text-slate-500">Triven platform fee (30%)</span>
                   <span className="font-mono text-slate-500">-{formatUsd(data.nextPayout.platformFeeCents)}</span>
                 </div>
                 <div className="flex justify-between pt-1">

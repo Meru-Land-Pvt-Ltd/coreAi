@@ -3,13 +3,49 @@ import { BuilderIcon } from "./icons";
 export function PreviewModal({
   open,
   onClose,
-  businessName = "Your business"
+  businessName = "Your business",
+  assistantName = "",
+  greeting = "",
+  agentPurpose = "",
+  canBook = true,
+  canText = true
 }: {
   open: boolean;
   onClose: () => void;
   businessName?: string;
+  /** Assistant name from the workflow's voice node. */
+  assistantName?: string;
+  /** First message from the workflow's voice node (template tokens stripped). */
+  greeting?: string;
+  /** Listing tagline/short description — shapes the sample answer. */
+  agentPurpose?: string;
+  /** Whether the workflow actually has a booking node. */
+  canBook?: boolean;
+  /** Whether the workflow actually has an SMS node/trigger. */
+  canText?: boolean;
 }) {
   if (!open) return null;
+
+  const initials =
+    businessName
+      .split(/\s+/)
+      .map((word) => word[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "AI";
+
+  const botGreeting =
+    greeting.trim() ||
+    `Hi! ${assistantName ? `This is ${assistantName} from ` : "Thanks for reaching out to "}${businessName}. How can I help you today?`;
+
+  const userMessage = canBook ? "Hi! Can I book an appointment?" : "Hi! Can you tell me more about your services?";
+
+  const botReply = canBook
+    ? "Of course! Here are our next openings - tap one to confirm:"
+    : agentPurpose.trim()
+      ? `Happy to help! ${agentPurpose.trim()}`
+      : `Happy to help! ${businessName} is here for whatever you need — ask me anything.`;
 
   return (
     <div
@@ -42,25 +78,33 @@ export function PreviewModal({
               </span>
             </div>
             <div className="border-b border-gray-100 bg-gray-50/60 px-4 py-3 text-center">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">MD</div>
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">{initials}</div>
               <p className="mt-1.5 text-sm font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-preview-modal-business-text">{businessName}</p>
-              <p className="text-[11px] text-slate-400" data-testid="architect-ui-workflow-builder-preview-modal-sms-message-text">SMS - Text Message</p>
+              <p className="text-[11px] text-slate-400" data-testid="architect-ui-workflow-builder-preview-modal-sms-message-text">
+                {canText ? "SMS - Text Message" : "AI Receptionist"}
+              </p>
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto bg-white px-4 py-5">
               <p className="text-center text-[10px] uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-preview-modal-today-2-14-pm-text">Today 2:14 PM</p>
               <div className="flex">
-                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm">
-                  Thanks for reaching out to {businessName}! How can we help you today? {"\u{1F60A}"}
+                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm" data-testid="preview-modal-greeting">
+                  {botGreeting}
                 </div>
               </div>
               <div className="flex justify-end">
-                <div className="max-w-[70%] rounded-2xl rounded-br-md bg-green-500 px-3.5 py-2.5 text-[13px] leading-relaxed text-white shadow-sm">YES please!</div>
+                <div className="max-w-[70%] rounded-2xl rounded-br-md bg-green-500 px-3.5 py-2.5 text-[13px] leading-relaxed text-white shadow-sm" data-testid="preview-modal-user-message">
+                  {userMessage}
+                </div>
               </div>
               <div className="flex">
-                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm">
-                  Great! {"\u{1F389}"} Here are our next openings - tap one to confirm:
-                  <span className="mt-2 block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600" data-testid="architect-ui-workflow-builder-preview-modal-tomorrow-10-30-am-text">Tomorrow - 10:30 AM</span>
-                  <span className="mt-1.5 block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600" data-testid="architect-ui-workflow-builder-preview-modal-tomorrow-3-00-pm-text">Tomorrow - 3:00 PM</span>
+                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm" data-testid="preview-modal-reply">
+                  {botReply}
+                  {canBook ? (
+                    <>
+                      <span className="mt-2 block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600" data-testid="architect-ui-workflow-builder-preview-modal-tomorrow-10-30-am-text">Tomorrow - 10:30 AM</span>
+                      <span className="mt-1.5 block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600" data-testid="architect-ui-workflow-builder-preview-modal-tomorrow-3-00-pm-text">Tomorrow - 3:00 PM</span>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </div>

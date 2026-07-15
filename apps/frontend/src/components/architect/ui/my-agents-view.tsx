@@ -430,7 +430,13 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
     );
 
   return (
-    <div className="ma-band grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+    <div className="ma-band grid grid-cols-4 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+      <div>
+        <div className="text-[11px] text-slate-400">Installs</div>
+        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
+          {(agent.installCount ?? 0).toLocaleString("en-US")}
+        </div>
+      </div>
       <div>
         <div className="text-[11px] text-slate-400">Executions</div>
         <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-executions-${agent.id}`}>
@@ -467,28 +473,24 @@ function FooterActions({
   agent,
   onDuplicate,
   onPause,
-  onDelete
+  onDelete,
+  onCancelSubmission
 }: {
   agent: ArchitectListing;
   onDuplicate: (agent: ArchitectListing) => void;
   onPause: (agent: ArchitectListing) => void;
   onDelete: (agent: ArchitectListing) => void;
+  onCancelSubmission: (agent: ArchitectListing) => void;
 }) {
   const stop = (event: React.MouseEvent) => event.stopPropagation();
   const builderHref = builderHrefFor(agent);
   const statusHref = architectPublishingStatusPath(agent.id);
 
+  // Live and Under Review agents are intentionally not editable — cancel the
+  // submission (back to Draft) or pause first.
   if (agent.status === "APPROVED") {
     return (
       <div className="flex flex-wrap items-center justify-end gap-1">
-        <Link
-          data-testid={`my-agents-edit-${agent.id}-link`}
-          href={builderHref}
-          onClick={stop}
-          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-        >
-          Edit
-        </Link>
         <button
           type="button"
           onClick={(event) => {
@@ -526,14 +528,17 @@ function FooterActions({
         >
           View Feedback
         </Link>
-        <Link
-          data-testid={`my-agents-update-${agent.id}-link`}
-          href={builderHref}
-          onClick={stop}
-          className="rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
+        <button
+          type="button"
+          onClick={(event) => {
+            stop(event);
+            onCancelSubmission(agent);
+          }}
+          data-testid={`my-agents-cancel-submission-${agent.id}-button`}
+          className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
         >
-          Update &amp; Resubmit
-        </Link>
+          Cancel Submission
+        </button>
       </div>
     );
   }
@@ -591,7 +596,8 @@ function AgentCard({
   onDots,
   onDuplicate,
   onPause,
-  onDelete
+  onDelete,
+  onCancelSubmission
 }: {
   agent: ArchitectListing;
   index: number;
@@ -601,15 +607,18 @@ function AgentCard({
   onDuplicate: (agent: ArchitectListing) => void;
   onPause: (agent: ArchitectListing) => void;
   onDelete: (agent: ArchitectListing) => void;
+  onCancelSubmission: (agent: ArchitectListing) => void;
 }) {
   const style = STATUS_STYLES[agent.status];
   const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
   const iconUrl = agent.iconUrl?.trim() || null;
-  const category =
-    agent.category?.trim() ||
-    agent.industryTags?.[0]?.trim() ||
-    agent.tags?.[0]?.trim() ||
-    "AI Agent";
+  // Tags are shown dot-separated per the approved design: category · tag · tag.
+  const tagParts = [
+    agent.category?.trim(),
+    ...(agent.industryTags ?? []).map((tag) => tag?.trim()),
+    ...(agent.tags ?? []).map((tag) => tag?.trim())
+  ].filter((part): part is string => Boolean(part));
+  const category = [...new Set(tagParts)].slice(0, 3).join(" · ") || "AI Agent";
   const title = agent.name?.trim() || "Untitled Agent";
   const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
   const description = agent.shortDescription?.trim() || agent.tagline?.trim() || "No description added yet.";
@@ -697,7 +706,13 @@ function AgentCard({
           {activityLabel}
         </span>
         <div className="flex items-center gap-1">
-          <FooterActions agent={agent} onDuplicate={onDuplicate} onPause={onPause} onDelete={onDelete} />
+          <FooterActions
+            agent={agent}
+            onDuplicate={onDuplicate}
+            onPause={onPause}
+            onDelete={onDelete}
+            onCancelSubmission={onCancelSubmission}
+          />
         </div>
       </div>
     </article>
@@ -716,13 +731,31 @@ function isWorkflowOnlyDraft(agent: ArchitectListing): boolean {
   return agent.id.startsWith("draft-");
 }
 
+function agentIsLive(agent: ArchitectListing): boolean {
+  return agent.status === "APPROVED" || agent.status === "PAUSED";
+}
+
 function agentCanBeDeleted(agent: ArchitectListing): boolean {
-  if ((agent.installCount ?? 0) > 0) return false;
   if (isWorkflowOnlyDraft(agent)) return Boolean(agent.workflowId);
-  return agent.status === "DRAFT" || agent.status === "REJECTED";
+  // Live agents are removed via a warning + required reason (backend
+  // soft-deletes so buyer installs and earnings history survive).
+  if (agentIsLive(agent)) return true;
+  if ((agent.installCount ?? 0) > 0) return false;
+  return agent.status === "DRAFT" || agent.status === "REJECTED" || agent.status === "PENDING_REVIEW";
 }
 
 function deleteAgentModalCopy(agent: ArchitectListing): { title: string; lines: string[] } {
+  if (agentIsLive(agent)) {
+    return {
+      title: `Delete live agent “${agent.name}”?`,
+      lines: [
+        "This agent is live. Deleting removes it from the marketplace immediately and no new buyers can purchase it.",
+        "Existing buyers keep their installed agents and they keep running.",
+        "Your sales history and earnings are preserved."
+      ]
+    };
+  }
+
   if ((agent.installCount ?? 0) > 0) {
     return {
       title: `Delete ${agent.name}?`,
@@ -730,17 +763,13 @@ function deleteAgentModalCopy(agent: ArchitectListing): { title: string; lines: 
     };
   }
 
-  if (agent.status === "APPROVED" || agent.status === "PAUSED") {
-    return {
-      title: `Delete ${agent.name}?`,
-      lines: ["Live agents cannot be deleted.", "Pause the agent from Settings if you want to stop new sales."]
-    };
-  }
-
   if (agent.status === "PENDING_REVIEW") {
     return {
-      title: `Delete ${agent.name}?`,
-      lines: ["Agents under review cannot be deleted yet.", "Withdraw from review or wait for a decision, then try again."]
+      title: "Are you sure you want to delete this agent?",
+      lines: [
+        `Deleting “${agent.name}” cancels its review submission and permanently removes the agent.`,
+        "This can't be undone."
+      ]
     };
   }
 
@@ -798,10 +827,13 @@ function DeleteAgentModal({
   agent: ArchitectListing;
   deleting: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (reason?: string) => void;
 }) {
+  const [reason, setReason] = useState("");
   const deletable = agentCanBeDeleted(agent);
+  const isLive = agentIsLive(agent);
   const copy = deleteAgentModalCopy(agent);
+  const reasonMissing = isLive && reason.trim().length < 5;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={`my-agents-delete-modal-${agent.id}`}>
@@ -813,15 +845,118 @@ function DeleteAgentModal({
             <p key={line}>{line}</p>
           ))}
         </div>
+
+        {isLive ? (
+          <>
+            <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-gray-50 p-3 text-center" data-testid={`my-agents-delete-impact-${agent.id}`}>
+              <div>
+                <div className="text-[11px] text-slate-400">Installs</div>
+                <div className="text-sm font-bold text-slate-900">{(agent.installCount ?? 0).toLocaleString("en-US")}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-400">Executions</div>
+                <div className="text-sm font-bold text-slate-900">{(agent.executionCount ?? 0).toLocaleString("en-US")}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-400">Revenue</div>
+                <div className="text-sm font-bold text-amber-600">{formatUsdFromCents(agent.revenueCents ?? 0)}</div>
+              </div>
+            </div>
+
+            <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor={`delete-reason-${agent.id}`}>
+              Reason for deletion (required)
+            </label>
+            <textarea
+              id={`delete-reason-${agent.id}`}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              rows={3}
+              placeholder="Why are you removing this live agent?"
+              data-testid={`my-agents-delete-reason-${agent.id}`}
+              className="mt-1.5 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-red-300 focus:ring-2 focus:ring-red-200"
+            />
+          </>
+        ) : null}
+
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid={`my-agents-delete-cancel-${agent.id}`}>
             {deletable ? "Cancel" : "Close"}
           </button>
           {deletable ? (
-            <button type="button" disabled={deleting} onClick={onConfirm} className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50" data-testid={`my-agents-delete-confirm-${agent.id}`}>
+            <button
+              type="button"
+              disabled={deleting || reasonMissing}
+              onClick={() => onConfirm(isLive ? reason.trim() : undefined)}
+              className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              data-testid={`my-agents-delete-confirm-${agent.id}`}
+            >
               {deleting ? "Deleting…" : "Delete agent"}
             </button>
           ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PauseAgentModal({
+  agent,
+  pausing,
+  onClose,
+  onConfirm
+}: {
+  agent: ArchitectListing;
+  pausing: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={`my-agents-pause-modal-${agent.id}`}>
+      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-bold text-slate-900">Pause {agent.name}?</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-500">
+          <p>The agent will no longer be discoverable or available for purchase in the marketplace.</p>
+          <p>New installs and new sales stop immediately.</p>
+          <p>Existing buyers keep their installed agents — their live calls, texts, and bookings keep working.</p>
+          <p>You can reactivate anytime from My Agents.</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid={`my-agents-pause-cancel-${agent.id}`}>Cancel</button>
+          <button type="button" disabled={pausing} onClick={onConfirm} className="rounded-xl border border-amber-300 px-5 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50" data-testid={`my-agents-pause-confirm-${agent.id}`}>
+            {pausing ? "Pausing…" : "Pause agent"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CancelSubmissionModal({
+  agent,
+  cancelling,
+  onClose,
+  onConfirm
+}: {
+  agent: ArchitectListing;
+  cancelling: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={`my-agents-cancel-submission-modal-${agent.id}`}>
+      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h2 className="text-lg font-bold text-slate-900">Cancel submission for {agent.name}?</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-500">
+          <p>The review will be withdrawn and the agent returns to Draft.</p>
+          <p>You can edit it and resubmit for review anytime.</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid={`my-agents-cancel-submission-keep-${agent.id}`}>Keep in review</button>
+          <button type="button" disabled={cancelling} onClick={onConfirm} className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50" data-testid={`my-agents-cancel-submission-confirm-${agent.id}`}>
+            {cancelling ? "Cancelling…" : "Cancel submission"}
+          </button>
         </div>
       </div>
     </div>
@@ -920,8 +1055,12 @@ export function MyAgentsView() {
   const [menu, setMenu] = useState<{ agentId: string; top: number; left: number } | null>(null);
   const [reactivateAgent, setReactivateAgent] = useState<ArchitectListing | null>(null);
   const [deleteAgent, setDeleteAgent] = useState<ArchitectListing | null>(null);
+  const [pauseAgent, setPauseAgent] = useState<ArchitectListing | null>(null);
+  const [cancelSubmissionAgent, setCancelSubmissionAgent] = useState<ArchitectListing | null>(null);
   const [reactivating, setReactivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [cancellingSubmission, setCancellingSubmission] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Honor a ?filter=live (or status) query so other pages can deep-link here.
@@ -1099,15 +1238,47 @@ export function MyAgentsView() {
   }
 
   function requestPauseAgent(agent: ArchitectListing) {
-    void (async () => {
-      const result = await updateArchitectListingStatus(agent.id, "PAUSED");
-      if (!result.success) {
-        setToast(result.error ?? "Could not pause this agent.");
-        return;
-      }
-      setToast(`“${agent.name}” is paused.`);
-      await loadAgents();
-    })();
+    setMenu(null);
+    setPauseAgent(agent);
+  }
+
+  async function executePauseAgent() {
+    if (!pauseAgent) return;
+
+    setPausing(true);
+    const result = await updateArchitectListingStatus(pauseAgent.id, "PAUSED");
+    setPausing(false);
+
+    if (!result.success) {
+      setToast(result.error ?? "Could not pause this agent.");
+      return;
+    }
+
+    setPauseAgent(null);
+    setToast(`“${pauseAgent.name}” is paused and no longer visible in the marketplace.`);
+    await loadAgents();
+  }
+
+  function requestCancelSubmission(agent: ArchitectListing) {
+    setMenu(null);
+    setCancelSubmissionAgent(agent);
+  }
+
+  async function executeCancelSubmission() {
+    if (!cancelSubmissionAgent) return;
+
+    setCancellingSubmission(true);
+    const result = await updateArchitectListingStatus(cancelSubmissionAgent.id, "DRAFT");
+    setCancellingSubmission(false);
+
+    if (!result.success) {
+      setToast(result.error ?? "Could not cancel this submission.");
+      return;
+    }
+
+    setCancelSubmissionAgent(null);
+    setToast(`Submission cancelled — “${cancelSubmissionAgent.name}” is back in Draft.`);
+    await loadAgents();
   }
 
   function requestDeleteAgent(agent: ArchitectListing) {
@@ -1115,13 +1286,25 @@ export function MyAgentsView() {
     setDeleteAgent(agent);
   }
 
-  async function executeDeleteAgent() {
+  async function executeDeleteAgent(reason?: string) {
     if (!deleteAgent || !agentCanBeDeleted(deleteAgent)) return;
 
     setDeleting(true);
+
+    // Deleting an Under Review agent first withdraws the submission (the
+    // backend only hard-deletes DRAFT/REJECTED listings).
+    if (!isWorkflowOnlyDraft(deleteAgent) && deleteAgent.status === "PENDING_REVIEW") {
+      const withdrawn = await updateArchitectListingStatus(deleteAgent.id, "DRAFT");
+      if (!withdrawn.success) {
+        setDeleting(false);
+        setToast(withdrawn.error ?? "Could not cancel the review submission.");
+        return;
+      }
+    }
+
     const result = isWorkflowOnlyDraft(deleteAgent)
       ? await deleteArchitectWorkflow(deleteAgent.workflowId as string)
-      : await deleteArchitectListing(deleteAgent.id);
+      : await deleteArchitectListing(deleteAgent.id, reason);
     setDeleting(false);
 
     if (!result.success) {
@@ -1372,6 +1555,7 @@ export function MyAgentsView() {
                 onDuplicate={duplicateAgent}
                 onPause={requestPauseAgent}
                 onDelete={requestDeleteAgent}
+                onCancelSubmission={requestCancelSubmission}
               />
             ))}
           </div>
@@ -1391,7 +1575,7 @@ export function MyAgentsView() {
           className="ma-pop fixed z-[60] w-48 rounded-xl border border-gray-100 bg-white py-2 shadow-xl"
           style={{ top: menu.top, left: menu.left }}
         >
-          {menuAgent.status !== "APPROVED" ? (
+          {menuAgent.status !== "APPROVED" && menuAgent.status !== "PENDING_REVIEW" ? (
             <button
               type="button"
               role="menuitem"
@@ -1498,7 +1682,25 @@ export function MyAgentsView() {
           agent={deleteAgent}
           deleting={deleting}
           onClose={() => !deleting && setDeleteAgent(null)}
-          onConfirm={() => void executeDeleteAgent()}
+          onConfirm={(reason) => void executeDeleteAgent(reason)}
+        />
+      ) : null}
+
+      {pauseAgent ? (
+        <PauseAgentModal
+          agent={pauseAgent}
+          pausing={pausing}
+          onClose={() => !pausing && setPauseAgent(null)}
+          onConfirm={() => void executePauseAgent()}
+        />
+      ) : null}
+
+      {cancelSubmissionAgent ? (
+        <CancelSubmissionModal
+          agent={cancelSubmissionAgent}
+          cancelling={cancellingSubmission}
+          onClose={() => !cancellingSubmission && setCancelSubmissionAgent(null)}
+          onConfirm={() => void executeCancelSubmission()}
         />
       ) : null}
     </div>

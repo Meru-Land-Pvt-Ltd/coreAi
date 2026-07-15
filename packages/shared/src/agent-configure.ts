@@ -989,6 +989,14 @@ export function validateConfigureForSubmit(data: AgentConfigureData): ConfigureV
     issues.push({ step: 2, field: "fullDescription", message: "Full description must be at least 100 characters." });
   }
 
+  if (plainDescription.length > 2000) {
+    issues.push({
+      step: 2,
+      field: "fullDescription",
+      message: "Full description must be 2,000 characters or fewer."
+    });
+  }
+
   // Step 3 is Pricing in the Configure flow; step 4 is Requirements & Compliance.
   if (data.pricing.pricingModel !== "free" && data.pricing.price <= 0) {
     issues.push({ step: 3, field: "price", message: "Set a price greater than $0 for paid agents." });

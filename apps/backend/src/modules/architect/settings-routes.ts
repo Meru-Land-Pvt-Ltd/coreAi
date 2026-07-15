@@ -17,7 +17,7 @@ import {
   hasPaidRefundSettlement
 } from "./danger-obligations";
 import { computeArchitectPayoutSummary } from "./settings-payout-summary";
-import { normalizePayoutSchedule, payoutScheduleSchema } from "./payout-schedule";
+import { computeNextPayoutDate, normalizePayoutSchedule, payoutScheduleSchema } from "./payout-schedule";
 import { buildArchitectDataExportZip } from "./data-export";
 
 export const architectSettingsRoutes = new Hono();
@@ -210,6 +210,7 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
     notifications: mergePrefs(DEFAULT_NOTIFICATION_PREFS, profile?.notificationPrefs),
     privacy: mergePrefs(DEFAULT_PRIVACY_PREFS, profile?.privacyPrefs),
     payoutSchedule: normalizePayoutSchedule(profile?.payoutSchedule),
+    nextPayoutAt: computeNextPayoutDate(normalizePayoutSchedule(profile?.payoutSchedule)).toISOString(),
     security: {
       sessions: sessions.map((session) => serializeActiveSession(session, currentSid)),
       loginHistory: loginHistory.map(serializeLoginHistory)
@@ -545,9 +546,14 @@ architectSettingsRoutes.put("/payouts/schedule", async (c) => {
       create: { userId: authUser.id, payoutSchedule: input }
     });
 
+    const savedSchedule = normalizePayoutSchedule(profile.payoutSchedule);
+
     return successResponse(
       c,
-      { payoutSchedule: normalizePayoutSchedule(profile.payoutSchedule) },
+      {
+        payoutSchedule: savedSchedule,
+        nextPayoutAt: computeNextPayoutDate(savedSchedule).toISOString()
+      },
       "Payout schedule saved"
     );
   } catch (error) {
