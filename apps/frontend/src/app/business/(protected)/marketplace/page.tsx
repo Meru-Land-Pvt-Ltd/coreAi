@@ -13,6 +13,7 @@ import {
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+import Image from "next/image";
 
 type Agent = {
     id: string;
@@ -88,7 +89,6 @@ type ApiListing = {
     tags?: string[];
     industryTags?: string[];
     category?: string | null;
-    iconUrl?: string | null;
     requiredConnectors?: string[];
     supportedLlms?: string[];
     createdAt?: string;
@@ -99,6 +99,7 @@ type ApiListing = {
     pricingModel?: string | null;
     freeTrialEnabled?: boolean | null;
     trialDays?: number | null;
+    iconUrl?: string | null;
 };
 
 type ListingsApiResponse = {
@@ -1482,7 +1483,7 @@ function AgentDetailsModal({
                 <div className="p-6 sm:p-8">
                     <div className="flex items-start gap-4">
                         <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                            🤖
+                            {agent.iconUrl ? <Image src={agent.iconUrl} alt={agent.name} width={48} height={48} className="object-cover" /> : "🤖"}
                         </span>
 
                         <div className="min-w-0 pr-8">
@@ -1630,7 +1631,9 @@ function AgentGridCard({
         >
             <div className="flex-1 p-6">
                 <div className="flex items-start justify-between">
-                    <AgentCardIcon iconUrl={agent.iconUrl} />
+                    <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
+                        {agent.iconUrl ? <Image src={agent.iconUrl} alt={agent.name} width={48} height={48} className="object-cover" /> : "🤖"}
+                    </span>
 
                     <div className="text-right">
                         <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="business-protected-marketplace-agent-price-text">
@@ -1657,10 +1660,10 @@ function AgentGridCard({
                     <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text">
                         {agent.category}
                     </span>
-                        
+
                     {agent.industries.length > 0 ? (
                         agent.industries.map((tag) => (
-                            <span
+                            <span 
                                 key={tag}
                                 className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700"
                                 data-testid="business-protected-marketplace-agent-industry-all-industries-format-label-agent-text"
@@ -1721,7 +1724,18 @@ function AgentListCard({
             data-testid={`business-marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg sm:flex-row sm:items-center"
         >
-            <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
+            <span className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-amber-50 ring-1 ring-amber-100">
+                {agent.iconUrl ? (
+                    <img
+                    src={agent.iconUrl}
+                    alt={agent.name}
+                    className="h-full w-full object-cover"
+                    
+                    />
+                ) : (
+                    "🤖"
+                )}
+            </span>     
 
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

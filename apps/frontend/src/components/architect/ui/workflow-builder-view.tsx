@@ -242,6 +242,31 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return nodes.some((node) => ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")));
   }, [nodes]);
 
+  const testRunStatus = useMemo(() => {
+    const totalNodes = nodes.length;
+    const activeLogs =
+      conversationLogs.length > 0 ? conversationLogs : runLogs.length > 0 ? runLogs : [];
+    const passedNodes = new Set(
+      activeLogs.filter((log) => log.status === "success").map((log) => log.nodeId)
+    ).size;
+    const hasErrors = activeLogs.some((log) => log.status === "error" || log.status === "waiting");
+    const dryOrBrowserPassed =
+      totalNodes > 0 && activeLogs.length > 0 && passedNodes === totalNodes && !hasErrors;
+    const liveSandboxReady = testDeployment?.status === "READY";
+    const completed = dryOrBrowserPassed || liveSandboxReady;
+
+    let summary = "";
+    if (liveSandboxReady && !dryOrBrowserPassed) {
+      summary = testDeployment?.assignedPhoneNumber
+        ? `Live sandbox ready — ${testDeployment.assignedPhoneNumber}`
+        : "Live sandbox ready";
+    } else if (activeLogs.length > 0 || totalNodes > 0) {
+      summary = `${passedNodes}/${totalNodes} nodes passed`;
+    }
+
+    return { completed, summary };
+  }, [nodes.length, runLogs, conversationLogs, testDeployment]);
+
   // Generic test-tab-only defaults. These never change the workflow nodes themselves.
   useEffect(() => {
     if (!isVoiceWorkflow) return;
@@ -1277,6 +1302,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             nodeCount={nodes.length}
             connectionCount={edges.length}
             authorName={architectName}
+            workflowFlow={{ nodes, edges }}
+            testRunCompleted={testRunStatus.completed}
+            testRunSummary={testRunStatus.summary}
             saving={saving}
             statusMessage={message}
             errorMessage={publishError}

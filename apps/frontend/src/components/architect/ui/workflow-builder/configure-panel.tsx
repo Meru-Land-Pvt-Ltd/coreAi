@@ -433,8 +433,11 @@ export function ConfigurePanel({
       }
 
       if (target === 2) {
-        if (plainTextLength(configure.media.fullDescription) < 100) {
+        const descriptionLength = plainTextLength(configure.media.fullDescription);
+        if (descriptionLength < 100) {
           errors.fullDescription = "Describe your agent in at least 100 characters.";
+        } else if (descriptionLength > 2000) {
+          errors.fullDescription = "Keep the description under 2000 characters.";
         }
       }
 
@@ -948,8 +951,6 @@ export function ConfigurePanel({
                   value={configure.media.fullDescription}
                   disabled={isLocked}
                   onChange={(fullDescription) => {
-                    // Enforce the 2,000-character limit: block additions past
-                    // the cap but always allow deletions back under it.
                     const nextLength = plainTextLength(fullDescription);
                     const currentLength = plainTextLength(configure.media.fullDescription);
                     if (nextLength <= 2000 || nextLength < currentLength) {

@@ -125,13 +125,11 @@ function StatBox({ value, label }: { value: string; label: string }) {
 
 function UnderReviewPanel({
   agent,
-  onEditSubmission,
-  onCancelSubmission,
+  onRequestCancelSubmission,
   cancellingSubmission
 }: {
   agent: ResolvedAgent;
-  onEditSubmission: () => void;
-  onCancelSubmission: () => void;
+  onRequestCancelSubmission: () => void;
   cancellingSubmission: boolean;
 }) {
   return (
@@ -169,16 +167,14 @@ function UnderReviewPanel({
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" data-testid="publishing-status-while-you-wait">
         <h3 className="mb-3 text-sm font-semibold text-slate-900">While you wait</h3>
         <div className="flex flex-col items-start gap-3">
-          {/* Under-review agents are not editable — cancel the submission
-              first (returns the agent to Draft), then edit and resubmit. */}
           <button
             type="button"
-            onClick={onCancelSubmission}
+            onClick={onRequestCancelSubmission}
             disabled={cancellingSubmission}
             data-testid="publishing-status-cancel-submission"
             className="border-0 bg-transparent p-0 text-sm font-medium text-amber-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {cancellingSubmission ? "Cancelling submission…" : "Cancel submission"}
+            Cancel submission
           </button>
         </div>
       </div>
@@ -190,6 +186,67 @@ function UnderReviewPanel({
         <div>
           <p>You&apos;ll receive an email when the review is complete.</p>
           <p className="mt-0.5 opacity-80">Reviews are conducted Monday–Friday, 9 AM – 6 PM EST.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CancelSubmissionModal({
+  agentName,
+  cancelling,
+  onClose,
+  onConfirm
+}: {
+  agentName: string;
+  cancelling: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="publishing-status-cancel-title"
+      data-testid="publishing-status-cancel-modal"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+        aria-label="Close modal"
+        onClick={onClose}
+        disabled={cancelling}
+      />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h2 id="publishing-status-cancel-title" className="text-lg font-bold text-slate-900">
+          Cancel submission?
+        </h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-500">
+          <p>
+            This will withdraw <span className="font-medium text-slate-700">{agentName}</span> from review and move it back to draft.
+          </p>
+          <p>You can edit and resubmit later. Your place in the review queue will be lost.</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={cancelling}
+            className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50"
+            data-testid="publishing-status-cancel-modal-keep"
+          >
+            Keep in review
+          </button>
+          <button
+            type="button"
+            disabled={cancelling}
+            onClick={onConfirm}
+            className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            data-testid="publishing-status-cancel-modal-confirm"
+          >
+            {cancelling ? "Cancelling…" : "Cancel submission"}
+          </button>
         </div>
       </div>
     </div>
@@ -548,6 +605,7 @@ function PublishingStatusContent() {
   const [activeState, setActiveState] = useState<StatusState>(1);
   const [cancellingSubmission, setCancellingSubmission] = useState(false);
   const [cancelError, setCancelError] = useState("");
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -602,14 +660,6 @@ function PublishingStatusContent() {
   }
 
   function viewAgent() {
-    router.push(
-      (headerAgent.workflowId
-        ? `/architect/workflows/${headerAgent.workflowId}/builder`
-        : "/architect/agents/publish") as Route
-    );
-  }
-
-  function editSubmission() {
     router.push(
       (headerAgent.workflowId
         ? `/architect/workflows/${headerAgent.workflowId}/builder`
@@ -690,9 +740,21 @@ function PublishingStatusContent() {
                 {activeState === 1 ? (
                   <UnderReviewPanel
                     agent={headerAgent}
-                    onEditSubmission={editSubmission}
-                    onCancelSubmission={cancelSubmission}
+                    onRequestCancelSubmission={() => {
+                      setCancelError("");
+                      setShowCancelConfirm(true);
+                    }}
                     cancellingSubmission={cancellingSubmission}
+                  />
+                ) : null}
+                {showCancelConfirm ? (
+                  <CancelSubmissionModal
+                    agentName={headerAgent.name}
+                    cancelling={cancellingSubmission}
+                    onClose={() => {
+                      if (!cancellingSubmission) setShowCancelConfirm(false);
+                    }}
+                    onConfirm={() => void cancelSubmission()}
                   />
                 ) : null}
                 {cancelError ? (

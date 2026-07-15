@@ -46,18 +46,29 @@ const TOOLBAR: { command: EditorCommand; title: string; icon: ReactElement }[] =
   }
 ];
 
+function plainTextLength(html: string): number {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .length;
+}
+
 export function RichDescriptionEditor({
   value,
   onChange,
   placeholder = "Describe what your agent does, how it helps, and what makes it different…",
-  disabled = false
+  disabled = false,
+  maxLength = 2000
 }: {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  maxLength?: number;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const lastValidHtmlRef = useRef(value);
 
   // Only push external value into the DOM when it actually differs — writing
   // innerHTML on every keystroke would reset the caret position.
@@ -66,6 +77,7 @@ export function RichDescriptionEditor({
     if (editor && editor.innerHTML !== value) {
       editor.innerHTML = value;
     }
+    lastValidHtmlRef.current = value;
   }, [value]);
 
   function stripImages(editor: HTMLDivElement) {
@@ -76,7 +88,13 @@ export function RichDescriptionEditor({
     const editor = editorRef.current;
     if (!editor) return;
     stripImages(editor);
-    onChange(editor.innerHTML);
+    const html = editor.innerHTML;
+    if (plainTextLength(html) > maxLength) {
+      editor.innerHTML = lastValidHtmlRef.current;
+      return;
+    }
+    lastValidHtmlRef.current = html;
+    onChange(html);
   }
 
   function runCommand(command: EditorCommand) {
@@ -118,8 +136,12 @@ export function RichDescriptionEditor({
         onInput={syncValue}
         onPaste={(event) => {
           event.preventDefault();
-          const text = event.clipboardData.getData("text/plain");
-          document.execCommand("insertText", false, text);
+          const editor = editorRef.current;
+          if (!editor) return;
+          const pasted = event.clipboardData.getData("text/plain");
+          const remaining = maxLength - plainTextLength(editor.innerHTML);
+          if (remaining <= 0) return;
+          document.execCommand("insertText", false, pasted.slice(0, remaining));
           syncValue();
         }}
         onDrop={(event) => {
