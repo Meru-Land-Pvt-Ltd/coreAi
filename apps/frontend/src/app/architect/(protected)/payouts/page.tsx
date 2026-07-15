@@ -350,7 +350,9 @@ export default function ArchitectPayoutsPage() {
           }
         />
 
+        {/* Tax documents hidden for now — re-enable once tax reporting ships.
         <TaxDocumentsSection totalEarningsCents={data.totalEarningsCents} />
+        */}
       </main>
 
       {methodModalOpen ? (

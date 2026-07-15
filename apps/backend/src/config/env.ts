@@ -36,7 +36,23 @@ const envSchema = z.object({
   TWILIO_PHONE_NUMBER: z.string().optional(),
   TWILIO_PHONE_NUMBER_SID: z.string().optional(),
 
+  /** Global Twilio Messaging Service every transactional SMS is sent through. */
   TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
+  /** Shared Triven SMS sender (E.164). Reserved — never assigned to a buyer. */
+  TWILIO_SHARED_SMS_NUMBER: z.string().optional(),
+  /** Public URL Twilio posts message delivery-status callbacks to. */
+  TWILIO_SMS_STATUS_CALLBACK_URL: z.string().url().optional(),
+  /**
+   * Explicit SMS sending mode. SIMULATED = no provider request at all;
+   * TWILIO_TEST_CREDENTIALS = Twilio test account + magic numbers (never
+   * delivered, never production credentials); LIVE = shared Messaging Service.
+   * Defaults to LIVE (or SIMULATED when the deprecated TWILIO_TEST_MODE=true).
+   */
+  TWILIO_SMS_MODE: z.enum(["SIMULATED", "TWILIO_TEST_CREDENTIALS", "LIVE"]).optional(),
+  /** Twilio TEST credentials — used ONLY in TWILIO_TEST_CREDENTIALS mode. */
+  TWILIO_TEST_ACCOUNT_SID: z.string().optional(),
+  TWILIO_TEST_AUTH_TOKEN: z.string().optional(),
+  /** @deprecated Use TWILIO_SMS_MODE. true maps to SIMULATED (no provider request). */
   TWILIO_TEST_MODE: booleanFromEnv.default(false),
   TWILIO_VALIDATE_SIGNATURE: booleanFromEnv.default(false),
 
@@ -87,6 +103,11 @@ const envSchema = z.object({
   VAPI_DEFAULT_VOICE_ID: z.string().default("Savannah"),
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
   VAPI_ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),
+
+  VAPI_DEFAULT_LLM_PROVIDER: z.string().default("openai"),
+  VAPI_DEFAULT_LLM_MODEL: z.string().default("gpt-4o-mini"),
+  VAPI_ANTHROPIC_ENABLED: booleanFromEnv.default(false),
+  VAPI_ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
   VAPI_TRANSCRIBER_PROVIDER: z.string().default("deepgram"),
   VAPI_TRANSCRIBER_MODEL: z.string().default("nova-3"),
   VAPI_ENABLE_BOOKING_TOOLS: booleanFromEnv.default(true),
@@ -121,7 +142,16 @@ const envSchema = z.object({
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional()
+  STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional(),
+
+  /**
+   * Platform access policy: when false (current default), every authenticated
+   * BUSINESS owner may deploy/activate their agents regardless of Stripe
+   * subscription state. Stripe billing data keeps updating normally either
+   * way — deployment access and billing state are separate concepts.
+   * Accepts true/false/1/0.
+   */
+  ENFORCE_AGENT_SUBSCRIPTION: booleanFromEnv.default(false)
 });
 
 function isDevOnlyUrl(url: string): boolean {
@@ -132,6 +162,12 @@ function isDevOnlyUrl(url: string): boolean {
 }
 
 const parsedEnv = envSchema.parse(process.env);
+
+if (parsedEnv.TWILIO_TEST_MODE && !parsedEnv.TWILIO_SMS_MODE) {
+  console.warn(
+    "[env] TWILIO_TEST_MODE is deprecated and now maps to TWILIO_SMS_MODE=SIMULATED (no Twilio request is made). Set TWILIO_SMS_MODE explicitly."
+  );
+}
 
 if (parsedEnv.NODE_ENV === "production") {
   const problems: string[] = [];
@@ -177,12 +213,22 @@ if (parsedEnv.NODE_ENV === "production") {
   }
 
   if (parsedEnv.TWILIO_TEST_MODE) {
-    problems.push("TWILIO_TEST_MODE must be false in production.");
+    problems.push("TWILIO_TEST_MODE must be false in production (deprecated — use TWILIO_SMS_MODE=LIVE).");
+  }
+
+  if (parsedEnv.TWILIO_SMS_MODE && parsedEnv.TWILIO_SMS_MODE !== "LIVE") {
+    problems.push(`TWILIO_SMS_MODE must be LIVE in production (got ${parsedEnv.TWILIO_SMS_MODE}).`);
   }
 
   if (parsedEnv.TWILIO_PHONE_NUMBER || parsedEnv.TWILIO_PHONE_NUMBER_SID) {
     console.warn(
       "[env] TWILIO_PHONE_NUMBER / TWILIO_PHONE_NUMBER_SID are legacy fallback values. Production routing should use DB-managed PlatformPhoneNumber + BusinessPhoneNumber."
+    );
+  }
+
+  if (!parsedEnv.TWILIO_MESSAGING_SERVICE_SID || !parsedEnv.TWILIO_SHARED_SMS_NUMBER) {
+    console.warn(
+      "[env] TWILIO_MESSAGING_SERVICE_SID / TWILIO_SHARED_SMS_NUMBER are not set. Live outbound SMS uses the shared Triven Messaging Service and will fail until both are configured."
     );
   }
 

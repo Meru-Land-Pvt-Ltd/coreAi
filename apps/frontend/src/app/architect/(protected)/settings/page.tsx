@@ -908,19 +908,7 @@ export default function ArchitectSettingsPage() {
                         Identity Verified
                       </span>
                     </div>
-                    {settings?.storefront ? (
-                      <div className="sm:col-span-2 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5" data-testid="architect-settings-storefront-tier">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 px-3 py-1.5 text-sm font-bold text-white shadow-sm shadow-amber-200">
-                            {settings.storefront.approvalStatus === "APPROVED" ? "Gold Architect" : "Architect"}
-                          </span>
-                          <span className="text-sm text-slate-500">
-                            Rating <span className="font-semibold text-slate-700">{settings.storefront.rating.toFixed(1)}</span>
-                            · {settings.storefront.completedJobs} completed jobs
-                          </span>
-                        </div>
-                      </div>
-                    ) : null}
+
                   </div>
                   </div>
                   <div className="border-t border-gray-100 pt-7">
@@ -1170,6 +1158,7 @@ export default function ArchitectSettingsPage() {
                   </div>
                   <button type="button" onClick={() => void handleSavePayoutSchedule()} disabled={saving} data-testid="architect-settings-save-payout-schedule" className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Save schedule</button>
                 </div>
+                {/* Tax information hidden for now — re-enable once tax reporting ships.
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Tax information</h3>
                   <div className="space-y-3">
@@ -1184,6 +1173,7 @@ export default function ArchitectSettingsPage() {
                   </div>
                   <p className="mt-3 text-xs text-slate-400">Triven reports earnings for architects crossing annual reporting thresholds.</p>
                 </div>
+                */}
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Revenue split</h3>
                   <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5">

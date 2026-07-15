@@ -62,8 +62,50 @@ const roleContent: Record<
 
 const HOME_ROUTE = "/" as Route;
 
+/** Role stashed before a Firebase redirect so it survives the round trip. */
+const GOOGLE_REDIRECT_ROLE_KEY = "triven-google-login-role";
+
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/** Firebase auth modules, preloaded so the click → popup path has no network wait. */
+type FirebaseAuthModules = [typeof import("firebase/auth"), typeof import("@/lib/firebase")];
+
+let firebaseModulesPromise: Promise<FirebaseAuthModules> | null = null;
+
+function loadFirebaseModules(): Promise<FirebaseAuthModules> {
+  if (!firebaseModulesPromise) {
+    firebaseModulesPromise = Promise.all([import("firebase/auth"), import("@/lib/firebase")]);
+  }
+  return firebaseModulesPromise;
+}
+
+function firebaseErrorCode(err: unknown): string {
+  return typeof err === "object" && err !== null && "code" in err
+    ? String((err as { code?: unknown }).code ?? "")
+    : "";
+}
+
+function friendlyGoogleError(err: unknown): string | null {
+  const code = firebaseErrorCode(err);
+
+  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    return null;
+  }
+  if (code === "auth/unauthorized-domain") {
+    return "Google sign-in isn't available on this domain yet. Please use email login instead.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "We couldn't reach Google. Check your connection and try again.";
+  }
+  if (code === "auth/too-many-requests") {
+    return "Too many sign-in attempts. Please wait a moment and try again.";
+  }
+  if (code === "auth/account-exists-with-different-credential") {
+    return "This email is already registered with a different sign-in method. Please use email login.";
+  }
+  return "Google sign-in didn't complete. Please try again, or use email login below.";
 }
 
 export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
@@ -194,50 +236,122 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
     }
   }
 
+  /** Exchange a signed-in Firebase user for a Triven session (popup + redirect share this). */
+  async function completeGoogleLogin(
+    firebaseUser: import("firebase/auth").User,
+    loginRole: OtpAuthRole
+  ): Promise<void> {
+    const idToken = await firebaseUser.getIdToken();
+
+    const result = await apiPost<AuthResponse>("/auth/firebase-login", {
+      idToken,
+      role: loginRole
+    });
+
+    if (!result.success || !result.data) {
+      setError(result.error ?? "Google login failed. Please try again.");
+      return;
+    }
+
+    const data = result.data;
+    saveAuthSession(data.token, data.user);
+
+    const destination =
+      loginRole === "BUSINESS" && data.isNewUser
+        ? BUSINESS_ONBOARDING_PATH
+        : roleContent[loginRole].dashboardPath;
+
+    router.push(destination);
+  }
+
+  // Warm the Firebase chunks on mount so the click handler reaches
+  // signInWithPopup without a network wait — an awaited chunk download is
+  // exactly what made Chrome/Edge treat the popup as not user-initiated.
+  useEffect(() => {
+    void loadFirebaseModules().catch(() => null);
+  }, []);
+
+  // Returning from the redirect fallback: finish the login with the role the
+  // user had selected before leaving (stashed in sessionStorage).
+  useEffect(() => {
+    let cancelled = false;
+
+    async function processRedirectResult() {
+      try {
+        const [{ getRedirectResult }, { getFirebaseAuth }] = await loadFirebaseModules();
+        const redirectResult = await getRedirectResult(getFirebaseAuth());
+
+        if (!redirectResult?.user || cancelled) return;
+
+        const stashedRole = window.sessionStorage.getItem(GOOGLE_REDIRECT_ROLE_KEY);
+        window.sessionStorage.removeItem(GOOGLE_REDIRECT_ROLE_KEY);
+        const loginRole: OtpAuthRole =
+          stashedRole === "BUSINESS" || stashedRole === "ARCHITECT" ? stashedRole : role;
+
+        setIsGoogleLoading(true);
+        await completeGoogleLogin(redirectResult.user, loginRole);
+      } catch (err) {
+        if (cancelled) return;
+        const message = friendlyGoogleError(err);
+        if (message) setError(message);
+      } finally {
+        if (!cancelled) setIsGoogleLoading(false);
+      }
+    }
+
+    void processRedirectResult();
+
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount — the stashed role wins over the current tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleGoogleLogin() {
+    if (isGoogleLoading) return;
+
     try {
       setError("");
       setIsGoogleLoading(true);
 
-      const [{ GoogleAuthProvider, signInWithPopup }, { getFirebaseAuth }] =
-        await Promise.all([import("firebase/auth"), import("@/lib/firebase")]);
+      // Preloaded on mount, so this await is a resolved-promise microtask and
+      // the popup still opens inside the browser's user-gesture window.
+      const [{ GoogleAuthProvider, signInWithPopup, signInWithRedirect }, { getFirebaseAuth }] =
+        await loadFirebaseModules();
 
+      const auth = getFirebaseAuth();
       const provider = new GoogleAuthProvider();
 
       provider.setCustomParameters({
         prompt: "select_account"
       });
 
-      const firebaseResult = await signInWithPopup(getFirebaseAuth(), provider);
-      const idToken = await firebaseResult.user.getIdToken();
-
-      const result = await apiPost<AuthResponse>("/auth/firebase-login", {
-        idToken,
-        role
-      });
-
-      if (!result.success || !result.data) {
-        setError(result.error ?? "Google login failed");
+      try {
+        const firebaseResult = await signInWithPopup(auth, provider);
+        await completeGoogleLogin(firebaseResult.user, role);
         return;
+      } catch (popupError) {
+        const code = firebaseErrorCode(popupError);
+
+        // Popup blocked (or the environment can't do popups): fall back to a
+        // full-page redirect. The selected role is stashed so the tab choice
+        // survives the round trip; the mount effect finishes the login.
+        if (
+          code === "auth/popup-blocked" ||
+          code === "auth/operation-not-supported-in-this-environment"
+        ) {
+          window.sessionStorage.setItem(GOOGLE_REDIRECT_ROLE_KEY, role);
+          await signInWithRedirect(auth, provider);
+          return; // navigation takes over
+        }
+
+        throw popupError;
       }
-
-      const data = result.data;
-      saveAuthSession(data.token, data.user);
-
-      const destination =
-        role === "BUSINESS" && data.isNewUser
-          ? BUSINESS_ONBOARDING_PATH
-          : roleContent[role].dashboardPath;
-
-      router.push(destination);
     } catch (err) {
-      console.error("Google login failed:", err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Google login failed. Please try again."
-      );
+      console.error("Google login failed:", firebaseErrorCode(err) || err);
+      const message = friendlyGoogleError(err);
+      if (message) setError(message);
     } finally {
       setIsGoogleLoading(false);
     }

@@ -3,7 +3,13 @@ import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
-import { escapeXml, sendTwilioSms } from "./twilio-connector";
+import { escapeXml, normalizePhoneE164 } from "./twilio-connector";
+import {
+  applyTwilioMessageStatus,
+  sendAppointmentConfirmationSms,
+  sendTrackedSms,
+  type SmsSendOutcome
+} from "../notifications/sms-notification-service";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
 import { enqueueEmail } from "../email/email-queue";
 import {
@@ -55,6 +61,8 @@ type ResolvedAgent = {
   forwardToPhone?: string;
   /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
   routingMode?: string;
+  /** Buyer paused this agent — no AI answer, no text-back, no AI SMS replies. */
+  agentPaused?: boolean;
   business?: BusinessRuntimeContext;
   /** How the number resolved (diagnostics only — never affects call behavior). */
   matchedBusinessPhoneNumberId?: string;
@@ -276,6 +284,7 @@ function toResolvedAgent(opts: {
     workflowJson: installedAgent.workflow?.workflowJson ?? null,
     forwardToPhone: opts.forwardToPhone ?? undefined,
     routingMode: readRoutingMode(installedAgent.configJson),
+    agentPaused: installedAgent.status === "PAUSED",
     business: buildBusinessContext(business, phoneNumber, installedAgent),
     matchedBusinessPhoneNumberId: opts.matchedBusinessPhoneNumberId,
     matchedPlatformPhoneNumberId: opts.matchedPlatformPhoneNumberId,
@@ -1075,6 +1084,17 @@ export async function handleTwilioVoice(c: Context) {
     return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
   }
 
+  // Buyer paused the agent: the AI never answers. Calls still reach a human
+  // when a forwarding number exists; otherwise a polite unavailable message.
+  if (agent.agentPaused) {
+    if (forwardToPhone) {
+      logDiag("agent_paused_forwarding_to_human");
+      return dialForward(c, forwardToPhone, agent.workflowId, calledNumber);
+    }
+    logDiag("agent_paused");
+    return sayTwiml(c, "This assistant is temporarily unavailable. Please try again later.");
+  }
+
   const hasDeployedAssistant = Boolean(assistantId && assistantId !== env.VAPI_DEFAULT_ASSISTANT_ID);
   const aiShouldAnswer = agent.routingMode
     ? shouldAnswerWithAiByMode(agent.routingMode, agent.business?.hours, agent.business?.timeZone)
@@ -1146,6 +1166,11 @@ export async function handleTwilioVoiceAction(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
+  // Paused agents never run the missed-call text-back workflow.
+  if (agent.agentPaused) {
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
   await runMissedCallAgent({
     agent,
     callerNumber,
@@ -1169,7 +1194,8 @@ export async function handleTwilioMissedCall(c: Context) {
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
-  if (!agent || !callerNumber) {
+  // Paused agents never run the missed-call text-back workflow.
+  if (!agent || !callerNumber || agent.agentPaused) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
@@ -1180,6 +1206,24 @@ export async function handleTwilioMissedCall(c: Context) {
     reason: "Direct Twilio missed-call webhook triggered this agent."
   });
 
+  return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+}
+
+/**
+ * Inbound SMS to the SHARED Triven sender cannot be routed by `To` — every
+ * reply lands on the same platform number, so NO business association is ever
+ * inferred (no recency heuristics) and nothing enters a buyer workflow.
+ * STOP/START/HELP are handled by Twilio's Messaging Service (Advanced
+ * Opt-Out) before this webhook fires. Everything else is logged as an
+ * unmatched shared-sender inbound message (metadata only — never the message
+ * content) and answered with empty TwiML: no auto-reply, and no claim that
+ * any business received it.
+ */
+function handleSharedSenderInboundSms(c: Context, customerPhone: string, incomingBody: string) {
+  console.log("[twilio.sms] unmatched shared-sender inbound message (not routed to any business)", {
+    from: customerPhone,
+    bodyLength: incomingBody.length
+  });
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
 
@@ -1194,9 +1238,31 @@ export async function handleTwilioInboundSms(c: Context) {
   const businessNumber = readBodyString(body, ["To", "to"]);
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
+
+  const sharedSender = normalizePhoneE164(env.TWILIO_SHARED_SMS_NUMBER ?? "");
+  if (sharedSender && normalizePhoneE164(businessNumber) === sharedSender) {
+    if (!customerPhone || !incomingBody) {
+      return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+    }
+    return handleSharedSenderInboundSms(c, customerPhone, incomingBody);
+  }
+
   const agent = await resolveAgent({ calledNumber: businessNumber, workflowId });
 
   if (!agent || !customerPhone || !incomingBody) {
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
+  // Paused agents never reply — the inbound message is still recorded so the
+  // buyer sees it after resuming.
+  if (agent.agentPaused) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "INBOUND",
+      body: incomingBody,
+      providerId: readBodyString(body, ["MessageSid", "SmsSid"])
+    }).catch(() => null);
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
@@ -1214,6 +1280,7 @@ export async function handleTwilioInboundSms(c: Context) {
   // Calendar and confirm by SMS. Otherwise fall back to a context-aware reply.
   let replyBody: string;
   let bookedEventId: string | null = null;
+  let bookedAppointmentId: string | null = null;
 
   const requestedSlot =
     agent.business?.businessId && agent.business?.ownerId
@@ -1226,7 +1293,7 @@ export async function handleTwilioInboundSms(c: Context) {
   if (requestedSlot && agent.business) {
     try {
       const service = inferService(incomingBody, agent.business.services);
-      const { calendarEvent } = await createBusinessAppointment({
+      const { calendarEvent, appointment } = await createBusinessAppointment({
         business: agent.business,
         customerPhone,
         service,
@@ -1238,10 +1305,11 @@ export async function handleTwilioInboundSms(c: Context) {
       });
 
       bookedEventId = calendarEvent.id;
+      bookedAppointmentId = appointment.id;
       replyBody = `You're booked with ${agent.business.businessName}: ${service} on ${formatAppointmentTime(
         calendarEvent.startAt,
         agent.business.timeZone
-      )}. Reply here if you need to change it.`;
+      )}.${agent.business.businessPhoneNumber ? ` For assistance call ${agent.business.businessPhoneNumber}.` : ""}`;
     } catch (error) {
       console.error("Inbound SMS booking failed", error);
       replyBody = buildInboundSmsReply(agent, incomingBody, history);
@@ -1250,10 +1318,17 @@ export async function handleTwilioInboundSms(c: Context) {
     replyBody = buildInboundSmsReply(agent, incomingBody, history);
   }
 
-  const sent = await sendTwilioSms({
+  // Sent through the shared Triven Messaging Service — the business's own
+  // number never sends SMS. A booking reply doubles as the appointment
+  // confirmation, so it claims the confirmation dedupe key.
+  const sent = await sendTrackedSms({
     to: customerPhone,
     body: replyBody,
-    fromPhoneNumber: agent.business?.businessPhoneNumber
+    messageType: bookedAppointmentId ? "APPOINTMENT_CONFIRMATION" : "WORKFLOW_SMS",
+    businessId: agent.business?.businessId ?? null,
+    installedAgentId: agent.business?.installedAgentId ?? null,
+    appointmentId: bookedAppointmentId,
+    dedupeKey: bookedAppointmentId ? `appointment-confirmation:${bookedAppointmentId}` : null
   });
 
   await upsertConversation({
@@ -1261,7 +1336,7 @@ export async function handleTwilioInboundSms(c: Context) {
     customerPhone,
     direction: "OUTBOUND",
     body: replyBody,
-    providerId: bookedEventId ?? sent.id
+    providerId: bookedEventId ?? sent.messageSid
   });
 
   await upsertLead({
@@ -1271,6 +1346,48 @@ export async function handleTwilioInboundSms(c: Context) {
     status: bookedEventId ? "BOOKED" : "ENGAGED",
     notes: incomingBody
   });
+
+  return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+}
+
+/**
+ * Twilio message delivery-status callback (public webhook — Twilio cannot send
+ * the app JWT). Signature-validated when TWILIO_VALIDATE_SIGNATURE=true.
+ * Idempotent: replayed/out-of-order callbacks never downgrade an execution.
+ * Always answers 2xx to a processed callback so Twilio does not retry forever.
+ */
+export async function handleTwilioMessageStatus(c: Context) {
+  const body = await parseBody(c);
+
+  if (!isValidTwilioRequest(c, body)) {
+    return c.text("<Response></Response>", 403, { "Content-Type": "text/xml" });
+  }
+
+  try {
+    const params = stringParams(body);
+    const result = await applyTwilioMessageStatus({
+      MessageSid: params.MessageSid ?? params.SmsSid,
+      MessageStatus: params.MessageStatus,
+      SmsStatus: params.SmsStatus,
+      ErrorCode: params.ErrorCode,
+      ErrorMessage: params.ErrorMessage,
+      From: params.From,
+      To: params.To,
+      NumSegments: params.NumSegments,
+      Price: params.Price,
+      PriceUnit: params.PriceUnit
+    });
+    console.log("[twilio.message-status]", {
+      messageSid: params.MessageSid ?? params.SmsSid ?? null,
+      status: params.MessageStatus ?? params.SmsStatus ?? null,
+      errorCode: params.ErrorCode ?? null,
+      executionId: result.executionId
+    });
+  } catch (error) {
+    // Processing failures are logged but still answered 200 — Twilio retries
+    // do not help a genuine bug, and the message itself already went out.
+    console.error("[twilio.message-status] processing failed", error);
+  }
 
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
@@ -1897,26 +2014,6 @@ function resolvePatientName(args: Record<string, unknown>, transcript: string, s
   return extractPatientNameFromTranscript(`${transcript}\n${summary}`);
 }
 
-/** Normalize a phone number to E.164, biased to India (Asia/Kolkata default) then US. */
-function normalizePhoneE164(raw?: string | null): string {
-  if (typeof raw !== "string") return "";
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("+")) {
-    const digits = trimmed.slice(1).replace(/\D/g, "");
-    return digits.length >= 10 ? `+${digits}` : "";
-  }
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length < 10) return "";
-  if (digits.length === 10) return /^[6-9]/.test(digits) ? `+91${digits}` : `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (digits.length === 11 && digits.startsWith("0")) {
-    const national = digits.slice(1);
-    return national.length === 10 ? (/^[6-9]/.test(national) ? `+91${national}` : `+1${national}`) : "";
-  }
-  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
-  return `+${digits}`;
-}
-
 /** Prefer a clean caller-provided number; otherwise the Vapi call's customer number. */
 function resolvePatientPhone(argPhone: string | undefined, callerPhone: string): string {
   return normalizePhoneE164(argPhone) || normalizePhoneE164(callerPhone) || callerPhone || "";
@@ -2090,10 +2187,41 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
+  // One source of truth for the confirmation SMS: the notification service's
+  // appointment-confirmation dedupe key. A failed SMS never rolls back a
+  // booked appointment — the result reports partial success instead.
+  const sendBookingConfirmationSms = async (appointmentId: string, startAtIso: string) => {
+    if (!ctx.business?.businessId || !patientPhone) return null;
+    if (ctx.dental && ctx.dental.sendToPatient === false) return null;
+    try {
+      return await sendAppointmentConfirmationSms({
+        appointmentId,
+        businessId: ctx.business.businessId,
+        installedAgentId: ctx.business.installedAgentId ?? null,
+        customerName: patientName,
+        customerPhone: patientPhone,
+        serviceName: service,
+        appointmentDate: startAtIso,
+        timeZone: ctx.timeZone
+      });
+    } catch (error) {
+      console.error("[vapi-webhook] confirmation SMS failed (appointment kept)", error);
+      return null;
+    }
+  };
+
+  const smsResultShape = (outcome: SmsSendOutcome | null) => ({
+    attempted: Boolean(outcome?.attempted),
+    sent: Boolean(outcome && (outcome.sent || outcome.alreadySent)),
+    messageSid: outcome?.messageSid ?? null,
+    status: outcome?.status ?? null
+  });
+
   const localFallback = async (calendarStatus: string) => {
+    let localAppointment: { id: string } | null = null;
     if (ctx.business?.businessId) {
       try {
-        await prisma.appointment.create({
+        localAppointment = await prisma.appointment.create({
           data: {
             businessId: ctx.business.businessId,
             customerPhone: patientPhone || "unknown",
@@ -2103,14 +2231,19 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
             endAt,
             timeZone: ctx.timeZone,
             notes: `Booked by Triven AI (calendar not connected — local record).\n${eventDescription}`
-          }
+          },
+          select: { id: true }
         });
       } catch (error) {
         console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
       }
     }
+    const smsOutcome = localAppointment
+      ? await sendBookingConfirmationSms(localAppointment.id, startAt.toISOString())
+      : null;
     return {
       success: true,
+      appointmentCreated: Boolean(localAppointment),
       event_id: null,
       event_link: null,
       calendar_id: ctx.business?.calendarId ?? "primary",
@@ -2120,13 +2253,14 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       patient_phone: patientPhone,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
-      confirmation
+      confirmation,
+      sms: smsResultShape(smsOutcome)
     };
   };
 
   if (ctx.business?.businessId && ctx.business.ownerId && patientPhone) {
     try {
-      const { calendarEvent } = await createBusinessAppointment({
+      const { calendarEvent, appointment } = await createBusinessAppointment({
         business: ctx.business,
         customerPhone: patientPhone,
         customerName: patientName,
@@ -2144,8 +2278,10 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         body: `Voice booking: ${service} for ${patientName} on ${formatAppointmentTime(calendarEvent.startAt, ctx.timeZone)}.`,
         providerId: calendarEvent.id
       }).catch(() => null);
+      const smsOutcome = await sendBookingConfirmationSms(appointment.id, calendarEvent.startAt);
       return {
         success: true,
+        appointmentCreated: true,
         event_id: calendarEvent.id,
         event_link: calendarEvent.htmlLink ?? null,
         calendar_id: calendarEvent.calendarId,
@@ -2155,7 +2291,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         patient_phone: patientPhone,
         startAt: calendarEvent.startAt,
         endAt: calendarEvent.endAt,
-        confirmation
+        confirmation,
+        sms: smsResultShape(smsOutcome)
       };
     } catch (error) {
       const status = calendarStatusFromError(error);
@@ -2223,18 +2360,58 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
 
     if ((ctx.dental?.sendToPatient ?? true) && customerPhone) {
       try {
-        const sms = applyBracketTemplate(
-          ctx.dental?.patientTemplate ?? "Confirmed: [Service] on [Date] at [Time] with [Business Name].",
-          values
-        );
-        await sendTwilioSms({ to: customerPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
-        await upsertConversation({
-          businessId: ctx.business.businessId,
-          customerPhone,
-          direction: "OUTBOUND",
-          body: sms
-        }).catch(() => null);
-        customerSmsSent = true;
+        // A caller with a just-created appointment is receiving THE appointment
+        // confirmation — route it through the single confirmation service so
+        // book_appointment + send_notification can never double-text the
+        // customer (both claim appointment-confirmation:{appointmentId}).
+        const recentAppointment = await prisma.appointment.findFirst({
+          where: {
+            businessId: ctx.business.businessId,
+            customerPhone,
+            createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) }
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, service: true, startAt: true, timeZone: true, customerName: true }
+        });
+
+        if (recentAppointment) {
+          const outcome = await sendAppointmentConfirmationSms({
+            appointmentId: recentAppointment.id,
+            businessId: ctx.business.businessId,
+            installedAgentId: ctx.business.installedAgentId ?? null,
+            customerName: customerName || recentAppointment.customerName || "",
+            customerPhone,
+            serviceName: recentAppointment.service || service,
+            appointmentDate: recentAppointment.startAt,
+            timeZone: recentAppointment.timeZone || ctx.timeZone
+          });
+          customerSmsSent = outcome.sent || outcome.alreadySent;
+        } else {
+          const sms = applyBracketTemplate(
+            ctx.dental?.patientTemplate ?? "Confirmed: [Service] on [Date] at [Time] with [Business Name].",
+            values
+          );
+          const outcome = await sendTrackedSms({
+            to: customerPhone,
+            body: sms,
+            messageType: "WORKFLOW_SMS",
+            businessId: ctx.business.businessId,
+            installedAgentId: ctx.business.installedAgentId ?? null,
+            // Vapi retries the same tool call on webhook timeouts — same call
+            // + same recipient must never text twice.
+            dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:customer` : null
+          });
+          customerSmsSent = outcome.sent || outcome.alreadySent;
+          if (customerSmsSent) {
+            await upsertConversation({
+              businessId: ctx.business.businessId,
+              customerPhone,
+              direction: "OUTBOUND",
+              body: sms,
+              providerId: outcome.messageSid
+            }).catch(() => null);
+          }
+        }
       } catch (error) {
         console.error("[vapi-webhook] customer SMS failed (non-fatal)", error);
       }
@@ -2247,8 +2424,15 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           ctx.dental?.dentistTemplate ?? "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
           values
         );
-        await sendTwilioSms({ to: teamPhone, body: sms, fromPhoneNumber: ctx.business.businessPhoneNumber });
-        teamSmsSent = true;
+        const outcome = await sendTrackedSms({
+          to: teamPhone,
+          body: sms,
+          messageType: "WORKFLOW_SMS",
+          businessId: ctx.business.businessId,
+          installedAgentId: ctx.business.installedAgentId ?? null,
+          dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:team` : null
+        });
+        teamSmsSent = outcome.sent || outcome.alreadySent;
       } catch (error) {
         console.error("[vapi-webhook] team SMS failed (non-fatal)", error);
       }

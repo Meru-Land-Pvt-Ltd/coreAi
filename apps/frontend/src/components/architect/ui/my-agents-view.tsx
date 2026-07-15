@@ -17,7 +17,7 @@ import {
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { architectPublishingStatusPath, architectAnalyticsPath } from "@/lib/routes";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Dot } from "lucide-react";
 
 const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
   totalAgents: 0,
@@ -297,12 +297,25 @@ function formatUsdFromCents(cents: number): string {
   return `$${Math.max(0, Math.round(cents / 100)).toLocaleString("en-US")}`;
 }
 
-function StarGlyph() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="text-amber-400">
-      <path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4L12 17.8 6.2 20.3l1.1-6.4L2.6 9.3l6.5-.9L12 2.5z" />
-    </svg>
-  );
+function formatUsdMoney(cents: number): string {
+  return `$${(Math.max(0, cents) / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
+
+function liveDeleteRefundCents(agent: ArchitectListing): {
+  installs: number;
+  perInstallCents: number;
+  totalCents: number;
+} {
+  const installs = Math.max(0, agent.installCount ?? 0);
+  const perInstallCents = Math.max(0, agent.priceCents ?? 0);
+  return {
+    installs,
+    perInstallCents,
+    totalCents: installs * perInstallCents
+  };
 }
 
 function StatusPill({ status }: { status: AgentStatus }) {
@@ -416,7 +429,19 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
   // APPROVED / live
   const executions = agent.executionCount ?? 0;
   const revenue = agent.revenueCents ?? 0;
-  const rating = agent.rating != null && agent.rating > 0 ? agent.rating : null;
+  const installs = agent.installCount ?? 0;
+  const pricingModel = agent.pricingModel ?? (agent.priceCents === 0 ? "FREE" : "SUBSCRIPTION");
+  const billingBadge =
+    pricingModel === "FREE" ? null : pricingModel === "ONE_TIME" ? (
+      <span className="ml-1 inline-flex items-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+        One-time
+      </span>
+    ) : (
+      <span className="ml-1 inline-flex items-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+        Monthly
+      </span>
+    );
+
   return (
     <div className="ma-band grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
       <div>
@@ -432,15 +457,9 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
         </div>
       </div>
       <div>
-        <div className="text-[11px] text-slate-400">Rating</div>
-        <div className="flex items-center gap-1 text-sm font-bold text-slate-900" data-testid={`my-agents-rating-${agent.id}`}>
-          {rating != null ? (
-            <>
-              {rating.toFixed(1)} <StarGlyph />
-            </>
-          ) : (
-            <span className="text-slate-400">—</span>
-          )}
+        <div className="text-[11px] text-slate-400">Installs</div>
+        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
+          {installs.toLocaleString("en-US")}
         </div>
       </div>
     </div>
@@ -469,14 +488,6 @@ function FooterActions({
   if (agent.status === "APPROVED") {
     return (
       <div className="flex flex-wrap items-center justify-end gap-1">
-        <Link
-          data-testid={`my-agents-edit-${agent.id}-link`}
-          href={builderHref}
-          onClick={stop}
-          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-        >
-          Edit
-        </Link>
         <button
           type="button"
           onClick={(event) => {
@@ -513,14 +524,6 @@ function FooterActions({
           className="rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
         >
           View Feedback
-        </Link>
-        <Link
-          data-testid={`my-agents-update-${agent.id}-link`}
-          href={builderHref}
-          onClick={stop}
-          className="rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
-        >
-          Update &amp; Resubmit
         </Link>
       </div>
     );
@@ -593,11 +596,17 @@ function AgentCard({
   const style = STATUS_STYLES[agent.status];
   const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
   const iconUrl = agent.iconUrl?.trim() || null;
-  const category =
-    agent.category?.trim() ||
-    agent.industryTags?.[0]?.trim() ||
-    agent.tags?.[0]?.trim() ||
-    "AI Agent";
+  const industryTags = (
+    agent.industryTags?.length
+      ? agent.industryTags
+      : agent.tags?.length
+        ? agent.tags
+        : []
+  )
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const visibleIndustryTags = industryTags.slice(0, 3);
+  const extraIndustryCount = Math.max(0, industryTags.length - 3);
   const title = agent.name?.trim() || "Untitled Agent";
   const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
   const description = agent.shortDescription?.trim() || agent.tagline?.trim() || "No description added yet.";
@@ -623,7 +632,7 @@ function AgentCard({
         }
       }}
       style={animate ? { animationDelay: `${Math.min(index * 35, 280)}ms` } : undefined}
-      className={`ma-card group relative cursor-pointer overflow-hidden rounded-2xl border ${dashed} bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+      className={`ma-card group relative cursor-pointer overflow-visible rounded-2xl border ${dashed} bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
         animate ? "ma-entering" : ""
       }`}
     >
@@ -663,12 +672,55 @@ function AgentCard({
           {title}
         </h2>
 
-        <p
-          className="mt-0.5 truncate text-xs text-slate-500"
-          data-testid={`my-agents-category-${agent.id}`}
-        >
-          {category}
-        </p>
+        <div className="group/tags relative mt-1.5" data-testid={`my-agents-industry-${agent.id}`}>
+          {industryTags.length > 0 ? (
+            <>
+              <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-amber-50 px-2.5 py-0.5">
+                {visibleIndustryTags.map((tag, index) => (
+                  <span key={tag} className="flex items-center text-[11px] font-semibold text-amber-700">
+                    {tag}
+                    {index < visibleIndustryTags.length - 1 || extraIndustryCount > 0 ? (
+                      <span className="text-amber-700">
+                        <Dot className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </span>
+                ))}
+                {extraIndustryCount > 0 ? (
+                  <span
+                    className="text-[11px] font-bold text-amber-700"
+                    data-testid={`my-agents-industry-more-${agent.id}`}
+                    aria-label={`${extraIndustryCount} more industr${extraIndustryCount === 1 ? "y" : "ies"}`}
+                  >
+                    +{extraIndustryCount}
+                  </span>
+                ) : null}
+              </div>
+              {extraIndustryCount > 0 ? (
+                <div
+                  role="tooltip"
+                  className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
+                  data-testid={`my-agents-industry-tooltip-${agent.id}`}
+                >
+                  <div className="flex flex-wrap gap-1.5">
+                    {industryTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5">
+              <span className="text-[11px] font-semibold text-amber-700/70">Industry not set</span>
+            </div>
+          )}
+        </div>
 
         <p
           className={`ma-desc mt-2 line-clamp-2 text-sm leading-relaxed ${hasDescription ? "text-slate-500" : "italic text-slate-400"}`}
@@ -707,10 +759,29 @@ function isWorkflowOnlyDraft(agent: ArchitectListing): boolean {
 function agentCanBeDeleted(agent: ArchitectListing): boolean {
   if ((agent.installCount ?? 0) > 0) return false;
   if (isWorkflowOnlyDraft(agent)) return Boolean(agent.workflowId);
-  return agent.status === "DRAFT" || agent.status === "REJECTED";
+  return agent.status === "DRAFT" || agent.status === "REJECTED" || agent.status === "PENDING_REVIEW";
 }
 
 function deleteAgentModalCopy(agent: ArchitectListing): { title: string; lines: string[] } {
+  if (agent.status === "APPROVED" || agent.status === "PAUSED") {
+    const { installs, totalCents } = liveDeleteRefundCents(agent);
+    if (installs > 0) {
+      return {
+        title: `Delete ${agent.name}?`,
+        lines: [
+          totalCents > 0
+            ? "To delete this live agent you must pay the buyer refund shown below."
+            : "Buyers currently use this free agent. Deleting it may disrupt their installs — pause it instead if you only want to stop new sales."
+        ]
+      };
+    }
+
+    return {
+      title: `Delete ${agent.name}?`,
+      lines: ["Live agents cannot be deleted.", "Pause the agent from Settings if you want to stop new sales."]
+    };
+  }
+
   if ((agent.installCount ?? 0) > 0) {
     return {
       title: `Delete ${agent.name}?`,
@@ -718,17 +789,10 @@ function deleteAgentModalCopy(agent: ArchitectListing): { title: string; lines: 
     };
   }
 
-  if (agent.status === "APPROVED" || agent.status === "PAUSED") {
-    return {
-      title: `Delete ${agent.name}?`,
-      lines: ["Live agents cannot be deleted.", "Pause the agent from Settings if you want to stop new sales."]
-    };
-  }
-
   if (agent.status === "PENDING_REVIEW") {
     return {
       title: `Delete ${agent.name}?`,
-      lines: ["Agents under review cannot be deleted yet.", "Withdraw from review or wait for a decision, then try again."]
+      lines: ["Are you sure you want to delete this agent?"]
     };
   }
 
@@ -777,23 +841,368 @@ function ReactivateAgentModal({
   );
 }
 
-function DeleteAgentModal({
+const DELETE_REASONS = [
+  "Replacing with a better version",
+  "No longer maintaining this agent",
+  "Too many support requests",
+  "Compliance/legal reasons",
+  "Other"
+] as const;
+
+function LiveAgentDeleteModal({
   agent,
   deleting,
+  deactivating,
   onClose,
-  onConfirm
+  onConfirm,
+  onDeactivate
 }: {
   agent: ArchitectListing;
   deleting: boolean;
+  deactivating: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<boolean> | boolean;
+  onDeactivate: () => void;
 }) {
+  const [nameInput, setNameInput] = useState("");
+  const [reason, setReason] = useState("");
+  const [comments, setComments] = useState("");
+  const [step, setStep] = useState<"confirm" | "success">("confirm");
+  const [showNameError, setShowNameError] = useState(false);
+
+  const installs = Math.max(0, agent.installCount ?? 0);
+  const priceCents = Math.max(0, agent.priceCents ?? 0);
+  const isSubscription = (agent.pricingModel ?? "SUBSCRIPTION") === "SUBSCRIPTION";
+  const monthlyRevenueCents =
+    isSubscription && priceCents > 0 ? installs * priceCents : Math.max(0, agent.revenueCents ?? 0);
+  const refundCents = installs * priceCents;
+  const pendingPayoutCents = Math.round(monthlyRevenueCents * 0.3);
+  const nameMatches = nameInput.trim() === agent.name.trim();
+  const busy = deleting || deactivating;
+  const iconUrl = agent.iconUrl?.trim() || null;
+  const statusLabel =
+    agent.status === "PAUSED" ? "Paused — removed from marketplace" : "Published — Active";
+
+  async function handleDelete() {
+    if (!nameMatches) {
+      setShowNameError(true);
+      return;
+    }
+    const ok = await onConfirm();
+    if (ok) setStep("success");
+  }
+
+  if (step === "success") {
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 backdrop-blur-sm md:items-center"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={`my-agents-live-delete-success-title-${agent.id}`}
+        data-testid={`my-agents-live-delete-modal-${agent.id}`}
+      >
+        <div className="w-full max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white p-6 shadow-2xl md:max-w-[480px] md:rounded-2xl">
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+              <svg className="h-7 w-7 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
+            <h2 id={`my-agents-live-delete-success-title-${agent.id}`} className="text-lg font-semibold text-slate-900">
+              Agent Deleted
+            </h2>
+            <p className="mt-1 mb-4 text-sm text-slate-500">{agent.name} has been permanently deleted.</p>
+            <ul className="mb-4 space-y-1.5 rounded-xl bg-slate-50 p-4 text-left text-sm text-slate-600">
+              <li>
+                {installs.toLocaleString("en-US")} buyer subscription{installs === 1 ? "" : "s"} cancelled
+              </li>
+              <li>Refunds will be processed within 3–5 business days</li>
+              <li>Buyers have been notified via email</li>
+            </ul>
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-[48px] w-full rounded-lg bg-slate-900 font-medium text-white hover:bg-slate-800"
+              data-testid={`my-agents-live-delete-success-close-${agent.id}`}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 backdrop-blur-sm md:items-center"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={`my-agents-live-delete-title-${agent.id}`}
+      aria-describedby={`my-agents-live-delete-desc-${agent.id}`}
+      data-testid={`my-agents-live-delete-modal-${agent.id}`}
+    >
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label="Close dialog"
+        onClick={onClose}
+        disabled={busy}
+      />
+      <div className="relative w-full max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white shadow-2xl md:max-w-[480px] md:rounded-2xl">
+        <div className="flex items-start justify-between px-6 pt-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100">
+              <svg className="h-5 w-5 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                />
+              </svg>
+            </div>
+            <h2 id={`my-agents-live-delete-title-${agent.id}`} className="text-lg font-semibold text-slate-900">
+              Delete Agent Permanently?
+            </h2>
+          </div>
+          <button
+            type="button"
+            aria-label="Close dialog"
+            onClick={onClose}
+            disabled={busy}
+            className="-mr-1 -mt-1 p-1 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+            data-testid={`my-agents-live-delete-close-${agent.id}`}
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div id={`my-agents-live-delete-desc-${agent.id}`} className="space-y-4 px-6 pt-4">
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-amber-100 text-amber-700">
+              {iconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- icons can be data URLs
+                <img src={iconUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <PhoneGlyph />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-900">{agent.name}</p>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${agent.status === "PAUSED" ? "bg-amber-500" : "bg-green-500"}`}
+                />
+                {statusLabel}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                {installs.toLocaleString("en-US")} business{installs === 1 ? "" : "es"} currently using this agent
+                {monthlyRevenueCents > 0 ? ` · ${formatUsdMoney(monthlyRevenueCents)}/month from this agent` : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-r-lg border-l-4 border-red-500 bg-red-50 p-4">
+            <p className="mb-2 text-sm font-medium text-slate-900">
+              This action is permanent and cannot be undone. Deleting this agent will:
+            </p>
+            <ul className="space-y-1.5 text-sm text-slate-600">
+              <li className="flex gap-2">
+                <span className="font-bold text-red-500">✕</span>
+                Remove it from the marketplace immediately
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-red-500">✕</span>
+                Terminate all {installs.toLocaleString("en-US")} active subscription{installs === 1 ? "" : "s"}
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-red-500">✕</span>
+                Trigger refund processing for current billing period
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-red-500">✕</span>
+                Delete all agent configurations, workflows, and versions
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-red-500">✕</span>
+                Remove all reviews and ratings
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-red-500">✕</span>
+                Cancel pending payouts related to this agent
+              </li>
+            </ul>
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="mb-2 text-sm font-medium text-slate-900">Financial impact:</p>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-600">Lost recurring revenue</dt>
+                <dd className="font-medium text-slate-900">{formatUsdMoney(monthlyRevenueCents)}/month</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-600">Refunds to process</dt>
+                <dd className="font-medium text-slate-900">~{formatUsdMoney(refundCents)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-600">Pending payouts cancelled</dt>
+                <dd className="font-medium text-slate-900">{formatUsdMoney(pendingPayoutCents)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-medium text-slate-900">Consider deactivating instead?</p>
+            <p className="mb-3 mt-1 text-xs text-slate-600">
+              Deactivating hides your agent from the marketplace but preserves all data, reviews, and configurations.
+              You can reactivate anytime.
+            </p>
+            <button
+              type="button"
+              onClick={onDeactivate}
+              disabled={busy || agent.status === "PAUSED"}
+              className="min-h-[44px] rounded-lg border border-blue-300 px-3 text-sm font-medium text-blue-600 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid={`my-agents-live-delete-deactivate-${agent.id}`}
+            >
+              {deactivating ? "Deactivating…" : agent.status === "PAUSED" ? "Already deactivated" : "Deactivate Instead"}
+            </button>
+          </div>
+
+          <div>
+            <label htmlFor={`my-agents-live-delete-name-${agent.id}`} className="mb-1 block text-sm text-slate-700">
+              To confirm deletion, type the agent name exactly as shown below:
+            </label>
+            <p className="mb-2 select-all rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm font-bold text-slate-900">
+              {agent.name}
+            </p>
+            <div className="relative">
+              <input
+                id={`my-agents-live-delete-name-${agent.id}`}
+                type="text"
+                autoComplete="off"
+                placeholder="Type agent name here"
+                value={nameInput}
+                disabled={busy}
+                onChange={(event) => {
+                  setNameInput(event.target.value);
+                  setShowNameError(false);
+                }}
+                className="w-full rounded-lg border-2 border-slate-300 py-2.5 pl-3 pr-9 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-50"
+                data-testid={`my-agents-live-delete-name-input-${agent.id}`}
+              />
+              {nameMatches ? (
+                <svg
+                  className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-green-600"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              ) : null}
+            </div>
+            {showNameError ? <p className="mt-1 text-xs text-red-600">Name doesn&apos;t match</p> : null}
+          </div>
+
+          <div>
+            <label htmlFor={`my-agents-live-delete-reason-${agent.id}`} className="mb-1 block text-sm text-slate-700">
+              Why are you deleting this agent? <span className="text-slate-400">(optional)</span>
+            </label>
+            <select
+              id={`my-agents-live-delete-reason-${agent.id}`}
+              value={reason}
+              disabled={busy}
+              onChange={(event) => setReason(event.target.value)}
+              className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-50"
+              data-testid={`my-agents-live-delete-reason-${agent.id}`}
+            >
+              <option value="">Select a reason</option>
+              {DELETE_REASONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <textarea
+              maxLength={500}
+              rows={2}
+              placeholder="Additional comments (optional)"
+              value={comments}
+              disabled={busy}
+              onChange={(event) => setComments(event.target.value)}
+              className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-50"
+              data-testid={`my-agents-live-delete-comments-${agent.id}`}
+            />
+            <p className="mt-1 text-right text-xs text-slate-400">{comments.length}/500</p>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 mt-2 flex flex-col gap-3 border-t border-slate-100 bg-white px-6 py-5 md:flex-row">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="min-h-[48px] flex-1 rounded-lg border border-slate-300 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-testid={`my-agents-live-delete-cancel-${agent.id}`}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || !nameMatches}
+            aria-disabled={!nameMatches || busy}
+            onClick={() => void handleDelete()}
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-lg bg-red-500 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid={`my-agents-live-delete-confirm-${agent.id}`}
+          >
+            {deleting ? "Deleting…" : "Delete Agent Permanently"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteAgentModal({
+  agent,
+  deleting,
+  deactivating = false,
+  onClose,
+  onConfirm,
+  onDeactivate
+}: {
+  agent: ArchitectListing;
+  deleting: boolean;
+  deactivating?: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<boolean> | boolean;
+  onDeactivate?: () => void;
+}) {
+  const isLiveAgent = agent.status === "APPROVED" || agent.status === "PAUSED";
+
+  if (isLiveAgent && onDeactivate) {
+    return (
+      <LiveAgentDeleteModal
+        agent={agent}
+        deleting={deleting}
+        deactivating={deactivating}
+        onClose={onClose}
+        onConfirm={onConfirm}
+        onDeactivate={onDeactivate}
+      />
+    );
+  }
+
   const deletable = agentCanBeDeleted(agent);
   const copy = deleteAgentModalCopy(agent);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid={`my-agents-delete-modal-${agent.id}`}>
-      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} />
+      <button type="button" className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" aria-label="Close modal" onClick={onClose} disabled={deleting} />
       <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
         <h2 className="text-lg font-bold text-slate-900">{copy.title}</h2>
         <div className="mt-3 space-y-2 text-sm text-slate-500">
@@ -802,11 +1211,23 @@ function DeleteAgentModal({
           ))}
         </div>
         <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50" data-testid={`my-agents-delete-cancel-${agent.id}`}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={deleting}
+            className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50"
+            data-testid={`my-agents-delete-cancel-${agent.id}`}
+          >
             {deletable ? "Cancel" : "Close"}
           </button>
           {deletable ? (
-            <button type="button" disabled={deleting} onClick={onConfirm} className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50" data-testid={`my-agents-delete-confirm-${agent.id}`}>
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => void onConfirm()}
+              className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              data-testid={`my-agents-delete-confirm-${agent.id}`}
+            >
               {deleting ? "Deleting…" : "Delete agent"}
             </button>
           ) : null}
@@ -910,6 +1331,7 @@ export function MyAgentsView() {
   const [deleteAgent, setDeleteAgent] = useState<ArchitectListing | null>(null);
   const [reactivating, setReactivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Honor a ?filter=live (or status) query so other pages can deep-link here.
@@ -1103,8 +1525,11 @@ export function MyAgentsView() {
     setDeleteAgent(agent);
   }
 
-  async function executeDeleteAgent() {
-    if (!deleteAgent || !agentCanBeDeleted(deleteAgent)) return;
+  async function executeDeleteAgent(): Promise<boolean> {
+    if (!deleteAgent) return false;
+
+    const isLive = deleteAgent.status === "APPROVED" || deleteAgent.status === "PAUSED";
+    if (!isLive && !agentCanBeDeleted(deleteAgent)) return false;
 
     setDeleting(true);
     const result = isWorkflowOnlyDraft(deleteAgent)
@@ -1114,11 +1539,32 @@ export function MyAgentsView() {
 
     if (!result.success) {
       setToast(result.error ?? "Could not delete this agent.");
+      return false;
+    }
+
+    if (!isLive) {
+      setDeleteAgent(null);
+    }
+    setToast(`Deleted “${deleteAgent.name}”.`);
+    await loadAgents();
+    return true;
+  }
+
+  async function executeDeactivateFromDelete() {
+    if (!deleteAgent) return;
+    if (deleteAgent.status === "PAUSED") return;
+
+    setDeactivating(true);
+    const result = await updateArchitectListingStatus(deleteAgent.id, "PAUSED");
+    setDeactivating(false);
+
+    if (!result.success) {
+      setToast(result.error ?? "Could not deactivate this agent.");
       return;
     }
 
     setDeleteAgent(null);
-    setToast(`Deleted “${deleteAgent.name}”.`);
+    setToast(`“${deleteAgent.name}” is deactivated (paused).`);
     await loadAgents();
   }
 
@@ -1379,7 +1825,7 @@ export function MyAgentsView() {
           className="ma-pop fixed z-[60] w-48 rounded-xl border border-gray-100 bg-white py-2 shadow-xl"
           style={{ top: menu.top, left: menu.left }}
         >
-          {menuAgent.status !== "APPROVED" ? (
+          {menuAgent.status !== "APPROVED" && menuAgent.status !== "PENDING_REVIEW" ? (
             <button
               type="button"
               role="menuitem"
@@ -1485,8 +1931,10 @@ export function MyAgentsView() {
         <DeleteAgentModal
           agent={deleteAgent}
           deleting={deleting}
-          onClose={() => !deleting && setDeleteAgent(null)}
-          onConfirm={() => void executeDeleteAgent()}
+          deactivating={deactivating}
+          onClose={() => !deleting && !deactivating && setDeleteAgent(null)}
+          onConfirm={() => executeDeleteAgent()}
+          onDeactivate={() => void executeDeactivateFromDelete()}
         />
       ) : null}
     </div>

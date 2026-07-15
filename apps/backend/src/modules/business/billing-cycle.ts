@@ -345,8 +345,144 @@ async function convertExpiredTrials(now: Date) {
   return { converted, failed };
 }
 
+async function processSubscriptionRenewals(now: Date) {
+  const stripe = getStripeClient();
+  if (!stripe || !isStripeConfigured()) return { renewed: 0, failed: 0 };
+
+  // 30 days ago
+  const cutoff = new Date(now.getTime() - 30 * DAY_MS);
+
+  // Find all succeeded payments for subscription agents.
+  const candidates = await prisma.payment.findMany({
+    where: {
+      status: "SUCCEEDED",
+      listing: {
+        pricingModel: "SUBSCRIPTION"
+      },
+      stripeCustomerId: { not: null },
+      stripePaymentId: { not: null }
+    },
+    include: {
+      listing: {
+        select: {
+          id: true,
+          name: true,
+          priceCents: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  // Group by userId + listingId to find the latest payment for each pair.
+  const latestPayments = new Map<string, typeof candidates[number]>();
+  for (const payment of candidates) {
+    const key = `${payment.userId}::${payment.listingId}`;
+    if (!latestPayments.has(key)) {
+      latestPayments.set(key, payment);
+    }
+  }
+
+  let renewed = 0;
+  let failed = 0;
+
+  for (const payment of latestPayments.values()) {
+    if (!payment.listing || !payment.stripeCustomerId || !payment.stripePaymentId || !payment.listingId) continue;
+
+    // Check if the latest succeeded payment is due for renewal
+    if (payment.createdAt > cutoff) continue;
+
+    // It's due! Charge it.
+    try {
+      const intent = await stripe.paymentIntents.create(
+        {
+          amount: payment.listing.priceCents,
+          currency: "usd",
+          customer: payment.stripeCustomerId,
+          payment_method: payment.stripePaymentId,
+          confirm: true,
+          off_session: true,
+          description: `Monthly renewal for ${payment.listing.name}`,
+          metadata: {
+            userId: payment.userId,
+            listingId: payment.listingId,
+            chargeType: "subscription_renewal",
+            originalPaymentId: payment.id
+          }
+        },
+        { idempotencyKey: `sub-renewal-${payment.id}-${now.toISOString().slice(0, 10)}` }
+      );
+
+      if (intent.status !== "succeeded") throw new Error(`PaymentIntent status ${intent.status}`);
+
+      // Create new succeeded payment
+      await prisma.payment.create({
+        data: {
+          userId: payment.userId,
+          businessId: payment.businessId,
+          listingId: payment.listingId,
+          amountCents: payment.listing.priceCents,
+          currency: "usd",
+          status: "SUCCEEDED",
+          stripeCustomerId: payment.stripeCustomerId,
+          stripePaymentId: payment.stripePaymentId,
+          billingName: payment.billingName,
+          billingEmail: payment.billingEmail,
+          billingAddress: payment.billingAddress,
+          description: `Monthly renewal for ${payment.listing.name}`
+        }
+      });
+
+      renewed += 1;
+    } catch (error) {
+      console.error("[billing-cycle] subscription renewal failed", { paymentId: payment.id, error });
+
+      // Update the previous succeeded payment to CANCELED so access is revoked,
+      // and create a FAILED payment to record the failed charge.
+      await prisma.$transaction([
+        prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: "CANCELED" }
+        }),
+        prisma.payment.create({
+          data: {
+            userId: payment.userId,
+            businessId: payment.businessId,
+            listingId: payment.listingId,
+            amountCents: payment.listing.priceCents,
+            currency: "usd",
+            status: "FAILED",
+            stripeCustomerId: payment.stripeCustomerId,
+            stripePaymentId: payment.stripePaymentId,
+            billingName: payment.billingName,
+            billingEmail: payment.billingEmail,
+            billingAddress: payment.billingAddress,
+            description: `Monthly renewal failed for ${payment.listing.name}`
+          }
+        }),
+        prisma.installedAgent.updateMany({
+          where: {
+            business: { ownerId: payment.userId },
+            listingId: payment.listingId
+          },
+          data: {
+            status: "SUSPENDED_BILLING"
+          }
+        })
+      ]);
+
+      failed += 1;
+    }
+  }
+
+  return { renewed, failed };
+}
+
 export async function runBillingCycle(now = new Date()) {
   const trialConversions = await convertExpiredTrials(now);
+  const subscriptionRenewals = await processSubscriptionRenewals(now);
   const billingMonth = previousMonth(now);
   const businessIds = await prisma.vapiCall.findMany({
     where: { billingMonth, billingRecordedAt: { not: null }, billedCostMicroUsd: { gt: 0 } },
@@ -391,7 +527,7 @@ export async function runBillingCycle(now = new Date()) {
     }
   }
 
-  return { billingMonth, invoicesConsidered: businessIds.length, remindersSent, suspended, trialConversions };
+  return { billingMonth, invoicesConsidered: businessIds.length, remindersSent, suspended, trialConversions, subscriptionRenewals };
 }
 
 let billingTimer: NodeJS.Timeout | null = null;

@@ -433,8 +433,11 @@ export function ConfigurePanel({
       }
 
       if (target === 2) {
-        if (plainTextLength(configure.media.fullDescription) < 100) {
+        const descriptionLength = plainTextLength(configure.media.fullDescription);
+        if (descriptionLength < 100) {
           errors.fullDescription = "Describe your agent in at least 100 characters.";
+        } else if (descriptionLength > 2000) {
+          errors.fullDescription = "Keep the description under 2000 characters.";
         }
       }
 
@@ -937,13 +940,18 @@ export function ConfigurePanel({
                   <span className="text-[13.5px] font-semibold text-slate-700">
                     Full description <span className="text-amber-500">*</span>
                   </span>
-                  <span className="text-xs font-medium text-slate-400">
+                  <span
+                    className={`text-xs font-medium ${
+                      plainTextLength(configure.media.fullDescription) >= 2000 ? "text-red-500" : "text-slate-400"
+                    }`}
+                  >
                     {plainTextLength(configure.media.fullDescription)} / 2000
                   </span>
                 </div>
                 <RichDescriptionEditor
                   value={configure.media.fullDescription}
                   disabled={isLocked}
+                  maxLength={2000}
                   onChange={(fullDescription) => updateMedia({ fullDescription })}
                 />
                 <div className="mt-1.5 flex items-center justify-between">
@@ -1624,11 +1632,13 @@ export function ConfigurePanel({
                     onEdit={() => goToStep(3)}
                     rows={[
                       { label: "Model", value: priceModelLabel },
-                      { label: "Execution fee", value: `$${configure.pricing.executionFee.toFixed(2)} / execution` },
-                      {
-                        label: "Free trial",
-                        value: configure.pricing.freeTrialEnabled ? `${configure.pricing.trialDays}-day trial` : "Off"
-                      }
+                      ...(configure.pricing.pricingModel !== "free" ? [
+                        { label: "Execution fee", value: `$${configure.pricing.executionFee.toFixed(2)} / execution` },
+                        {
+                          label: "Free trial",
+                          value: configure.pricing.freeTrialEnabled ? `${configure.pricing.trialDays}-day trial` : "Off"
+                        }
+                      ] : [])
                     ]}
                   />
                   <ReviewSection

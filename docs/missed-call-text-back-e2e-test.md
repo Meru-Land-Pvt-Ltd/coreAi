@@ -34,8 +34,12 @@ export FRONTEND_URL="http://localhost:3000"
 | `BACKEND_URL` | yes | Public URL Twilio/Vapi post to (must match for signature checks) |
 | `FRONTEND_URL` | yes | Used for OAuth redirects |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | yes (live) | Twilio credentials |
-| `TWILIO_PHONE_NUMBER` **or** `TWILIO_MESSAGING_SERVICE_SID` | yes (live) | SMS sender fallback |
-| `TWILIO_TEST_MODE` | optional | `true` uses Twilio magic test numbers (no real SMS) |
+| `TWILIO_MESSAGING_SERVICE_SID` | yes (live SMS) | The ONE global Messaging Service every outbound SMS goes through |
+| `TWILIO_SHARED_SMS_NUMBER` | yes (live SMS) | Shared Triven sender (reserved; never assigned to a buyer) |
+| `TWILIO_SMS_STATUS_CALLBACK_URL` | optional | Delivery-status callback; defaults to `${BACKEND_URL}/architect/connectors/twilio/message-status` |
+| `TWILIO_SMS_MODE` | optional | `SIMULATED` (no Twilio request) \| `TWILIO_TEST_CREDENTIALS` (test account, magic numbers) \| `LIVE` |
+| `TWILIO_TEST_ACCOUNT_SID` / `TWILIO_TEST_AUTH_TOKEN` | test mode only | Twilio TEST credentials for `TWILIO_TEST_CREDENTIALS` mode |
+| `TWILIO_TEST_MODE` | deprecated | `true` maps to `TWILIO_SMS_MODE=SIMULATED` |
 | `TWILIO_VALIDATE_SIGNATURE` | optional | `true` enforces `X-Twilio-Signature` (enable in prod) |
 | `TWILIO_FORWARD_TO_PHONE` | optional | Global fallback forward number |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | yes (booking) | Google OAuth (Gmail + Calendar scope) |
@@ -44,7 +48,7 @@ export FRONTEND_URL="http://localhost:3000"
 | `VAPI_DEFAULT_ASSISTANT_ID` / `VAPI_DEFAULT_PHONE_NUMBER_ID` | optional | Per-business overrides win; env is the default |
 | `GOOGLE_CALENDAR_DEFAULT_TIMEZONE` | optional | Defaults to `America/New_York` |
 
-For a no-cost local run set `TWILIO_TEST_MODE=true` and leave `TWILIO_VALIDATE_SIGNATURE` unset.
+For a no-cost local run set `TWILIO_SMS_MODE=SIMULATED` and leave `TWILIO_VALIDATE_SIGNATURE` unset.
 
 ---
 

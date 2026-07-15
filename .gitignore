@@ -12,3 +12,11 @@ service-account*.json
 serviceAccount*.json
 firebase-admin*.json
 *-firebase-adminsdk-*.json
+
+# Local Claude Code settings can accumulate tokens in allowed commands — keep untracked.
+.claude/settings.local.json
+
+# Generated build/model caches (some are still git-tracked; untrack with
+# `git rm --cached <file>` in a dedicated commit if desired).
+*.tsbuildinfo
+.model-cache.json

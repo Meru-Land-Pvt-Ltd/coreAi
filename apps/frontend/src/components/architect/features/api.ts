@@ -9,6 +9,7 @@ import type {
   ArchitectTestDeploymentInput,
   ArchitectTestDeploymentStatus,
   ArchitectWorkflow,
+  ArchitectVapiBrowserTestCallEndReason,
   ArchitectVapiBrowserTestSession,
   GmailConnectorStatus,
   WorkflowRunResult,
@@ -626,6 +627,13 @@ export function startArchitectVapiBrowserTest(
   return apiPost<{ session: ArchitectVapiBrowserTestSession }>(
     `/architect/workflows/${workflowId}/vapi-browser-test/start`,
     body
+  );
+}
+
+/** Fetch the real Vapi endedReason for a finished browser-test call. */
+export function getArchitectVapiBrowserTestCallEndReason(callId: string) {
+  return apiGet<{ endReason: ArchitectVapiBrowserTestCallEndReason }>(
+    `/architect/vapi-browser-test/calls/${encodeURIComponent(callId)}/end-reason`
   );
 }
 

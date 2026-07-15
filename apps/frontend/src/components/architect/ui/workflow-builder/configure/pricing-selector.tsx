@@ -68,7 +68,7 @@ export function PricingSelector({
                 data-testid={model.testId}
                 aria-pressed={active}
                 disabled={disabled}
-                onClick={() => onChange({ pricingModel: model.key })}
+                onClick={() => onChange({ pricingModel: model.key, ...(model.key === "free" ? { freeTrialEnabled: false } : {}) })}
                 className={
                   active
                     ? "relative rounded-2xl border-2 border-amber-400 bg-amber-50/50 px-4 py-4 text-left shadow-[0_12px_30px_-10px_rgba(245,158,11,.45)] transition-all disabled:opacity-60"
@@ -149,6 +149,7 @@ export function PricingSelector({
         </div>
       ) : null}
 
+      {!isFree ? (
       <div className="rounded-2xl border border-gray-100 bg-gray-50/40 p-5">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -204,7 +205,9 @@ export function PricingSelector({
           </div>
         ) : null}
       </div>
+      ) : null}
 
+      {!isFree ? (
       <div
         className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 p-6 text-white shadow-xl sm:p-7"
         data-testid="configure-revenue-preview"
@@ -236,13 +239,18 @@ export function PricingSelector({
                 </span>{" "}
                 installs, you&apos;d earn
               </p>
-              <p className="mt-1 text-[44px] font-extrabold leading-none tracking-tight sm:text-[52px]">
+              <p className="mt-1 flex items-baseline gap-2">
                 <span
-                  className="bg-gradient-to-r from-amber-300 to-amber-500 bg-clip-text text-transparent"
+                  className="bg-gradient-to-r from-amber-300 to-amber-500 bg-clip-text text-transparent text-[44px] font-extrabold leading-none tracking-tight sm:text-[52px]"
                   data-testid="configure-revenue-earnings"
                 >
                   {formatMoney(architectEarnings)}
                 </span>
+                {pricing.pricingModel === "subscription" ? (
+                  <span className="text-sm font-bold text-slate-400 uppercase tracking-wide">
+                    / month
+                  </span>
+                ) : null}
               </p>
             </div>
             <div className="text-right">
@@ -283,6 +291,7 @@ export function PricingSelector({
           </div>
         </div>
       </div>
+      ) : null}
     </div>
   );
 }

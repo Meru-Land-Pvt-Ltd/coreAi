@@ -47,6 +47,8 @@ export type ArchitectListing = {
   shortDescription: string;
   description: string | null;
   priceCents: number;
+  /** Billing model stored in the DB: FREE | ONE_TIME | SUBSCRIPTION */
+  pricingModel?: "FREE" | "ONE_TIME" | "SUBSCRIPTION" | null;
   status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
   tags: string[];
   requiredConnectors: string[];
@@ -183,6 +185,18 @@ export type ArchitectVapiBrowserTestSession = {
   voiceId: string | null;
   transcriber: string;
   dryRun: true;
+  /** {{variables}} nothing could fill — stripped before the prompt reached Vapi. */
+  unresolvedVariables?: string[];
+  /** Set when the requested LLM could not be deployed as asked (e.g. Anthropic unavailable). */
+  modelNotice?: string | null;
+};
+
+export type ArchitectVapiBrowserTestCallEndReason = {
+  callId: string;
+  status: string | null;
+  endedReason: string | null;
+  /** Human-readable, secret-free explanation of why the call ended. */
+  message: string | null;
 };
 
 export type ArchitectTestDeploymentStatus = {

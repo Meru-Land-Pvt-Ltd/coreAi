@@ -29,6 +29,23 @@ export function normalizeE164(raw: string): string {
   return `+${digits}`;
 }
 
+/* ----------------------------- A2P / compliance ---------------------------- */
+
+/**
+ * Canonical A2P 10DLC registration states. Twilio's IncomingPhoneNumbers API
+ * (the only one this service currently calls) does NOT report campaign
+ * registration, so numbers stay UNKNOWN/PENDING until the status is confirmed
+ * in the Twilio Console (Messaging → Regulatory Compliance) or a Messaging
+ * Compliance API sync is added. Statuses are never faked as REGISTERED.
+ */
+export const A2P_STATUS_VALUES = ["UNKNOWN", "UNREGISTERED", "PENDING", "REGISTERED", "FAILED"] as const;
+export type A2pStatus = (typeof A2P_STATUS_VALUES)[number];
+
+export function normalizeA2pStatus(raw: string | null | undefined): A2pStatus {
+  const value = (raw ?? "").trim().toUpperCase();
+  return (A2P_STATUS_VALUES as readonly string[]).includes(value) ? (value as A2pStatus) : "UNKNOWN";
+}
+
 /* ------------------------------- env guards ------------------------------- */
 
 export type BackendUrlCheck = { ok: boolean; url: string; error?: string };
@@ -546,6 +563,10 @@ export type SyncResult = {
 export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promise<SyncResult> {
   const webhookCheck = validateBackendUrl();
   const expectedVoiceUrl = webhookCheck.ok ? `${webhookCheck.url}${VOICE_WEBHOOK_PATH}` : null;
+  const expectedSmsUrl = webhookCheck.ok ? `${webhookCheck.url}${SMS_WEBHOOK_PATH}` : null;
+  // Only the configured shared Triven sender is flagged — never every
+  // SMS-capable number.
+  const sharedSmsSender = normalizeE164(env.TWILIO_SHARED_SMS_NUMBER ?? "");
 
   const twilioNumbers: TwilioIncomingNumber[] = [];
   let page = await twilioApiRequest<{ incoming_phone_numbers?: TwilioIncomingNumber[]; next_page_uri?: string | null }>(
@@ -577,12 +598,17 @@ export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promis
     seenSids.add(item.sid);
 
     const caps = capabilityFlags(item.capabilities);
+    // CONFIGURED requires BOTH webhooks to match — a voice-only match must not
+    // read as fully configured.
+    const voiceMatches = Boolean(item.voice_url && expectedVoiceUrl && item.voice_url === expectedVoiceUrl);
+    const smsMatches = Boolean(item.sms_url && expectedSmsUrl && item.sms_url === expectedSmsUrl);
     const webhookStatus =
-      item.voice_url && expectedVoiceUrl && item.voice_url === expectedVoiceUrl
+      voiceMatches && smsMatches
         ? ("CONFIGURED" as const)
-        : item.voice_url
+        : item.voice_url || item.sms_url
           ? ("UNKNOWN" as const)
           : ("MISSING" as const);
+    const isSharedSmsSender = Boolean(sharedSmsSender && e164 === sharedSmsSender);
 
     const existing = await prisma.platformPhoneNumber.findFirst({
       where: { OR: [{ twilioSid: item.sid }, { phoneNumber: e164 }, { e164 }] }
@@ -624,6 +650,9 @@ export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promis
             voiceWebhookUrl: item.voice_url ?? null,
             smsWebhookUrl: item.sms_url ?? null,
             webhookStatus,
+            // Set (never cleared) only for the configured shared sender —
+            // un-flagging a reserved number stays an explicit admin action.
+            ...(isSharedSmsSender ? { isPlatformSmsSender: true } : {}),
             lastSyncedAt: new Date()
           }
         });
@@ -646,6 +675,7 @@ export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promis
             voiceWebhookUrl: item.voice_url ?? null,
             smsWebhookUrl: item.sms_url ?? null,
             webhookStatus,
+            isPlatformSmsSender: isSharedSmsSender,
             lastSyncedAt: new Date()
           }
         });

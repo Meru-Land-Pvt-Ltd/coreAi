@@ -9,6 +9,7 @@ import {
 } from "../../lib/email-otp";
 import { createAuthToken, verifyAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { prisma } from "../../lib/prisma";
+import { getStripe, isBillingEnabled } from "../../lib/stripe";
 import { serializeActiveSession, serializeLoginHistory } from "../../lib/user-session";
 
 export const businessSettingsRoutes = new Hono();
@@ -606,4 +607,76 @@ businessSettingsRoutes.get("/login-history", async (c) => {
       totalPages: Math.max(1, Math.ceil(total / perPage))
     }
   });
+});
+const deleteAccountSchema = z.object({
+  confirmation: z.string().trim()
+});
+
+businessSettingsRoutes.post("/danger/delete-account", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = deleteAccountSchema.parse(await c.req.json().catch(() => ({})));
+
+    if (input.confirmation !== "DELETE") {
+      return errorResponse(c, "Type DELETE to confirm.", 422, "CONFIRMATION_REQUIRED");
+    }
+
+    const businesses = await prisma.business.findMany({
+      where: { ownerId: authUser.id },
+      select: { id: true, stripeSubscriptionId: true }
+    });
+    const businessIds = businesses.map((business) => business.id);
+
+    // Cancel live Stripe subscriptions so the buyer is never billed again.
+    // Best-effort: a Stripe hiccup must not leave the account undeletable.
+    for (const business of businesses) {
+      if (!business.stripeSubscriptionId) continue;
+      try {
+        if (isBillingEnabled()) {
+          await getStripe().subscriptions.cancel(business.stripeSubscriptionId);
+        }
+      } catch (error) {
+        console.error("[delete-account] Stripe cancel failed (continuing)", {
+          businessId: business.id,
+          error: error instanceof Error ? error.message : error
+        });
+      }
+    }
+
+    // Release the buyer's dedicated numbers back to inventory. The reserved
+    // shared SMS sender can never be assigned, so it is never touched here.
+    await prisma.platformPhoneNumber.updateMany({
+      where: {
+        status: "ASSIGNED",
+        OR: [
+          ...(businessIds.length ? [{ businessId: { in: businessIds } }] : []),
+          { buyerUserId: authUser.id }
+        ]
+      },
+      data: {
+        status: "AVAILABLE",
+        businessId: null,
+        buyerUserId: null,
+        installedAgentId: null,
+        assignedAt: null,
+        feeBilledAt: null
+      }
+    });
+
+    // Hard delete — cascades erase every business-owned record.
+    await prisma.user.delete({ where: { id: authUser.id } });
+
+    console.log("[delete-account] business account deleted", {
+      userId: authUser.id,
+      businesses: businessIds.length
+    });
+
+    return successResponse(c, { deleted: true }, "Account deleted");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid request", 422, "VALIDATION_ERROR");
+    }
+    console.error("[delete-account] failed", error);
+    return errorResponse(c, "Could not delete account", 500, "DELETE_ACCOUNT_FAILED");
+  }
 });

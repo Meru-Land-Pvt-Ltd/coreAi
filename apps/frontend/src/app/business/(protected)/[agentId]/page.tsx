@@ -135,6 +135,9 @@ type ListingAccess = {
   trialUsed: boolean;
   amountCents: number;
   purchaseStatus: string | null;
+  pricingModel?: string | null;
+  freeTrialEnabled?: boolean | null;
+  trialDays?: number | null;
 };
 
 type ListingApiResponse = {
@@ -494,7 +497,11 @@ export default function BusinessAgentDetailPage() {
     listing?.architect?.email ||
     "Core AI Architect";
 
-  const canStartTrial = listingAccess?.canStartTrial ?? true;
+  const pricingModel = listingAccess?.pricingModel ?? "subscription";
+  const freeTrialEnabled = listingAccess?.freeTrialEnabled ?? true;
+  const trialDays = listingAccess?.trialDays ?? 7;
+
+  const canStartTrial = pricingModel !== "FREE" && freeTrialEnabled && (listingAccess?.canStartTrial ?? true);
   const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
   const shouldPayNow = listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false;
 
@@ -505,7 +512,9 @@ export default function BusinessAgentDetailPage() {
     ? "Manage agent"
     : shouldPayNow
       ? `Pay $${price}`
-      : "Start 7-Day Free Trial";
+      : pricingModel === "FREE"
+        ? "Install Agent"
+        : `Start ${trialDays}-Day Free Trial`;
 
   const primaryCtaHref = hasActiveAccess ? managePath : checkoutPath;
   const primaryCtaTestId = hasActiveAccess
@@ -637,21 +646,35 @@ export default function BusinessAgentDetailPage() {
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
                 {canStartTrial ? (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
-                    ⚡ $0 for the first 7 days
+                    ⚡ $0 for the first {trialDays} days
                   </span>
                 ) : null}
 
                 <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
-                  <span className="text-lg font-medium text-slate-500">/month</span>
+                  {pricingModel === "FREE" ? (
+                    <span className="text-4xl font-extrabold tracking-tight text-slate-900">Free</span>
+                  ) : (
+                    <>
+                      <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
+                      {pricingModel === "SUBSCRIPTION" ? (
+                        <span className="text-lg font-medium text-slate-500">
+                          /month
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </div>
 
                 <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
-                  {canStartTrial
-                    ? "per business location · billed after your free trial"
-                    : shouldPayNow
-                      ? "per business location · one-time purchase"
-                      : "per business location · active on your account"}
+                  {pricingModel === "FREE" ? (
+                    hasActiveAccess ? "free agent · active on your account" : "free agent · get access instantly"
+                  ) : (
+                    canStartTrial
+                      ? "per business location · billed after your free trial"
+                      : shouldPayNow
+                        ? "per business location · one-time purchase"
+                        : "per business location · active on your account"
+                  )}
                 </p>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -669,14 +692,14 @@ export default function BusinessAgentDetailPage() {
 
                 {canStartTrial ? (
                   <p className="mt-3 text-xs text-slate-500">
-                    No credit card required to start. ${price}/month after trial.
+                    No credit card required to start. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
                   </p>
                 ) : null}
               </div>
 
               {canStartTrial ? (
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
-                {["7-day free trial", "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
+                {[`${trialDays}-day free trial`, "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
                   <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
                     <CheckIcon className="h-4 w-4 text-emerald-500" />
                     {item}
@@ -810,7 +833,7 @@ export default function BusinessAgentDetailPage() {
             </div>
             {canStartTrial ? (
             <p className="mt-5 text-sm text-slate-500">
-              No credit card required. ${price}/month after trial.
+              No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
             </p>
             ) : null}
           </div>

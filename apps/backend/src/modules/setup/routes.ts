@@ -6,7 +6,8 @@ import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
-import { sendTwilioSms } from "../architect/twilio-connector";
+import { resolveTwilioSmsMode, sendTwilioSms, validateSmsRecipientE164 } from "../architect/twilio-connector";
+import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { claimAvailableInventoryNumber } from "../business/phone-provisioning";
 import {
   RECEPTIONIST_WORKFLOW_DESCRIPTION,
@@ -276,6 +277,8 @@ async function persistVerifiedPhone(opts: {
   const alreadyAllotted = await prisma.platformPhoneNumber.findFirst({
     where: {
       status: "ASSIGNED",
+      // Never adopt the reserved shared Triven SMS sender as a buyer number.
+      isPlatformSmsSender: false,
       OR: [
         { businessId: opts.businessId },
         ...(business ? [{ businessId: null, buyerUserId: business.ownerId }] : [])
@@ -650,40 +653,70 @@ setupRoutes.post("/test-sms", async (c) => {
   const agent = business?.installedAgents?.[0] ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
   const { setup } = readSetupConfig(agent?.configJson);
-  const to = (setup.verifiedPhone as string | undefined) || phone?.forwardToPhone;
+  const storedTo = (setup.verifiedPhone as string | undefined) || phone?.forwardToPhone;
 
-  if (!to) {
+  if (!storedTo) {
     return errorResponse(c, "Verify your phone number first.", 400, "PHONE_NOT_VERIFIED");
   }
 
+  // Explicit E.164 only — an ambiguous stored number (no country code) is
+  // rejected with a clear message rather than guessed.
+  const recipient = validateSmsRecipientE164(storedTo);
+  if (!recipient.ok) {
+    return errorResponse(c, recipient.error, 422, "INVALID_PHONE_NUMBER");
+  }
+  const to = recipient.e164;
+
   const message =
     (setup.message as string | undefined) ||
-    `Hi! Sorry we missed your call at ${business?.name || "our office"}. Reply YES and we'll get you scheduled right away.`;
+    `Hi! Sorry we missed your call at ${business?.name || "our office"}. ${
+      phone?.phoneNumber ? `Call us back at ${phone.phoneNumber}. ` : ""
+    }Reply STOP to opt out.`;
 
-  try {
-    await sendTwilioSms({
-      to,
-      body: message,
-      fromPhoneNumber: phone?.phoneNumber ?? null
-    });
+  // Sent through the shared Triven Messaging Service and tracked as an
+  // SmsExecution. A Twilio failure is a failure — the SIMULATED /
+  // TWILIO_TEST_CREDENTIALS / LIVE mode is explicit (TWILIO_SMS_MODE), and the
+  // agent is marked tested only when the request was accepted or explicitly
+  // simulated.
+  const outcome = await sendTrackedSms({
+    to,
+    body: message,
+    messageType: "TEST_SMS",
+    businessId: business?.id ?? null,
+    installedAgentId: agent?.id ?? null
+  });
 
-    if (agent) {
-      await mergeAgentSetup(agent.id, { tested: true });
-    }
-
-    return successResponse(c, { sent: true }, "Test message sent");
-  } catch (error) {
-    if (!isProduction) {
-      if (agent) await mergeAgentSetup(agent.id, { tested: true });
-      return successResponse(c, { sent: false }, "Test simulated (dev)");
-    }
-    return errorResponse(
-      c,
-      error instanceof Error ? error.message : "Could not send test message",
-      500,
-      "TEST_SMS_FAILED"
-    );
+  if (!outcome.sent) {
+    return errorResponse(c, outcome.error ?? "Could not send test message", 500, "TEST_SMS_FAILED");
   }
+
+  if (agent) {
+    await mergeAgentSetup(agent.id, { tested: true });
+  }
+
+  const mode = resolveTwilioSmsMode();
+  const simulated = mode === "SIMULATED";
+  return successResponse(
+    c,
+    {
+      // "sent" = Twilio accepted a real API request (test credentials never deliver).
+      sent: !simulated,
+      simulated,
+      testCredentials: mode === "TWILIO_TEST_CREDENTIALS",
+      mode,
+      messageSid: outcome.messageSid ?? undefined,
+      status: outcome.status ?? undefined,
+      messagingServiceSid: outcome.messagingServiceSid ?? undefined,
+      from: outcome.from ?? undefined,
+      to,
+      executionId: outcome.executionId ?? undefined
+    },
+    simulated
+      ? "Test SMS simulated (no Twilio request)"
+      : mode === "TWILIO_TEST_CREDENTIALS"
+        ? "Test SMS accepted with Twilio test credentials (not delivered)"
+        : "Test message sent"
+  );
 });
 
 // ---------------------------------------------------------------------------

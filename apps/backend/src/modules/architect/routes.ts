@@ -13,6 +13,7 @@ import {
 } from "./gmail-connector";
 import {
   handleTwilioInboundSms,
+  handleTwilioMessageStatus,
   handleTwilioMissedCall,
   handleTwilioVoice,
   handleTwilioVoiceAction,
@@ -53,7 +54,7 @@ import {
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
-import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
+import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
@@ -98,6 +99,8 @@ architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction)
 architectRoutes.post("/connectors/twilio/voice-action/:workflowId", handleTwilioVoiceAction);
 architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
+// SMS delivery-status callback (https://triven.ai/api/architect/connectors/twilio/message-status).
+architectRoutes.post("/connectors/twilio/message-status", handleTwilioMessageStatus);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
 // Stripe signs this public Connect webhook; it must be registered before auth.
@@ -1499,6 +1502,22 @@ architectRoutes.post("/workflows/:workflowId/vapi-browser-test/start", async (c)
   }
 });
 
+architectRoutes.get("/vapi-browser-test/calls/:callId/end-reason", async (c) => {
+  const authUser = c.get("authUser");
+  const callId = c.req.param("callId");
+
+  if (!callId) {
+    return errorResponse(c, "Call id is required", 422, "CALL_ID_REQUIRED");
+  }
+
+  try {
+    const endReason = await getArchitectVapiBrowserTestCallEndReason(authUser.id, callId);
+    return successResponse(c, { endReason }, "Call end reason");
+  } catch (error) {
+    return handleTestDeploymentError(c, error);
+  }
+});
+
 architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
   try {
     const authUser = c.get("authUser");
@@ -2014,7 +2033,7 @@ const architectListingStatusTransitions: Partial<
   PAUSED: ["APPROVED"]
 };
 
-const DELETABLE_LISTING_STATUSES = ["DRAFT", "REJECTED"] as const;
+const DELETABLE_LISTING_STATUSES = ["DRAFT", "REJECTED", "PENDING_REVIEW", "APPROVED", "PAUSED"] as const;
 
 architectRoutes.delete("/listings/:listingId", async (c) => {
   const authUser = c.get("authUser");

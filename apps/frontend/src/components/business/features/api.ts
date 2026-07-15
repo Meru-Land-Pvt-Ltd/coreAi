@@ -230,6 +230,26 @@ export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPh
   return apiPost<CallRoutingResult>("/business/setup/test-call-routing", body);
 }
 
+/** Result of a test SMS sent through the shared Triven Messaging Service. */
+export type TestSmsResult = {
+  sent: boolean;
+  simulated: boolean;
+  /** True when Twilio test credentials were used — accepted, never delivered. */
+  testCredentials?: boolean;
+  mode?: "SIMULATED" | "TWILIO_TEST_CREDENTIALS" | "LIVE";
+  messageSid: string | null;
+  status: string | null;
+  messagingServiceSid: string | null;
+  from: string | null;
+  to: string;
+  executionId: string | null;
+};
+
+/** Send one appointment-style test SMS to a consented E.164 number (Step 4). */
+export function sendBusinessTestSms(body: { to: string }) {
+  return apiPost<TestSmsResult>("/business/setup/test-sms", body);
+}
+
 /* ---- Mail Setup (proxy email alias on reply.triven.ai) ---- */
 
 export type BusinessEmailAliasData = {
@@ -277,6 +297,27 @@ export function saveBusinessMailSetup(body: MailSetupInput) {
 
 export function sendMailSetupTestEmail(to?: string) {
   return apiPost<{ messageId: string; dryRun: boolean }>("/business/mail-setup/test-email", to ? { to } : {});
+}
+
+/** Permanently delete the buyer account and all business data (server-side). */
+export function deleteBusinessAccount(confirmation: string) {
+  return apiPost<{ deleted: boolean }>("/business/settings/danger/delete-account", { confirmation });
+}
+
+/** Pause a deployed agent — it stops responding on its number until resumed. */
+export function pauseInstalledAgent(installedAgentId: string) {
+  return apiPost<{ installedAgentId: string; status: string }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/pause`,
+    {}
+  );
+}
+
+/** Resume a paused agent. */
+export function resumeInstalledAgent(installedAgentId: string) {
+  return apiPost<{ installedAgentId: string; status: string }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/resume`,
+    {}
+  );
 }
 
 export function getBusinessCalendarStatus() {

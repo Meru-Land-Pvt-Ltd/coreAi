@@ -8,8 +8,10 @@ import {
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import {
+  LIVE_VAPI_RUNTIME_VARIABLES,
   buildAgentFirstMessage,
   buildAgentSystemPrompt,
+  fillPromptTemplateTokens,
   resolveAssistantName,
   resolveNodeTemplateVariables,
   resolveBusinessName,
@@ -341,6 +343,29 @@ export async function deployInstalledAgentVoiceAssistant(
   const customFields = readCustomFields(installedAgent.configJson);
   const bookingLabel = readBookingLabel(installedAgent.configJson);
 
+  // Architect-written {{variables}} (any spelling — {{business.name}},
+  // {{Business Name}}, {{business_name}}…): fill what is known at deploy
+  // time, rewrite live runtime variables to Vapi's exact names, and strip the
+  // rest so unknown Liquid can never blank text or break a live call.
+  const deployTokenValues: Record<string, string> = {
+    assistantName,
+    businessName,
+    businessType,
+    contactName,
+    services: services.join(", "),
+    servicesList: services.join(", "),
+    businessHours,
+    bookingLabel: bookingLabel ?? "appointment",
+    calendarId: cleanString(business.profile?.calendarId) || "primary",
+    teamPhone: cleanString(business.profile?.teamPhone) ?? "",
+    bookingUrl: cleanString(business.profile?.bookingUrl) ?? ""
+  };
+  const fillDeployTemplate = (text: string): string =>
+    fillPromptTemplateTokens(text, deployTokenValues, {
+      runtimeVariables: LIVE_VAPI_RUNTIME_VARIABLES,
+      stripUnresolved: true
+    });
+
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
     businessName,
@@ -366,9 +391,11 @@ export async function deployInstalledAgentVoiceAssistant(
       canEmail: capabilities.canEmail
     },
     nodeInstructions: nodeInstructions
-      ? sanitizeLegacyFallbacks(
-          resolveNodeTemplateVariables(nodeInstructions, installedAgent.workflow.workflowJson, { assistantName, businessName }),
-          { assistantName, businessName }
+      ? fillDeployTemplate(
+          sanitizeLegacyFallbacks(
+            resolveNodeTemplateVariables(nodeInstructions, installedAgent.workflow.workflowJson, { assistantName, businessName }),
+            { assistantName, businessName }
+          )
         )
       : undefined,
     bookingLabel,
@@ -380,9 +407,11 @@ export async function deployInstalledAgentVoiceAssistant(
     assistantName,
     businessName,
     customFirstMessage: buyer.firstMessage
-      ? sanitizeLegacyFallbacks(
-          resolveNodeTemplateVariables(buyer.firstMessage, installedAgent.workflow.workflowJson, { assistantName, businessName }),
-          { assistantName, businessName }
+      ? fillDeployTemplate(
+          sanitizeLegacyFallbacks(
+            resolveNodeTemplateVariables(buyer.firstMessage, installedAgent.workflow.workflowJson, { assistantName, businessName }),
+            { assistantName, businessName }
+          )
         )
       : undefined
   });

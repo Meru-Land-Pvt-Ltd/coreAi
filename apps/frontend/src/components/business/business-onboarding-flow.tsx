@@ -70,6 +70,7 @@ type RecommendedAgent = {
   name: string;
   description: string;
   priceCents: number;
+  pricingModel: string;
   rating: number;
   installCount: number;
   matchedChallenges: string[];
@@ -122,6 +123,30 @@ const ONBOARDING_STYLES = `
 
 function formatPrice(cents: number) {
   return `$${(cents / 100).toFixed(0)}`;
+}
+
+function renderPriceTag(agent: RecommendedAgent) {
+  const model = (agent.pricingModel ?? "subscription").toLowerCase();
+  if (model === "free") {
+    return (
+      <span className="ml-auto font-mono text-lg font-bold text-green-600">Free</span>
+    );
+  }
+  if (model === "one_time" || model === "one-time" || model === "onetime") {
+    return (
+      <span className="ml-auto text-right">
+        <span className="font-mono text-lg font-bold text-slate-900">{formatPrice(agent.priceCents)}</span>
+        <span className="block text-[10px] font-normal text-slate-400 leading-none">one-time</span>
+      </span>
+    );
+  }
+  // default: subscription / monthly
+  return (
+    <span className="ml-auto font-mono text-lg font-bold text-slate-900">
+      {formatPrice(agent.priceCents)}
+      <span className="text-xs font-normal text-slate-400">/mo</span>
+    </span>
+  );
 }
 
 function greetingName(displayName: string) {
@@ -718,10 +743,7 @@ export function BusinessOnboardingFlow() {
                             <span className="text-amber-500">★</span>
                             <span className="font-medium text-slate-700">{agent.rating.toFixed(1)}</span>
                             <span>({agent.installCount} installs)</span>
-                            <span className="ml-auto font-mono text-lg font-bold text-slate-900">
-                              {formatPrice(agent.priceCents)}
-                              <span className="text-xs font-normal text-slate-400">/mo</span>
-                            </span>
+                            {renderPriceTag(agent)}
                           </div>
                           <p className="mt-2 line-clamp-3 text-sm text-slate-600">{agent.description}</p>
                           <button

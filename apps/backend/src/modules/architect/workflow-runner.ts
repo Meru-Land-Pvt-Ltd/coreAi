@@ -1,7 +1,16 @@
 import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
-import { sendTwilioSms } from "./twilio-connector";
+import { sendTrackedSms } from "../notifications/sms-notification-service";
+import {
+  extractSendEmailNodeConfig,
+  fillEmailTemplate,
+  resolveVariableRecipient,
+  sanitizeOutboundHtml,
+  type EmailTemplateVariables
+} from "../email/email-node-config";
+import { enqueueEmail } from "../email/email-queue";
+import { TEAM_RECIPIENT } from "../email/ses-mail-service";
 import {
   createGmailDraft,
   readGmailEmail,
@@ -233,11 +242,14 @@ type RunnerContext = {
   };
   sentSms?: {
     id: string | null;
+    messageSid?: string | null;
     to: string;
     body: string;
     mode: WorkflowRunMode;
     providerCalled: boolean;
     twilioTestMode: boolean;
+    executionId?: string | null;
+    status?: string | null;
   };
   queuedSms?: {
     to: string;
@@ -840,24 +852,47 @@ async function runSmsConnectorNode({
   }
 
   if (mode === "live") {
-    const sentSms = await sendTwilioSms({
+    const outcome = await sendTrackedSms({
       to: actionTo,
       body: actionBody,
-      fromPhoneNumber: context.business?.phoneNumber
+      messageType: "MISSED_CALL_TEXT_BACK",
+      businessId: context.business?.id ?? null,
+      installedAgentId: context.installedAgentId ?? null
     });
 
+    if (!outcome.sent) {
+      context.sentSms = {
+        id: null,
+        to: actionTo,
+        body: actionBody,
+        mode,
+        providerCalled: outcome.attempted,
+        twilioTestMode: false,
+        executionId: outcome.executionId
+      };
+      logs.push(createLog(node, "error", `Twilio SMS failed: ${outcome.error ?? "unknown error"}`, context.sentSms));
+      return;
+    }
+
     context.sentSms = {
-      ...sentSms,
-      mode
+      id: outcome.messageSid,
+      messageSid: outcome.messageSid,
+      to: actionTo,
+      body: actionBody,
+      mode,
+      providerCalled: !outcome.simulated,
+      twilioTestMode: outcome.simulated,
+      executionId: outcome.executionId,
+      status: outcome.status
     };
 
     logs.push(
       createLog(
         node,
         "success",
-        sentSms.twilioTestMode
-          ? "Twilio test credentials accepted the SMS request. No real SMS was delivered."
-          : "Twilio SMS sent successfully.",
+        outcome.simulated
+          ? "Twilio test mode accepted the SMS request. No real SMS was delivered."
+          : "Twilio SMS sent through the shared Triven Messaging Service.",
         context.sentSms
       )
     );
@@ -1505,6 +1540,163 @@ async function runCoreConnectorNode({
   logs.push(createLog(node, "error", `CoreAI action "${action}" is not executable yet.`));
 }
 
+/** "Jul 14, 2026" + "3:00 PM" parts for email templates, in the business zone. */
+function emailDateParts(iso: string, timeZone?: string): { date: string; time: string } {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return { date: "", time: "" };
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  try {
+    return {
+      date: parsed.toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", year: "numeric" }),
+      time: parsed.toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" })
+    };
+  } catch {
+    return { date: parsed.toDateString(), time: "" };
+  }
+}
+
+async function runEmailConnectorNode({
+  node,
+  context,
+  logs,
+  mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  // Reuse the live path's validation by wrapping this one node as a graph.
+  const emailConfig = extractSendEmailNodeConfig({ nodes: [node] });
+  if (!emailConfig) {
+    logs.push(createLog(node, "error", "Send Email node configuration could not be read."));
+    return;
+  }
+
+  const business = context.business;
+  const appointmentIso =
+    context.calendarAppointment?.startAt || asString(context.appointmentStartAt) || "";
+  const when = appointmentIso ? emailDateParts(appointmentIso, business?.timeZone) : { date: "", time: "" };
+
+  const templateVars: EmailTemplateVariables = {
+    customerName: context.caller_name ?? "",
+    customerEmail: "",
+    businessName: business?.name ?? "",
+    appointmentDate: when.date,
+    appointmentTime: when.time,
+    businessPhone: business?.phoneNumber ?? business?.teamPhone ?? "",
+    businessAddress: "",
+    callSummary: "",
+    serviceName: asString(context.appointmentService) || context.calendarAppointment?.summary || ""
+  };
+
+  const subject =
+    fillEmailTemplate(emailConfig.subjectTemplate, templateVars) ||
+    `Message from ${business?.name ?? "your business"}`;
+  const textBody = fillEmailTemplate(emailConfig.bodyTemplate, templateVars);
+
+  if (mode !== "live") {
+    const recipientPreview =
+      emailConfig.recipientType === "team"
+        ? "Business team (Mail Setup forwarding address)"
+        : emailConfig.recipientType === "custom"
+          ? emailConfig.customRecipient || "(no valid custom recipient configured)"
+          : emailConfig.recipientType === "variable"
+            ? resolveVariableRecipient(emailConfig.recipientVariable, templateVars) ??
+              `{{${emailConfig.recipientVariable || "customer.email"}}} (resolved during the live call)`
+            : "Customer email (captured during the live call)";
+
+    context.sentEmail = {
+      id: null,
+      to: recipientPreview,
+      subject,
+      body: textBody || "(body template is empty — the standard confirmation copy is used live)"
+    };
+
+    logs.push(
+      createLog(node, "success", "Dry run passed. Email would be sent from the business's Triven proxy address — no email was sent.", {
+        recipientType: emailConfig.recipientType,
+        to: recipientPreview,
+        ...(emailConfig.cc.length ? { cc: emailConfig.cc } : {}),
+        ...(emailConfig.bcc.length ? { bcc: emailConfig.bcc } : {}),
+        subject,
+        bodyPreview: textBody.slice(0, 400),
+        purpose: emailConfig.purpose
+      })
+    );
+    return;
+  }
+
+  // Live runner flow (e.g. missed-call workflows) — real send via the alias.
+  if (!business?.id) {
+    logs.push(
+      createLog(node, "error", "Email failed because this run has no business context. Deploy the agent to a business with Mail Setup completed.")
+    );
+    return;
+  }
+
+  const to =
+    emailConfig.recipientType === "team"
+      ? TEAM_RECIPIENT
+      : emailConfig.recipientType === "custom"
+        ? emailConfig.customRecipient
+        : resolveVariableRecipient(emailConfig.recipientVariable || "customerEmail", templateVars) ?? "";
+
+  if (!to) {
+    logs.push(
+      createLog(
+        node,
+        emailConfig.continueOnFailure ? "waiting" : "error",
+        "No email recipient could be resolved for this run — email skipped."
+      )
+    );
+    return;
+  }
+
+  const htmlBody = emailConfig.htmlTemplate
+    ? sanitizeOutboundHtml(fillEmailTemplate(emailConfig.htmlTemplate, templateVars))
+    : undefined;
+  const purpose =
+    emailConfig.purpose !== "auto"
+      ? emailConfig.purpose
+      : emailConfig.recipientType === "team"
+        ? "INTERNAL_NOTIFICATION"
+        : "CUSTOMER_FOLLOW_UP";
+
+  const result = await enqueueEmail(
+    {
+      kind: "business_email",
+      input: {
+        businessId: business.id,
+        to,
+        cc: emailConfig.cc,
+        bcc: emailConfig.bcc,
+        subject,
+        textBody: textBody || subject,
+        htmlBody,
+        purpose,
+        idempotencyKey: null,
+        metadata: { source: "workflow_runner_send_email_node" }
+      }
+    },
+    { idempotencyKey: null }
+  );
+
+  if (!result.ok) {
+    logs.push(
+      createLog(
+        node,
+        emailConfig.continueOnFailure ? "waiting" : "error",
+        `Email could not be sent: ${result.error ?? "unknown error"}`
+      )
+    );
+    return;
+  }
+
+  context.sentEmail = { id: null, to, subject, body: textBody || subject };
+  logs.push(createLog(node, "success", "Email queued via the business's Triven proxy address.", { to, subject }));
+}
+
 async function runConnectorNode({
   userId,
   node,
@@ -1560,6 +1752,17 @@ async function runConnectorNode({
   if (connector === "google calendar" || connector === "calendar") {
     await runGoogleCalendarConnectorNode({
       userId,
+      node,
+      context,
+      logs,
+      mode
+    });
+    return;
+  }
+
+  // Send Email node (Triven proxy email via SES) — registry connector "EMAIL".
+  if (connector === "email" || connector === "proxy email") {
+    await runEmailConnectorNode({
       node,
       context,
       logs,

@@ -127,6 +127,16 @@ export function defaultElevenLabsVoiceId(): string {
   );
 }
 
+export function isKnownVoicePresetId(presetId?: string | null): boolean {
+  const id = clean(presetId).toLowerCase();
+
+  if (!id || id === "custom" || looksLikeElevenLabsVoiceId(id)) return false;
+  if (id === PLATFORM_DEFAULT_VOICE_ID || id === "default") return true;
+  if (id in ENV_VOICE_OVERRIDES) return true;
+
+  return allVoicePresets().some((preset) => clean(preset.id).toLowerCase() === id);
+}
+
 export function resolvePresetVoiceId(presetId?: string | null): string {
   const id = clean(presetId).toLowerCase();
 

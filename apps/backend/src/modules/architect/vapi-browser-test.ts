@@ -1,10 +1,11 @@
-import { VOICE_NODE_TYPES, normalizeTimeZone } from "@coreai/shared";
+import { VOICE_NODE_TYPES, extractPromptVariables, normalizeTimeZone } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import {
   buildAgentFirstMessage,
   buildAgentSystemPrompt,
+  fillPromptTemplateTokens,
   resolveAssistantName,
   resolveNodeTemplateVariables
 } from "../agent-runtime/prompt-builder";
@@ -14,18 +15,13 @@ import {
   findSandboxAgent,
   findSandboxBusiness
 } from "./test-deployment";
-import { deployVapiAssistant, isRealId, isVapiConfigured } from "./vapi-connector";
-
-/**
- * Architect Browser Call Test powered by Vapi web calls.
- *
- * Creates/updates a per-workflow TEST assistant on the architect's sandbox
- * business (no Twilio number is assigned or reserved — the browser is the
- * audio channel). Tool calls route through the existing Vapi webhook via
- * assistant metadata.businessId; booking and SMS run as dry-runs because the
- * sandbox agent is flagged `testDryRun`. Calendar availability may read the
- * architect's connected Google Calendar (read-only).
- */
+import {
+  deployVapiAssistant,
+  isRealId,
+  isVapiConfigured,
+  resolveVapiModel,
+  resolveVapiVoice
+} from "./vapi-connector";
 
 export type VapiBrowserTestInput = {
   businessName?: string;
@@ -51,6 +47,10 @@ export type VapiBrowserTestSession = {
   voiceId: string | null;
   transcriber: string;
   dryRun: true;
+  /** {{variables}} nothing could fill — stripped before the prompt reached Vapi. */
+  unresolvedVariables: string[];
+  /** Set when the requested LLM could not be deployed as asked (e.g. Anthropic unavailable). */
+  modelNotice: string | null;
 };
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
@@ -87,15 +87,12 @@ function dateInZone(date: Date, timeZone: string): string {
   }
 }
 
-/** Fill legacy {{token}} placeholders in node prompt text with test values. */
 function fillNodeTokens(text: string, tokens: Record<string, string>): string {
-  let result = text;
+  return fillPromptTemplateTokens(text, tokens);
+}
 
-  for (const [key, value] of Object.entries(tokens)) {
-    result = result.replaceAll(`{{${key}}}`, value);
-  }
-
-  return result;
+function stripLeftoverTokens(text: string): string {
+  return fillPromptTemplateTokens(text, {}, { stripUnresolved: true });
 }
 
 export async function startArchitectVapiBrowserTest(
@@ -166,6 +163,22 @@ export async function startArchitectVapiBrowserTest(
     );
   }
 
+  // Safe diagnostics (never keys, never full voice ids).
+  const voicePreview = resolveVapiVoice({
+    voice: selectedVoice,
+    voiceProvider: str(ai, "voiceProvider"),
+    voiceId: selectedVoiceId
+  });
+  console.log(`[vapi-browser-test] selected voice preset: ${selectedVoice || "triven-default"}`);
+  console.log(`[vapi-browser-test] resolved provider: ${voicePreview.config.provider}`);
+  console.log(`[vapi-browser-test] resolved voice ID suffix: ...${voicePreview.config.voiceId.slice(-4)}`);
+
+  const requestedModel = str(ai, "model", "gpt-4o-mini");
+  const modelResolution = resolveVapiModel(requestedModel);
+  if (modelResolution.fallbackNotice) {
+    console.warn(`[vapi-browser-test] model fallback: ${modelResolution.fallbackNotice}`);
+  }
+
   // ---- Test identity: AI node assistantName first, then test context ----
   const nodeAssistantName = str(ai, "assistantName");
   const contextAssistantName = input.assistantName?.trim() ?? "";
@@ -182,6 +195,9 @@ export async function startArchitectVapiBrowserTest(
   const businessType = input.businessType?.trim() || "service business";
   const calendarId = input.calendarId?.trim() || "primary";
   const timeZone = normalizeTimeZone(input.timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
+  const callerName = input.callerName?.trim() || "the caller";
+  const callerPhone = input.callerPhone?.trim() || "";
+  const appointmentService = input.appointmentService?.trim() || "General Consultation";
   const services =
     input.services?.length ? input.services : ["Consultation", "Appointment booking", "General inquiry"];
   const faqs = input.faqs?.length ? input.faqs : [];
@@ -222,22 +238,31 @@ export async function startArchitectVapiBrowserTest(
   const capabilities = workflowCapabilities(workflow.workflowJson);
   const now = new Date();
 
+const currentDate = dateInZone(now, timeZone);
   const tokens: Record<string, string> = {
     assistantName,
-    assistant_name: assistantName,
-    business_name: businessName,
     businessName,
-    business_type: businessType,
     businessType,
-    contact_name: businessName,
-    business_hours: "not provided",
-    services_list: services.join(", "),
-    fallback_response: "Let me take a message and have the team call you back shortly.",
-    calendar_booking_rules: "",
-    custom_instructions: str(ai, "customInstructions", "(none)"),
-    silence_policy: "",
+    contactName: businessName,
+    businessHours: "not provided",
+    services: services.join(", "),
+    servicesList: services.join(", "),
+    faqs: faqs.join("\n"),
+    customerName: callerName,
+    callerName,
+    customerPhone: callerPhone,
+    callerPhone,
+    appointmentService,
+    service: appointmentService,
+    bookingLabel: "appointment",
+    calendarId,
+    fallbackResponse: "Let me take a message and have the team call you back shortly.",
+    calendarBookingRules: "",
+    customInstructions: str(ai, "customInstructions", "(none)"),
+    silencePolicy: "",
     currentDateTime: now.toLocaleString("en-US", { timeZone }),
-    currentDate: dateInZone(now, timeZone),
+    currentDate,
+    todayDate: currentDate,
     tomorrowDate: dateInZone(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone),
     timeZone
   };
@@ -246,7 +271,11 @@ export async function startArchitectVapiBrowserTest(
     .filter(Boolean)
     .map((text) => fillNodeTokens(text, tokens))
     .join("\n\n");
-  const nodeInstructions = resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, { assistantName, businessName });
+  const nodeInstructionsResolved = resolveNodeTemplateVariables(nodeInstructionsRaw, workflow.workflowJson, {
+    assistantName,
+    businessName
+  });
+  const nodeInstructions = stripLeftoverTokens(nodeInstructionsResolved);
 
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
@@ -274,14 +303,32 @@ Live call handling:
     ]
   });
 
+  // The architect's own First message is kept whenever it renders to anything
+  // non-empty; the generic greeting is only the fallback for a blank result.
   const customFirstMessageRaw = fillNodeTokens(str(ai, "firstMessage"), tokens);
-  const customFirstMessage = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, { assistantName, businessName });
+  const customFirstMessageResolved = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, {
+    assistantName,
+    businessName
+  });
+  const customFirstMessage = stripLeftoverTokens(customFirstMessageResolved);
 
   const firstMessage = buildAgentFirstMessage({
     assistantName,
     businessName,
     customFirstMessage
   });
+
+  // Whatever is still {{unresolved}} at this point was stripped — surface it
+  // to the Test panel so a typo'd variable never disappears silently.
+  const unresolvedVariables = Array.from(
+    new Set([
+      ...extractPromptVariables(nodeInstructionsResolved),
+      ...extractPromptVariables(customFirstMessageResolved)
+    ])
+  );
+  if (unresolvedVariables.length) {
+    console.warn("[vapi-browser-test] unresolved prompt variables stripped", { workflowId, unresolvedVariables });
+  }
 
   // ---- Create/update the per-workflow browser-test assistant (no phone) ----
   console.log("[vapi-browser-test] resolved identity", {
@@ -304,7 +351,7 @@ Live call handling:
     name: `Browser Test — ${workflow.name || businessName}`,
     firstMessage,
     systemPrompt,
-    model: str(ai, "model", "gpt-4o-mini"),
+    model: requestedModel,
     voice: selectedVoice,
     voiceProvider: str(ai, "voiceProvider"),
     voiceId: selectedVoiceId,
@@ -399,7 +446,7 @@ Live call handling:
     assistantId: assistant.id,
     assistantName,
     businessName,
-    model: str(ai, "model", "gpt-4o-mini"),
+    model: `${modelResolution.provider}/${modelResolution.model}`,
     voiceName: selectedVoiceName,
     capabilities,
     dryRun: true
@@ -411,10 +458,112 @@ Live call handling:
     businessId: business.id,
     assistantName,
     businessName,
-    model: str(ai, "model", "gpt-4o-mini"),
+    model: `${modelResolution.provider}/${modelResolution.model}`,
     voiceName: selectedVoiceName,
     voiceId: selectedVoiceId || null,
     transcriber: `${env.VAPI_TRANSCRIBER_PROVIDER}/${env.VAPI_TRANSCRIBER_MODEL}`,
-    dryRun: true
+    dryRun: true,
+    unresolvedVariables,
+    modelNotice: modelResolution.fallbackNotice ?? null
+  };
+}
+
+/* ---------------------- call end-reason diagnostics ---------------------- */
+
+export type VapiBrowserTestCallEndReason = {
+  callId: string;
+  status: string | null;
+  endedReason: string | null;
+  /** Human-readable, secret-free explanation of why the call ended. */
+  message: string | null;
+};
+
+function describeEndedReason(endedReason: string): string | null {
+  const reason = endedReason.toLowerCase();
+
+  if (reason.includes("providerfault") && reason.includes("anthropic")) {
+    return (
+      "Anthropic voice-test model is unavailable for this Vapi account. " +
+      "Configure provider billing or select another LLM on the AI Voice Conversation node."
+    );
+  }
+
+  if (reason.includes("providerfault") && reason.includes("llm")) {
+    return "The assistant's LLM provider failed mid-call. Check the model configured on the AI Voice Conversation node.";
+  }
+
+  if (reason.includes("eleven-labs") || reason.includes("elevenlabs") || reason.includes("voice-failed")) {
+    return "The assistant's voice provider failed mid-call. Check the selected voice preset or custom voice ID.";
+  }
+
+  if (reason.includes("did-not-receive-customer-audio")) {
+    return "The assistant never received your microphone audio. Check the browser microphone permission and input device.";
+  }
+
+  if (reason.includes("silence-timed-out")) {
+    return "The call ended after a long silence.";
+  }
+
+  if (reason.includes("customer-ended-call")) {
+    return "You ended the call.";
+  }
+
+  return null;
+}
+
+export async function getArchitectVapiBrowserTestCallEndReason(
+  architectUserId: string,
+  callId: string
+): Promise<VapiBrowserTestCallEndReason> {
+  if (!isVapiConfigured()) {
+    throw new TestDeploymentError("Vapi is not configured on the server.", 503, "VAPI_NOT_CONFIGURED");
+  }
+
+  const id = callId.trim();
+
+  if (!/^[0-9a-f][0-9a-f-]{8,63}$/i.test(id)) {
+    throw new TestDeploymentError("Invalid Vapi call id.", 400, "INVALID_CALL_ID");
+  }
+
+  const base = env.VAPI_BASE_URL.replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${env.VAPI_API_KEY}` };
+
+  const callResponse = await fetch(`${base}/call/${encodeURIComponent(id)}`, {
+    headers,
+    signal: AbortSignal.timeout(10000)
+  });
+  const call = (await callResponse.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!callResponse.ok || typeof call.id !== "string") {
+    throw new TestDeploymentError("Vapi call not found.", 404, "CALL_NOT_FOUND");
+  }
+
+  const assistantId = typeof call.assistantId === "string" ? call.assistantId : "";
+
+  if (!assistantId) {
+    throw new TestDeploymentError("Call has no assistant.", 404, "CALL_NOT_FOUND");
+  }
+
+  const assistantResponse = await fetch(`${base}/assistant/${encodeURIComponent(assistantId)}`, {
+    headers,
+    signal: AbortSignal.timeout(10000)
+  });
+  const assistant = (await assistantResponse.json().catch(() => ({}))) as Record<string, unknown>;
+  const assistantMetadata =
+    assistant.metadata && typeof assistant.metadata === "object"
+      ? (assistant.metadata as Record<string, unknown>)
+      : {};
+
+  if (!assistantResponse.ok || assistantMetadata.architectUserId !== architectUserId) {
+    throw new TestDeploymentError("Call does not belong to your browser tests.", 404, "CALL_NOT_FOUND");
+  }
+
+  const endedReason = typeof call.endedReason === "string" ? call.endedReason : null;
+
+  return {
+    callId: call.id,
+    status: typeof call.status === "string" ? call.status : null,
+    endedReason,
+    message: endedReason ? describeEndedReason(endedReason) : null
   };
 }

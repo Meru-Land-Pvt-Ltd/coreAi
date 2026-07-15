@@ -1,5 +1,5 @@
 import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
-import { PLATFORM_DEFAULT_VOICE_ID, resolvePresetVoiceId } from "./voice-presets";
+import { PLATFORM_DEFAULT_VOICE_ID, isKnownVoicePresetId, resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 
@@ -454,31 +454,57 @@ export function resolveVapiVoice(input: {
     model?: string;
   };
 } {
-  const provider = (clean(input.voiceProvider) || clean(env.VAPI_DEFAULT_VOICE_PROVIDER) || "vapi").toLowerCase();
+  const explicitProvider = clean(input.voiceProvider).toLowerCase();
+  const voiceName = clean(input.voice).toLowerCase();
   const explicitVoiceId = clean(input.voiceId);
+  const isCustomVoice = voiceName === "custom";
+  const isKnownPreset = !isCustomVoice && isKnownVoicePresetId(voiceName);
   const builtinMatch = matchVapiBuiltinVoice(explicitVoiceId) ?? matchVapiBuiltinVoice(input.voice);
 
-  if (provider === "vapi" || (builtinMatch && !looksLikeVoiceId(explicitVoiceId))) {
-    const builtin = builtinMatch ?? matchVapiBuiltinVoice(env.VAPI_DEFAULT_VOICE_ID) ?? DEFAULT_VAPI_BUILTIN_VOICE;
-    return { config: { provider: "vapi", voiceId: builtin } };
-  }
-
-  // Id-based providers (11labs): require a real-looking voice id.
-  const voiceId = looksLikeVoiceId(explicitVoiceId)
-    ? explicitVoiceId
-    : resolvePresetVoiceId(input.voice || PLATFORM_DEFAULT_VOICE_ID);
-
-  if (!voiceId || !looksLikeVoiceId(voiceId) || matchVapiBuiltinVoice(voiceId)) {
-    return { config: { provider: "vapi", voiceId: DEFAULT_VAPI_BUILTIN_VOICE } };
-  }
-
-  return {
+  const vapiBuiltin = (name?: string | null) => ({
     config: {
-      provider,
-      voiceId,
-      ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {})
+      provider: "vapi",
+      voiceId:
+        matchVapiBuiltinVoice(name) ?? matchVapiBuiltinVoice(env.VAPI_DEFAULT_VOICE_ID) ?? DEFAULT_VAPI_BUILTIN_VOICE
     }
+  });
+
+  const idBased = (voiceId: string) => {
+    if (!voiceId || !looksLikeVoiceId(voiceId) || matchVapiBuiltinVoice(voiceId)) {
+      return vapiBuiltin(voiceId);
+    }
+
+    const provider = explicitProvider && explicitProvider !== "vapi" ? explicitProvider : "11labs";
+
+    return {
+      config: {
+        provider,
+        voiceId,
+        ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {})
+      }
+    };
   };
+  if (isKnownPreset) {
+    return idBased(resolvePresetVoiceId(voiceName));
+  }
+
+  const customVoiceId = looksLikeVoiceId(explicitVoiceId)
+    ? explicitVoiceId
+    : looksLikeVoiceId(clean(input.voice))
+      ? clean(input.voice)
+      : "";
+
+  if (customVoiceId && explicitProvider !== "vapi") {
+    return idBased(customVoiceId);
+  }
+
+  // 3. Vapi built-in voices keep provider "vapi".
+  if (explicitProvider === "vapi" || builtinMatch) {
+    return vapiBuiltin(builtinMatch);
+  }
+
+  // 4. Platform default preset, then the safe built-in fallback inside idBased.
+  return idBased(resolvePresetVoiceId(PLATFORM_DEFAULT_VOICE_ID));
 }
 
 const TRANSCRIBER_LANGUAGES = ["en-US", "en-GB", "es", "hi"] as const;
@@ -508,16 +534,43 @@ export function resolveVoiceSpeed(speakingSpeed?: string | null): number | undef
   return parsed;
 }
 
-function resolveVapiModel(model?: string | null): {
+const VAPI_ANTHROPIC_MODELS = new Set([
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5-20250929",
+  "claude-haiku-4-5-20251001"
+]);
+
+export type VapiModelResolution = {
   provider: string;
   model: string;
-} {
-  const m = (model ?? "gpt-4o-mini").toLowerCase();
+  /** Set when the requested model could not be deployed as asked. */
+  fallbackNotice?: string;
+};
 
-  if (m.includes("claude")) {
+export function resolveVapiModel(model?: string | null): VapiModelResolution {
+  const requested = clean(model);
+  const m = (requested || env.VAPI_DEFAULT_LLM_MODEL).toLowerCase();
+
+  if (m.includes("claude") || m.includes("anthropic")) {
+    if (!env.VAPI_ANTHROPIC_ENABLED) {
+      return {
+        provider: env.VAPI_DEFAULT_LLM_PROVIDER,
+        model: env.VAPI_DEFAULT_LLM_MODEL,
+        fallbackNotice:
+          "Anthropic voice-test model is unavailable for this Vapi account. " +
+          `Using ${env.VAPI_DEFAULT_LLM_PROVIDER}/${env.VAPI_DEFAULT_LLM_MODEL} instead. ` +
+          "Configure provider billing (set VAPI_ANTHROPIC_ENABLED=true once funded) or select another LLM."
+      };
+    }
+
+    const anthropicModel = VAPI_ANTHROPIC_MODELS.has(m) ? m : env.VAPI_ANTHROPIC_MODEL;
+
     return {
       provider: "anthropic",
-      model: "claude-3-5-sonnet-20241022"
+      model: anthropicModel,
+      ...(anthropicModel !== requested && requested
+        ? { fallbackNotice: `Model ${requested} is retired; using anthropic/${anthropicModel} instead.` }
+        : {})
     };
   }
 
@@ -528,9 +581,16 @@ function resolveVapiModel(model?: string | null): {
     };
   }
 
+  if (m.includes("gpt")) {
+    return {
+      provider: "openai",
+      model: "gpt-4o"
+    };
+  }
+
   return {
-    provider: "openai",
-    model: "gpt-4o"
+    provider: env.VAPI_DEFAULT_LLM_PROVIDER,
+    model: env.VAPI_DEFAULT_LLM_MODEL
   };
 }
 
@@ -721,13 +781,13 @@ export async function deployVapiAssistant({
       ],
       tools: env.VAPI_ENABLE_BOOKING_TOOLS
         ? genericAssistantTools().filter((tool) => {
-            if (!includeTools) return true;
-            const name = tool.function.name;
-            if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
-            if (name === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
-            if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
-            return true;
-          })
+          if (!includeTools) return true;
+          const name = tool.function.name;
+          if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
+          if (name === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
+          if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
+          return true;
+        })
         : []
     },
     transcriber: {
@@ -768,7 +828,14 @@ export async function deployVapiAssistant({
     voiceResolution.config.provider === "11labs" && voiceSpeed !== undefined
       ? { ...voiceResolution.config, speed: voiceSpeed }
       : voiceResolution.config;
-  console.log("[vapi-browser-test] final voice payload", JSON.stringify(body.voice));
+
+  const voiceIdSuffix = voiceResolution.config.voiceId.slice(-4);
+  console.log(`[vapi-deploy] resolved model: ${resolvedModel.provider}/${resolvedModel.model}`);
+  if (resolvedModel.fallbackNotice) {
+    console.warn(`[vapi-deploy] model fallback: ${resolvedModel.fallbackNotice}`);
+  }
+  console.log(`[vapi-deploy] resolved voice provider: ${voiceResolution.config.provider}`);
+  console.log(`[vapi-deploy] resolved voice ID suffix: ...${voiceIdSuffix}`);
 
   const base = env.VAPI_BASE_URL.replace(/\/$/, "");
 

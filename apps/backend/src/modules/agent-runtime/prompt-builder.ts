@@ -246,6 +246,83 @@ Current date and time:
   return sections.join("\n\n");
 }
 
+/** `{{Business Name}}` ≡ `{{business.name}}` ≡ `{{business_name}}` ≡ `{{businessName}}`. */
+function canonicalTokenKey(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Variables the LIVE call layer passes to Vapi as assistantOverrides
+ * variableValues (see buildVapiVariableValues in vapi-connector.ts — keep the
+ * two lists in sync). Prompt tokens matching these are rewritten to the exact
+ * spelling so Vapi's Liquid substitution works at call time.
+ */
+export const LIVE_VAPI_RUNTIME_VARIABLES = [
+  "currentDateTime",
+  "currentDate",
+  "todayDate",
+  "tomorrowDate",
+  "customerPhone",
+  "customerName",
+  "businessId",
+  "businessName",
+  "businessType",
+  "bookingUrl",
+  "teamPhone",
+  "services",
+  "faqs",
+  "knowledge",
+  "tone",
+  "escalationRules",
+  "calendarId",
+  "timeZone",
+  "callReason"
+] as const;
+
+/**
+ * Fill architect-written `{{variable}}` tokens in prompt/first-message text.
+ *
+ * Vapi treats leftover {{…}} as Liquid templates: unknown variables render
+ * EMPTY (a custom first message silently vanishes) and malformed ones can
+ * error the call. So:
+ * - `values` fills tokens with build-time values (canonical matching).
+ * - `runtimeVariables` rewrites matching tokens to their EXACT runtime
+ *   spelling ({{customer.name}} → {{customerName}}) — Vapi only substitutes
+ *   exact names at call time.
+ * - `stripUnresolved` removes anything still unresolved so broken Liquid can
+ *   never reach Vapi.
+ */
+export function fillPromptTemplateTokens(
+  text: string,
+  values: Record<string, string>,
+  opts: { runtimeVariables?: readonly string[]; stripUnresolved?: boolean } = {}
+): string {
+  if (!text || !text.includes("{{")) return text;
+
+  const canonical = new Map<string, string>();
+  for (const [key, value] of Object.entries(values)) {
+    const canonicalKey = canonicalTokenKey(key);
+    if (canonicalKey && !canonical.has(canonicalKey)) canonical.set(canonicalKey, value);
+  }
+
+  const runtime = new Map<string, string>();
+  for (const name of opts.runtimeVariables ?? []) {
+    runtime.set(canonicalTokenKey(name), name);
+  }
+
+  return text
+    .replace(/\{\{\s*([^{}]{1,80}?)\s*\}\}/g, (match, name: string) => {
+      const key = canonicalTokenKey(name);
+      const value = canonical.get(key);
+      if (value !== undefined) return value;
+      const runtimeName = runtime.get(key);
+      if (runtimeName) return `{{${runtimeName}}}`;
+      return opts.stripUnresolved ? "" : match;
+    })
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +([.,!?])/g, "$1");
+}
+
 export function resolveNodeTemplateVariables(
   text: string,
   workflowJson: unknown,
