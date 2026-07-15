@@ -165,7 +165,13 @@ function buildAgentEventActivities(params: {
     createdAt: Date;
   }>;
   missedCallLeads: Array<{ id: string; phoneNumber: string; name: string | null; createdAt: Date }>;
-  vapiCalls: Array<{ id: string; customerPhone: string; status: string; createdAt: Date }>;
+  vapiCalls: Array<{
+    id: string;
+    customerPhone: string;
+    status: string;
+    createdAt: Date;
+    recordingUrl?: string | null;
+  }>;
 }) {
   const activities: Array<{
     id: string;
@@ -175,6 +181,8 @@ function buildAgentEventActivities(params: {
     tone: "green" | "amber" | "slate";
     check?: boolean;
     createdAt: string;
+    /** Call recording playback — present only when recording was enabled for the call. */
+    recordingUrl?: string;
   }> = [];
 
   for (const appointment of params.appointments) {
@@ -215,7 +223,8 @@ function buildAgentEventActivities(params: {
       text: `${params.agentName} handled an AI voice call with ${call.customerPhone}`,
       badge: "AI call",
       tone: "slate",
-      createdAt: call.createdAt.toISOString()
+      createdAt: call.createdAt.toISOString(),
+      ...(call.recordingUrl ? { recordingUrl: call.recordingUrl } : {})
     });
   }
 
@@ -360,7 +369,14 @@ businessRoutes.get("/dashboard", async (c) => {
     prisma.vapiCall.findMany({
       where: { businessId: business.id, createdAt: { gte: chartStart } },
       orderBy: { createdAt: "desc" },
-      select: { id: true, customerPhone: true, status: true, createdAt: true, billedCostMicroUsd: true }
+      select: {
+        id: true,
+        customerPhone: true,
+        status: true,
+        createdAt: true,
+        billedCostMicroUsd: true,
+        recordingUrl: true
+      }
     }),
     // Month-over-month metric counts (calls handled = AI voice calls + missed calls captured).
     prisma.vapiCall.count({ where: { businessId: business.id, createdAt: { gte: monthStart } } }),

@@ -104,6 +104,28 @@ async function loadActivePricingServices() {
   });
 }
 
+export function extractRecordingUrl(message: Record<string, unknown>): string | null {
+  const artifact =
+    typeof message.artifact === "object" && message.artifact !== null
+      ? (message.artifact as Record<string, unknown>)
+      : {};
+
+  const candidates = [
+    artifact.recordingUrl,
+    artifact.stereoRecordingUrl,
+    message.recordingUrl,
+    message.stereoRecordingUrl
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && /^https:\/\//i.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
 export async function recordVapiCallUsage({
   businessId,
   installedAgentId,
@@ -212,10 +234,13 @@ export async function recordVapiCallUsage({
   if (endedAt < purchase.createdAt) return;
   const billingMonth = billingMonthFromDate(endedAt);
 
+  const recordingUrl = extractRecordingUrl(message);
+
   await prisma.vapiCall.upsert({
     where: { callId },
     update: {
       installedAgentId: installedAgentId ?? undefined,
+      recordingUrl: recordingUrl ?? undefined,
       durationSeconds:
         Number.isFinite(Number(message.durationSeconds)) && Number(message.durationSeconds) > 0
           ? Math.round(Number(message.durationSeconds))
@@ -239,6 +264,7 @@ export async function recordVapiCallUsage({
       callId,
       customerPhone: customerPhone || "unknown",
       status: "end-of-call-report",
+      recordingUrl,
       durationSeconds:
         durationMinutes > 0 ? Math.round(durationMinutes * 60) : undefined,
       durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
@@ -425,7 +451,8 @@ export async function getBusinessUsageBill(c: Context) {
       vapiCostMicroUsd: true,
       usageLineItemsJson: true,
       billingRecordedAt: true,
-      installedAgentId: true
+      installedAgentId: true,
+      recordingUrl: true
     }
     }),
     prisma.installedAgent.findMany({
@@ -466,7 +493,8 @@ export async function getBusinessUsageBill(c: Context) {
       lineItems: Array.isArray(call.usageLineItemsJson)
         ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
         : [],
-      recordedAt: call.billingRecordedAt?.toISOString() ?? null
+      recordedAt: call.billingRecordedAt?.toISOString() ?? null,
+      recordingUrl: call.recordingUrl ?? null
     }))
   });
 }

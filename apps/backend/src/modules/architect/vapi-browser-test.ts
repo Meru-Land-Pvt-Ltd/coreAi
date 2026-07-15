@@ -179,6 +179,10 @@ export async function startArchitectVapiBrowserTest(
     console.warn(`[vapi-browser-test] model fallback: ${modelResolution.fallbackNotice}`);
   }
 
+  // End Flow node's "Call recording" toggle (default on).
+  const endFlowNode = nodeData(nodes, VOICE_NODE_TYPES.endFlow);
+  const recordingEnabled = String(endFlowNode.callRecording ?? "true").trim().toLowerCase() !== "false";
+
   // ---- Test identity: AI node assistantName first, then test context ----
   const nodeAssistantName = str(ai, "assistantName");
   const contextAssistantName = input.assistantName?.trim() ?? "";
@@ -368,6 +372,7 @@ Live call handling:
     },
     // Testers pause to read logs/think — don't hang up on them mid-test.
     silenceTimeoutSeconds: 90,
+    recordingEnabled,
     // Only expose tools the connected graph actually has.
     includeTools: {
       checkAvailability: capabilities.canCheckAvailability,

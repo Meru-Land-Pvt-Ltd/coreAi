@@ -743,6 +743,8 @@ export type DeployVapiAssistantInput = {
   };
   /** Seconds of caller silence before Vapi ends the call (Vapi default: 30). */
   silenceTimeoutSeconds?: number;
+  /** End Flow node "Call recording" toggle → Vapi artifactPlan.recordingEnabled (default on). */
+  recordingEnabled?: boolean;
 };
 
 export async function deployVapiAssistant({
@@ -759,7 +761,8 @@ export async function deployVapiAssistant({
   existingAssistantId,
   metadata,
   includeTools,
-  silenceTimeoutSeconds
+  silenceTimeoutSeconds,
+  recordingEnabled
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
@@ -811,6 +814,11 @@ export async function deployVapiAssistant({
       url: serverUrl,
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
       ...(clean(env.VAPI_WEBHOOK_SECRET) ? { secret: env.VAPI_WEBHOOK_SECRET } : {})
+    },
+    // End Flow node's "Call recording" toggle. When off, Vapi produces no
+    // recording artifact and no recordingUrl reaches the buyer dashboard.
+    artifactPlan: {
+      recordingEnabled: recordingEnabled !== false
     },
     ...(metadata ? { metadata } : {}),
     ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {})

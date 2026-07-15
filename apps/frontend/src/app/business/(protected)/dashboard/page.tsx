@@ -87,6 +87,8 @@ type DashboardActivityApi = {
     tone: "green" | "amber" | "slate";
     check?: boolean;
     createdAt: string;
+    /** Call recording playback URL — present only when recording was enabled for the call. */
+    recordingUrl?: string | null;
 };
 
 type MetricCard = {
@@ -116,6 +118,7 @@ type Activity = {
     badge: string;
     tone: "green" | "amber" | "slate";
     check?: boolean;
+    recordingUrl?: string | null;
 };
 
 type ChartMetric = "executions" | "revenue" | "cost";
@@ -418,7 +421,8 @@ export default function BusinessDashboardPage() {
                 text: activity.text,
                 badge: activity.badge,
                 tone: activity.tone,
-                check: activity.check
+                check: activity.check,
+                recordingUrl: activity.recordingUrl ?? null
             })),
         [overview?.activities]
     );
@@ -1059,6 +1063,17 @@ function ActivityItem({ activity }: { activity: Activity }) {
                 {activity.badge}
                 {activity.check ? <CheckIcon /> : null}
             </span>
+            {activity.recordingUrl ? (
+                <audio
+                    controls
+                    preload="none"
+                    src={activity.recordingUrl}
+                    className="mt-2 h-8 w-full"
+                    data-testid="dashboard-activity-call-recording"
+                >
+                    Your browser does not support audio playback.
+                </audio>
+            ) : null}
         </div>
     );
 }
