@@ -332,30 +332,6 @@ type ChangeIssue = {
   fix: string;
 };
 
-const CHANGE_ISSUES: ChangeIssue[] = [
-  {
-    n: 1,
-    cat: "Security",
-    sev: "Required",
-    title: "API key is hardcoded in the agent logic",
-    fix: "Move the API key to the Secure Credentials Vault and reference it via a credential token instead of inlining it."
-  },
-  {
-    n: 2,
-    cat: "Quality",
-    sev: "Required",
-    title: "Agent fails when a phone number includes a country code (+1)",
-    fix: "Add phone-number normalization so international formats are handled before sending."
-  },
-  {
-    n: 3,
-    cat: "Guidelines",
-    sev: "Recommended",
-    title: "Description mentions a competitor by name",
-    fix: "Remove competitor references and focus on your agent's own capabilities."
-  }
-];
-
 const TAG_COLORS: Record<string, [string, string]> = {
   Security: ["#fee2e2", "#b91c1c"],
   Quality: ["#fef3c7", "#b45309"],
@@ -363,11 +339,40 @@ const TAG_COLORS: Record<string, [string, string]> = {
   Accuracy: ["#ede9fe", "#6d28d9"]
 };
 
-function ChangesRequiredPanel({ agent }: { agent: ResolvedAgent }) {
+function ChangesRequiredPanel({ agent, onResubmit }: { agent: ResolvedAgent; onResubmit: () => void }) {
   const [fixed, setFixed] = useState<Record<number, boolean>>({});
 
-  const requiredLeft = CHANGE_ISSUES.filter((it) => it.sev === "Required" && !fixed[it.n]).length;
-  const recommendedLeft = CHANGE_ISSUES.filter((it) => it.sev === "Recommended" && !fixed[it.n]).length;
+  // Real feedback from the review team (listing.rejectionReason) — one issue
+  // per line, with a generic fallback when no reason was recorded.
+  const issues = useMemo<ChangeIssue[]>(() => {
+    const lines = (agent.rejectionReason ?? "")
+      .split(/\r?\n|;\s+/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (lines.length === 0) {
+      return [
+        {
+          n: 1,
+          cat: "Guidelines",
+          sev: "Required",
+          title: "The review team requested changes to this agent.",
+          fix: "Open the builder, review your configuration, and resubmit for review."
+        }
+      ];
+    }
+
+    return lines.map((line, index) => ({
+      n: index + 1,
+      cat: "Review feedback",
+      sev: "Required" as const,
+      title: line,
+      fix: "Address this feedback in the builder, then resubmit for review."
+    }));
+  }, [agent.rejectionReason]);
+
+  const requiredLeft = issues.filter((it) => it.sev === "Required" && !fixed[it.n]).length;
+  const recommendedLeft = issues.filter((it) => it.sev === "Recommended" && !fixed[it.n]).length;
   const canResubmit = requiredLeft === 0;
 
   return (
@@ -392,7 +397,7 @@ function ChangesRequiredPanel({ agent }: { agent: ResolvedAgent }) {
 
       <div className="mt-4">
         <h3 className="px-1 text-sm font-semibold text-slate-900">Issues found</h3>
-        {CHANGE_ISSUES.map((it) => {
+        {issues.map((it) => {
           const [bg, fg] = TAG_COLORS[it.cat] ?? ["#f1f5f9", "#475569"];
           const isFixed = Boolean(fixed[it.n]);
           const sevRed = it.sev === "Required";
@@ -452,6 +457,7 @@ function ChangesRequiredPanel({ agent }: { agent: ResolvedAgent }) {
           <button
             type="button"
             disabled={!canResubmit}
+            onClick={onResubmit}
             data-testid="publishing-status-resubmit-button"
             className={`inline-flex items-center justify-center gap-2 rounded-[10px] border border-transparent bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition ${
               canResubmit ? "hover:bg-amber-600" : "cursor-not-allowed opacity-50"
@@ -461,8 +467,8 @@ function ChangesRequiredPanel({ agent }: { agent: ResolvedAgent }) {
           </button>
           <p className="mt-2 text-xs text-slate-400">
             {canResubmit
-              ? "All required issues fixed — ready to resubmit."
-              : "Resubmit unlocks once both required issues are marked fixed."}
+              ? "Opens the builder — submit for review again from there."
+              : "Resubmit unlocks once the required issues are marked fixed."}
           </p>
         </div>
       </div>
@@ -528,6 +534,7 @@ type ResolvedAgent = {
   createdAt: string;
   status: ArchitectListing["status"];
   workflowId: string | null;
+  rejectionReason: string | null;
 };
 
 function PublishingStatusContent() {
@@ -558,7 +565,8 @@ function PublishingStatusContent() {
             category: match.tags[0] ?? "Agent",
             createdAt: match.createdAt,
             status: match.status,
-            workflowId: match.workflowId
+            workflowId: match.workflowId,
+            rejectionReason: match.rejectionReason ?? null
           };
           setAgent(resolved);
           setActiveState(statusToState(match.status));
@@ -583,7 +591,8 @@ function PublishingStatusContent() {
         category: "Agent",
         createdAt: new Date().toISOString(),
         status: "PENDING_REVIEW",
-        workflowId: null
+        workflowId: null,
+        rejectionReason: null
       },
     [agent, listingId]
   );
@@ -697,7 +706,7 @@ function PublishingStatusContent() {
                     <ApprovedPanel agent={headerAgent} architectName={architectName} onViewAgent={viewAgent} />
                   </>
                 ) : null}
-                {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} /> : null}
+                {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} onResubmit={editSubmission} /> : null}
                 {activeState === 4 ? <ReReviewPanel agent={headerAgent} /> : null}
 
                 {activeState === 3 ? (

@@ -273,7 +273,7 @@ const ANALYTICS_MARKUP = `
       <div class="flex items-center justify-between p-5 sm:p-6 pb-4 border-b border-gray-100">
         <div class="flex items-center gap-2.5">
           <h2 class="text-base font-bold">Live Executions</h2>
-          <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">No activity</span>
+          <span id="live-feed-badge" class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">No activity</span>
         </div>
         <button id="feed-pause" type="button" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-gray-50 hover:text-slate-700 transition">
           <svg id="feed-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
@@ -374,9 +374,29 @@ function genSpark(){
   return [0,0,0,0,0,0,0,0,0,0,0,0];
 }
 
-const FAILURES = [];
+const FAIL_COLORS = ['#ef4444', '#f59e0b', '#8b5cf6', '#3b82f6'];
+const FAILURES = SERVER && Array.isArray(SERVER.failures)
+  ? SERVER.failures.map((f, i) => ({ label: f.label, pct: f.pct, count: f.count, color: FAIL_COLORS[i % FAIL_COLORS.length] }))
+  : [];
 const COHORTS = [];
 const AGENTS = SERVER && Array.isArray(SERVER.agents) ? SERVER.agents : [];
+const LIVE_EXECUTIONS = SERVER && Array.isArray(SERVER.liveExecutions) ? SERVER.liveExecutions : [];
+
+function renderLiveFeed(){
+  const list = $('#feed-list'); if(!list) return;
+  const badge = $('#live-feed-badge');
+  if(badge) badge.textContent = LIVE_EXECUTIONS.length ? 'Recent activity' : 'No activity';
+  list.innerHTML = LIVE_EXECUTIONS.length
+    ? LIVE_EXECUTIONS.map(it => {
+        const at = new Date(it.at);
+        const time = isNaN(at.getTime()) ? '' : at.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+        return '<li class="flex items-center justify-between gap-3 px-5 py-3 text-[13px]">'+
+          '<span class="flex items-center gap-2.5"><span class="h-2 w-2 rounded-full" style="background:'+(it.ok?'#10b981':'#ef4444')+'"></span><span class="font-medium text-slate-700">'+esc(it.listingName)+'</span></span>'+
+          '<span class="flex items-center gap-3 text-slate-400"><span class="nums">'+(it.ok?Math.round(it.durationSeconds)+'s':'failed')+'</span><span class="nums">'+esc(time)+'</span></span>'+
+        '</li>';
+      }).join('')
+    : '<li class="px-5 py-4 text-[12.5px] text-slate-400">No executions yet.</li>';
+}
 
 function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
 function animateValue(el, to, opts){
@@ -526,7 +546,7 @@ function renderDonut(failCount){
     ? FAILURES.map((f,idx)=>(
         '<li class="seg-leg flex items-center justify-between px-2 py-1 -mx-2 rounded-lg text-[12.5px] transition" data-i="'+idx+'">'+
           '<span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full" style="background:'+f.color+'"></span><span class="text-slate-600 font-medium">'+esc(f.label)+'</span></span>'+
-          '<span class="flex items-center gap-2"><span class="text-slate-400 nums">0</span><span class="font-bold text-slate-700 w-9 text-right nums">0%</span></span>'+
+          '<span class="flex items-center gap-2"><span class="text-slate-400 nums">'+fmtInt(f.count||0)+'</span><span class="font-bold text-slate-700 w-9 text-right nums">'+(f.pct||0)+'%</span></span>'+
         '</li>'
       )).join('')
     : '<li class="px-2 py-2 text-[12.5px] text-slate-400">No failure data yet</li>';
@@ -662,9 +682,11 @@ function applyRange(key){
   const gross=revData.vals.reduce((a,b)=>a+b,0);
   $('#rev-total').textContent=fmtMoney(gross);
   $('#rev-proj').textContent=r.proj;
-  renderDonut(0);
-  $('#donut-total').textContent='0';
-  $('#fail-count-badge').textContent='0 failures';
+  const failTotal = FAILURES.reduce((a,f)=>a+(f.count||0),0);
+  renderDonut(failTotal);
+  $('#donut-total').textContent=fmtInt(failTotal);
+  $('#fail-count-badge').textContent=fmtInt(failTotal)+' failure'+(failTotal===1?'':'s');
+  renderLiveFeed();
 }
 function setActivePill(key){
   $$('#range-pills [role=tab]').forEach(b=>{

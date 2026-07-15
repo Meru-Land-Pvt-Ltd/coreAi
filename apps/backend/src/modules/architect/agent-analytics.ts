@@ -236,5 +236,58 @@ export async function buildArchitectAgentAnalytics(architectUserId: string, list
     ok: isSuccess(call)
   }));
 
-  return { ranges, agents, spark, liveExecutions };
+  const failures = await buildFailureBreakdown(listingIds, yearAgo);
+
+  return { ranges, agents, spark, liveExecutions, failures };
+}
+
+function humanizeEndedReason(reason: string): string {
+  const cleaned = reason
+    .replace(/^call\.in-progress\.error-/, "")
+    .replace(/^pipeline-error-/, "")
+    .replace(/^error-/, "")
+    .replace(/-/g, " ")
+    .trim();
+
+  if (!cleaned || cleaned === "unknown") return "No end reason recorded";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+async function buildFailureBreakdown(listingIds: string[], since: Date) {
+  if (listingIds.length === 0) return [];
+
+  const failedRows = await prisma.vapiCall.findMany({
+    where: {
+      createdAt: { gte: since },
+      installedAgent: { is: { listingId: { in: listingIds } } },
+      OR: [{ durationSeconds: null }, { durationSeconds: { lte: 0 } }]
+    },
+    select: { metadataJson: true },
+    orderBy: { createdAt: "desc" },
+    take: 500
+  });
+
+  const reasonCounts = new Map<string, number>();
+
+  for (const row of failedRows) {
+    const body = row.metadataJson as Record<string, unknown> | null;
+    const message =
+      body && typeof body.message === "object" && body.message !== null
+        ? (body.message as Record<string, unknown>)
+        : (body ?? {});
+    const raw = typeof message.endedReason === "string" ? message.endedReason : "unknown";
+    const label = humanizeEndedReason(raw);
+    reasonCounts.set(label, (reasonCounts.get(label) ?? 0) + 1);
+  }
+
+  const total = [...reasonCounts.values()].reduce((sum, count) => sum + count, 0);
+
+  return [...reasonCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([label, count]) => ({
+      label,
+      count,
+      pct: total > 0 ? Math.round((count / total) * 100) : 0
+    }));
 }

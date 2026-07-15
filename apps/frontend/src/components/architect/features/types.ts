@@ -50,6 +50,8 @@ export type ArchitectListing = {
   /** Billing model stored in the DB: FREE | ONE_TIME | SUBSCRIPTION */
   pricingModel?: "FREE" | "ONE_TIME" | "SUBSCRIPTION" | null;
   status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
+  /** Review-team feedback when status is REJECTED (or soft-delete marker). */
+  rejectionReason?: string | null;
   tags: string[];
   requiredConnectors: string[];
   supportedLlms: string[];

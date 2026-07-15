@@ -1451,7 +1451,7 @@ function AgentDetailsModal({
 
     const industryLabel =
         agent.industries.length > 0
-            ? agent.industries.join(", ")
+            ? agent.industries.join(" · ")
             : agent.industry === "all"
               ? "All industries"
               : formatLabel(agent.industry);
