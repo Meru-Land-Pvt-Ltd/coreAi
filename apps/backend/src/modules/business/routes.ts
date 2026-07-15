@@ -84,7 +84,7 @@ function includeActivePhoneNumbers(options?: { take?: number }) {
   };
 }
 
-const BUSINESS_SETUP_REDIRECT_PATH = "/business/agents/setup";
+const BUSINESS_SETTINGS_INTEGRATIONS_PATH = "/business/setting?tab=integrations";
 const DEFAULT_ASSISTANT_NAME = "AI Assistant";
 
 businessRoutes.post("/billing/webhook", handleStripeWebhook);
@@ -1925,7 +1925,7 @@ businessRoutes.get("/connectors/google-calendar/status", async (c) => {
 businessRoutes.get("/connectors/google-calendar/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const url = createGmailOAuthUrl(authUser.id, BUSINESS_SETUP_REDIRECT_PATH);
+    const url = createGmailOAuthUrl(authUser.id, BUSINESS_SETTINGS_INTEGRATIONS_PATH);
     return successResponse(c, { url });
   } catch (error) {
     return errorResponse(

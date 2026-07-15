@@ -1,293 +1,463 @@
+import type { WorkflowRunStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { loadArchitectEarnings } from "./payout-earnings";
+import {
+  effectiveEarningStatus,
+  loadArchitectEarnings,
+  sumApprovedEarningsCents,
+  sumPendingEarningsCents
+} from "./payout-earnings";
 
-type RangeKey = "7D" | "30D" | "90D" | "6M" | "1Y";
+export const ARCHITECT_ANALYTICS_RANGES = ["7D", "30D", "90D", "6M", "1Y"] as const;
+export type ArchitectAnalyticsRange = (typeof ARCHITECT_ANALYTICS_RANGES)[number];
 
-const RANGE_DAYS: Record<RangeKey, number> = {
-  "7D": 7,
-  "30D": 30,
-  "90D": 90,
-  "6M": 182,
-  "1Y": 365
+type Bucket = {
+  label: string;
+  start: Date;
+  end: Date;
 };
 
-type SeriesBucket = { start: Date; end: Date; label: string };
-
-type CallRow = {
-  createdAt: Date;
+type ExecutionEvent = {
+  id: string;
+  installedAgentId: string;
+  kind: "WORKFLOW" | "CALL";
+  status: "SUCCESS" | "FAILED" | "RUNNING";
+  occurredAt: Date;
   durationSeconds: number | null;
-  listingId: string | null;
+  businessName: string;
+  error: string | null;
 };
 
-type SaleRow = { date: Date; earningsCents: number; listingId: string };
-
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function monthLabel(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "short" });
+function utcDayStart(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 }
 
-function bucketsFor(key: RangeKey, now: Date): SeriesBucket[] {
-  const buckets: SeriesBucket[] = [];
+function addUtcDays(value: Date, days: number) {
+  return new Date(value.getTime() + days * 24 * 60 * 60 * 1000);
+}
 
-  if (key === "7D") {
-    for (let i = 6; i >= 0; i -= 1) {
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
-      buckets.push({ start, end, label: WEEKDAYS[start.getDay()] });
-    }
-    return buckets;
+function utcWeekStart(value: Date) {
+  const dayOffset = (value.getUTCDay() + 6) % 7;
+  return addUtcDays(utcDayStart(value), -dayOffset);
+}
+
+function buildBuckets(range: ArchitectAnalyticsRange, now: Date): Bucket[] {
+  if (range === "7D" || range === "30D") {
+    const count = range === "7D" ? 7 : 30;
+    const start = addUtcDays(utcDayStart(now), -(count - 1));
+    return Array.from({ length: count }, (_, index) => {
+      const bucketStart = addUtcDays(start, index);
+      return {
+        label: bucketStart.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC"
+        }),
+        start: bucketStart,
+        end: addUtcDays(bucketStart, 1)
+      };
+    });
   }
 
-  if (key === "30D") {
-    for (let i = 3; i >= 0; i -= 1) {
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7 + 1);
-      const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 7);
-      buckets.push({ start, end, label: `Wk ${4 - i}` });
-    }
-    return buckets;
+  if (range === "90D") {
+    const count = 13;
+    const start = addUtcDays(utcDayStart(now), -(count * 7 - 1));
+    return Array.from({ length: count }, (_, index) => {
+      const bucketStart = addUtcDays(start, index * 7);
+      return {
+        label: bucketStart.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC"
+        }),
+        start: bucketStart,
+        end: addUtcDays(bucketStart, 7)
+      };
+    });
   }
 
-  const months = key === "90D" ? 3 : key === "6M" ? 6 : 12;
-  for (let i = months - 1; i >= 0; i -= 1) {
-    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-    buckets.push({ start, end, label: monthLabel(start) });
-  }
-  return buckets;
+  const count = range === "6M" ? 6 : 12;
+  const firstMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (count - 1), 1));
+  return Array.from({ length: count }, (_, index) => {
+    const bucketStart = new Date(Date.UTC(firstMonth.getUTCFullYear(), firstMonth.getUTCMonth() + index, 1));
+    const bucketEnd = new Date(Date.UTC(bucketStart.getUTCFullYear(), bucketStart.getUTCMonth() + 1, 1));
+    return {
+      label: bucketStart.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }),
+      start: bucketStart,
+      end: bucketEnd
+    };
+  });
 }
 
-function inBucket(at: Date, bucket: SeriesBucket): boolean {
-  return at.getTime() >= bucket.start.getTime() && at.getTime() < bucket.end.getTime();
+function workflowEventStatus(status: WorkflowRunStatus): ExecutionEvent["status"] {
+  if (status === "COMPLETED") return "SUCCESS";
+  if (status === "FAILED" || status === "CANCELLED") return "FAILED";
+  return "RUNNING";
 }
 
-function isSuccess(call: CallRow): boolean {
-  return (call.durationSeconds ?? 0) > 0;
+function callEventStatus(call: { status: string; endedAt: Date | null }): ExecutionEvent["status"] {
+  const normalized = call.status.toLowerCase();
+  if (/fail|error|cancel|no-answer|busy/.test(normalized)) return "FAILED";
+  if (call.endedAt || /end|complete|report/.test(normalized)) return "SUCCESS";
+  return "RUNNING";
 }
 
-function deltaLabel(current: number, previous: number, suffix = "%"): string {
-  if (previous <= 0) return current > 0 ? "New" : "0" + suffix;
-  const percent = Math.round(((current - previous) / previous) * 100);
-  return `${percent >= 0 ? "+" : ""}${percent}${suffix === "%" ? "%" : suffix}`;
+function failureReason(event: ExecutionEvent) {
+  const value = `${event.error ?? ""} ${event.status}`.toLowerCase();
+  if (value.includes("timeout")) return "Timeout";
+  if (value.includes("auth") || value.includes("permission")) return "Authentication";
+  if (value.includes("rate") || value.includes("limit")) return "Rate limit";
+  if (value.includes("validation") || value.includes("invalid")) return "Invalid input";
+  if (event.kind === "CALL") return "Call failed";
+  return "Workflow error";
 }
 
-function rangeAggregate(params: {
-  key: RangeKey;
-  now: Date;
-  calls: CallRow[];
-  sales: SaleRow[];
+export function parseArchitectAnalyticsRange(value?: string): ArchitectAnalyticsRange {
+  return ARCHITECT_ANALYTICS_RANGES.includes(value as ArchitectAnalyticsRange)
+    ? (value as ArchitectAnalyticsRange)
+    : "30D";
+}
+
+export async function loadArchitectAgentAnalytics(params: {
+  architectUserId: string;
+  listingId: string;
+  range: ArchitectAnalyticsRange;
+  includeAllExecutions?: boolean;
 }) {
-  const { key, now } = params;
-  const days = RANGE_DAYS[key];
-  const windowStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-  const previousStart = new Date(windowStart.getTime() - days * 24 * 60 * 60 * 1000);
-
-  const calls = params.calls.filter((call) => call.createdAt >= windowStart);
-  const previousCalls = params.calls.filter(
-    (call) => call.createdAt >= previousStart && call.createdAt < windowStart
-  );
-  const sales = params.sales.filter((sale) => sale.date >= windowStart);
-  const previousSales = params.sales.filter(
-    (sale) => sale.date >= previousStart && sale.date < windowStart
-  );
-
-  const successes = calls.filter(isSuccess);
-  const successRate = calls.length > 0 ? Math.round((successes.length / calls.length) * 100) : 0;
-  const previousSuccessRate =
-    previousCalls.length > 0
-      ? Math.round((previousCalls.filter(isSuccess).length / previousCalls.length) * 100)
-      : 0;
-  const avgDuration =
-    successes.length > 0
-      ? successes.reduce((sum, call) => sum + (call.durationSeconds ?? 0), 0) / successes.length
-      : 0;
-  const revenueCents = sales.reduce((sum, sale) => sum + sale.earningsCents, 0);
-  const previousRevenueCents = previousSales.reduce((sum, sale) => sum + sale.earningsCents, 0);
-
-  const buckets = bucketsFor(key, now);
-  const execSeries = {
-    labels: buckets.map((bucket) => bucket.label),
-    success: buckets.map((bucket) => calls.filter((call) => isSuccess(call) && inBucket(call.createdAt, bucket)).length),
-    fail: buckets.map((bucket) => calls.filter((call) => !isSuccess(call) && inBucket(call.createdAt, bucket)).length)
-  };
-  const revSeries = {
-    labels: buckets.map((bucket) => bucket.label),
-    vals: buckets.map((bucket) =>
-      Math.round(
-        params.sales
-          .filter((sale) => inBucket(sale.date, bucket))
-          .reduce((sum, sale) => sum + sale.earningsCents, 0) / 100
-      )
-    )
-  };
-
-  // Simple linear projection for the next period based on the current run-rate.
-  const elapsedMs = Math.max(now.getTime() - windowStart.getTime(), 1);
-  const projectedCents = Math.round((revenueCents / elapsedMs) * days * 24 * 60 * 60 * 1000);
-
-  return {
-    exec: calls.length,
-    sr: successRate,
-    avg: Number(avgDuration.toFixed(1)),
-    rev: Math.round(revenueCents / 100),
-    dExec: deltaLabel(calls.length, previousCalls.length),
-    dSr: `${successRate - previousSuccessRate >= 0 ? "+" : ""}${successRate - previousSuccessRate}%`,
-    dAvg: "0",
-    dRev: deltaLabel(revenueCents, previousRevenueCents),
-    proj: `$${Math.round(projectedCents / 100).toLocaleString("en-US")}`,
-    execN: buckets.length,
-    revKind: key === "7D" ? "day" : key === "30D" ? "week4" : key === "90D" ? "month3" : key === "6M" ? "month6" : "month12",
-    execSeries,
-    revSeries
-  };
-}
-
-export async function buildArchitectAgentAnalytics(architectUserId: string, listingId?: string | null) {
-  const now = new Date();
-  const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-
-  const listings = await prisma.agentListing.findMany({
-    where: {
-      architectUserId,
-      ...(listingId ? { id: listingId } : {})
-    },
-    select: { id: true, name: true, status: true, _count: { select: { installedAgents: true } } }
+  const listing = await prisma.agentListing.findFirst({
+    where: { id: params.listingId, architectUserId: params.architectUserId },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      category: true,
+      priceCents: true,
+      createdAt: true,
+      publishedAt: true
+    }
   });
 
-  const listingIds = listings.map((listing) => listing.id);
+  if (!listing) return null;
 
-  const [callRows, earnings] = await Promise.all([
-    listingIds.length
+  const installsRaw = await prisma.installedAgent.findMany({
+    where: { listingId: listing.id },
+    select: {
+      id: true,
+      status: true,
+      configJson: true,
+      createdAt: true,
+      business: { select: { id: true, name: true } }
+    }
+  });
+  const installs = installsRaw.filter((install) => {
+    const config = install.configJson;
+    return !(
+      config &&
+      typeof config === "object" &&
+      !Array.isArray(config) &&
+      (config as Record<string, unknown>).purpose === "ARCHITECT_TEST"
+    );
+  });
+  const installedAgentIds = installs.map((install) => install.id);
+  const now = new Date();
+  const buckets = buildBuckets(params.range, now);
+  const rangeStart = buckets[0]!.start;
+  const retentionFloor = addUtcDays(utcDayStart(now), -16 * 7);
+  const retentionGroups = new Map<number, typeof installs>();
+  for (const install of installs) {
+    if (install.createdAt < retentionFloor) continue;
+    const cohortStart = utcWeekStart(install.createdAt).getTime();
+    retentionGroups.set(cohortStart, [...(retentionGroups.get(cohortStart) ?? []), install]);
+  }
+  const retentionCohorts = [...retentionGroups.entries()]
+    .sort(([left], [right]) => right - left)
+    .slice(0, 4)
+    .reverse();
+  const retentionStart = retentionCohorts[0] ? new Date(retentionCohorts[0][0]) : rangeStart;
+  const activityQueryStart = retentionStart < rangeStart ? retentionStart : rangeStart;
+
+  const [workflowRuns, calls, sales] = await Promise.all([
+    installedAgentIds.length
+      ? prisma.workflowRun.findMany({
+          where: {
+            installedAgentId: { in: installedAgentIds },
+            mode: "LIVE",
+            startedAt: { gte: activityQueryStart }
+          },
+          orderBy: { startedAt: "desc" },
+          select: {
+            id: true,
+            installedAgentId: true,
+            status: true,
+            startedAt: true,
+            finishedAt: true,
+            durationMs: true,
+            errorMessage: true,
+            business: { select: { name: true } }
+          }
+        })
+      : [],
+    installedAgentIds.length
       ? prisma.vapiCall.findMany({
           where: {
-            createdAt: { gte: yearAgo },
-            installedAgent: { is: { listingId: { in: listingIds } } }
+            installedAgentId: { in: installedAgentIds },
+            startedAt: { gte: activityQueryStart }
           },
+          orderBy: { startedAt: "desc" },
           select: {
-            createdAt: true,
+            id: true,
+            installedAgentId: true,
+            status: true,
+            startedAt: true,
+            endedAt: true,
             durationSeconds: true,
-            installedAgent: { select: { listingId: true } }
-          },
-          orderBy: { createdAt: "desc" }
+            business: { select: { name: true } }
+          }
         })
-      : Promise.resolve(
-          [] as Array<{
-            createdAt: Date;
-            durationSeconds: number | null;
-            installedAgent: { listingId: string | null } | null;
-          }>
-        ),
-    loadArchitectEarnings(architectUserId, listingId ? { listingIds: [listingId] } : undefined)
+      : [],
+    loadArchitectEarnings(params.architectUserId, { listingIds: [listing.id] })
   ]);
 
-  const calls: CallRow[] = callRows.map((row) => ({
-    createdAt: row.createdAt,
-    durationSeconds: row.durationSeconds,
-    listingId: row.installedAgent?.listingId ?? null
-  }));
+  const allEvents: ExecutionEvent[] = [
+    ...workflowRuns.map((run) => ({
+      id: `workflow:${run.id}`,
+      installedAgentId: run.installedAgentId!,
+      kind: "WORKFLOW" as const,
+      status: workflowEventStatus(run.status),
+      occurredAt: run.startedAt,
+      durationSeconds:
+        typeof run.durationMs === "number"
+          ? run.durationMs / 1000
+          : run.finishedAt
+            ? Math.max(0, (run.finishedAt.getTime() - run.startedAt.getTime()) / 1000)
+            : null,
+      businessName: run.business?.name ?? "Business customer",
+      error: run.errorMessage
+    })),
+    ...calls.map((call) => ({
+      id: `call:${call.id}`,
+      installedAgentId: call.installedAgentId!,
+      kind: "CALL" as const,
+      status: callEventStatus(call),
+      occurredAt: call.startedAt,
+      durationSeconds:
+        call.durationSeconds ??
+        (call.endedAt ? Math.max(0, (call.endedAt.getTime() - call.startedAt.getTime()) / 1000) : null),
+      businessName: call.business.name,
+      error: callEventStatus(call) === "FAILED" ? call.status : null
+    }))
+  ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+  const events = allEvents.filter((event) => event.occurredAt >= rangeStart);
 
-  const sales: SaleRow[] = earnings
-    .filter((sale) => sale.architectEarningStatus !== "REJECTED" && sale.createdAt >= yearAgo)
-    .map((sale) => ({
-      date: sale.createdAt,
-      earningsCents: sale.earningsCents,
-      listingId: sale.listingId
-    }));
+  const rangeSales = sales.filter((sale) => sale.createdAt >= rangeStart);
+  const completedEvents = events.filter((event) => event.status !== "RUNNING");
+  const successfulEvents = events.filter((event) => event.status === "SUCCESS");
+  const failedEvents = events.filter((event) => event.status === "FAILED");
+  const durations = completedEvents
+    .map((event) => event.durationSeconds)
+    .filter((duration): duration is number => typeof duration === "number" && Number.isFinite(duration));
+  const approvedRevenueCents = sumApprovedEarningsCents(rangeSales);
+  const pendingRevenueCents = sumPendingEarningsCents(rangeSales);
 
-  const ranges = Object.fromEntries(
-    (Object.keys(RANGE_DAYS) as RangeKey[]).map((key) => [key, rangeAggregate({ key, now, calls, sales })])
-  ) as Record<RangeKey, ReturnType<typeof rangeAggregate>>;
-
-  // Per-agent performance table (all-time within the year window).
-  const agents = listings.map((listing) => {
-    const listingCalls = calls.filter((call) => call.listingId === listing.id);
-    const listingSuccesses = listingCalls.filter(isSuccess);
-    const listingRevenueCents = sales
-      .filter((sale) => sale.listingId === listing.id)
-      .reduce((sum, sale) => sum + sale.earningsCents, 0);
-    const successRate =
-      listingCalls.length > 0 ? Math.round((listingSuccesses.length / listingCalls.length) * 100) : 0;
-    const avgSeconds =
-      listingSuccesses.length > 0
-        ? listingSuccesses.reduce((sum, call) => sum + (call.durationSeconds ?? 0), 0) / listingSuccesses.length
-        : 0;
-
+  const series = buckets.map((bucket) => {
+    const bucketEvents = events.filter(
+      (event) => event.occurredAt >= bucket.start && event.occurredAt < bucket.end
+    );
+    const bucketSales = rangeSales.filter(
+      (sale) => sale.createdAt >= bucket.start && sale.createdAt < bucket.end
+    );
     return {
-      name: listing.name,
-      ver: listing.status === "APPROVED" ? "Live" : listing.status === "PAUSED" ? "Paused" : "Draft",
-      exec: listingCalls.length,
-      sr: successRate,
-      time: Number(avgSeconds.toFixed(1)),
-      rev: Math.round(listingRevenueCents / 100),
-      status: listingCalls.length === 0 || successRate >= 80 ? "Healthy" : "Attention",
-      installs: listing._count.installedAgents
+      label: bucket.label,
+      successful: bucketEvents.filter((event) => event.status === "SUCCESS").length,
+      failed: bucketEvents.filter((event) => event.status === "FAILED").length,
+      running: bucketEvents.filter((event) => event.status === "RUNNING").length,
+      revenueCents: sumApprovedEarningsCents(bucketSales),
+      pendingRevenueCents: sumPendingEarningsCents(bucketSales)
     };
   });
 
-  // 12-month execution sparkline.
-  const spark = bucketsFor("1Y", now).map(
-    (bucket) => calls.filter((call) => inBucket(call.createdAt, bucket)).length
-  );
-
-  const liveExecutions = calls.slice(0, 8).map((call) => ({
-    at: call.createdAt.toISOString(),
-    listingName: listings.find((listing) => listing.id === call.listingId)?.name ?? "Agent",
-    durationSeconds: call.durationSeconds ?? 0,
-    ok: isSuccess(call)
-  }));
-
-  const failures = await buildFailureBreakdown(listingIds, yearAgo);
-
-  return { ranges, agents, spark, liveExecutions, failures };
-}
-
-function humanizeEndedReason(reason: string): string {
-  const cleaned = reason
-    .replace(/^call\.in-progress\.error-/, "")
-    .replace(/^pipeline-error-/, "")
-    .replace(/^error-/, "")
-    .replace(/-/g, " ")
-    .trim();
-
-  if (!cleaned || cleaned === "unknown") return "No end reason recorded";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-}
-
-async function buildFailureBreakdown(listingIds: string[], since: Date) {
-  if (listingIds.length === 0) return [];
-
-  const failedRows = await prisma.vapiCall.findMany({
-    where: {
-      createdAt: { gte: since },
-      installedAgent: { is: { listingId: { in: listingIds } } },
-      OR: [{ durationSeconds: null }, { durationSeconds: { lte: 0 } }]
-    },
-    select: { metadataJson: true },
-    orderBy: { createdAt: "desc" },
-    take: 500
-  });
-
-  const reasonCounts = new Map<string, number>();
-
-  for (const row of failedRows) {
-    const body = row.metadataJson as Record<string, unknown> | null;
-    const message =
-      body && typeof body.message === "object" && body.message !== null
-        ? (body.message as Record<string, unknown>)
-        : (body ?? {});
-    const raw = typeof message.endedReason === "string" ? message.endedReason : "unknown";
-    const label = humanizeEndedReason(raw);
-    reasonCounts.set(label, (reasonCounts.get(label) ?? 0) + 1);
+  const failureCounts = new Map<string, number>();
+  for (const event of failedEvents) {
+    const reason = failureReason(event);
+    failureCounts.set(reason, (failureCounts.get(reason) ?? 0) + 1);
   }
 
-  const total = [...reasonCounts.values()].reduce((sum, count) => sum + count, 0);
+  const retention = retentionCohorts.map(([cohortTimestamp, cohortInstalls]) => {
+    const values: Array<number | null> = [100];
+    for (const weekOffset of [1, 2, 4]) {
+      const windowEnd = addUtcDays(new Date(cohortTimestamp), (weekOffset + 1) * 7);
+      if (windowEnd > now) {
+        values.push(null);
+        continue;
+      }
 
-  return [...reasonCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([label, count]) => ({
-      label,
-      count,
-      pct: total > 0 ? Math.round((count / total) * 100) : 0
-    }));
+      const retainedCount = cohortInstalls.filter((install) => {
+        const windowStart = addUtcDays(install.createdAt, weekOffset * 7);
+        const installWindowEnd = addUtcDays(windowStart, 7);
+        return allEvents.some(
+          (event) =>
+            event.installedAgentId === install.id &&
+            event.occurredAt >= windowStart &&
+            event.occurredAt < installWindowEnd
+        );
+      }).length;
+      values.push(Math.round((retainedCount / cohortInstalls.length) * 100));
+    }
+
+    return {
+      label: new Date(cohortTimestamp).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC"
+      }),
+      installCount: cohortInstalls.length,
+      values
+    };
+  });
+  const fourWeekValues = retention
+    .map((cohort) => cohort.values[3])
+    .filter((value): value is number => typeof value === "number");
+
+  return {
+    listing: {
+      ...listing,
+      createdAt: listing.createdAt.toISOString(),
+      publishedAt: listing.publishedAt?.toISOString() ?? null
+    },
+    range: params.range,
+    rangeStart: rangeStart.toISOString(),
+    refreshedAt: new Date().toISOString(),
+    metrics: {
+      totalExecutions: events.length,
+      successfulExecutions: successfulEvents.length,
+      failedExecutions: failedEvents.length,
+      runningExecutions: events.filter((event) => event.status === "RUNNING").length,
+      successRate:
+        completedEvents.length > 0 ? Math.round((successfulEvents.length / completedEvents.length) * 1000) / 10 : 0,
+      averageExecutionSeconds:
+        durations.length > 0
+          ? Math.round((durations.reduce((sum, value) => sum + value, 0) / durations.length) * 10) / 10
+          : 0,
+      revenueCents: approvedRevenueCents,
+      pendingRevenueCents,
+      salesCount: rangeSales.length,
+      callCount: events.filter((event) => event.kind === "CALL").length,
+      totalInstalls: installs.length,
+      activeInstalls: installs.filter((install) => install.status === "ACTIVE").length
+    },
+    series,
+    failures: [...failureCounts.entries()]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count),
+    retention: {
+      cohorts: retention,
+      averageFourWeekPercent:
+        fourWeekValues.length > 0
+          ? Math.round(fourWeekValues.reduce((sum, value) => sum + value, 0) / fourWeekValues.length)
+          : null
+    },
+    recentExecutions: events.slice(0, params.includeAllExecutions ? undefined : 20).map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      status: event.status,
+      occurredAt: event.occurredAt.toISOString(),
+      durationSeconds: event.durationSeconds,
+      businessName: event.businessName,
+      error: event.error
+    }))
+  };
+}
+
+function csvCell(value: string | number | null) {
+  if (value === null) return "";
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRow(values: Array<string | number | null>) {
+  return values.map(csvCell).join(",");
+}
+
+function reportSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "agent";
+}
+
+export async function buildArchitectAgentAnalyticsCsv(params: {
+  architectUserId: string;
+  listingId: string;
+  range: ArchitectAnalyticsRange;
+}) {
+  const analytics = await loadArchitectAgentAnalytics({
+    ...params,
+    includeAllExecutions: true
+  });
+  if (!analytics) return null;
+
+  const rows = [
+    csvRow(["TRIVEN.AI Agent Analytics Report"]),
+    csvRow(["Agent", analytics.listing.name]),
+    csvRow(["Agent ID", analytics.listing.id]),
+    csvRow(["Status", analytics.listing.status]),
+    csvRow(["Selected range", analytics.range]),
+    csvRow(["Range begins", analytics.rangeStart]),
+    csvRow(["Generated at", analytics.refreshedAt]),
+    "",
+    csvRow(["Summary"]),
+    csvRow(["Metric", "Value"]),
+    csvRow(["Total executions", analytics.metrics.totalExecutions]),
+    csvRow(["Successful executions", analytics.metrics.successfulExecutions]),
+    csvRow(["Failed executions", analytics.metrics.failedExecutions]),
+    csvRow(["Running executions", analytics.metrics.runningExecutions]),
+    csvRow(["Success rate (%)", analytics.metrics.successRate]),
+    csvRow(["Average execution time (seconds)", analytics.metrics.averageExecutionSeconds]),
+    csvRow(["Approved earnings", (analytics.metrics.revenueCents / 100).toFixed(2)]),
+    csvRow(["Pending earnings", (analytics.metrics.pendingRevenueCents / 100).toFixed(2)]),
+    csvRow(["Sales", analytics.metrics.salesCount]),
+    csvRow(["Voice calls", analytics.metrics.callCount]),
+    csvRow(["Total installs", analytics.metrics.totalInstalls]),
+    csvRow(["Active installs", analytics.metrics.activeInstalls]),
+    "",
+    csvRow(["Time series"]),
+    csvRow(["Period", "Successful", "Failed", "Running", "Approved earnings", "Pending earnings"]),
+    ...analytics.series.map((point) =>
+      csvRow([
+        point.label,
+        point.successful,
+        point.failed,
+        point.running,
+        (point.revenueCents / 100).toFixed(2),
+        (point.pendingRevenueCents / 100).toFixed(2)
+      ])
+    ),
+    "",
+    csvRow(["Client retention"]),
+    csvRow(["Cohort", "Installs", "At hire (%)", "1 week (%)", "2 weeks (%)", "4 weeks (%)"]),
+    ...analytics.retention.cohorts.map((cohort) =>
+      csvRow([cohort.label, cohort.installCount, ...cohort.values])
+    ),
+    csvRow(["Average 4-week retention (%)", analytics.retention.averageFourWeekPercent]),
+    "",
+    csvRow(["Executions"]),
+    csvRow(["Execution ID", "Type", "Status", "Occurred at", "Duration (seconds)", "Business", "Error"]),
+    ...analytics.recentExecutions.map((execution) =>
+      csvRow([
+        execution.id,
+        execution.kind,
+        execution.status,
+        execution.occurredAt,
+        execution.durationSeconds,
+        execution.businessName,
+        execution.error
+      ])
+    )
+  ];
+
+  return {
+    filename: `triven-agent-analytics-${reportSlug(analytics.listing.name)}-${analytics.range.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`,
+    csv: `\uFEFF${rows.join("\r\n")}`
+  };
 }

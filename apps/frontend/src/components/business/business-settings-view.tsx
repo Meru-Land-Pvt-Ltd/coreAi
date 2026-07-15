@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   deleteBusinessAccount,
+  downloadBusinessDataExport,
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
   getBusinessCalendarStatus,
@@ -15,6 +16,7 @@ import {
   requestBusinessEmailChange,
   revokeBusinessSession,
   revokeOtherBusinessSessions,
+  saveBusinessBillingAddress,
   saveBusinessProfilePhoto,
   saveBusinessSettingsProfile,
   saveBusinessSetup,
@@ -27,7 +29,7 @@ import {
 import { apiGet } from "@/lib/api";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
-import { BUSINESS_BILLING_PATH, BUSINESS_INVOICE_PATH } from "@/lib/routes";
+import { BUSINESS_BILLING_PATH } from "@/lib/routes";
 
 type SettingsTab =
   | "profile"
@@ -224,43 +226,31 @@ const NOTIFICATION_ROWS: Array<{
   title: string;
   description: string;
   locked?: boolean;
-  defaults: { email: boolean; push: boolean };
+  defaults: { email: boolean };
 }> = [
   {
     key: "agentActivity",
     title: "Agent activity",
     description: "When your agents complete tasks, encounter errors, or need attention",
-    defaults: { email: true, push: true }
-  },
-  {
-    key: "newMessages",
-    title: "New messages",
-    description: "When an architect replies to your conversation",
-    defaults: { email: true, push: true }
+    defaults: { email: true }
   },
   {
     key: "billingPayments",
     title: "Billing & payments",
     description: "Payment confirmations, failed charges, upcoming renewals",
-    defaults: { email: true, push: false }
-  },
-  {
-    key: "weeklyDigest",
-    title: "Weekly performance digest",
-    description: "Summary of all agent activity and ROI metrics",
-    defaults: { email: true, push: false }
+    defaults: { email: true }
   },
   {
     key: "productUpdates",
     title: "Product updates",
     description: "New features, marketplace additions, and platform improvements",
-    defaults: { email: false, push: false }
+    defaults: { email: false }
   },
   {
     key: "securityAlerts",
     title: "Security alerts",
     description: "New logins, password changes, and suspicious activity",
-    defaults: { email: true, push: true },
+    defaults: { email: true },
     locked: true
   }
 ];
@@ -338,6 +328,7 @@ type BillingData = {
   businessName: string | null;
   billingEmail: string | null;
   billingAddress: string | null;
+  billingPostalCode: string | null;
 };
 
 function formatUsd(cents: number) {
@@ -552,7 +543,7 @@ export function BusinessSettingsView() {
   const [profilePhotoSelecting, setProfilePhotoSelecting] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [notificationPrefs, setNotificationPrefs] = useState<
-    Record<string, { email: boolean; push: boolean; locked?: boolean }>
+    Record<string, { email: boolean; locked?: boolean }>
   >({});
   const [privacyPrefs, setPrivacyPrefs] = useState<Record<string, boolean>>({});
   const [cookiePrefs, setCookiePrefs] = useState<Record<string, boolean>>({});
@@ -564,6 +555,10 @@ export function BusinessSettingsView() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [billingAddressEditing, setBillingAddressEditing] = useState(false);
+  const [billingAddressSaving, setBillingAddressSaving] = useState(false);
+  const [billingAddressForm, setBillingAddressForm] = useState({ address: "", pincode: "" });
+  const [exportingData, setExportingData] = useState(false);
 
   const initials = getInitials(profileForm.fullName || accountEmail || "User");
   const pwStrength = passwordStrength(passwordForm.next);
@@ -630,6 +625,10 @@ export function BusinessSettingsView() {
 
     if (billingResult.success && billingResult.data?.billing) {
       setBilling(billingResult.data.billing);
+      setBillingAddressForm({
+        address: billingResult.data.billing.billingAddress ?? "",
+        pincode: billingResult.data.billing.billingPostalCode ?? ""
+      });
     }
 
     if (calendarResult.success && calendarResult.data) {
@@ -651,7 +650,7 @@ export function BusinessSettingsView() {
   }, [authUser]);
 
   useEffect(() => {
-    const prefs: Record<string, { email: boolean; push: boolean; locked?: boolean }> = {};
+    const prefs: Record<string, { email: boolean; locked?: boolean }> = {};
     for (const row of NOTIFICATION_ROWS) {
       prefs[row.key] = { ...row.defaults, locked: row.locked };
     }
@@ -671,6 +670,23 @@ export function BusinessSettingsView() {
 
     loadData().finally(() => setLoading(false));
   }, [loadData]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedTab = params.get("tab");
+
+    if (requestedTab && TABS.some((tab) => tab.id === requestedTab)) {
+      const tab = requestedTab as SettingsTab;
+      setActiveTab(tab);
+      setExpandedMobile(tab);
+    }
+
+    if (params.get("gmail") === "connected") {
+      showToast("Google Calendar connected");
+    } else if (params.get("gmail") === "failed") {
+      showToast("Could not connect Google Calendar");
+    }
+  }, [showToast]);
 
   async function handleSaveProfile(event: FormEvent) {
     event.preventDefault();
@@ -840,6 +856,58 @@ export function BusinessSettingsView() {
 
   function handleSaveNotifications() {
     showToast("Preferences saved ✓");
+  }
+
+  async function handleSaveBillingAddress(event: FormEvent) {
+    event.preventDefault();
+
+    if (!profileForm.businessId) {
+      showToast("Business profile is not available yet");
+      return;
+    }
+
+    const address = billingAddressForm.address.trim();
+    const pincode = billingAddressForm.pincode.trim();
+
+    if (!address || !pincode) {
+      showToast("Enter both address and pincode");
+      return;
+    }
+
+    setBillingAddressSaving(true);
+    const result = await saveBusinessBillingAddress({
+      businessId: profileForm.businessId,
+      address,
+      pincode
+    });
+    setBillingAddressSaving(false);
+
+    if (!result.success || !result.data?.billingAddress) {
+      showToast(result.error ?? "Could not update billing address");
+      return;
+    }
+
+    const savedAddress = result.data.billingAddress;
+    setBilling((current) =>
+      current
+        ? {
+            ...current,
+            billingAddress: savedAddress.address,
+            billingPostalCode: savedAddress.pincode
+          }
+        : current
+    );
+    setBillingAddressEditing(false);
+    showToast("Billing address updated");
+  }
+
+  async function handleExportData() {
+    if (!profileForm.businessId || exportingData) return;
+
+    setExportingData(true);
+    const result = await downloadBusinessDataExport(profileForm.businessId);
+    setExportingData(false);
+    showToast(result.success ? "Business data downloaded" : result.error ?? "Could not export your data");
   }
 
   function handleSavePrivacy() {
@@ -1404,10 +1472,9 @@ export function BusinessSettingsView() {
                     <p className="mt-1 text-sm text-slate-500">Choose how and when CORE contacts you.</p>
                   </div>
 
-                  <div className="hidden grid-cols-[1fr_5rem_5rem] gap-4 px-1 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 sm:grid">
+                  <div className="hidden grid-cols-[1fr_5rem] gap-4 px-1 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 sm:grid">
                     <span>Notification</span>
                     <span className="text-center">Email</span>
-                    <span className="text-center">Push</span>
                   </div>
 
                   {NOTIFICATION_ROWS.map((row) => {
@@ -1415,7 +1482,7 @@ export function BusinessSettingsView() {
                     return (
                       <div
                         key={row.key}
-                        className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-t border-gray-100 py-4 sm:grid-cols-[1fr_5rem_5rem]"
+                        className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-gray-100 py-4 sm:grid-cols-[1fr_5rem]"
                       >
                         <div className="min-w-0">
                           <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
@@ -1441,20 +1508,6 @@ export function BusinessSettingsView() {
                             }
                           />
                           <span className="text-[10px] text-slate-400 sm:hidden">Email</span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1">
-                          <Toggle
-                            checked={pref.push}
-                            disabled={pref.locked}
-                            testId={`business-settings-notify-${row.key}-push`}
-                            onChange={(push) =>
-                              setNotificationPrefs((current) => ({
-                                ...current,
-                                [row.key]: { ...pref, push }
-                              }))
-                            }
-                          />
-                          <span className="text-[10px] text-slate-400 sm:hidden">Push</span>
                         </div>
                       </div>
                     );
@@ -1598,23 +1651,93 @@ export function BusinessSettingsView() {
                   <hr className="my-7 border-gray-100" />
 
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Billing address</h3>
-                  <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 p-4">
-                    <address className="not-italic text-sm leading-relaxed text-slate-700">
-                      {billing?.businessName ?? profileForm.businessName}
-                      <br />
-                      {billing?.billingAddress ?? (profileForm.address || "No billing address on file")}
-                      <br />
-                      United States
-                    </address>
-                    <button
-                      type="button"
-                      data-testid="business-settings-edit-billing-address"
-                      className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                      onClick={() => showToast("Billing address update coming soon")}
+                  {billingAddressEditing ? (
+                    <form
+                      className="space-y-4 rounded-xl border border-gray-100 p-4"
+                      onSubmit={handleSaveBillingAddress}
+                      data-testid="business-settings-billing-address-form"
                     >
-                      Edit address
-                    </button>
-                  </div>
+                      <div>
+                        <label htmlFor="billingAddress" className="mb-1.5 block text-sm font-medium text-slate-700">
+                          Address
+                        </label>
+                        <input
+                          id="billingAddress"
+                          value={billingAddressForm.address}
+                          onChange={(event) =>
+                            setBillingAddressForm((current) => ({ ...current, address: event.target.value }))
+                          }
+                          data-testid="business-settings-billing-address-input"
+                          autoComplete="street-address"
+                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                          placeholder="Enter billing address"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="billingPincode" className="mb-1.5 block text-sm font-medium text-slate-700">
+                          Pincode
+                        </label>
+                        <input
+                          id="billingPincode"
+                          value={billingAddressForm.pincode}
+                          onChange={(event) =>
+                            setBillingAddressForm((current) => ({ ...current, pincode: event.target.value }))
+                          }
+                          data-testid="business-settings-billing-pincode-input"
+                          autoComplete="postal-code"
+                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                          placeholder="Enter pincode"
+                          required
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
+                          onClick={() => {
+                            setBillingAddressForm({
+                              address: billing?.billingAddress ?? "",
+                              pincode: billing?.billingPostalCode ?? ""
+                            });
+                            setBillingAddressEditing(false);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={billingAddressSaving}
+                          data-testid="business-settings-save-billing-address"
+                          className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                        >
+                          {billingAddressSaving ? "Saving..." : "Save address"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 p-4">
+                      <address className="not-italic text-sm leading-relaxed text-slate-700">
+                        {billing?.businessName ?? profileForm.businessName}
+                        <br />
+                        {billing?.billingAddress ?? (profileForm.address || "No billing address on file")}
+                        {billing?.billingPostalCode ? (
+                          <>
+                            <br />
+                            {billing.billingPostalCode}
+                          </>
+                        ) : null}
+                      </address>
+                      <button
+                        type="button"
+                        data-testid="business-settings-edit-billing-address"
+                        className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
+                        onClick={() => setBillingAddressEditing(true)}
+                      >
+                        Edit address
+                      </button>
+                    </div>
+                  )}
 
                   <hr className="my-7 border-gray-100" />
 
@@ -1669,7 +1792,7 @@ export function BusinessSettingsView() {
                     <p className="text-sm text-slate-500">No invoices yet.</p>
                   )}
                   <Link
-                    href={BUSINESS_INVOICE_PATH}
+                    href={BUSINESS_BILLING_PATH}
                     data-testid="business-settings-view-all-invoices"
                     className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:underline"
                   >
@@ -1692,17 +1815,18 @@ export function BusinessSettingsView() {
 
                   <h3 className="mb-2 text-base font-semibold text-slate-900">Data export</h3>
                   <p className="mb-4 text-sm text-slate-500">
-                    Download a complete copy of your account data, agent configurations, conversation history, and activity
-                    logs. Delivered as a ZIP file to your email within 24 hours.
+                    Download a ZIP containing this business&apos;s account data, agent configurations, conversation history,
+                    and activity logs.
                   </p>
                   <div className="flex flex-wrap items-center gap-3">
                     <button
                       type="button"
                       data-testid="business-settings-export-data"
                       className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                      onClick={() => showToast("Data export request submitted")}
+                      disabled={exportingData || !profileForm.businessId}
+                      onClick={() => void handleExportData()}
                     >
-                      Request data export
+                      {exportingData ? "Preparing export..." : "Request data export"}
                     </button>
                     <span className="text-xs text-slate-400">Last export: Never requested</span>
                   </div>

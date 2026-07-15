@@ -9,6 +9,7 @@ import {
   createGmailOAuthUrl,
   disconnectGmail,
   getGmailConnectionStatus,
+  getGmailOAuthRedirectPath,
   handleGmailOAuthCallback
 } from "./gmail-connector";
 import {
@@ -61,6 +62,12 @@ import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-rout
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import { loadArchitectDashboardActivity } from "./dashboard-activity";
+import {
+  buildArchitectAgentAnalyticsCsv,
+  loadArchitectAgentAnalytics,
+  parseArchitectAnalyticsRange
+} from "./agent-analytics";
 
 const voicePreviewSchema = z.object({
   presetId: z.string().trim().optional(),
@@ -76,7 +83,18 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
     const state = c.req.query("state");
 
     if (!code || !state) {
-      return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
+      let target = "/architect/profile";
+
+      if (state) {
+        try {
+          target = getGmailOAuthRedirectPath(state) ?? target;
+        } catch {
+          // Invalid or expired state: fall back to the architect profile.
+        }
+      }
+
+      const separator = target.includes("?") ? "&" : "?";
+      return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=failed`);
     }
 
     const { redirectPath } = await handleGmailOAuthCallback({
@@ -90,7 +108,19 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
     return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=connected`);
   } catch (error) {
     console.error(error);
-    return c.redirect(`${env.FRONTEND_URL}/architect/profile?gmail=failed`);
+    const state = c.req.query("state");
+    let target = "/architect/profile";
+
+    if (state) {
+      try {
+        target = getGmailOAuthRedirectPath(state) ?? target;
+      } catch {
+        // Invalid or expired state: fall back to the architect profile.
+      }
+    }
+
+    const separator = target.includes("?") ? "&" : "?";
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=failed`);
   }
 });
 
@@ -304,6 +334,69 @@ architectRoutes.get("/ai/providers", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+
+architectRoutes.get("/dashboard/activity", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const requestedLimit = Number(c.req.query("limit") ?? "10");
+    const limit = Number.isFinite(requestedLimit) ? requestedLimit : 10;
+    const activities = await loadArchitectDashboardActivity(authUser.id, limit);
+
+    return successResponse(c, {
+      activities,
+      refreshedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Architect dashboard activity failed", error);
+    return errorResponse(c, "Could not load dashboard activity", 500, "DASHBOARD_ACTIVITY_FAILED");
+  }
+});
+
+architectRoutes.get("/agents/:listingId/analytics", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const listingId = c.req.param("listingId").trim();
+    const range = parseArchitectAnalyticsRange(c.req.query("range"));
+    const analytics = await loadArchitectAgentAnalytics({
+      architectUserId: authUser.id,
+      listingId,
+      range
+    });
+
+    if (!analytics) {
+      return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
+    }
+
+    return successResponse(c, analytics, "Agent analytics loaded");
+  } catch (error) {
+    console.error("Architect agent analytics failed", error);
+    return errorResponse(c, "Could not load agent analytics", 500, "AGENT_ANALYTICS_FAILED");
+  }
+});
+
+architectRoutes.get("/agents/:listingId/analytics/export", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const listingId = c.req.param("listingId").trim();
+    const range = parseArchitectAnalyticsRange(c.req.query("range"));
+    const report = await buildArchitectAgentAnalyticsCsv({
+      architectUserId: authUser.id,
+      listingId,
+      range
+    });
+
+    if (!report) {
+      return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
+    }
+
+    c.header("Content-Type", "text/csv; charset=utf-8");
+    c.header("Content-Disposition", `attachment; filename="${report.filename}"`);
+    return c.body(report.csv);
+  } catch (error) {
+    console.error("Architect agent analytics export failed", error);
+    return errorResponse(c, "Could not export agent analytics", 500, "AGENT_ANALYTICS_EXPORT_FAILED");
+  }
+});
 
 /** My Agents dashboard stats — live counts, buyer executions, and approved total earnings. */
 // Live Agent Analytics: real executions/revenue/per-agent metrics for the

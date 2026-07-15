@@ -726,3 +726,7 @@ export async function createGmailDraft({
     gmailUrl: getGmailDraftUrl(response.data.id)
   };
 }
+
+export function getGmailOAuthRedirectPath(state: string) {
+  return verifyStatePayload(state).redirectPath;
+}
