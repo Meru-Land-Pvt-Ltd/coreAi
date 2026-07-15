@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BROWSER_CALL_START_MESSAGE } from "@coreai/shared";
+import { getArchitectVapiBrowserTestCallEndReason } from "@/components/architect/features/api";
 import type {
     ArchitectConversationMessage,
     ArchitectVapiBrowserTestSession
@@ -99,33 +100,94 @@ function speakText(text: string): Promise<void> {
 
 /* ------------------------------ Vapi web SDK ------------------------------ */
 
-type VapiEventName = "call-start" | "call-end" | "speech-start" | "speech-end" | "message" | "error";
+type VapiEventName =
+    | "call-start"
+    | "call-end"
+    | "speech-start"
+    | "speech-end"
+    | "message"
+    | "error"
+    | "volume-level";
 
 type VapiWebClient = {
     start: (assistantId: string, overrides?: Record<string, unknown>) => Promise<unknown>;
     stop: () => void;
     on: (event: VapiEventName, listener: (payload?: unknown) => void) => unknown;
+    off?: (event: VapiEventName, listener: (payload?: unknown) => void) => unknown;
+    removeAllListeners?: (event?: VapiEventName) => unknown;
 };
 
-async function createVapiClient(publicKey: string): Promise<VapiWebClient> {
+/**
+ * One Vapi client per page, reused across calls and React Strict Mode
+ * remounts. Creating a client per start() leaks listeners and mic handles.
+ */
+let sharedVapiClient: VapiWebClient | null = null;
+let sharedVapiClientKey = "";
+
+async function getSharedVapiClient(publicKey: string): Promise<VapiWebClient> {
+    if (sharedVapiClient && sharedVapiClientKey === publicKey) {
+        return sharedVapiClient;
+    }
+
+    if (sharedVapiClient) {
+        try {
+            sharedVapiClient.stop();
+        } catch {
+            // already stopped
+        }
+        try {
+            sharedVapiClient.removeAllListeners?.();
+        } catch {
+            // no listeners
+        }
+    }
+
     const mod = await import("@vapi-ai/web");
     const VapiCtor = mod.default as unknown as new (key: string) => VapiWebClient;
 
-    return new VapiCtor(publicKey);
+    sharedVapiClient = new VapiCtor(publicKey);
+    sharedVapiClientKey = publicKey;
+
+    return sharedVapiClient;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+/** Structured, secret-free diagnostics for the browser voice test. */
+function logVapiEvent(event: string, details: Record<string, unknown> = {}) {
+    console.info("[browser-call]", JSON.stringify({ event, at: new Date().toISOString(), ...details }));
+}
+
 function readVapiError(payload: unknown): string {
     const record = asRecord(payload);
+    const nestedError = asRecord(record.error);
     const message =
         (typeof record.errorMsg === "string" && record.errorMsg) ||
         (typeof record.message === "string" && record.message) ||
-        (typeof record.error === "string" && record.error);
+        (typeof record.error === "string" && record.error) ||
+        (typeof nestedError.message === "string" && nestedError.message);
 
     return message || "The Vapi browser call hit an error.";
+}
+
+function isMicPermissionError(name: string, message: string): boolean {
+    return /notallowed|notfound|permission|denied|mic/i.test(`${name} ${message}`);
+}
+
+function friendlyVapiError(message: string): string {
+    const m = message.toLowerCase();
+
+    if (m.includes("ejection") || m.includes("ejected") || m.includes("meeting has ended")) {
+        return "Voice test ended because the browser participant was removed from the Vapi meeting. Fetching the exact cause…";
+    }
+
+    if (isMicPermissionError("", m)) {
+        return "Microphone access was blocked. Allow the microphone for this site in your browser settings, then start the call again.";
+    }
+
+    return message;
 }
 
 /* --------------------------------- helpers -------------------------------- */
@@ -200,13 +262,19 @@ export function BrowserVoiceCallTest({
     const [error, setError] = useState("");
     const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
     const vapiClientRef = useRef<VapiWebClient | null>(null);
+    const detachVapiListenersRef = useRef<(() => void) | null>(null);
+    const vapiCallIdRef = useRef("");
+    const vapiSessionRef = useRef<ArchitectVapiBrowserTestSession | null>(null);
+    const endReasonRequestedRef = useRef(false);
     const callActiveRef = useRef(false);
     const speechSupported = useMemo(() => canUseSpeechRecognition(), []);
 
     useEffect(() => {
+        // Cleanup must not depend on per-render state: refs only, run once.
         return () => {
             callActiveRef.current = false;
             recognitionRef.current?.abort();
+            detachVapiListenersRef.current?.();
 
             try {
                 vapiClientRef.current?.stop();
@@ -248,28 +316,106 @@ export function BrowserVoiceCallTest({
         }
     }
 
+    /**
+     * After a call ends (normally or via ejection), ask the backend for the
+     * real Vapi endedReason so failures show the actual cause instead of the
+     * generic "Meeting ended due to ejection".
+     */
+    async function showRealEndReason(): Promise<void> {
+        const callId = vapiCallIdRef.current;
+
+        if (!callId || endReasonRequestedRef.current) return;
+
+        endReasonRequestedRef.current = true;
+
+        // endedReason lags call teardown by a moment — retry briefly.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 1200 : 2500));
+
+            const res = await getArchitectVapiBrowserTestCallEndReason(callId);
+            const endReason = res.success ? res.data?.endReason : null;
+
+            if (!endReason?.endedReason) continue;
+
+            logVapiEvent("ended-reason", {
+                callId,
+                assistantId: vapiSessionRef.current?.assistantId,
+                endedReason: endReason.endedReason
+            });
+
+            const isFailure = /error|fail|eject/i.test(endReason.endedReason);
+
+            if (isFailure) {
+                setError(
+                    endReason.message ||
+                        `Voice test ended because the call failed: ${endReason.endedReason}`
+                );
+            }
+
+            return;
+        }
+    }
+
+    function detachVapiListeners() {
+        detachVapiListenersRef.current?.();
+    }
+
     async function startVapiMode(session: ArchitectVapiBrowserTestSession): Promise<void> {
-        const client = await createVapiClient(session.publicKey);
+        const client = await getSharedVapiClient(session.publicKey);
+
+        // Exactly one active call: drop stale listeners from a previous call
+        // and stop anything still running before starting the new one.
+        detachVapiListeners();
+
+        try {
+            client.stop();
+        } catch {
+            // no active call
+        }
 
         vapiClientRef.current = client;
+        vapiSessionRef.current = session;
+        vapiCallIdRef.current = "";
+        endReasonRequestedRef.current = false;
 
-        client.on("call-start", () => {
+        const safeIds = { assistantId: session.assistantId, businessId: session.businessId };
+
+        const onCallStart = () => {
+            logVapiEvent("call-start", { ...safeIds, callId: vapiCallIdRef.current });
             if (callActiveRef.current) setCallState("listening");
-        });
-        client.on("speech-start", () => {
+        };
+
+        // State update only — never stop() here: the caller speaking is the
+        // normal path and must keep the call alive.
+        const onSpeechStart = () => {
+            logVapiEvent("speech-start", { callId: vapiCallIdRef.current });
             if (callActiveRef.current) setCallState("speaking");
-        });
-        client.on("speech-end", () => {
+        };
+
+        const onSpeechEnd = () => {
+            logVapiEvent("speech-end", { callId: vapiCallIdRef.current });
             if (callActiveRef.current) setCallState("listening");
-        });
-        client.on("call-end", () => {
+        };
+
+        const onCallEnd = () => {
+            logVapiEvent("call-end", { ...safeIds, callId: vapiCallIdRef.current });
             callActiveRef.current = false;
             setCallState("ended");
-        });
-        client.on("error", (payload) => {
+            void showRealEndReason();
+        };
+
+        const onError = (payload?: unknown) => {
+            const record = asRecord(payload);
             const message = readVapiError(payload);
 
-            setError(message);
+            logVapiEvent("error", {
+                ...safeIds,
+                callId: vapiCallIdRef.current,
+                errorName: typeof record.type === "string" ? record.type : undefined,
+                errorMessage: message
+            });
+
+            setError(friendlyVapiError(message));
             callActiveRef.current = false;
 
             try {
@@ -278,14 +424,54 @@ export function BrowserVoiceCallTest({
                 // already stopped
             }
 
-            vapiClientRef.current = null;
             setCallState("ended");
-        });
-        client.on("message", handleVapiMessage);
+            void showRealEndReason();
+        };
 
-        await client.start(session.assistantId, {
+        let lastVolumeLogAt = 0;
+        const onVolumeLevel = () => {
+            const now = Date.now();
+            if (now - lastVolumeLogAt < 10000) return;
+            lastVolumeLogAt = now;
+            logVapiEvent("volume-level", { callId: vapiCallIdRef.current });
+        };
+
+        const onMessage = (payload?: unknown) => handleVapiMessage(payload);
+
+        client.on("call-start", onCallStart);
+        client.on("speech-start", onSpeechStart);
+        client.on("speech-end", onSpeechEnd);
+        client.on("call-end", onCallEnd);
+        client.on("error", onError);
+        client.on("volume-level", onVolumeLevel);
+        client.on("message", onMessage);
+
+        detachVapiListenersRef.current = () => {
+            detachVapiListenersRef.current = null;
+
+            try {
+                if (client.off) {
+                    client.off("call-start", onCallStart);
+                    client.off("speech-start", onSpeechStart);
+                    client.off("speech-end", onSpeechEnd);
+                    client.off("call-end", onCallEnd);
+                    client.off("error", onError);
+                    client.off("volume-level", onVolumeLevel);
+                    client.off("message", onMessage);
+                } else {
+                    client.removeAllListeners?.();
+                }
+            } catch {
+                // listeners already gone
+            }
+        };
+
+        const started = await client.start(session.assistantId, {
             metadata: { businessId: session.businessId, purpose: "ARCHITECT_TEST" }
         });
+
+        vapiCallIdRef.current = typeof asRecord(started).id === "string" ? (asRecord(started).id as string) : "";
+        logVapiEvent("start-resolved", { ...safeIds, callId: vapiCallIdRef.current });
 
         setMode("vapi");
         setVapiSession(session);
@@ -367,6 +553,21 @@ export function BrowserVoiceCallTest({
                 await startVapiMode(result);
                 return;
             } catch (startError) {
+                const errorName = startError instanceof Error ? startError.name : "";
+                const errorMessage = startError instanceof Error ? startError.message : String(startError);
+
+                logVapiEvent("start-failed", { assistantId: result.assistantId, errorName, errorMessage });
+                detachVapiListeners();
+
+                if (isMicPermissionError(errorName, errorMessage)) {
+                    callActiveRef.current = false;
+                    setCallState("idle");
+                    setError(
+                        "Microphone access was blocked. Allow the microphone for this site in your browser settings, then start the call again."
+                    );
+                    return;
+                }
+
                 console.error("[browser-call] Vapi web call failed; using fallback simulation", startError);
                 await startFallbackMode("Vapi assistant could not start");
                 return;
@@ -382,13 +583,17 @@ export function BrowserVoiceCallTest({
         recognitionRef.current = null;
         setPartialTranscript("");
 
+        logVapiEvent("manual-end", { callId: vapiCallIdRef.current });
+
         try {
             vapiClientRef.current?.stop();
         } catch {
             // already stopped
         }
 
-        vapiClientRef.current = null;
+        // The client itself is a page-level singleton and stays reusable —
+        // only this call's listeners are detached (once).
+        detachVapiListeners();
 
         if (typeof window !== "undefined" && window.speechSynthesis) {
             window.speechSynthesis.cancel();
@@ -586,6 +791,15 @@ export function BrowserVoiceCallTest({
                                 Unresolved variables removed from the prompt:{" "}
                                 {vapiSession.unresolvedVariables.map((name) => `{{${name}}}`).join(", ")}. Check the
                                 spelling on the AI Voice Conversation node.
+                            </p>
+                        ) : null}
+
+                        {vapiSession?.modelNotice ? (
+                            <p
+                                className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
+                                data-testid="builder-browser-call-model-notice"
+                            >
+                                {vapiSession.modelNotice}
                             </p>
                         ) : null}
                     </div>

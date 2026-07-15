@@ -103,6 +103,11 @@ const envSchema = z.object({
   VAPI_DEFAULT_VOICE_ID: z.string().default("Savannah"),
   ELEVENLABS_DEFAULT_VOICE_ID: z.string().optional(),
   VAPI_ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),
+
+  VAPI_DEFAULT_LLM_PROVIDER: z.string().default("openai"),
+  VAPI_DEFAULT_LLM_MODEL: z.string().default("gpt-4o-mini"),
+  VAPI_ANTHROPIC_ENABLED: booleanFromEnv.default(false),
+  VAPI_ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
   VAPI_TRANSCRIBER_PROVIDER: z.string().default("deepgram"),
   VAPI_TRANSCRIBER_MODEL: z.string().default("nova-3"),
   VAPI_ENABLE_BOOKING_TOOLS: booleanFromEnv.default(true),

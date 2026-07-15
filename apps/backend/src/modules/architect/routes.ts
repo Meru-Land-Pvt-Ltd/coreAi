@@ -54,7 +54,7 @@ import {
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
-import { startArchitectVapiBrowserTest } from "./vapi-browser-test";
+import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
@@ -1498,6 +1498,22 @@ architectRoutes.post("/workflows/:workflowId/vapi-browser-test/start", async (c)
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid test input", 422, "VALIDATION_ERROR");
     }
+    return handleTestDeploymentError(c, error);
+  }
+});
+
+architectRoutes.get("/vapi-browser-test/calls/:callId/end-reason", async (c) => {
+  const authUser = c.get("authUser");
+  const callId = c.req.param("callId");
+
+  if (!callId) {
+    return errorResponse(c, "Call id is required", 422, "CALL_ID_REQUIRED");
+  }
+
+  try {
+    const endReason = await getArchitectVapiBrowserTestCallEndReason(authUser.id, callId);
+    return successResponse(c, { endReason }, "Call end reason");
+  } catch (error) {
     return handleTestDeploymentError(c, error);
   }
 });

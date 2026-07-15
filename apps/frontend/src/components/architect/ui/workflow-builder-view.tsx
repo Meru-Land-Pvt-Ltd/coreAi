@@ -127,6 +127,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   const [currentWorkflowId, setCurrentWorkflowId] = useState(workflowId);
   const currentWorkflowIdRef = useRef(workflowId);
+  const vapiBrowserTestStartRef = useRef(false);
   const creatingDraftRef = useRef(false);
 
   useEffect(() => {
@@ -771,8 +772,25 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   async function startVapiBrowserTest(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
     if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
 
+    // Single-flight: one click → one save → one browser-test start request.
+    if (vapiBrowserTestStartRef.current) {
+      return { error: "A browser call test is already starting." };
+    }
+
+    vapiBrowserTestStartRef.current = true;
+
+    try {
+      return await startVapiBrowserTestInner();
+    } finally {
+      vapiBrowserTestStartRef.current = false;
+    }
+  }
+
+  async function startVapiBrowserTestInner(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
     setMessage("Starting Vapi browser call...");
 
+    // Flush pending edits so the browser test deploys the latest workflow
+    // state (voice preset, model, prompts) — the backend reads from the DB.
     const saved = await saveAgent(false);
 
     if (!saved || !currentWorkflowIdRef.current) {

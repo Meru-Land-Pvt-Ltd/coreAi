@@ -187,6 +187,16 @@ export type ArchitectVapiBrowserTestSession = {
   dryRun: true;
   /** {{variables}} nothing could fill — stripped before the prompt reached Vapi. */
   unresolvedVariables?: string[];
+  /** Set when the requested LLM could not be deployed as asked (e.g. Anthropic unavailable). */
+  modelNotice?: string | null;
+};
+
+export type ArchitectVapiBrowserTestCallEndReason = {
+  callId: string;
+  status: string | null;
+  endedReason: string | null;
+  /** Human-readable, secret-free explanation of why the call ended. */
+  message: string | null;
 };
 
 export type ArchitectTestDeploymentStatus = {

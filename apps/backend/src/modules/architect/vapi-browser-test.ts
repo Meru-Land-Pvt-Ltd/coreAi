@@ -15,7 +15,13 @@ import {
   findSandboxAgent,
   findSandboxBusiness
 } from "./test-deployment";
-import { deployVapiAssistant, isRealId, isVapiConfigured } from "./vapi-connector";
+import {
+  deployVapiAssistant,
+  isRealId,
+  isVapiConfigured,
+  resolveVapiModel,
+  resolveVapiVoice
+} from "./vapi-connector";
 
 export type VapiBrowserTestInput = {
   businessName?: string;
@@ -43,6 +49,8 @@ export type VapiBrowserTestSession = {
   dryRun: true;
   /** {{variables}} nothing could fill — stripped before the prompt reached Vapi. */
   unresolvedVariables: string[];
+  /** Set when the requested LLM could not be deployed as asked (e.g. Anthropic unavailable). */
+  modelNotice: string | null;
 };
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
@@ -153,6 +161,22 @@ export async function startArchitectVapiBrowserTest(
       422,
       "INVALID_VOICE_ID"
     );
+  }
+
+  // Safe diagnostics (never keys, never full voice ids).
+  const voicePreview = resolveVapiVoice({
+    voice: selectedVoice,
+    voiceProvider: str(ai, "voiceProvider"),
+    voiceId: selectedVoiceId
+  });
+  console.log(`[vapi-browser-test] selected voice preset: ${selectedVoice || "triven-default"}`);
+  console.log(`[vapi-browser-test] resolved provider: ${voicePreview.config.provider}`);
+  console.log(`[vapi-browser-test] resolved voice ID suffix: ...${voicePreview.config.voiceId.slice(-4)}`);
+
+  const requestedModel = str(ai, "model", "gpt-4o-mini");
+  const modelResolution = resolveVapiModel(requestedModel);
+  if (modelResolution.fallbackNotice) {
+    console.warn(`[vapi-browser-test] model fallback: ${modelResolution.fallbackNotice}`);
   }
 
   // ---- Test identity: AI node assistantName first, then test context ----
@@ -327,7 +351,7 @@ Live call handling:
     name: `Browser Test — ${workflow.name || businessName}`,
     firstMessage,
     systemPrompt,
-    model: str(ai, "model", "gpt-4o-mini"),
+    model: requestedModel,
     voice: selectedVoice,
     voiceProvider: str(ai, "voiceProvider"),
     voiceId: selectedVoiceId,
@@ -422,7 +446,7 @@ Live call handling:
     assistantId: assistant.id,
     assistantName,
     businessName,
-    model: str(ai, "model", "gpt-4o-mini"),
+    model: `${modelResolution.provider}/${modelResolution.model}`,
     voiceName: selectedVoiceName,
     capabilities,
     dryRun: true
@@ -434,11 +458,112 @@ Live call handling:
     businessId: business.id,
     assistantName,
     businessName,
-    model: str(ai, "model", "gpt-4o-mini"),
+    model: `${modelResolution.provider}/${modelResolution.model}`,
     voiceName: selectedVoiceName,
     voiceId: selectedVoiceId || null,
     transcriber: `${env.VAPI_TRANSCRIBER_PROVIDER}/${env.VAPI_TRANSCRIBER_MODEL}`,
     dryRun: true,
-    unresolvedVariables
+    unresolvedVariables,
+    modelNotice: modelResolution.fallbackNotice ?? null
+  };
+}
+
+/* ---------------------- call end-reason diagnostics ---------------------- */
+
+export type VapiBrowserTestCallEndReason = {
+  callId: string;
+  status: string | null;
+  endedReason: string | null;
+  /** Human-readable, secret-free explanation of why the call ended. */
+  message: string | null;
+};
+
+function describeEndedReason(endedReason: string): string | null {
+  const reason = endedReason.toLowerCase();
+
+  if (reason.includes("providerfault") && reason.includes("anthropic")) {
+    return (
+      "Anthropic voice-test model is unavailable for this Vapi account. " +
+      "Configure provider billing or select another LLM on the AI Voice Conversation node."
+    );
+  }
+
+  if (reason.includes("providerfault") && reason.includes("llm")) {
+    return "The assistant's LLM provider failed mid-call. Check the model configured on the AI Voice Conversation node.";
+  }
+
+  if (reason.includes("eleven-labs") || reason.includes("elevenlabs") || reason.includes("voice-failed")) {
+    return "The assistant's voice provider failed mid-call. Check the selected voice preset or custom voice ID.";
+  }
+
+  if (reason.includes("did-not-receive-customer-audio")) {
+    return "The assistant never received your microphone audio. Check the browser microphone permission and input device.";
+  }
+
+  if (reason.includes("silence-timed-out")) {
+    return "The call ended after a long silence.";
+  }
+
+  if (reason.includes("customer-ended-call")) {
+    return "You ended the call.";
+  }
+
+  return null;
+}
+
+export async function getArchitectVapiBrowserTestCallEndReason(
+  architectUserId: string,
+  callId: string
+): Promise<VapiBrowserTestCallEndReason> {
+  if (!isVapiConfigured()) {
+    throw new TestDeploymentError("Vapi is not configured on the server.", 503, "VAPI_NOT_CONFIGURED");
+  }
+
+  const id = callId.trim();
+
+  if (!/^[0-9a-f][0-9a-f-]{8,63}$/i.test(id)) {
+    throw new TestDeploymentError("Invalid Vapi call id.", 400, "INVALID_CALL_ID");
+  }
+
+  const base = env.VAPI_BASE_URL.replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${env.VAPI_API_KEY}` };
+
+  const callResponse = await fetch(`${base}/call/${encodeURIComponent(id)}`, {
+    headers,
+    signal: AbortSignal.timeout(10000)
+  });
+  const call = (await callResponse.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!callResponse.ok || typeof call.id !== "string") {
+    throw new TestDeploymentError("Vapi call not found.", 404, "CALL_NOT_FOUND");
+  }
+
+  const assistantId = typeof call.assistantId === "string" ? call.assistantId : "";
+
+  if (!assistantId) {
+    throw new TestDeploymentError("Call has no assistant.", 404, "CALL_NOT_FOUND");
+  }
+
+  const assistantResponse = await fetch(`${base}/assistant/${encodeURIComponent(assistantId)}`, {
+    headers,
+    signal: AbortSignal.timeout(10000)
+  });
+  const assistant = (await assistantResponse.json().catch(() => ({}))) as Record<string, unknown>;
+  const assistantMetadata =
+    assistant.metadata && typeof assistant.metadata === "object"
+      ? (assistant.metadata as Record<string, unknown>)
+      : {};
+
+  if (!assistantResponse.ok || assistantMetadata.architectUserId !== architectUserId) {
+    throw new TestDeploymentError("Call does not belong to your browser tests.", 404, "CALL_NOT_FOUND");
+  }
+
+  const endedReason = typeof call.endedReason === "string" ? call.endedReason : null;
+
+  return {
+    callId: call.id,
+    status: typeof call.status === "string" ? call.status : null,
+    endedReason,
+    message: endedReason ? describeEndedReason(endedReason) : null
   };
 }
