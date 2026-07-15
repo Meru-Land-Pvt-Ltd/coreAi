@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
+import { CallRecordingPlayer } from "@/components/common/call-recording-player";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 
 type BillingPaymentMethod = {
@@ -92,6 +93,17 @@ type UsageBill = {
         quantity: number;
         billedCostUsd: number;
     }>;
+    calls: Array<{
+        callId: string;
+        customerPhone: string;
+        installedAgentId: string | null;
+        durationMinutes: number | null;
+        durationSeconds: number | null;
+        billedCostUsd: number;
+        recordedAt: string | null;
+        /** Present only when call recording was enabled for this call. */
+        recordingUrl: string | null;
+    }>;
 };
 
 type UsageInvoice = {
@@ -148,6 +160,18 @@ function formatDate(iso: string) {
 function usageDueAt(month: string) {
     const [year, monthNumber] = month.split("-").map(Number);
     return new Date(Date.UTC(year, monthNumber, 8)).toISOString();
+}
+
+function formatCallTimestamp(iso: string) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return NA;
+    return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatCallDuration(call: { durationSeconds: number | null; durationMinutes: number | null }) {
+    const seconds = call.durationSeconds ?? (call.durationMinutes ? Math.round(call.durationMinutes * 60) : 0);
+    if (!seconds || seconds <= 0) return "0:00";
+    return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
 
 function isTrialPurchaseInvoice(status: string) {
@@ -320,6 +344,11 @@ export default function BusinessBillingUsagePage() {
     const totalAgentFees = formatCurrencyCents(billing?.summary.totalAgentFeesPaidCents);
     const nextCharge = formatCurrencyCents(billing?.summary.nextChargeCents ?? 0);
     const currentMonthExecution = formatCurrencyCents(Math.round((usage?.totalBilledUsd ?? 0) * 100));
+    const usageCalls = usage?.calls ?? [];
+    const agentNameById = useMemo(
+        () => new Map((usage?.agentRollup ?? []).map((agent) => [agent.agentId ?? "", agent.agentName])),
+        [usage?.agentRollup]
+    );
 
     const agents = billing?.agents ?? [];
     const invoices = billing?.invoices ?? [];
@@ -485,6 +514,64 @@ export default function BusinessBillingUsagePage() {
                                             Pay
                                         </button>
                                     </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </section>
+
+                {/* Call history & recordings */}
+                <section
+                    className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm"
+                    aria-label="Call history"
+                    data-testid="usage-call-history"
+                >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <h2 className="text-lg font-bold" data-testid="usage-call-history-heading">Call History</h2>
+                        <span className="text-xs text-slate-400">
+                            {usageCalls.length === 0
+                                ? "No calls this month"
+                                : `${usageCalls.length} call${usageCalls.length === 1 ? "" : "s"} this month`}
+                        </span>
+                    </div>
+
+                    <div className="mt-4 max-h-[28rem] divide-y divide-gray-100 overflow-y-auto rounded-xl border border-gray-100">
+                        {usageCalls.length === 0 ? (
+                            <p className="px-4 py-6 text-sm text-slate-400" data-testid="usage-call-history-empty">
+                                Calls will appear here after your agent answers them. Recordings are available when
+                                call recording is enabled for the agent.
+                            </p>
+                        ) : (
+                            usageCalls.map((call) => (
+                                <div key={call.callId} className="bg-white px-4 py-4" data-testid="usage-call-row">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold text-slate-900" data-testid="usage-call-phone">
+                                                {call.customerPhone}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-400" data-testid="usage-call-meta">
+                                                {agentNameById.get(call.installedAgentId ?? "") ?? "AI agent"}
+                                                {call.recordedAt ? ` · ${formatCallTimestamp(call.recordedAt)}` : ""}
+                                                {` · ${formatCallDuration(call)}`}
+                                            </p>
+                                        </div>
+                                        <span className="shrink-0 font-mono text-sm font-bold text-slate-700" data-testid="usage-call-cost">
+                                            ${call.billedCostUsd.toFixed(2)}
+                                        </span>
+                                    </div>
+
+                                    {call.recordingUrl ? (
+                                        <div className="mt-3">
+                                            <CallRecordingPlayer
+                                                src={call.recordingUrl}
+                                                testIdPrefix="usage-call-recording"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <p className="mt-2 text-[11px] font-medium text-slate-300" data-testid="usage-call-no-recording">
+                                            No recording for this call
+                                        </p>
+                                    )}
                                 </div>
                             ))
                         )}

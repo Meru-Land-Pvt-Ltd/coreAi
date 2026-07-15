@@ -4,6 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
+import { CallRecordingPlayer } from "@/components/common/call-recording-player";
 import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
 
 type ApiPurchasedAgent = {
@@ -1064,15 +1065,12 @@ function ActivityItem({ activity }: { activity: Activity }) {
                 {activity.check ? <CheckIcon /> : null}
             </span>
             {activity.recordingUrl ? (
-                <audio
-                    controls
-                    preload="none"
-                    src={activity.recordingUrl}
-                    className="mt-2 h-8 w-full"
-                    data-testid="dashboard-activity-call-recording"
-                >
-                    Your browser does not support audio playback.
-                </audio>
+                <div className="mt-2">
+                    <CallRecordingPlayer
+                        src={activity.recordingUrl}
+                        testIdPrefix="dashboard-activity-call-recording"
+                    />
+                </div>
             ) : null}
         </div>
     );
