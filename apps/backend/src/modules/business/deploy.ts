@@ -434,7 +434,7 @@ export async function deployInstalledAgentVoiceAssistant(
     name: `${businessName} - ${assistantName}`,
     firstMessage,
     systemPrompt,
-    model: "gpt-4o-mini",
+    model: cleanString(voiceNode.model) || "gpt-4o-mini",
     voice: override.voice || "triven-default",
     voiceProvider: override.provider,
     voiceId: override.voiceId,

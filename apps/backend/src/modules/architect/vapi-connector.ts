@@ -2,6 +2,7 @@ import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
 import { PLATFORM_DEFAULT_VOICE_ID, resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { getProviderRegistry } from "../ai-provider-engine/ai-provider-engine";
 
 export function isVapiConfigured(): boolean {
   const key = env.VAPI_API_KEY;
@@ -454,31 +455,32 @@ export function resolveVapiVoice(input: {
     model?: string;
   };
 } {
-  const provider = (clean(input.voiceProvider) || clean(env.VAPI_DEFAULT_VOICE_PROVIDER) || "vapi").toLowerCase();
   const explicitVoiceId = clean(input.voiceId);
   const builtinMatch = matchVapiBuiltinVoice(explicitVoiceId) ?? matchVapiBuiltinVoice(input.voice);
 
-  if (provider === "vapi" || (builtinMatch && !looksLikeVoiceId(explicitVoiceId))) {
-    const builtin = builtinMatch ?? matchVapiBuiltinVoice(env.VAPI_DEFAULT_VOICE_ID) ?? DEFAULT_VAPI_BUILTIN_VOICE;
-    return { config: { provider: "vapi", voiceId: builtin } };
+  if (builtinMatch && !looksLikeVoiceId(explicitVoiceId) && input.voiceProvider?.toLowerCase() === "vapi") {
+    return { config: { provider: "vapi", voiceId: builtinMatch } };
   }
 
-  // Id-based providers (11labs): require a real-looking voice id.
+  // Id-based providers (11labs): resolve the preset voice ID (e.g. ruby, triven-default)
   const voiceId = looksLikeVoiceId(explicitVoiceId)
     ? explicitVoiceId
     : resolvePresetVoiceId(input.voice || PLATFORM_DEFAULT_VOICE_ID);
 
-  if (!voiceId || !looksLikeVoiceId(voiceId) || matchVapiBuiltinVoice(voiceId)) {
-    return { config: { provider: "vapi", voiceId: DEFAULT_VAPI_BUILTIN_VOICE } };
+  if (voiceId && looksLikeVoiceId(voiceId)) {
+    const rawProvider = (clean(input.voiceProvider) || "11labs").toLowerCase();
+    const provider = rawProvider === "vapi" ? "11labs" : rawProvider;
+    return {
+      config: {
+        provider,
+        voiceId,
+        ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {})
+      }
+    };
   }
 
-  return {
-    config: {
-      provider,
-      voiceId,
-      ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {})
-    }
-  };
+  const builtin = builtinMatch ?? matchVapiBuiltinVoice(env.VAPI_DEFAULT_VOICE_ID) ?? DEFAULT_VAPI_BUILTIN_VOICE;
+  return { config: { provider: "vapi", voiceId: builtin } };
 }
 
 const TRANSCRIBER_LANGUAGES = ["en-US", "en-GB", "es", "hi"] as const;
@@ -512,12 +514,50 @@ function resolveVapiModel(model?: string | null): {
   provider: string;
   model: string;
 } {
-  const m = (model ?? "gpt-4o-mini").toLowerCase();
+  const modelId = clean(model) || "gpt-4o-mini";
+
+  try {
+    const registry = getProviderRegistry();
+    const adapter = registry.all().find((a) => a.models.includes(modelId));
+    if (adapter) {
+      let provider = adapter.providerId;
+      let resolvedModel = modelId;
+
+      if (provider === "claude") {
+        provider = "anthropic";
+        if (resolvedModel === "claude-3-5-sonnet-latest") {
+          resolvedModel = "claude-3-5-sonnet-20241022";
+        } else if (resolvedModel === "claude-3-5-haiku-latest") {
+          resolvedModel = "claude-3-5-haiku-20241022";
+        }
+      } else if (provider === "gemini") {
+        provider = "google";
+      } else if (provider === "llama") {
+        provider = "groq";
+      }
+
+      return {
+        provider,
+        model: resolvedModel
+      };
+    }
+  } catch (error) {
+    console.warn("[vapi-connector] failed to resolve model using AIProviderEngine, falling back", error);
+  }
+
+  const m = modelId.toLowerCase();
 
   if (m.includes("claude")) {
     return {
       provider: "anthropic",
       model: "claude-3-5-sonnet-20241022"
+    };
+  }
+
+  if (m.includes("gemini")) {
+    return {
+      provider: "google",
+      model: "gemini-2.0-flash"
     };
   }
 
@@ -538,6 +578,12 @@ function genericAssistantTools() {
   return [
     {
       type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Let me check our calendar for available times."
+        }
+      ],
       function: {
         name: VOICE_TOOL_NAMES.checkAvailability,
         description:
@@ -564,6 +610,12 @@ function genericAssistantTools() {
     },
     {
       type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Just a moment while I book that appointment for you."
+        }
+      ],
       function: {
         name: VOICE_TOOL_NAMES.bookAppointment,
         description:
@@ -612,6 +664,12 @@ function genericAssistantTools() {
     },
     {
       type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Sending you the details now."
+        }
+      ],
       function: {
         name: VOICE_TOOL_NAMES.sendNotification,
         description:
@@ -740,6 +798,11 @@ export async function deployVapiAssistant({
       smartEndpointingPlan: {
         provider: "livekit",
         waitFunction: "2000 / (1 + exp(-10 * (x - 0.5)))"
+      },
+      transcriptionEndpointingPlan: {
+        onPunctuationSeconds: 0.1,
+        onNoPunctuationSeconds: 0.8,
+        onNumberSeconds: 0.4
       }
     },
     stopSpeakingPlan: {
@@ -747,6 +810,7 @@ export async function deployVapiAssistant({
       voiceSeconds: 0.2,
       backoffSeconds: 1
     },
+    firstMessageInterruptionsEnabled: true,
     server: {
       url: serverUrl,
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
@@ -765,8 +829,15 @@ export async function deployVapiAssistant({
   const voiceSpeed = resolveVoiceSpeed(speakingSpeed);
 
   body.voice =
-    voiceResolution.config.provider === "11labs" && voiceSpeed !== undefined
-      ? { ...voiceResolution.config, speed: voiceSpeed }
+    voiceResolution.config.provider === "11labs"
+      ? {
+          ...voiceResolution.config,
+          stability: 0.71,
+          similarityBoost: 0.75,
+          style: 0.0,
+          useSpeakerBoost: false,
+          ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
+        }
       : voiceResolution.config;
   console.log("[vapi-browser-test] final voice payload", JSON.stringify(body.voice));
 

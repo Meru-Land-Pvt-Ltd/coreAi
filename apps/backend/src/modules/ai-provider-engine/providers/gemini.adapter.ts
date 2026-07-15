@@ -49,6 +49,8 @@ class GeminiAdapter implements AIProviderAdapter {
 
   get models(): string[] {
     return this.dynamicModels ?? [
+      "gemini-3.1-flash-lite",
+      "gemini-2.5-flash",
       "gemini-2.0-flash",
       "gemini-1.5-pro",
       "gemini-1.5-flash",
@@ -58,6 +60,8 @@ class GeminiAdapter implements AIProviderAdapter {
 
   get pricing(): PricingTable {
     return this.dynamicPricing ?? {
+      "gemini-3.1-flash-lite": { input: 0.0375, output: 0.15 },
+      "gemini-2.5-flash":      { input: 0.075,  output: 0.30  },
       "gemini-2.0-flash":      { input: 0.075,  output: 0.30  },
       "gemini-1.5-pro":        { input: 1.25,   output: 5.00  },
       "gemini-1.5-flash":      { input: 0.075,  output: 0.30  },

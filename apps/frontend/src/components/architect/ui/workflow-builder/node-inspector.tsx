@@ -1072,7 +1072,7 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData, variableNode
 
       <Section title="Intelligence">
         <Label>AI model</Label>
-        <SelectBox value={str("model", "gpt-4o")} onChange={set("model")} options={["gpt-4o", "gpt-4o-mini", "claude-sonnet"]} />
+        <SelectBox value={str("model", "gpt-4o")} onChange={set("model")} options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-pro", "llama-3.1-70b"]} />
 
         <div className="mt-4">
           <Label>System prompt</Label>
@@ -1565,7 +1565,7 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         <SelectBox
           value={str("model", "gpt-4o")}
           onChange={set("model")}
-          options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-1.5-pro", "llama-3.1-70b"]}
+          options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-pro", "llama-3.1-70b"]}
         />
 
         <div className="mt-4">

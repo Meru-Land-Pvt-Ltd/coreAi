@@ -2694,13 +2694,7 @@ export async function handleVapiWebhook(c: Context) {
     return c.json({ success: false, error: "Unauthorized", code: "VAPI_WEBHOOK_UNAUTHORIZED" }, 401);
   }
 
-  if (!isProduction) {
-    try {
-      console.log("[vapi-webhook] request", JSON.stringify(body));
-    } catch {
-      console.log("[vapi-webhook] request <unserializable body>", { tools: toolCalls.map((t) => t.name) });
-    }
-  }
+
 
   try {
     const metadata = getVapiMetadata(body);

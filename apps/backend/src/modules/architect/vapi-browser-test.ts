@@ -217,7 +217,13 @@ export async function startArchitectVapiBrowserTest(
 const currentDate = dateInZone(now, timeZone);
   const tokens: Record<string, string> = {
     assistantName,
+    assistant_name: assistantName,
+    "assistant.name": assistantName,
+    "assistent.name": assistantName,
+    "assistent_name": assistantName,
     businessName,
+    business_name: businessName,
+    "business.name": businessName,
     businessType,
     contactName: businessName,
     businessHours: "not provided",
@@ -323,34 +329,72 @@ Live call handling:
       ? priorAssistantId
       : undefined;
 
-  const assistant = await deployVapiAssistant({
-    name: `Browser Test — ${workflow.name || businessName}`,
-    firstMessage,
-    systemPrompt,
-    model: str(ai, "model", "gpt-4o-mini"),
-    voice: selectedVoice,
-    voiceProvider: str(ai, "voiceProvider"),
-    voiceId: selectedVoiceId,
-    language: str(ai, "language"),
-    speakingSpeed: str(ai, "speakingSpeed"),
-    serverUrl: `${webhookBase}/architect/connectors/vapi/webhook`,
-    existingAssistantId,
-    metadata: {
-      businessId: business.id,
-      workflowId,
-      architectUserId,
-      purpose: ARCHITECT_TEST_PURPOSE,
-      browserTest: true
-    },
-    // Testers pause to read logs/think — don't hang up on them mid-test.
-    silenceTimeoutSeconds: 90,
-    // Only expose tools the connected graph actually has.
-    includeTools: {
-      checkAvailability: capabilities.canCheckAvailability,
-      bookAppointment: capabilities.canBook,
-      sendNotification: capabilities.canText
+  let assistant: { id: string; created: boolean };
+  try {
+    assistant = await deployVapiAssistant({
+      name: `Browser Test — ${workflow.name || businessName}`,
+      firstMessage,
+      systemPrompt,
+      model: str(ai, "model", "gpt-4o-mini"),
+      voice: selectedVoice,
+      voiceProvider: str(ai, "voiceProvider"),
+      voiceId: selectedVoiceId,
+      language: str(ai, "language"),
+      speakingSpeed: str(ai, "speakingSpeed"),
+      serverUrl: `${webhookBase}/architect/connectors/vapi/webhook`,
+      existingAssistantId,
+      metadata: {
+        businessId: business.id,
+        workflowId,
+        architectUserId,
+        purpose: ARCHITECT_TEST_PURPOSE,
+        browserTest: true
+      },
+      // Testers pause to read logs/think — don't hang up on them mid-test.
+      silenceTimeoutSeconds: 90,
+      // Only expose tools the connected graph actually has.
+      includeTools: {
+        checkAvailability: capabilities.canCheckAvailability,
+        bookAppointment: capabilities.canBook,
+        sendNotification: capabilities.canText
+      }
+    });
+  } catch (error) {
+    const isElevenLabs = selectedVoiceId || selectedVoice === "custom" || ["ruby", "sarah", "aria", "adam", "priya"].includes(selectedVoice || "");
+    if (isElevenLabs) {
+      console.warn("[vapi-browser-test] ElevenLabs voice deployment failed. Falling back to default Vapi voice Savannah.", error);
+      assistant = await deployVapiAssistant({
+        name: `Browser Test — ${workflow.name || businessName}`,
+        firstMessage,
+        systemPrompt,
+        model: str(ai, "model", "gpt-4o-mini"),
+        voice: "Savannah",
+        voiceProvider: "vapi",
+        voiceId: "",
+        language: str(ai, "language"),
+        speakingSpeed: str(ai, "speakingSpeed"),
+        serverUrl: `${webhookBase}/architect/connectors/vapi/webhook`,
+        existingAssistantId,
+        metadata: {
+          businessId: business.id,
+          workflowId,
+          architectUserId,
+          purpose: ARCHITECT_TEST_PURPOSE,
+          browserTest: true
+        },
+        // Testers pause to read logs/think — don't hang up on them mid-test.
+        silenceTimeoutSeconds: 90,
+        // Only expose tools the connected graph actually has.
+        includeTools: {
+          checkAvailability: capabilities.canCheckAvailability,
+          bookAppointment: capabilities.canBook,
+          sendNotification: capabilities.canText
+        }
+      });
+    } else {
+      throw error;
     }
-  });
+  }
 
   await prisma.businessProfile.update({
     where: { businessId: business.id },
