@@ -167,13 +167,28 @@ function aiNodeInstructions(aiNode: GraphNode | null): string {
 }
 
 function firstMessageOf(aiNode: GraphNode | null, business: AgentBusinessContext): string {
-  const raw = asString(aiNode?.data?.firstMessage)
-    .replaceAll("{{assistant_name}}", business.assistantName)
-    .replaceAll("{{assistantName}}", business.assistantName)
-    .replaceAll("{{business_name}}", business.name)
-    .replaceAll("{{businessName}}", business.name)
-    .replaceAll("{{business_type}}", business.type)
-    .replaceAll("{{businessType}}", business.type);
+  let raw = asString(aiNode?.data?.firstMessage);
+
+  if (raw) {
+    const replacements: Record<string, string> = {
+      "assistant.name": business.assistantName,
+      "assistantName": business.assistantName,
+      "assistant_name": business.assistantName,
+      "assistent.name": business.assistantName,
+      "assistentName": business.assistantName,
+      "assistent_name": business.assistantName,
+      "business.name": business.name,
+      "businessName": business.name,
+      "business_name": business.name,
+      "business.type": business.type,
+      "businessType": business.type,
+      "business_type": business.type
+    };
+
+    for (const [key, value] of Object.entries(replacements)) {
+      raw = raw.replaceAll(`{{${key}}}`, value);
+    }
+  }
 
   // buildAgentFirstMessage sanitizes stale demo identities out of saved text
   // and falls back to the standard greeting when nothing custom is set.

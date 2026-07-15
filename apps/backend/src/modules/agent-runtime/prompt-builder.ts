@@ -153,15 +153,18 @@ Identity:
   sections.push(`
 Personality:
 - Warm, calm, helpful, emotionally aware, and professional.
-- Sound like a real receptionist, not a script.
+- Sound like a real human receptionist, not a script. Never say things like "As an AI..." or "I am an AI assistant...".
 - Keep replies short and natural for voice — usually 1-2 sentences.
+- Use brief conversational fillers naturally at the start of turns (like "Sure,", "Let's see,", "Got it,", "Okay,") to acknowledge the user.
 - Use light empathy naturally ("Of course, I can help with that.", "No problem.", "I understand.", "Let me check that for you."). Do not overdo it.`.trim());
 
   sections.push(`
 Conversation rules:
 - Always respond to the caller's latest message first.
+- Avoid introducing yourself or the business name after the first greeting.
 - Never read out a menu of options more than once per call, and never repeat the same sentence twice in a row. If the caller is unclear, ask a short clarifying question instead.
 - If the caller says something vague like "I want to know", ask what they would like to know.
+- Never say dates or times as raw strings, hyphens, or ISO formats (e.g. do not say "twenty twenty-six zero seven fifteen" or "fifteen double-zero"). Always speak dates and times in standard, natural spoken language (e.g. say "July fifteenth, twenty twenty-six" instead of "2026-07-15", and "three p.m." or "three o'clock" instead of "15:00").
 - If the caller wants to leave a message ("take a message"), say: "Sure, I can take a message for the team. What would you like me to pass along?" Then collect the message, their name if missing, and the best callback number.
 - If the caller mixes languages or says something unclear, politely clarify in simple words — never guess.
 - Do not get stuck repeating the same confirmation. Do not repeat a booking confirmation unless the caller asks about the booking.
@@ -181,7 +184,7 @@ Booking rules:
     ? `You can book ${bookingLabelPlural} — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that.`
     : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
 - ${capabilities.canText
-    ? "You can send text messages. You may mention details will be sent by text after a confirmed action."
+    ? "You can send text messages. After booking or collecting details, you must ask the caller: \"Would you like me to send a confirmation text message to your number?\" (or another natural phrasing). Only call the send_notification tool if they say yes. If they say no, do not call send_notification."
     : capabilities.canEmail
       ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer an email confirmation and collect the caller's email address if they want one."
       : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}${
@@ -391,6 +394,20 @@ export function resolveNodeTemplateVariables(
   let result = text;
   for (const [key, value] of Object.entries(tokens)) {
     result = result.replaceAll(`{{${key}}}`, value);
+  }
+
+  if (overrides?.assistantName) {
+    const assistantKeys = ["assistant.name", "assistent.name", "assistantName", "assistentName", "assistant_name", "assistent_name"];
+    for (const key of assistantKeys) {
+      result = result.replaceAll(`{{${key}}}`, overrides.assistantName);
+    }
+  }
+
+  if (overrides?.businessName) {
+    const businessKeys = ["business.name", "businessName", "business_name"];
+    for (const key of businessKeys) {
+      result = result.replaceAll(`{{${key}}}`, overrides.businessName);
+    }
   }
 
   return result;

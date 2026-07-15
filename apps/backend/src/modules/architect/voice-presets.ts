@@ -137,6 +137,14 @@ export function isKnownVoicePresetId(presetId?: string | null): boolean {
   return allVoicePresets().some((preset) => clean(preset.id).toLowerCase() === id);
 }
 
+const FALLBACK_PUBLIC_VOICE_IDS: Record<string, string> = {
+  adam: "pNInz6obpg7j8sWJ5bdA",  // Adam (Male)
+  ruby: "EXAVITQu4vr4xnSDxMaL",  // Bella (Female receptionist style)
+  aria: "21m00Tcm4TlvDq8ikWAM",  // Rachel (Female professional style)
+  priya: "AZnzlk1XvdvUeBnXmlld", // Domi (Female warm style)
+  sarah: "EXAVITQu4vr4xnSDxMaL"  // Bella (Female warm receptionist style)
+};
+
 export function resolvePresetVoiceId(presetId?: string | null): string {
   const id = clean(presetId).toLowerCase();
 
@@ -149,8 +157,13 @@ export function resolvePresetVoiceId(presetId?: string | null): string {
   }
 
   const envOverride = clean(ENV_VOICE_OVERRIDES[id]);
-  if (envOverride) {
+  if (envOverride && looksLikeElevenLabsVoiceId(envOverride)) {
     return envOverride;
+  }
+
+  const fallbackPublicId = FALLBACK_PUBLIC_VOICE_IDS[id];
+  if (fallbackPublicId) {
+    return fallbackPublicId;
   }
 
   const preset = allVoicePresets().find((item) => clean(item.id).toLowerCase() === id);
@@ -287,9 +300,9 @@ export async function generateVoicePreview(input: {
           text,
           model_id: "eleven_multilingual_v2",
           voice_settings: {
-            stability: 0.5,
+            stability: 0.65,
             similarity_boost: 0.75,
-            use_speaker_boost: true
+            use_speaker_boost: false
           }
         })
       }

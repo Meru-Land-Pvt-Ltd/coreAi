@@ -2,6 +2,7 @@ import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
 import { PLATFORM_DEFAULT_VOICE_ID, isKnownVoicePresetId, resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { getProviderRegistry } from "../ai-provider-engine/ai-provider-engine";
 
 export function isVapiConfigured(): boolean {
   const key = env.VAPI_API_KEY;
@@ -598,6 +599,12 @@ function genericAssistantTools() {
   return [
     {
       type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Let me check our calendar for available times."
+        }
+      ],
       function: {
         name: VOICE_TOOL_NAMES.checkAvailability,
         description:
@@ -624,6 +631,12 @@ function genericAssistantTools() {
     },
     {
       type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Just a moment while I book that appointment for you."
+        }
+      ],
       function: {
         name: VOICE_TOOL_NAMES.bookAppointment,
         description:
@@ -672,6 +685,12 @@ function genericAssistantTools() {
     },
     {
       type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Sending you the details now."
+        }
+      ],
       function: {
         name: VOICE_TOOL_NAMES.sendNotification,
         description:
@@ -727,6 +746,10 @@ export type DeployVapiAssistantInput = {
   voice?: string | null;
   voiceProvider?: string | null;
   voiceId?: string | null;
+  stability?: number | null;
+  similarityBoost?: number | null;
+  style?: number | null;
+  useSpeakerBoost?: boolean | null;
   /** BCP-47-ish node value ("en-US", "en-GB", "es", "hi"); mapped per transcriber model. */
   language?: string | null;
   /** ElevenLabs speed multiplier as node string ("0.8"–"1.2"); 11labs voices only. */
@@ -757,6 +780,10 @@ export async function deployVapiAssistant({
   voice,
   voiceProvider,
   voiceId,
+  stability,
+  similarityBoost,
+  style,
+  useSpeakerBoost,
   language,
   speakingSpeed,
   serverUrl,
@@ -810,6 +837,11 @@ export async function deployVapiAssistant({
       smartEndpointingPlan: {
         provider: "livekit",
         waitFunction: "2000 / (1 + exp(-10 * (x - 0.5)))"
+      },
+      transcriptionEndpointingPlan: {
+        onPunctuationSeconds: 0.1,
+        onNoPunctuationSeconds: 0.8,
+        onNumberSeconds: 0.4
       }
     },
     stopSpeakingPlan: {
@@ -817,6 +849,7 @@ export async function deployVapiAssistant({
       voiceSeconds: 0.2,
       backoffSeconds: 1
     },
+    firstMessageInterruptionsEnabled: true,
     server: {
       url: serverUrl,
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
@@ -841,8 +874,15 @@ export async function deployVapiAssistant({
   const voiceSpeed = resolveVoiceSpeed(speakingSpeed);
 
   body.voice =
-    voiceResolution.config.provider === "11labs" && voiceSpeed !== undefined
-      ? { ...voiceResolution.config, speed: voiceSpeed }
+    voiceResolution.config.provider === "11labs"
+      ? {
+          ...voiceResolution.config,
+          stability: typeof stability === "number" ? stability : 0.65,
+          similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
+          style: typeof style === "number" ? style : 0.0,
+          useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
+          ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
+        }
       : voiceResolution.config;
 
   const voiceIdSuffix = voiceResolution.config.voiceId.slice(-4);

@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { getGmailConnectionStatus } from "./gmail-connector";
 import { deployVapiAssistant, isRealId, isVapiConfigured } from "./vapi-connector";
+import { resolveNodeTemplateVariables, sanitizeLegacyFallbacks } from "../agent-runtime/prompt-builder";
 
 export const ARCHITECT_TEST_PURPOSE = "ARCHITECT_TEST";
 
@@ -316,11 +317,23 @@ export async function startArchitectTestDeployment(
     custom_instructions: customInstructions || "(none)",
     silence_policy: buildSilencePolicy()
   };
-  const systemPrompt = fillTokens(str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE), tokens);
-  const firstMessage = fillTokens(
-    str(ai, "firstMessage", `Hello, this is the AI receptionist for ${businessName}. How can I help you today?`),
-    tokens
+  const systemPrompt = resolveNodeTemplateVariables(
+    fillTokens(str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE), tokens),
+    workflow.workflowJson,
+    { assistantName, businessName }
   );
+
+  const rawGreeting = str(ai, "firstMessage");
+  const firstMessage = rawGreeting
+    ? sanitizeLegacyFallbacks(
+        resolveNodeTemplateVariables(
+          fillTokens(rawGreeting, tokens),
+          workflow.workflowJson,
+          { assistantName, businessName }
+        ),
+        { assistantName, businessName }
+      )
+    : `Hello! This is ${assistantName} from ${businessName}. How can I help you today?`;
 
   // Only PATCH a prior sandbox assistant for this workflow — never the shared env default.
   const existingAgent = await findSandboxAgent(architectUserId, workflowId);
@@ -332,20 +345,47 @@ export async function startArchitectTestDeployment(
 
   const recordingEnabled = bool(nodeData(nodes, VOICE_NODE_TYPES.endFlow), "callRecording", true);
 
-  const assistant = await deployVapiAssistant({
+  const selectedVoice = str(ai, "voice", "");
+  const selectedVoiceProvider = str(ai, "voiceProvider", "");
+  const selectedVoiceId = str(ai, "voiceId", "");
+
+  let assistant: { id: string; created: boolean };
+  try {
+    assistant = await deployVapiAssistant({
+      name: `Sandbox Test — ${workflow.name || businessName}`,
+      firstMessage,
+      systemPrompt,
+      model: str(ai, "model", "gpt-4o-mini"),
+      voice: selectedVoice,
+      voiceProvider: selectedVoiceProvider,
+      voiceId: selectedVoiceId,
+      language: str(ai, "language", ""),
+      speakingSpeed: str(ai, "speakingSpeed", ""),
+      serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
+      existingAssistantId
+    });
+  } catch (error) {
+    const isElevenLabs = selectedVoiceId || selectedVoice === "custom" || ["ruby", "sarah", "aria", "adam", "priya"].includes(selectedVoice || "");
+    if (isElevenLabs) {
+      console.warn("[test-deployment] ElevenLabs voice deployment failed. Falling back to default Vapi voice Savannah.", error);
+      assistant = await deployVapiAssistant({
     recordingEnabled,
-    name: `Sandbox Test — ${workflow.name || businessName}`,
-    firstMessage,
-    systemPrompt,
-    model: str(ai, "model", "gpt-4o-mini"),
-    voice: str(ai, "voice", ""),
-    voiceProvider: str(ai, "voiceProvider", ""),
-    voiceId: str(ai, "voiceId", ""),
-    language: str(ai, "language", ""),
-    speakingSpeed: str(ai, "speakingSpeed", ""),
-    serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
-    existingAssistantId
-  });
+        name: `Sandbox Test — ${workflow.name || businessName}`,
+        firstMessage,
+        systemPrompt,
+        model: str(ai, "model", "gpt-4o-mini"),
+        voice: "Savannah",
+        voiceProvider: "vapi",
+        voiceId: "",
+        language: str(ai, "language", ""),
+        speakingSpeed: str(ai, "speakingSpeed", ""),
+        serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
+        existingAssistantId
+      });
+    } else {
+      throw error;
+    }
+  }
 
   // The webhook answers with the assistant stored on BusinessProfile.
   await prisma.businessProfile.update({
