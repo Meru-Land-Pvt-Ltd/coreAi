@@ -249,7 +249,8 @@ async function buildInvoiceData(
       name: true,
       billingName: true,
       billingEmail: true,
-      billingAddress: true
+      billingAddress: true,
+      billingPostalCode: true
     }
   });
 
@@ -403,7 +404,8 @@ paymentRoutes.get("/billing", async (c) => {
       name: true,
       billingName: true,
       billingEmail: true,
-      billingAddress: true
+      billingAddress: true,
+      billingPostalCode: true
     }
   });
 
@@ -485,7 +487,8 @@ paymentRoutes.get("/billing", async (c) => {
       paymentMethod,
       businessName: business?.billingName ?? business?.name ?? authUser.fullName ?? null,
       billingEmail: business?.billingEmail ?? authUser.email ?? null,
-      billingAddress: business?.billingAddress ?? null
+      billingAddress: business?.billingAddress ?? null,
+      billingPostalCode: business?.billingPostalCode ?? null
     }
   });
 });

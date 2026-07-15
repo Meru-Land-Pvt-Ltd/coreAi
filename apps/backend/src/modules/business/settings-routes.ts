@@ -11,6 +11,7 @@ import { createAuthToken, verifyAuthToken, type JwtUserRole } from "../../lib/jw
 import { prisma } from "../../lib/prisma";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
 import { serializeActiveSession, serializeLoginHistory } from "../../lib/user-session";
+import { buildBusinessDataExportZip } from "./data-export";
 
 export const businessSettingsRoutes = new Hono();
 
@@ -41,6 +42,17 @@ const businessProfileSchema = z.object({
   bookingUrl: z.string().trim().optional().or(z.literal("")),
   timeZone: z.string().trim().optional(),
   businessAddress: z.string().trim().optional().or(z.literal(""))
+});
+
+const billingAddressSchema = z.object({
+  businessId: z.string().trim().min(1, "Business ID is required"),
+  address: z.string().trim().min(3, "Address is required").max(500, "Address is too long"),
+  pincode: z
+    .string()
+    .trim()
+    .min(3, "Pincode is required")
+    .max(20, "Pincode is too long")
+    .regex(/^[a-zA-Z0-9 -]+$/, "Enter a valid pincode")
 });
 
 type EmailChangeBinding = {
@@ -393,6 +405,47 @@ businessSettingsRoutes.put("/profile", async (c) => {
   }
 });
 
+businessSettingsRoutes.put("/billing-address", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = billingAddressSchema.parse(await c.req.json());
+    const business = await loadOwnedBusiness(authUser.id, input.businessId);
+
+    if (!business) {
+      return errorResponse(c, "Business not found", 404, "BUSINESS_NOT_FOUND");
+    }
+
+    const updated = await prisma.business.update({
+      where: { id: business.id },
+      data: {
+        billingAddress: input.address,
+        billingPostalCode: input.pincode
+      },
+      select: {
+        billingAddress: true,
+        billingPostalCode: true
+      }
+    });
+
+    return successResponse(
+      c,
+      {
+        billingAddress: {
+          address: updated.billingAddress ?? "",
+          pincode: updated.billingPostalCode ?? ""
+        }
+      },
+      "Billing address saved"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid billing address", 422, "VALIDATION_ERROR");
+    }
+
+    return errorResponse(c, "Could not save billing address", 500, "BILLING_ADDRESS_SAVE_FAILED");
+  }
+});
+
 businessSettingsRoutes.put("/profile/photo", async (c) => {
   try {
     const authUser = c.get("authUser");
@@ -581,6 +634,22 @@ businessSettingsRoutes.delete("/sessions", async (c) => {
   });
 
   return successResponse(c, { revoked: true }, "Other sessions revoked");
+});
+
+businessSettingsRoutes.get("/data-export", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const requestedBusinessId = c.req.query("businessId")?.trim();
+    const { filename, zip } = await buildBusinessDataExportZip(authUser.id, requestedBusinessId);
+
+    c.header("Content-Type", "application/zip");
+    c.header("Content-Disposition", `attachment; filename="${filename}"`);
+    c.header("Cache-Control", "no-store");
+    return c.body(zip);
+  } catch (error) {
+    console.error("Business data export failed", error);
+    return errorResponse(c, "Could not export your data", 500, "DATA_EXPORT_FAILED");
+  }
 });
 
 businessSettingsRoutes.get("/login-history", async (c) => {

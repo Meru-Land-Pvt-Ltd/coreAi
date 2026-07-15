@@ -341,6 +341,122 @@ export type ArchitectPayoutTransaction = {
   status: string;
 };
 
+export type ArchitectDashboardActivity = {
+  id: string;
+  type: "SALE" | "PAYOUT" | "LISTING";
+  title: string;
+  description: string;
+  occurredAt: string;
+  status: string;
+  amountCents?: number;
+  listingId?: string;
+};
+
+export function getArchitectDashboardActivity(limit = 10) {
+  return apiGet<{
+    activities: ArchitectDashboardActivity[];
+    refreshedAt: string;
+  }>(`/architect/dashboard/activity?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export type ArchitectAgentAnalyticsRange = "7D" | "30D" | "90D" | "6M" | "1Y";
+
+export type ArchitectAgentAnalytics = {
+  listing: {
+    id: string;
+    name: string;
+    status: ArchitectListing["status"];
+    category: string | null;
+    priceCents: number;
+    createdAt: string;
+    publishedAt: string | null;
+  };
+  range: ArchitectAgentAnalyticsRange;
+  rangeStart: string;
+  refreshedAt: string;
+  metrics: {
+    totalExecutions: number;
+    successfulExecutions: number;
+    failedExecutions: number;
+    runningExecutions: number;
+    successRate: number;
+    averageExecutionSeconds: number;
+    revenueCents: number;
+    pendingRevenueCents: number;
+    salesCount: number;
+    callCount: number;
+    totalInstalls: number;
+    activeInstalls: number;
+  };
+  series: Array<{
+    label: string;
+    successful: number;
+    failed: number;
+    running: number;
+    revenueCents: number;
+    pendingRevenueCents: number;
+  }>;
+  failures: Array<{ reason: string; count: number }>;
+  retention: {
+    cohorts: Array<{
+      label: string;
+      installCount: number;
+      values: Array<number | null>;
+    }>;
+    averageFourWeekPercent: number | null;
+  };
+  recentExecutions: Array<{
+    id: string;
+    kind: "WORKFLOW" | "CALL";
+    status: "SUCCESS" | "FAILED" | "RUNNING";
+    occurredAt: string;
+    durationSeconds: number | null;
+    businessName: string;
+    error: string | null;
+  }>;
+};
+
+export function getArchitectAgentAnalytics(
+  listingId: string,
+  range: ArchitectAgentAnalyticsRange
+) {
+  return apiGet<ArchitectAgentAnalytics>(
+    `/architect/agents/${encodeURIComponent(listingId)}/analytics?range=${encodeURIComponent(range)}`
+  );
+}
+
+export async function downloadArchitectAgentAnalyticsReport(
+  listingId: string,
+  range: ArchitectAgentAnalyticsRange
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await apiClient.get(
+      `/architect/agents/${encodeURIComponent(listingId)}/analytics/export?range=${encodeURIComponent(range)}`,
+      { responseType: "blob" }
+    );
+    const blob = new Blob([response.data as BlobPart], { type: "text/csv;charset=utf-8" });
+    const disposition =
+      typeof response.headers?.["content-disposition"] === "string"
+        ? response.headers["content-disposition"]
+        : "";
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    const filename =
+      match?.[1] ?? `triven-agent-analytics-${range.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    return { success: true };
+  } catch {
+    return { success: false, error: "Could not export this agent's analytics report" };
+  }
+}
+
 export function getArchitectPayoutSummary(listingIds?: string[]) {
   const query = listingIds?.length
     ? `?listingIds=${encodeURIComponent(listingIds.join(","))}`

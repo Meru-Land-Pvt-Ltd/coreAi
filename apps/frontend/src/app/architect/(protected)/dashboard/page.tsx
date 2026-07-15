@@ -7,8 +7,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createArchitectWorkflow,
   deleteArchitectWorkflow,
+  getArchitectDashboardActivity,
   getArchitectListings,
-  getArchitectWorkflow
+  getArchitectPayoutSummary,
+  getArchitectWorkflow,
+  type ArchitectDashboardActivity,
+  type ArchitectPayoutSummary
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { formatMoney } from "@/components/architect/ui/architect-ui";
@@ -124,33 +128,112 @@ function NaPanel({ message, testId }: { message: string; testId?: string }) {
   );
 }
 
-// Empty revenue chart frame (gridlines + month axis) shown until real revenue
-// data is wired up. Renders a graph shell rather than a "no data" message.
-function EmptyRevenueChart() {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-  const yLabels = ["$8K", "$6K", "$4K", "$2K", "$0"];
+function formatUsd(cents: number) {
+  return `$${(cents / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
+
+function formatChartUsd(cents: number) {
+  const dollars = cents / 100;
+  if (dollars >= 1000) return `$${(dollars / 1000).toFixed(dollars >= 10_000 ? 0 : 1)}k`;
+  return `$${Math.round(dollars).toLocaleString("en-US")}`;
+}
+
+function formatRelativeTime(value: string) {
+  const elapsedSeconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 31_536_000],
+    ["month", 2_592_000],
+    ["week", 604_800],
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60]
+  ];
+
+  for (const [unit, seconds] of ranges) {
+    if (Math.abs(elapsedSeconds) >= seconds) {
+      return formatter.format(Math.round(elapsedSeconds / seconds), unit);
+    }
+  }
+
+  return formatter.format(elapsedSeconds, "second");
+}
+
+function RevenueChart({
+  points
+}: {
+  points: ArchitectPayoutSummary["chart"]["points"];
+}) {
+  const values = points.map((point) => point.confirmedCents + point.pendingCents);
+  const maxCents = Math.max(...values, 1);
+  const yLabels = [1, 0.75, 0.5, 0.25, 0].map((ratio) => formatChartUsd(maxCents * ratio));
+  const hasRevenue = values.some((value) => value > 0);
+
   return (
-    <div data-testid="architect-dashboard-revenue-empty-chart">
+    <div data-testid="architect-dashboard-revenue-chart">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" /> Confirmed
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-sm bg-amber-200" /> Pending
+          </span>
+        </div>
+        <span className="text-xs font-medium text-slate-400">Last 12 months</span>
+      </div>
       <div className="flex gap-3">
-        <div className="flex h-56 w-10 shrink-0 flex-col justify-between py-0 text-right text-[11px] text-slate-300">
+        <div className="flex h-56 w-12 shrink-0 flex-col justify-between text-right text-[11px] text-slate-400">
           {yLabels.map((label) => (
             <span key={label}>{label}</span>
           ))}
         </div>
-        <div className="relative h-56 flex-1 border-b border-slate-200">
+        <div className="relative h-56 min-w-0 flex-1 border-b border-slate-200">
           <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full flex-col justify-between">
             {Array.from({ length: 5 }).map((_, index) => (
               <span key={index} className="h-px w-full bg-slate-100" />
             ))}
           </div>
-          <div className="absolute inset-x-0 bottom-0 h-px bg-slate-200" />
+          <div className="absolute inset-0 flex items-end justify-around gap-1 px-1 sm:gap-2 sm:px-3">
+            {points.map((point, index) => {
+              const confirmedHeight = (point.confirmedCents / maxCents) * 100;
+              const pendingHeight = (point.pendingCents / maxCents) * 100;
+              return (
+                <div
+                  key={`${point.label}-${index}`}
+                  className="group relative flex h-full min-w-0 flex-1 flex-col justify-end pt-7"
+                  title={`${point.label}: ${formatUsd(point.confirmedCents)} confirmed, ${formatUsd(point.pendingCents)} pending`}
+                >
+                  <div className="absolute left-1/2 top-0 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block">
+                    {formatUsd(point.confirmedCents + point.pendingCents)}
+                  </div>
+                  <div
+                    className="w-full rounded-t bg-amber-200 transition-all group-hover:bg-amber-300"
+                    style={{ height: `${pendingHeight}%`, minHeight: point.pendingCents > 0 ? 2 : 0 }}
+                  />
+                  <div
+                    className="w-full bg-amber-500 transition-all group-hover:bg-amber-600"
+                    style={{ height: `${confirmedHeight}%`, minHeight: point.confirmedCents > 0 ? 2 : 0 }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {!hasRevenue ? (
+            <div className="absolute inset-0 grid place-items-center text-sm font-medium text-slate-400">
+              No revenue recorded yet
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="mt-3 flex gap-3">
-        <div className="w-10 shrink-0" />
-        <div className="flex flex-1 justify-between text-[11px] font-medium text-slate-400" data-testid="architect-dashboard-revenue-x-axis">
-          {months.map((month) => (
-            <span key={month}>{month}</span>
+        <div className="w-12 shrink-0" />
+        <div className="flex flex-1 justify-around text-[10px] font-medium text-slate-400 sm:text-[11px]" data-testid="architect-dashboard-revenue-x-axis">
+          {points.map((point, index) => (
+            <span key={`${point.label}-${index}`}>{point.label}</span>
           ))}
         </div>
       </div>
@@ -219,6 +302,78 @@ function MetricCard({
   );
 }
 
+function activityTone(type: ArchitectDashboardActivity["type"]) {
+  if (type === "SALE") return "bg-green-50 text-green-600";
+  if (type === "PAYOUT") return "bg-blue-50 text-blue-600";
+  return "bg-amber-50 text-amber-600";
+}
+
+function ActivityFeed({
+  activities,
+  loading
+}: {
+  activities: ArchitectDashboardActivity[];
+  loading: boolean;
+}) {
+  if (loading && !activities.length) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="h-14 animate-pulse rounded-xl bg-gray-50" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!activities.length) {
+    return <NaPanel message="No recent activity." testId="architect-dashboard-activity-na" />;
+  }
+
+  return (
+    <div className="divide-y divide-gray-100" data-testid="architect-dashboard-activity-feed">
+      {activities.map((activity) => (
+        <div key={activity.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+          <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${activityTone(activity.type)}`}>
+            {activity.type === "SALE" ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
+            ) : activity.type === "PAYOUT" ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
+                <path d="M5 21h14" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="4" y="8" width="16" height="12" rx="2.5" />
+                <path d="M12 8V4.5" />
+              </svg>
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-800">{activity.title}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">{activity.description}</p>
+              </div>
+              {typeof activity.amountCents === "number" ? (
+                <span className="shrink-0 text-sm font-semibold text-green-600">
+                  {activity.type === "PAYOUT" ? "" : "+"}{formatUsd(activity.amountCents)}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+              <span>{formatRelativeTime(activity.occurredAt)}</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>{activity.status}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ArchitectDashboardPage() {
   const router = useRouter();
   const [listings, setListings] = useState<ArchitectListing[]>([]);
@@ -226,6 +381,10 @@ export default function ArchitectDashboardPage() {
   const [name, setName] = useState("");
   const [menu, setMenu] = useState<{ agentId: string; top: number; left: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [payoutSummary, setPayoutSummary] = useState<ArchitectPayoutSummary | null>(null);
+  const [financialLoading, setFinancialLoading] = useState(true);
+  const [activities, setActivities] = useState<ArchitectDashboardActivity[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   useEffect(() => {
     const user = getAuthUser();
@@ -241,6 +400,32 @@ export default function ArchitectDashboardPage() {
   useEffect(() => {
     void loadListings();
   }, [loadListings]);
+
+  const loadFinancials = useCallback(async () => {
+    const result = await getArchitectPayoutSummary();
+    if (result.success && result.data) {
+      setPayoutSummary(result.data);
+    }
+    setFinancialLoading(false);
+  }, []);
+
+  const loadActivity = useCallback(async () => {
+    const result = await getArchitectDashboardActivity(8);
+    if (result.success && result.data) {
+      setActivities(result.data.activities);
+    }
+    setActivityLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadFinancials();
+  }, [loadFinancials]);
+
+  useEffect(() => {
+    void loadActivity();
+    const interval = window.setInterval(() => void loadActivity(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [loadActivity]);
 
   // Close the row action menu on outside click or scroll.
   useEffect(() => {
@@ -349,6 +534,8 @@ export default function ArchitectDashboardPage() {
   );
 
   const topAgents = filteredAgents.slice(0, 6);
+  const currentMonthPendingCents =
+    payoutSummary?.chart.points[payoutSummary.chart.points.length - 1]?.pendingCents ?? 0;
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-slate-900">
@@ -386,10 +573,10 @@ export default function ArchitectDashboardPage() {
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
           <MetricCard
             label="Total Earnings"
-            value="$0"
+            value={financialLoading ? "—" : formatUsd(payoutSummary?.totalEarningsCents ?? 0)}
             hint={
               <span className="font-semibold text-green-600" data-testid="architect-dashboard-earnings-this-month-text">
-                +$0 this month
+                +{formatUsd(payoutSummary?.thisMonthEarningsCents ?? 0)} this month
               </span>
             }
             testId="architect-dashboard-total-earnings-text"
@@ -444,9 +631,24 @@ export default function ArchitectDashboardPage() {
         </section>
 
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-8" data-testid="architect-dashboard-revenue-section">
-          <h2 className="text-lg font-bold text-slate-900" data-testid="architect-dashboard-revenue-overview-heading">Revenue Overview</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900" data-testid="architect-dashboard-revenue-overview-heading">Revenue Overview</h2>
+              <p className="mt-1 text-sm text-slate-500">Confirmed and pending architect earnings from agent sales.</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Pending</p>
+              <p className="mt-1 text-sm font-bold text-amber-600" data-testid="architect-dashboard-pending-earnings-text">
+                {financialLoading ? "—" : formatUsd(payoutSummary?.pendingCents ?? 0)}
+              </p>
+            </div>
+          </div>
           <div className="mt-6">
-            <EmptyRevenueChart />
+            {financialLoading ? (
+              <div className="h-72 animate-pulse rounded-xl bg-gray-50" />
+            ) : (
+              <RevenueChart points={payoutSummary?.chart.points ?? []} />
+            )}
           </div>
         </section>
 
@@ -582,17 +784,49 @@ export default function ArchitectDashboardPage() {
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-900">Activity</h2>
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" /> Live
+              </span>
             </div>
             <div className="mt-5">
-              <NaPanel message="No recent activity." testId="architect-dashboard-activity-na" />
+              <ActivityFeed activities={activities} loading={activityLoading} />
             </div>
           </div>
 
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
             <h2 className="text-lg font-bold text-slate-900">This Month&apos;s Earnings</h2>
-            <div className="mt-5">
-              <NaPanel message="No earnings data yet." testId="architect-dashboard-earnings-na" />
-            </div>
+            {financialLoading ? (
+              <div className="mt-5 h-32 animate-pulse rounded-xl bg-gray-50" />
+            ) : (
+              <div className="mt-5" data-testid="architect-dashboard-monthly-earnings">
+                <p className="text-4xl font-black tracking-tight text-slate-900">
+                  {formatUsd(payoutSummary?.thisMonthEarningsCents ?? 0)}
+                </p>
+                <p className="mt-1 text-sm font-medium text-slate-500">
+                  {payoutSummary?.thisMonthLabel ?? "This month"}
+                </p>
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-green-50 p-3">
+                    <p className="text-xs font-medium text-green-700">Approved sales</p>
+                    <p className="mt-1 text-xl font-bold text-green-700">
+                      {payoutSummary?.thisMonthSalesCount ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-amber-50 p-3">
+                    <p className="text-xs font-medium text-amber-700">Pending this month</p>
+                    <p className="mt-1 text-xl font-bold text-amber-700">
+                      {formatUsd(currentMonthPendingCents)}
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href="/architect/payouts"
+                  className="mt-5 inline-flex text-sm font-semibold text-amber-600 hover:text-amber-700"
+                >
+                  View payout details →
+                </Link>
+              </div>
+            )}
           </div>
         </section>
       </main>

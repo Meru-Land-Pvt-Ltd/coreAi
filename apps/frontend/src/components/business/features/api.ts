@@ -1,5 +1,5 @@
 import type { BuyerSetupField } from "@coreai/shared";
-import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
+import { apiClient, apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
 
 export type BusinessFaq = {
   question: string;
@@ -376,6 +376,49 @@ export function saveBusinessSettingsProfile(body: {
       profilePhotoUrl: string | null;
     };
   }>("/business/settings/profile", body);
+}
+
+export function saveBusinessBillingAddress(body: {
+  businessId: string;
+  address: string;
+  pincode: string;
+}) {
+  return apiPut<{
+    billingAddress: { address: string; pincode: string };
+  }>("/business/settings/billing-address", body);
+}
+
+export async function downloadBusinessDataExport(
+  businessId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await apiClient.get(
+      `/business/settings/data-export?businessId=${encodeURIComponent(businessId)}`,
+      { responseType: "blob" }
+    );
+
+    const blob = new Blob([response.data as BlobPart], { type: "application/zip" });
+    const disposition =
+      typeof response.headers?.["content-disposition"] === "string"
+        ? response.headers["content-disposition"]
+        : "";
+    const filenameMatch = /filename="?([^";]+)"?/.exec(disposition);
+    const filename =
+      filenameMatch?.[1] ?? `triven-business-data-${new Date().toISOString().slice(0, 10)}.zip`;
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+
+    return { success: true };
+  } catch {
+    return { success: false, error: "Could not export your data" };
+  }
 }
 
 export function saveBusinessProfilePhoto(photoDataUrl: string) {

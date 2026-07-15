@@ -233,9 +233,10 @@ model Business {
   subscriptionPriceId  String?
   currentPeriodEnd     DateTime?
 
-  billingName    String?
-  billingEmail   String?
-  billingAddress String?
+  billingName       String?
+  billingEmail      String?
+  billingAddress    String?
+  billingPostalCode String?
 
   appointments    Appointment[]
   owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
