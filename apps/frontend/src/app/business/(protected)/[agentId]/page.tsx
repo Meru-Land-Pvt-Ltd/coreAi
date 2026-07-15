@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
+import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { BUSINESS_MARKETPLACE_PATH, BUSINESS_AGENTS_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
 
 const STYLES = `
@@ -694,6 +695,10 @@ export default function BusinessAgentDetailPage() {
                   <p className="mt-3 text-xs text-slate-500">
                     No credit card required to start. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
                   </p>
+                ) : null}
+
+                {!hasActiveAccess && listing ? (
+                  <AgentDemoCall listingId={listing.id} listingName={listing.name} />
                 ) : null}
               </div>
 

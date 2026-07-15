@@ -112,6 +112,9 @@ const envSchema = z.object({
   VAPI_TRANSCRIBER_MODEL: z.string().default("nova-3"),
   VAPI_ENABLE_BOOKING_TOOLS: booleanFromEnv.default(true),
 
+  /** Platform-wide cap on marketplace demo call starts per day (cost control). */
+  MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
+
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_AI_API_KEY: z.string().optional(),
@@ -210,6 +213,20 @@ if (parsedEnv.NODE_ENV === "production") {
 
   if (!parsedEnv.TWILIO_VALIDATE_SIGNATURE) {
     problems.push("TWILIO_VALIDATE_SIGNATURE must be true in production.");
+  }
+
+  // Without the shared secret, the Vapi webhook accepts unsigned posts —
+  // spoofed end-of-call reports would create billing/usage rows.
+  if (parsedEnv.VAPI_API_KEY && !parsedEnv.VAPI_WEBHOOK_SECRET) {
+    problems.push(
+      "VAPI_WEBHOOK_SECRET is required in production when VAPI_API_KEY is set — unsigned Vapi webhooks must be rejected."
+    );
+  }
+
+  if (parsedEnv.VAPI_API_KEY && !parsedEnv.VAPI_PUBLIC_KEY) {
+    console.warn(
+      "[env] VAPI_PUBLIC_KEY is not set — browser voice tests and marketplace demo calls will be unavailable."
+    );
   }
 
   if (parsedEnv.TWILIO_TEST_MODE) {

@@ -282,7 +282,13 @@ architectRoutes.post("/voices/preview", requireAuth, async (c) => {
 });
 
 architectRoutes.use("*", requireAuth);
-architectRoutes.use("*", requireRole(["ARCHITECT"]));
+architectRoutes.use(
+  "*",
+  requireRole(["ARCHITECT"], {
+    message: "Architect access is required.",
+    code: "ARCHITECT_ACCESS_REQUIRED"
+  })
+);
 
 architectRoutes.get("/ai/providers", async (c) => {
   const registry = getProviderRegistry();

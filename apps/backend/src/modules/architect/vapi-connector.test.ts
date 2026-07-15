@@ -161,6 +161,28 @@ describe("deployVapiAssistant payload", () => {
     return fetchMock;
   }
 
+  it("clamps assistant names to Vapi's 40-character limit", async () => {
+    env.VAPI_API_KEY = "test-key";
+
+    const fetchMock = stubVapiCreate();
+
+    await deployVapiAssistant({
+      name: "Marketplace Demo — Some Extremely Long Listing Name That Overflows",
+      firstMessage: "Hello",
+      systemPrompt: "test",
+      voice: "adam",
+      voiceProvider: "11labs",
+      voiceId: "",
+      serverUrl: "https://example.com/webhook"
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    const body = JSON.parse(init.body) as { name: string };
+
+    expect(body.name.length).toBeLessThanOrEqual(40);
+    expect(body.name).toBe("Marketplace Demo — Some Extremely Long L");
+  });
+
   it("sends the male Adam voice and a working LLM even with a stale female id", async () => {
     env.VAPI_API_KEY = "test-key";
     env.VAPI_ANTHROPIC_ENABLED = false;

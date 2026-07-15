@@ -10,7 +10,8 @@ import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
     businessAgentPath,
-    businessCheckoutPath
+    businessCheckoutPath,
+    businessSetupPath
 } from "@/lib/routes";
 
 type Agent = {
@@ -111,6 +112,7 @@ type ListingsApiResponse = {
 
 type MyAgentsResponse = {
     agents?: Array<{
+        installedAgentId?: string | null;
         listing: {
             id: string;
         };
@@ -526,6 +528,7 @@ export default function MarketplacePage() {
     const [minRating, setMinRating] = useState(0);
     const [detailsAgent, setDetailsAgent] = useState<Agent | null>(null);
     const [ownedListingIds, setOwnedListingIds] = useState<Set<string>>(() => new Set());
+    const [setupPendingListingIds, setSetupPendingListingIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
         const token =
@@ -610,13 +613,20 @@ export default function MarketplacePage() {
 
                 if (!mounted || !response.success) return;
 
-                const ownedIds = new Set(
-                    (response.data?.agents ?? []).map((entry) => entry.listing.id)
+                const entries = response.data?.agents ?? [];
+                const ownedIds = new Set(entries.map((entry) => entry.listing.id));
+                // Purchased but never installed — setup hasn't been completed yet.
+                const pendingIds = new Set(
+                    entries.filter((entry) => !entry.installedAgentId).map((entry) => entry.listing.id)
                 );
 
                 setOwnedListingIds(ownedIds);
+                setSetupPendingListingIds(pendingIds);
             } catch {
-                if (mounted) setOwnedListingIds(new Set());
+                if (mounted) {
+                    setOwnedListingIds(new Set());
+                    setSetupPendingListingIds(new Set());
+                }
             }
         }
 
@@ -629,6 +639,10 @@ export default function MarketplacePage() {
 
     function isOwnedAgent(listingId: string) {
         return ownedListingIds.has(listingId);
+    }
+
+    function needsSetup(listingId: string) {
+        return setupPendingListingIds.has(listingId);
     }
 
     useEffect(() => {
@@ -932,11 +946,11 @@ export default function MarketplacePage() {
                                     <div className="mt-6 flex flex-wrap items-center gap-3">
                                         {isOwnedAgent(featuredAgent.id) ? (
                                             <Link
-                                                href={BUSINESS_AGENTS_PATH}
+                                                href={needsSetup(featuredAgent.id) ? businessSetupPath(featuredAgent.id) : BUSINESS_AGENTS_PATH}
                                                 data-testid="business-marketplace-featured-manage-agent"
                                                 className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                                             >
-                                                Manage agent
+                                                {needsSetup(featuredAgent.id) ? "Continue Setup" : "Manage agent"}
                                             </Link>
                                         ) : (
                                             <button
@@ -1374,6 +1388,7 @@ export default function MarketplacePage() {
                 <AgentDetailsModal
                     agent={detailsAgent}
                     isOwned={isOwnedAgent(detailsAgent.id)}
+                    setupPending={needsSetup(detailsAgent.id)}
                     onClose={closeDetailsModal}
                 />
             ) : null}
@@ -1412,10 +1427,12 @@ function Message({
 function AgentDetailsModal({
     agent,
     isOwned,
+    setupPending,
     onClose
 }: {
     agent: Agent;
     isOwned: boolean;
+    setupPending?: boolean;
     onClose: () => void;
 }) {
     useEffect(() => {
@@ -1563,11 +1580,11 @@ function AgentDetailsModal({
 
                     {isOwned ? (
                         <Link
-                            href={BUSINESS_AGENTS_PATH}
+                            href={setupPending ? businessSetupPath(agent.id) : BUSINESS_AGENTS_PATH}
                             data-testid="business-marketplace-agent-details-modal-manage-agent"
                             className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
                         >
-                            Manage agent
+                            {setupPending ? "Continue Setup" : "Manage agent"}
                         </Link>
                     ) : (
                         <Link

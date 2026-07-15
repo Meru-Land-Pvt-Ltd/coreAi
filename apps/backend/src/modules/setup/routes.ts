@@ -1,8 +1,8 @@
 import { createHash, randomInt } from "node:crypto";
 import { Hono } from "hono";
-import { PaymentStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { env, isProduction } from "../../config/env";
+import { isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
@@ -14,29 +14,13 @@ import {
   RECEPTIONIST_WORKFLOW_NAME,
   buildReceptionistWorkflowJson
 } from "../business/receptionist-template";
+import { canBusinessAccessListing } from "../business/purchase-access";
 
 export const setupRoutes = new Hono();
 
-/**
- * Per-agent setup wizard for a business. A business reaches this flow after
- * purchasing an agent from the marketplace, so every endpoint is scoped to an
- * authenticated BUSINESS user that owns the listing being set up.
- */
 setupRoutes.use("*", requireAuth);
 setupRoutes.use("*", requireRole(["BUSINESS"]));
 
-// A payment in one of these states means the business owns the agent.
-const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
-  PaymentStatus.TRIALING,
-  PaymentStatus.SUCCEEDED,
-  PaymentStatus.PENDING
-];
-
-// ---------------------------------------------------------------------------
-// OTP store (in-memory) — transient phone verification codes keyed by the
-// owner + listing being configured. Codes are short-lived so memory is fine
-// and we avoid a schema migration just for verification.
-// ---------------------------------------------------------------------------
 type OtpEntry = {
   codeHash: string;
   phone: string;
@@ -111,11 +95,11 @@ const listingIdBodySchema = z.object({
 type OwnedListing = NonNullable<Awaited<ReturnType<typeof loadOwnedListing>>>;
 
 async function loadOwnedListing(userId: string, listingId: string) {
-  const payment = await prisma.payment.findFirst({
-    where: { userId, listingId, status: { in: OWNED_PAYMENT_STATUSES } }
-  });
+  // Centralized ownership: SUCCEEDED or in-window TRIALING payment, or an
+  // already-installed agent (legacy). PENDING/FAILED payments grant nothing.
+  const access = await canBusinessAccessListing({ userId, listingId });
 
-  if (!payment) return null;
+  if (!access.allowed) return null;
 
   return prisma.agentListing.findUnique({
     where: { id: listingId },
@@ -199,16 +183,29 @@ async function ensureBusinessAndAgent(opts: {
 
   if (!agent) {
     const workflowId = await resolveWorkflowId(opts.ownerId, opts.listing.workflowId);
-    agent = await prisma.installedAgent.create({
-      data: {
-        businessId: business.id,
-        workflowId,
-        listingId: opts.listing.id,
-        name: opts.listing.name,
-        status: "PROVISIONING",
-        configJson: {} as never
+
+    try {
+      agent = await prisma.installedAgent.create({
+        data: {
+          businessId: business.id,
+          workflowId,
+          listingId: opts.listing.id,
+          name: opts.listing.name,
+          status: "PROVISIONING",
+          configJson: {} as never
+        }
+      });
+    } catch (error) {
+      // Unique (businessId, listingId) — a concurrent request (double click,
+      // webhook retry) already installed this listing; reuse that row.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        agent = await prisma.installedAgent.findFirst({
+          where: { businessId: business.id, listingId: opts.listing.id },
+          orderBy: { createdAt: "desc" }
+        });
       }
-    });
+      if (!agent) throw error;
+    }
   }
 
   return { business, agent };

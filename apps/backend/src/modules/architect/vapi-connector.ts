@@ -743,6 +743,8 @@ export type DeployVapiAssistantInput = {
   };
   /** Seconds of caller silence before Vapi ends the call (Vapi default: 30). */
   silenceTimeoutSeconds?: number;
+  /** Hard cap on call length (marketplace demos). Vapi ends the call at this limit. */
+  maxDurationSeconds?: number;
   /** End Flow node "Call recording" toggle → Vapi artifactPlan.recordingEnabled (default on). */
   recordingEnabled?: boolean;
 };
@@ -762,6 +764,7 @@ export async function deployVapiAssistant({
   metadata,
   includeTools,
   silenceTimeoutSeconds,
+  maxDurationSeconds,
   recordingEnabled
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean }> {
   if (!env.VAPI_API_KEY) {
@@ -770,8 +773,12 @@ export async function deployVapiAssistant({
 
   const resolvedModel = resolveVapiModel(model);
 
+  // Vapi rejects assistant names longer than 40 characters — clamp centrally
+  // so long listing/business/workflow names never fail a deploy.
+  const assistantName = clean(name).slice(0, 40) || "Triven Assistant";
+
   const body: Record<string, unknown> = {
-    name,
+    name: assistantName,
     firstMessage,
     model: {
       provider: resolvedModel.provider,
@@ -821,7 +828,8 @@ export async function deployVapiAssistant({
       recordingEnabled: recordingEnabled !== false
     },
     ...(metadata ? { metadata } : {}),
-    ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {})
+    ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {}),
+    ...(maxDurationSeconds ? { maxDurationSeconds } : {})
   };
 
   const voiceResolution = resolveVapiVoice({

@@ -317,6 +317,7 @@ model InstalledAgent {
   workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   workflowRuns WorkflowRun[]
 
+  @@unique([businessId, listingId])
   @@index([businessId])
   @@index([workflowId])
   @@index([listingId])
