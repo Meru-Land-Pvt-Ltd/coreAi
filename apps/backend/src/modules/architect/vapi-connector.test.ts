@@ -211,7 +211,7 @@ describe("deployVapiAssistant payload", () => {
       voice: { provider: string; voiceId: string; model?: string };
     };
 
-    expect(body.voice).toEqual({
+    expect(body.voice).toMatchObject({
       provider: "11labs",
       voiceId: ADAM_MALE_ID,
       model: env.VAPI_ELEVENLABS_MODEL

@@ -56,7 +56,6 @@ import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
-import { buildArchitectAgentAnalytics } from "./agent-analytics";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
@@ -399,15 +398,6 @@ architectRoutes.get("/agents/:listingId/analytics/export", async (c) => {
 });
 
 /** My Agents dashboard stats — live counts, buyer executions, and approved total earnings. */
-// Live Agent Analytics: real executions/revenue/per-agent metrics for the
-// analytics page, aggregated per UI time range in a single response.
-architectRoutes.get("/agents/analytics", async (c) => {
-  const authUser = c.get("authUser");
-  const listingId = c.req.query("listingId")?.trim() || null;
-  const analytics = await buildArchitectAgentAnalytics(authUser.id, listingId);
-  return successResponse(c, analytics);
-});
-
 architectRoutes.get("/agents/stats", async (c) => {
   try {
     const authUser = c.get("authUser");

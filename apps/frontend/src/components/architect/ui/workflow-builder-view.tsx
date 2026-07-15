@@ -1299,8 +1299,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             agentName={agentName}
             tagline={tagline}
             price={price}
-            nodeCount={nodes.length}
-            connectionCount={edges.length}
             authorName={architectName}
             workflowFlow={{ nodes, edges }}
             testRunCompleted={testRunStatus.completed}

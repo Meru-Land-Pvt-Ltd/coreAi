@@ -882,7 +882,7 @@ function LiveAgentDeleteModal({
   deleting: boolean;
   deactivating: boolean;
   onClose: () => void;
-  onConfirm: () => Promise<boolean> | boolean;
+  onConfirm: (reason?: string) => Promise<boolean> | boolean;
   onDeactivate: () => void;
 }) {
   const [nameInput, setNameInput] = useState("");
@@ -909,7 +909,8 @@ function LiveAgentDeleteModal({
       setShowNameError(true);
       return;
     }
-    const ok = await onConfirm();
+    const composedReason = [reason.trim(), comments.trim()].filter(Boolean).join(" — ");
+    const ok = await onConfirm(composedReason.length >= 5 ? composedReason : "Deleted by architect");
     if (ok) setStep("success");
   }
 
@@ -1200,9 +1201,10 @@ function DeleteAgentModal({
   deleting: boolean;
   deactivating?: boolean;
   onClose: () => void;
-  onConfirm: () => Promise<boolean> | boolean;
+  onConfirm: (reason?: string) => Promise<boolean> | boolean;
   onDeactivate?: () => void;
 }) {
+  const [reason, setReason] = useState("");
   const isLiveAgent = agent.status === "APPROVED" || agent.status === "PAUSED";
 
   if (isLiveAgent && onDeactivate) {
@@ -1279,8 +1281,8 @@ function DeleteAgentModal({
           {deletable ? (
             <button
               type="button"
-              disabled={deleting}
-              onClick={() => void onConfirm()}
+              disabled={deleting || reasonMissing}
+              onClick={() => void onConfirm(reason)}
               className="rounded-xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
               data-testid={`my-agents-delete-confirm-${agent.id}`}
             >
@@ -1454,6 +1456,8 @@ export function MyAgentsView() {
   const [reactivating, setReactivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [cancellingSubmission, setCancellingSubmission] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Honor a ?filter=live (or status) query so other pages can deep-link here.
@@ -1679,7 +1683,7 @@ export function MyAgentsView() {
     setDeleteAgent(agent);
   }
 
-  async function executeDeleteAgent(): Promise<boolean> {
+  async function executeDeleteAgent(reason?: string): Promise<boolean> {
     if (!deleteAgent) return false;
 
     const isLive = deleteAgent.status === "APPROVED" || deleteAgent.status === "PAUSED";
@@ -1694,7 +1698,7 @@ export function MyAgentsView() {
       if (!withdrawn.success) {
         setDeleting(false);
         setToast(withdrawn.error ?? "Could not cancel the review submission.");
-        return;
+        return false;
       }
     }
 
@@ -2100,8 +2104,26 @@ export function MyAgentsView() {
           deleting={deleting}
           deactivating={deactivating}
           onClose={() => !deleting && !deactivating && setDeleteAgent(null)}
-          onConfirm={() => executeDeleteAgent()}
+          onConfirm={(reason) => executeDeleteAgent(reason)}
           onDeactivate={() => void executeDeactivateFromDelete()}
+        />
+      ) : null}
+
+      {pauseAgent ? (
+        <PauseAgentModal
+          agent={pauseAgent}
+          pausing={pausing}
+          onClose={() => !pausing && setPauseAgent(null)}
+          onConfirm={() => void executePauseAgent()}
+        />
+      ) : null}
+
+      {cancelSubmissionAgent ? (
+        <CancelSubmissionModal
+          agent={cancelSubmissionAgent}
+          cancelling={cancellingSubmission}
+          onClose={() => !cancellingSubmission && setCancelSubmissionAgent(null)}
+          onConfirm={() => void executeCancelSubmission()}
         />
       ) : null}
     </div>

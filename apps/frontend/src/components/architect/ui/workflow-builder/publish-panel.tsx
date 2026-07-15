@@ -29,8 +29,6 @@ export function PublishPanel({
   agentName,
   tagline,
   price,
-  nodeCount = 0,
-  connectionCount = 0,
   authorName,
   workflowFlow,
   testRunCompleted = false,
@@ -47,8 +45,6 @@ export function PublishPanel({
   agentName: string;
   tagline: string;
   price: string;
-  nodeCount?: number;
-  connectionCount?: number;
   authorName: string;
   workflowFlow?: { nodes: unknown[]; edges: unknown[] };
   testRunCompleted?: boolean;

@@ -768,7 +768,7 @@ function PublishingStatusContent() {
                     <ApprovedPanel agent={headerAgent} architectName={architectName} onViewAgent={viewAgent} />
                   </>
                 ) : null}
-                {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} onResubmit={editSubmission} /> : null}
+                {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} onResubmit={viewAgent} /> : null}
                 {activeState === 4 ? <ReReviewPanel agent={headerAgent} /> : null}
 
                 {activeState === 3 ? (
