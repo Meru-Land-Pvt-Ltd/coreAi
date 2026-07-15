@@ -45,6 +45,7 @@ services:
       BACKEND_URL: ${BACKEND_URL}
       TWILIO_VALIDATE_SIGNATURE: ${TWILIO_VALIDATE_SIGNATURE}
       TWILIO_TEST_MODE: ${TWILIO_TEST_MODE}
+      VAPI_WEBHOOK_SECRET: "${VAPI_WEBHOOK_SECRET}"
     depends_on:
       postgres:
         condition: service_healthy
