@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deleteArchitectAccount,
   downloadArchitectDataExport,
   getArchitectSettings,
+  makeArchitectBackupPayoutMethodPrimary,
   payArchitectRefundObligations,
   pauseAllArchitectAgents,
   reactivateAllArchitectAgents,
@@ -13,6 +15,7 @@ import {
   revokeArchitectSession,
   revokeOtherArchitectSessions,
   saveArchitectNotificationPrefs,
+  saveArchitectMarketplacePhoto,
   saveArchitectPayoutSchedule,
   saveArchitectPrivacyPrefs,
   saveArchitectProfilePhoto,
@@ -25,13 +28,16 @@ import {
   type ArchitectSettingsPayload,
   type ArchitectSettingsSession
 } from "@/components/architect/features/api";
+import { ArchitectPayoutMethodModal } from "@/components/architect/features/payout-method-modal";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
 import { ARCHITECT_PAYOUTS_PATH } from "@/lib/routes";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
+import { requestSignedDpa } from "@/lib/dpa";
 
 type SettingsTab =
   | "profile"
+  | "storefront"
   | "security"
   | "notifications"
   | "payouts"
@@ -40,6 +46,7 @@ type SettingsTab =
 
 const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
   { id: "profile", label: "Profile" },
+  { id: "storefront", label: "Public Storefront" },
   { id: "security", label: "Security" },
   { id: "notifications", label: "Notifications" },
   { id: "payouts", label: "Payouts" },
@@ -302,7 +309,7 @@ function buildStorefrontFormFromAuth(user: AuthUser | null) {
     githubUrl: "",
     linkedinUrl: "",
     twitterHandle: "",
-    experienceBand: "5-10",
+    experienceBand: "",
     skills: [] as string[]
   };
 }
@@ -339,6 +346,8 @@ export default function ArchitectSettingsPage() {
   );
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [profilePhotoSelecting, setProfilePhotoSelecting] = useState(false);
+  const [marketplacePhotoUrl, setMarketplacePhotoUrl] = useState<string | null>(null);
+  const [marketplacePhotoSelecting, setMarketplacePhotoSelecting] = useState(false);
 
   const [profileForm, setProfileForm] = useState(() => buildProfileFormFromAuth(authUser));
 
@@ -349,6 +358,9 @@ export default function ArchitectSettingsPage() {
   const [payoutSchedule, setPayoutSchedule] = useState<ArchitectPayoutSchedule>(DEFAULT_PAYOUT_SCHEDULE);
   const [nextPayoutAt, setNextPayoutAt] = useState<string | null>(null);
   const [exportingData, setExportingData] = useState(false);
+  const [requestingDpa, setRequestingDpa] = useState(false);
+  const [payoutMethodModal, setPayoutMethodModal] = useState<"primary" | "backup" | null>(null);
+  const [makingPayoutPrimary, setMakingPayoutPrimary] = useState(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -411,6 +423,7 @@ export default function ArchitectSettingsPage() {
       experienceBand: result.data.storefront.experienceBand,
       skills: result.data.storefront.skills
     });
+    setMarketplacePhotoUrl(result.data.storefront.marketplacePhotoUrl ?? null);
     setNotificationPrefs(result.data.notifications as Record<string, { email: boolean; push: boolean; locked?: boolean }>);
     setPrivacyPrefs(result.data.privacy);
     if (result.data.payoutSchedule) {
@@ -589,6 +602,38 @@ export default function ArchitectSettingsPage() {
     else showToast(result.error ?? "Could not save privacy settings");
   }
 
+  async function handleRequestSignedDpa() {
+    if (requestingDpa) return;
+    setRequestingDpa(true);
+    const result = await requestSignedDpa({
+      fullName: profileForm.fullName,
+      company: storefrontForm.displayName,
+      email: accountEmail,
+      industry: storefrontForm.skills[0]
+    });
+    setRequestingDpa(false);
+    showToast(result.success ? "Signed DPA request sent" : result.error ?? "Could not send DPA request");
+  }
+
+  async function handleMarketplacePhotoSelect(file: File) {
+    setMarketplacePhotoSelecting(true);
+    try {
+      const photoDataUrl = await readProfilePhotoFile(file);
+      const result = await saveArchitectMarketplacePhoto(photoDataUrl);
+      if (!result.success) {
+        showToast(result.error ?? "Could not save marketplace photo");
+        return;
+      }
+
+      setMarketplacePhotoUrl(result.data?.marketplacePhotoUrl ?? photoDataUrl);
+      showToast("Marketplace photo updated ✓");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not read marketplace photo");
+    } finally {
+      setMarketplacePhotoSelecting(false);
+    }
+  }
+
   async function handleSavePayoutSchedule() {
     setSaving(true);
     const result = await saveArchitectPayoutSchedule(payoutSchedule);
@@ -600,6 +645,19 @@ export default function ArchitectSettingsPage() {
     } else {
       showToast(result.error ?? "Could not save payout schedule");
     }
+  }
+
+  async function handleMakeBackupPayoutMethodPrimary() {
+    if (makingPayoutPrimary) return;
+    setMakingPayoutPrimary(true);
+    const result = await makeArchitectBackupPayoutMethodPrimary();
+    setMakingPayoutPrimary(false);
+    if (!result.success) {
+      showToast(result.error ?? "Could not update the primary payout method");
+      return;
+    }
+    await loadSettings();
+    showToast("Primary payout method updated ✓");
   }
 
   async function handleExportData() {
@@ -896,6 +954,160 @@ export default function ArchitectSettingsPage() {
               </section>
             ) : null}
 
+            {activeTab === "storefront" ? (
+              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-storefront">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Public Profile &amp; Storefront</h2>
+                  <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the Triven marketplace.</p>
+                </div>
+
+                <form onSubmit={handleSaveStorefront} className="space-y-8">
+                  <div>
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">Display identity</h3>
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <label htmlFor="storefrontDisplayName" className="mb-1.5 block text-sm font-medium text-slate-700">Display name</label>
+                        <input
+                          id="storefrontDisplayName"
+                          value={storefrontForm.displayName}
+                          onChange={(event) => setStorefrontForm((current) => ({ ...current, displayName: event.target.value }))}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                          data-testid="architect-settings-storefront-display-name"
+                        />
+                        <p className="mt-1.5 text-xs text-slate-400">This appears on your public storefront and agent listings.</p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-5 sm:col-span-2">
+                        <ProfileAvatar
+                          photoUrl={marketplacePhotoUrl}
+                          initials={storefrontInitials}
+                          className="flex h-[100px] w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-bold text-white"
+                          testId="architect-settings-marketplace-avatar"
+                        />
+                        <div>
+                          <p className="mb-1.5 text-sm font-medium text-slate-700">Marketplace photo</p>
+                          <label className="inline-flex cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">
+                            {marketplacePhotoSelecting ? "Uploading..." : "Upload marketplace photo"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg"
+                              className="sr-only"
+                              disabled={marketplacePhotoSelecting}
+                              data-testid="architect-settings-marketplace-photo"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                if (file) void handleMarketplacePhotoSelect(file);
+                              }}
+                            />
+                          </label>
+                          <p className="mt-1.5 text-xs text-slate-400">JPG or PNG, up to 2MB. Saved immediately.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-100 pt-7">
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">Bio &amp; expertise</h3>
+                    <div className="space-y-5">
+                      <div>
+                        <label htmlFor="storefrontTagline" className="mb-1.5 block text-sm font-medium text-slate-700">Tagline</label>
+                        <input
+                          id="storefrontTagline"
+                          maxLength={80}
+                          value={storefrontForm.tagline}
+                          onChange={(event) => setStorefrontForm((current) => ({ ...current, tagline: event.target.value }))}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                          data-testid="architect-settings-storefront-tagline"
+                        />
+                        <p className="mt-1.5 text-right text-xs text-slate-400">{storefrontForm.tagline.length}/80</p>
+                      </div>
+                      <div>
+                        <label htmlFor="storefrontBio" className="mb-1.5 block text-sm font-medium text-slate-700">Full bio</label>
+                        <textarea
+                          id="storefrontBio"
+                          rows={4}
+                          maxLength={500}
+                          value={storefrontForm.bio}
+                          onChange={(event) => setStorefrontForm((current) => ({ ...current, bio: event.target.value }))}
+                          className="w-full resize-y rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                          data-testid="architect-settings-storefront-bio"
+                        />
+                        <p className="mt-1.5 text-right text-xs text-slate-400">{storefrontForm.bio.length}/500</p>
+                      </div>
+                      <div>
+                        <p className="mb-2 text-sm font-medium text-slate-700">Specialization tags <span className="font-normal text-slate-400">(max 5)</span></p>
+                        <div className="flex flex-wrap gap-2" role="group" aria-label="Specialization tags">
+                          {SPECIALIZATION_TAGS.map((tag) => {
+                            const selected = storefrontForm.skills.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => toggleSkill(tag)}
+                                aria-pressed={selected}
+                                data-testid={`architect-settings-storefront-skill-${tag.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${selected ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50"}`}
+                              >
+                                {tag}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="sm:max-w-xs">
+                        <label htmlFor="storefrontExperience" className="mb-1.5 block text-sm font-medium text-slate-700">Years of experience</label>
+                        <select
+                          id="storefrontExperience"
+                          value={storefrontForm.experienceBand}
+                          onChange={(event) => setStorefrontForm((current) => ({ ...current, experienceBand: event.target.value }))}
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                          data-testid="architect-settings-storefront-experience"
+                        >
+                          <option value="">Select experience</option>
+                          <option value="1-2">1–2</option>
+                          <option value="3-5">3–5</option>
+                          <option value="5-10">5–10</option>
+                          <option value="10+">10+</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-100 pt-7">
+                    <h3 className="mb-4 text-base font-semibold text-slate-900">Links</h3>
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      {([
+                        ["portfolioUrl", "Portfolio website", "url"],
+                        ["githubUrl", "GitHub profile", "url"],
+                        ["linkedinUrl", "LinkedIn", "url"],
+                        ["twitterHandle", "Twitter / X", "text"]
+                      ] as const).map(([field, label, type]) => (
+                        <div key={field}>
+                          <label htmlFor={`storefront-${field}`} className="mb-1.5 block text-sm font-medium text-slate-700">{label}</label>
+                          <input
+                            id={`storefront-${field}`}
+                            type={type}
+                            value={storefrontForm[field]}
+                            onChange={(event) => setStorefrontForm((current) => ({ ...current, [field]: event.target.value }))}
+                            className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm"
+                            data-testid={`architect-settings-storefront-${field}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 border-t border-gray-100 pt-6">
+                    <button type="submit" disabled={saving} className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50" data-testid="architect-settings-save-storefront">
+                      {saving ? "Saving..." : "Save storefront"}
+                    </button>
+                    <p className="text-xs text-slate-400">Changes use your saved storefront data.</p>
+                  </div>
+                </form>
+              </section>
+            ) : null}
+
             {activeTab === "security" ? (
               <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-security">
                 <h2 className="text-lg font-bold text-slate-900">Security</h2>
@@ -1009,7 +1221,10 @@ export default function ArchitectSettingsPage() {
                       <div>
                         {settings?.payouts.payoutMethod ? (
                           <>
-                            <p className="text-sm font-semibold text-slate-900">{settings.payouts.payoutMethod.bankName}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-slate-900">{settings.payouts.payoutMethod.bankName}</p>
+                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">Primary</span>
+                            </div>
                             <p className="mt-0.5 font-mono text-xs text-slate-500">Account •••• {settings.payouts.payoutMethod.accountLast4}</p>
                             {settings.payouts.payoutMethod.routingLast4 ? (
                               <p className="font-mono text-xs text-slate-500">
@@ -1018,16 +1233,37 @@ export default function ArchitectSettingsPage() {
                             ) : null}
                           </>
                         ) : (
-                          <p className="text-sm text-slate-500">No payout method on file.</p>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">No payout method on file.</p>
+                            <p className="mt-1 text-xs text-slate-500">Add a bank account to receive your architect earnings.</p>
+                          </div>
                         )}
                       </div>
                       {settings?.payouts.payoutMethod?.verified ? (
                         <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700">Verified ✓</span>
                       ) : null}
                     </div>
-                    <button type="button" onClick={() => showToast("Payout method update requested")} className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Update bank account</button>
+                    <button type="button" onClick={() => setPayoutMethodModal("primary")} className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50" data-testid="architect-settings-add-payout-method">
+                      {settings?.payouts.payoutMethod ? "Update bank account" : "Add payout method"}
+                    </button>
                   </div>
-                  <Link href={ARCHITECT_PAYOUTS_PATH} className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800">+ Add backup payout method</Link>
+                  {settings?.payouts.backupPayoutMethod ? (
+                    <div className="mt-4 rounded-2xl border border-gray-200 bg-slate-50/60 p-5" data-testid="architect-settings-backup-payout-method">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{settings.payouts.backupPayoutMethod.bankName}</p>
+                            <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Backup</span>
+                          </div>
+                          <p className="mt-1 font-mono text-xs text-slate-500">Account •••• {settings.payouts.backupPayoutMethod.accountLast4}</p>
+                          {settings.payouts.backupPayoutMethod.routingLast4 ? <p className="font-mono text-xs text-slate-500">{settings.payouts.backupPayoutMethod.routingLabel} •••• {settings.payouts.backupPayoutMethod.routingLast4}</p> : null}
+                        </div>
+                        <button type="button" disabled={makingPayoutPrimary} onClick={() => void handleMakeBackupPayoutMethodPrimary()} className="rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50" data-testid="architect-settings-make-payout-primary">{makingPayoutPrimary ? "Updating…" : "Make primary"}</button>
+                      </div>
+                    </div>
+                  ) : settings?.payouts.payoutMethod ? (
+                    <button type="button" onClick={() => setPayoutMethodModal("backup")} className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800" data-testid="architect-settings-add-backup-payout-method">+ Add backup payout method</button>
+                  ) : null}
                 </div>
                 <div className="border-t border-gray-100 pt-7">
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Payout schedule</h3>
@@ -1202,8 +1438,8 @@ export default function ArchitectSettingsPage() {
                   <h3 className="mb-2 text-base font-semibold text-slate-900">Data Processing Agreement</h3>
                   <p className="text-sm text-slate-500">As an architect processing buyer data through your agents, you are bound by the Triven DPA.</p>
                   <div className="mt-4 flex flex-wrap items-center gap-4">
-                    <button type="button" onClick={() => showToast("Opening DPA")} className="text-sm font-semibold text-amber-700 hover:text-amber-800">View Data Processing Agreement →</button>
-                    <button type="button" onClick={() => showToast("DPA download requested")} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">Download your executed DPA</button>
+                    <Link href={"/DPA" as Route} className="text-sm font-semibold text-amber-700 hover:text-amber-800" data-testid="architect-settings-view-dpa">View Data Processing Agreement →</Link>
+                    <button type="button" onClick={() => void handleRequestSignedDpa()} disabled={requestingDpa} className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50 disabled:opacity-50" data-testid="architect-settings-request-dpa">{requestingDpa ? "Sending request…" : "Request a signed DPA"}</button>
                   </div>
                 </div>
                 <div className="border-t border-gray-100 pt-6">
@@ -1290,6 +1526,19 @@ export default function ArchitectSettingsPage() {
         onClose={() => setRefundModal(null)}
         onPay={() => void handlePayRefund()}
       />
+
+      {payoutMethodModal ? (
+        <ArchitectPayoutMethodModal
+          mode={payoutMethodModal}
+          payoutMethod={settings?.payouts.payoutMethod ?? null}
+          onClose={() => setPayoutMethodModal(null)}
+          onSaved={async () => {
+            setPayoutMethodModal(null);
+            await loadSettings();
+            showToast(payoutMethodModal === "backup" ? "Backup payout method added ✓" : "Payout method saved ✓");
+          }}
+        />
+      ) : null}
 
       {toast ? (
         <div className="fixed bottom-6 left-1/2 z-[90] -translate-x-1/2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-2xl" data-testid="architect-settings-toast">{toast}</div>

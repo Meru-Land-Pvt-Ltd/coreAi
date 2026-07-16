@@ -515,6 +515,26 @@ export function saveArchitectPayoutMethod(body: {
   return apiPut<{ payoutMethod: ArchitectPayoutMethod }>("/architect/payouts/method", body);
 }
 
+export type ArchitectPayoutMethodInput = {
+  country: "US" | "IN";
+  bankName: string;
+  accountHolderName: string;
+  accountNumber: string;
+  confirmAccountNumber: string;
+  routingNumber: string;
+};
+
+export function saveArchitectBackupPayoutMethod(body: ArchitectPayoutMethodInput) {
+  return apiPut<{ backupPayoutMethod: ArchitectPayoutMethod }>("/architect/payouts/method/backup", body);
+}
+
+export function makeArchitectBackupPayoutMethodPrimary() {
+  return apiPost<{
+    payoutMethod: ArchitectPayoutMethod;
+    backupPayoutMethod: ArchitectPayoutMethod;
+  }>("/architect/payouts/method/backup/primary", {});
+}
+
 export function refreshArchitectStripeOnboarding() {
   return apiPost<{ url: string }>("/architect/payouts/connect/refresh", {});
 }
@@ -876,6 +896,7 @@ export type ArchitectSettingsProfile = {
 
 export type ArchitectSettingsStorefront = {
   displayName: string;
+  marketplacePhotoUrl?: string | null;
   tagline: string;
   bio: string;
   portfolioUrl: string;
@@ -929,6 +950,17 @@ export type ArchitectSettingsPayload = {
   payouts: {
     payoutMethod: {
       bankName: string;
+      accountHolderName: string;
+      accountLast4: string;
+      country: "US" | "IN";
+      routingLabel: "IFSC" | "ABA routing number";
+      routingLast4: string | null;
+      verificationStatus: string;
+      verified: boolean;
+    } | null;
+    backupPayoutMethod: {
+      bankName: string;
+      accountHolderName: string;
       accountLast4: string;
       country: "US" | "IN";
       routingLabel: "IFSC" | "ABA routing number";
@@ -988,6 +1020,12 @@ export function verifyArchitectEmailChange(body: { email: string; code: string }
 
 export function saveArchitectSettingsStorefront(body: Partial<ArchitectSettingsStorefront>) {
   return apiPut<{ storefront: ArchitectSettingsStorefront }>("/architect/settings/storefront", body);
+}
+
+export function saveArchitectMarketplacePhoto(photoDataUrl: string) {
+  return apiPut<{ marketplacePhotoUrl: string | null }>("/architect/settings/storefront/photo", {
+    photoDataUrl
+  });
 }
 
 export function saveArchitectNotificationPrefs(body: Record<string, { email?: boolean; push?: boolean }>) {

@@ -17,6 +17,7 @@ import { contactRoutes } from "./modules/contact/routes";
 import { countryRoutes } from "./modules/countries/routes";
 import { memoryRoutes } from "./modules/memory/routes";
 import { emailRoutes } from "./modules/email/routes";
+import { legalRoutes } from "./modules/legal/routes";
 
 export const app = new Hono();
 
@@ -45,6 +46,7 @@ app.route("/countries", countryRoutes);
 app.route("/memory", memoryRoutes);
 // SES/SNS webhooks — public by design (no session), guarded by topic ARN match.
 app.route("/email", emailRoutes);
+app.route("/legal", legalRoutes);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

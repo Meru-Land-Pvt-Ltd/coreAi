@@ -71,6 +71,10 @@ const purchaseSchema = z.object({
   billingAddress: z.string().trim().min(3)
 });
 
+const billingPaymentMethodSchema = z.object({
+  paymentMethodId: z.string().trim().min(1)
+});
+
 type CheckoutBillingDetails = {
   billingName: string;
   billingEmail: string;
@@ -86,6 +90,54 @@ async function persistCheckoutBilling(ownerId: string, billing: CheckoutBillingD
   if (!business) return null;
   await prisma.business.update({ where: { id: business.id }, data: billing });
   return business.id;
+}
+
+async function getOrCreateBusinessStripeCustomer(authUser: {
+  id: string;
+  email: string;
+  fullName?: string | null;
+}) {
+  const stripe = getStripeClient();
+  if (!stripe || !isStripeConfigured()) throw new Error("Stripe is not configured");
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "asc" }
+  });
+  if (!business) throw new Error("Business profile not found");
+
+  const previousPayment = await prisma.payment.findFirst({
+    where: { userId: authUser.id, stripeCustomerId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: { stripeCustomerId: true }
+  });
+  let customerId = business.stripeCustomerId ?? previousPayment?.stripeCustomerId ?? null;
+
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: business.billingEmail ?? authUser.email,
+      name: business.billingName ?? business.name ?? authUser.fullName ?? undefined,
+      metadata: { userId: authUser.id, businessId: business.id }
+    });
+    customerId = customer.id;
+  }
+
+  if (business.stripeCustomerId !== customerId) {
+    await prisma.business.update({ where: { id: business.id }, data: { stripeCustomerId: customerId } });
+  }
+
+  return { stripe, business, customerId };
+}
+
+function serializeBillingCard(method: { id: string; card?: { brand: string; last4: string; exp_month: number; exp_year: number } | null }) {
+  if (!method.card) return null;
+  return {
+    id: method.id,
+    brand: method.card.brand,
+    last4: method.card.last4,
+    expMonth: method.card.exp_month,
+    expYear: method.card.exp_year
+  };
 }
 
 async function chargeAgentOnce({
@@ -381,6 +433,7 @@ paymentRoutes.get("/billing", async (c) => {
     select: {
       id: true,
       name: true,
+      stripeCustomerId: true,
       billingName: true,
       billingEmail: true,
       billingAddress: true,
@@ -407,19 +460,23 @@ paymentRoutes.get("/billing", async (c) => {
     : [{ _sum: { billedCostMicroUsd: null } }, { _sum: { totalMicroUsd: null } }];
 
   // Best-effort fetch of the default card from Stripe. Any failure -> null (UI shows NA).
-  let paymentMethod: {
+  type BillingCardSummary = {
+    id: string;
     brand: string;
     last4: string;
     expMonth: number;
     expYear: number;
-  } | null = null;
+  };
+  let paymentMethod: BillingCardSummary | null = null;
+  let backupPaymentMethod: BillingCardSummary | null = null;
 
   const paymentWithCustomer = payments.find((payment) => payment.stripeCustomerId);
   const stripe = getStripeClient();
 
-  if (stripe && isStripeConfigured() && paymentWithCustomer?.stripeCustomerId) {
+  const billingCustomerId = business?.stripeCustomerId ?? paymentWithCustomer?.stripeCustomerId ?? null;
+  if (stripe && isStripeConfigured() && billingCustomerId) {
     try {
-      const customer = await stripe.customers.retrieve(paymentWithCustomer.stripeCustomerId);
+      const customer = await stripe.customers.retrieve(billingCustomerId);
 
       let paymentMethodId: string | null = null;
 
@@ -429,21 +486,14 @@ paymentRoutes.get("/billing", async (c) => {
       }
 
       if (!paymentMethodId) {
-        paymentMethodId = paymentWithCustomer.stripePaymentId ?? null;
+        paymentMethodId = paymentWithCustomer?.stripePaymentId ?? null;
       }
 
-      if (paymentMethodId) {
-        const method = await stripe.paymentMethods.retrieve(paymentMethodId);
-
-        if (method.card) {
-          paymentMethod = {
-            brand: method.card.brand,
-            last4: method.card.last4,
-            expMonth: method.card.exp_month,
-            expYear: method.card.exp_year
-          };
-        }
-      }
+      const methods = await stripe.paymentMethods.list({ customer: billingCustomerId, type: "card", limit: 100 });
+      const primary = methods.data.find((method) => method.id === paymentMethodId) ?? methods.data[0];
+      const backup = methods.data.find((method) => method.id !== primary?.id);
+      paymentMethod = primary ? serializeBillingCard(primary) : null;
+      backupPaymentMethod = backup ? serializeBillingCard(backup) : null;
     } catch {
       paymentMethod = null;
     }
@@ -464,12 +514,88 @@ paymentRoutes.get("/billing", async (c) => {
       usage: { billingMonth: currentBillingMonth },
       invoices,
       paymentMethod,
+      backupPaymentMethod,
       businessName: business?.billingName ?? business?.name ?? authUser.fullName ?? null,
       billingEmail: business?.billingEmail ?? authUser.email ?? null,
       billingAddress: business?.billingAddress ?? null,
       billingPostalCode: business?.billingPostalCode ?? null
     }
   });
+});
+
+paymentRoutes.post("/billing/payment-method/setup-intent", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const { stripe, customerId } = await getOrCreateBusinessStripeCustomer(authUser);
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      usage: "off_session",
+      payment_method_types: ["card"],
+      metadata: { userId: authUser.id, purpose: "business_billing_method" }
+    });
+    return successResponse(c, {
+      clientSecret: setupIntent.client_secret,
+      publishableKey: env.STRIPE_PUBLISHABLE_KEY ?? null
+    }, "Card setup started");
+  } catch (error) {
+    return errorResponse(c, error instanceof Error ? error.message : "Could not start card setup", 422, "CARD_SETUP_FAILED");
+  }
+});
+
+paymentRoutes.post("/billing/payment-method/backup", async (c) => {
+  try {
+    const parsed = billingPaymentMethodSchema.parse(await c.req.json());
+    const authUser = c.get("authUser");
+    const { stripe, customerId } = await getOrCreateBusinessStripeCustomer(authUser);
+    const customer = await stripe.customers.retrieve(customerId);
+    if (typeof customer === "string" || customer.deleted) throw new Error("Stripe customer not found");
+    const defaultMethod = customer.invoice_settings.default_payment_method;
+    const defaultMethodId = typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id ?? null;
+    const method = await stripe.paymentMethods.retrieve(parsed.paymentMethodId);
+    const ownerId = typeof method.customer === "string" ? method.customer : method.customer?.id ?? null;
+    if (ownerId !== customerId || !method.card) throw new Error("Card does not belong to this business");
+
+    const methods = await stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 100 });
+    await Promise.all(methods.data
+      .filter((item) => item.id !== parsed.paymentMethodId && item.id !== defaultMethodId)
+      .map((item) => stripe.paymentMethods.detach(item.id)));
+
+    return successResponse(c, { backupPaymentMethod: serializeBillingCard(method) }, "Backup payment method saved");
+  } catch (error) {
+    if (error instanceof z.ZodError) return errorResponse(c, error.issues[0]?.message ?? "Invalid card", 422, "VALIDATION_ERROR");
+    return errorResponse(c, error instanceof Error ? error.message : "Could not save backup card", 422, "BACKUP_CARD_SAVE_FAILED");
+  }
+});
+
+paymentRoutes.post("/billing/payment-method/primary", async (c) => {
+  try {
+    const parsed = billingPaymentMethodSchema.parse(await c.req.json());
+    const authUser = c.get("authUser");
+    const { stripe, customerId } = await getOrCreateBusinessStripeCustomer(authUser);
+    const customer = await stripe.customers.retrieve(customerId);
+    if (typeof customer === "string" || customer.deleted) throw new Error("Stripe customer not found");
+    const previousDefault = customer.invoice_settings.default_payment_method;
+    const previousDefaultId = typeof previousDefault === "string" ? previousDefault : previousDefault?.id ?? null;
+    const method = await stripe.paymentMethods.retrieve(parsed.paymentMethodId);
+    const ownerId = typeof method.customer === "string" ? method.customer : method.customer?.id ?? null;
+    if (ownerId !== customerId || !method.card) throw new Error("Card does not belong to this business");
+
+    await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: method.id } });
+    const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 100 });
+    await Promise.all(subscriptions.data
+      .filter((subscription) => !["canceled", "incomplete_expired"].includes(subscription.status))
+      .map((subscription) => stripe.subscriptions.update(subscription.id, { default_payment_method: method.id })));
+
+    const methods = await stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 100 });
+    await Promise.all(methods.data
+      .filter((item) => item.id !== method.id && item.id !== previousDefaultId)
+      .map((item) => stripe.paymentMethods.detach(item.id)));
+
+    return successResponse(c, { paymentMethod: serializeBillingCard(method) }, "Primary payment method updated");
+  } catch (error) {
+    if (error instanceof z.ZodError) return errorResponse(c, error.issues[0]?.message ?? "Invalid card", 422, "VALIDATION_ERROR");
+    return errorResponse(c, error instanceof Error ? error.message : "Could not update primary card", 422, "PRIMARY_CARD_UPDATE_FAILED");
+  }
 });
 
 // GET /payments/my-agents — the agents this business has purchased.

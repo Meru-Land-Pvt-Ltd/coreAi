@@ -429,6 +429,31 @@ export function saveBusinessBillingAddress(body: {
   }>("/business/settings/billing-address", body);
 }
 
+export function startBusinessCardSetup() {
+  return apiPost<{ clientSecret: string | null; publishableKey: string | null }>(
+    "/payments/billing/payment-method/setup-intent",
+    {}
+  );
+}
+
+export function saveBusinessPaymentMethod(
+  mode: "primary" | "backup",
+  paymentMethodId: string
+) {
+  return apiPost<{ paymentMethod?: BusinessBillingCard; backupPaymentMethod?: BusinessBillingCard }>(
+    `/payments/billing/payment-method/${mode}`,
+    { paymentMethodId }
+  );
+}
+
+export type BusinessBillingCard = {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+};
+
 export async function downloadBusinessDataExport(
   businessId: string
 ): Promise<{ success: boolean; error?: string }> {
