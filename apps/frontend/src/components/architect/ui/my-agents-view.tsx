@@ -3,7 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatDate, formatMoney } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
@@ -16,7 +16,7 @@ import {
   type ArchitectAgentsStats
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
-import { architectPublishingStatusPath, architectAnalyticsPath } from "@/lib/routes";
+import { architectPublishingStatusPath, architectAnalyticsPath, MARKETPLACE_PATH } from "@/lib/routes";
 import { ArrowDown, ArrowUp, Dot } from "lucide-react";
 
 const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
@@ -66,6 +66,32 @@ function formatTrendPercentLabel(change: number | null, emptyLabel = "0% vs last
   return `${Math.abs(change)}% vs last month`;
 }
 
+/** Reusable click-ripple for cards. Spawns a temporary element that self-removes. */
+function spawnCardRipple(
+  card: HTMLElement | null,
+  event?: { clientX?: number; clientY?: number; touches?: TouchList }
+) {
+  if (!card || typeof window === "undefined") return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const layer = card.querySelector<HTMLElement>("[data-ma-ripple-layer]");
+  const host = layer ?? card;
+  const rect = host.getBoundingClientRect();
+  const touch = event?.touches?.[0];
+  const clientX = touch?.clientX ?? event?.clientX ?? rect.left + rect.width / 2;
+  const clientY = touch?.clientY ?? event?.clientY ?? rect.top + rect.height / 2;
+  const size = Math.max(rect.width, rect.height);
+
+  const ripple = document.createElement("span");
+  ripple.className = "ma-ripple";
+  ripple.style.width = `${size}px`;
+  ripple.style.height = `${size}px`;
+  ripple.style.left = `${clientX - rect.left - size / 2}px`;
+  ripple.style.top = `${clientY - rect.top - size / 2}px`;
+  host.appendChild(ripple);
+  ripple.addEventListener("animationend", () => ripple.remove(), { once: true });
+}
+
 type AgentStatus = ArchitectListing["status"];
 type ViewMode = "grid" | "list";
 type SortKey = "newest" | "oldest" | "alpha" | "priceHigh" | "priceLow";
@@ -85,6 +111,25 @@ const MY_AGENTS_STYLES = `
 
 @keyframes maPop { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
 .ma-pop { animation: maPop .14s ease-out both; }
+
+@keyframes maRipple { to { transform: scale(2.4); opacity: 0; } }
+.ma-ripple-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+}
+.ma-ripple {
+  position: absolute;
+  border-radius: 9999px;
+  background: rgba(245,158,11,.20);
+  transform: scale(0);
+  animation: maRipple .6s ease-out forwards;
+  pointer-events: none;
+  z-index: 5;
+}
 
 .ma-card { display: flex; flex-direction: column; }
 .ma-card .ma-band { margin-top: auto; }
@@ -114,7 +159,7 @@ const MY_AGENTS_STYLES = `
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ma-pulse-dot, .ma-spin-slow, .ma-card.ma-entering, .ma-pop { animation: none !important; }
+  .ma-pulse-dot, .ma-spin-slow, .ma-card.ma-entering, .ma-pop, .ma-ripple { animation: none !important; }
 }
 `;
 
@@ -430,40 +475,23 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
   const executions = agent.executionCount ?? 0;
   const revenue = agent.revenueCents ?? 0;
   const installs = agent.installCount ?? 0;
-  const pricingModel = agent.pricingModel ?? (agent.priceCents === 0 ? "FREE" : "SUBSCRIPTION");
-  const billingBadge =
-    pricingModel === "FREE" ? null : pricingModel === "ONE_TIME" ? (
-      <span className="ml-1 inline-flex items-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-        One-time
-      </span>
-    ) : (
-      <span className="ml-1 inline-flex items-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-        Monthly
-      </span>
-    );
 
   return (
-    <div className="ma-band grid grid-cols-4 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+    <div className="ma-band grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
       <div>
-        <div className="text-[11px] text-slate-400">Installs</div>
-        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
-          {(agent.installCount ?? 0).toLocaleString("en-US")}
-        </div>
-      </div>
-      <div>
-        <div className="text-[11px] text-slate-400">Executions</div>
+        <div className="text-xs text-slate-400">Executions</div>
         <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-executions-${agent.id}`}>
           {executions.toLocaleString("en-US")}
         </div>
       </div>
       <div>
-        <div className="text-[11px] text-slate-400">Revenue</div>
+        <div className="text-xs text-slate-400">Revenue</div>
         <div className="text-sm font-bold text-amber-600" data-testid={`my-agents-revenue-${agent.id}`}>
           {formatUsdFromCents(revenue)}
         </div>
       </div>
       <div>
-        <div className="text-[11px] text-slate-400">Installs</div>
+        <div className="text-xs text-slate-400">Installs</div>
         <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
           {installs.toLocaleString("en-US")}
         </div>
@@ -606,6 +634,7 @@ function AgentCard({
   onCancelSubmission: (agent: ArchitectListing) => void;
 }) {
   const style = STATUS_STYLES[agent.status];
+  const category = agent.category?.trim() || null;
   const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
   const iconUrl = agent.iconUrl?.trim() || null;
   const industryTags = (
@@ -619,6 +648,16 @@ function AgentCard({
     .filter(Boolean);
   const visibleIndustryTags = industryTags.slice(0, 3);
   const extraIndustryCount = Math.max(0, industryTags.length - 3);
+  const hiddenIndustryTags = industryTags.slice(3);
+  const visibleTagParts = visibleIndustryTags.map((tag) => ({
+    full: tag,
+    ...splitLongTag(tag, 25)
+  }));
+  const truncatedOverflowTags = visibleTagParts
+    .map((part) => part.overflow)
+    .filter((value): value is string => Boolean(value));
+  const popupTags = [...truncatedOverflowTags, ...hiddenIndustryTags];
+  const showTagsPopup = popupTags.length > 0;
   const title = agent.name?.trim() || "Untitled Agent";
   const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
   const description = agent.shortDescription?.trim() || agent.tagline?.trim() || "No description added yet.";
@@ -629,17 +668,23 @@ function AgentCard({
       : agent.status === "DRAFT"
         ? `Last edited ${formatRelativeTime(activityAt)}`
         : `Updated ${formatRelativeTime(activityAt)}`;
+  const cardRef = useRef<HTMLElement | null>(null);
 
   return (
     <article
+      ref={cardRef}
       data-testid={`my-agents-card-${agent.id}`}
       role="button"
       tabIndex={0}
       aria-label={`${title}, ${style.label}. Press Enter to open.`}
-      onClick={() => onOpen(agent)}
+      onClick={(event) => {
+        spawnCardRipple(cardRef.current, event);
+        onOpen(agent);
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
+          spawnCardRipple(cardRef.current);
           onOpen(agent);
         }
       }}
@@ -648,6 +693,7 @@ function AgentCard({
         animate ? "ma-entering" : ""
       }`}
     >
+      <div className="ma-ripple-layer rounded-2xl" data-ma-ripple-layer aria-hidden="true" />
       <div className="ma-top flex items-start justify-between px-5 pb-3 pt-5">
         <span
           className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border ${
@@ -680,18 +726,21 @@ function AgentCard({
       </div>
 
       <div className="ma-body min-w-0 px-5 pb-3">
-        <h2 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
+        <h3 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
           {title}
-        </h2>
-
-        <div className="group/tags relative mt-1.5" data-testid={`my-agents-industry-${agent.id}`}>
+        </h3>
+        <div className="mt-1.5 flex min-w-0 items-center gap-1">
+        <span className="shrink-0 text-xs font-semibold text-slate-500 rounded-full bg-gray-300/50 px-2 py-0.5 whitespace-nowrap flex items-center justify-center">{category ?? "Industry not set"}</span>
+        <div className="group/tags relative min-w-0 flex-1 flex items-center gap-1" data-testid={`my-agents-industry-${agent.id}`}>
+          
           {industryTags.length > 0 ? (
             <>
-              <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-amber-50 px-2.5 py-0.5">
-                {visibleIndustryTags.map((tag, index) => (
-                  <span key={tag} className="flex items-center text-[11px] font-semibold text-amber-700">
-                    {tag}
-                    {index < visibleIndustryTags.length - 1 || extraIndustryCount > 0 ? (
+              <div className="inline-flex max-w-full min-w-0 flex-nowrap items-center overflow-hidden rounded-full bg-amber-50 px-2 py-0.5">
+                {visibleTagParts.map((part, index) => (
+                  <span key={part.full} className="flex shrink-0 items-center whitespace-nowrap text-xs font-semibold text-amber-700" title={part.overflow ? part.full : undefined}>
+                    {part.visible}
+                    {part.overflow ? "…" : null}
+                    {index < visibleTagParts.length - 1 || extraIndustryCount > 0 ? (
                       <span className="text-amber-700">
                         <Dot className="h-3 w-3" />
                       </span>
@@ -700,7 +749,7 @@ function AgentCard({
                 ))}
                 {extraIndustryCount > 0 ? (
                   <span
-                    className="text-[11px] font-bold text-amber-700"
+                    className="shrink-0 text-xs font-bold text-amber-700"
                     data-testid={`my-agents-industry-more-${agent.id}`}
                     aria-label={`${extraIndustryCount} more industr${extraIndustryCount === 1 ? "y" : "ies"}`}
                   >
@@ -708,17 +757,17 @@ function AgentCard({
                   </span>
                 ) : null}
               </div>
-              {extraIndustryCount > 0 ? (
+              {showTagsPopup ? (
                 <div
                   role="tooltip"
                   className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
                   data-testid={`my-agents-industry-tooltip-${agent.id}`}
                 >
                   <div className="flex flex-wrap gap-1.5">
-                    {industryTags.map((tag) => (
+                    {popupTags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                        className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
                       >
                         {tag}
                       </span>
@@ -729,13 +778,14 @@ function AgentCard({
             </>
           ) : (
             <div className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5">
-              <span className="text-[11px] font-semibold text-amber-700/70">Industry not set</span>
+              <span className="text-xs font-semibold text-amber-700/70">Industry not set</span>
             </div>
           )}
         </div>
+        </div>
 
         <p
-          className={`ma-desc mt-2 line-clamp-2 text-sm leading-relaxed ${hasDescription ? "text-slate-500" : "italic text-slate-400"}`}
+          className={`ma-desc mt-2 line-clamp-2 text-sm ${hasDescription ? "text-slate-500" : "italic text-slate-400"}`}
           data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text"
         >
           {description}
@@ -770,8 +820,58 @@ function PlayIcon() {
   );
 }
 
+function ShareIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.6 13.5 6.8 4" />
+      <path d="m15.4 6.5-6.8 4" />
+    </svg>
+  );
+}
+
 function isWorkflowOnlyDraft(agent: ArchitectListing): boolean {
   return agent.id.startsWith("draft-");
+}
+
+/** Keep words that fit in maxLen; remaining last word(s) go into the hover popup. */
+function splitLongTag(tag: string, maxLen = 25): { visible: string; overflow: string | null } {
+  const trimmed = tag.trim();
+  if (trimmed.length <= maxLen) return { visible: trimmed, overflow: null };
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) {
+    return {
+      visible: trimmed.slice(0, maxLen).trimEnd(),
+      overflow: trimmed.slice(maxLen).trim() || trimmed
+    };
+  }
+
+  let visible = "";
+  const overflowWords: string[] = [];
+  for (const word of words) {
+    const next = visible ? `${visible} ${word}` : word;
+    if (!overflowWords.length && next.length <= maxLen) {
+      visible = next;
+    } else {
+      overflowWords.push(word);
+    }
+  }
+
+  if (!visible) {
+    const [first, ...rest] = words;
+    return {
+      visible: first.slice(0, maxLen).trimEnd(),
+      overflow: [first.slice(maxLen), ...rest].join(" ").trim() || first
+    };
+  }
+
+  return {
+    visible,
+    overflow: overflowWords.length ? overflowWords.join(" ") : null
+  };
 }
 
 function agentIsLive(agent: ArchitectListing): boolean {
@@ -780,7 +880,7 @@ function agentIsLive(agent: ArchitectListing): boolean {
 
 function agentCanBeDeleted(agent: ArchitectListing): boolean {
   if (isWorkflowOnlyDraft(agent)) return Boolean(agent.workflowId);
-  return agent.status === "DRAFT" || agent.status === "REJECTED" || agent.status === "PENDING_REVIEW";
+  return agent.status === "DRAFT" || agent.status === "REJECTED";
 }
 
 function deleteAgentModalCopy(agent: ArchitectListing): { title: string; lines: string[] } {
@@ -1678,6 +1778,32 @@ export function MyAgentsView() {
     await loadAgents();
   }
 
+  async function shareAgent(agent: ArchitectListing) {
+    setMenu(null);
+    const shareUrl = `${window.location.origin}${MARKETPLACE_PATH}`;
+
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        await navigator.share({
+          title: agent.name,
+          text: `Check out ${agent.name} on the Triven marketplace.`,
+          url: shareUrl
+        });
+        return;
+      }
+
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        setToast(`Marketplace link copied for ${agent.name}.`);
+        return;
+      }
+
+      setToast("Sharing is not available in this browser.");
+    } catch {
+      setToast("Could not share this agent.");
+    }
+  }
+
   function requestDeleteAgent(agent: ArchitectListing) {
     setMenu(null);
     setDeleteAgent(agent);
@@ -1715,7 +1841,7 @@ export function MyAgentsView() {
     if (!isLive) {
       setDeleteAgent(null);
     }
-    setToast(`Deleted “${deleteAgent.name}”.`);
+    setToast(`Deleted ${deleteAgent.name}.`);
     await loadAgents();
     return true;
   }
@@ -2039,6 +2165,19 @@ export function MyAgentsView() {
             <button
               type="button"
               role="menuitem"
+              onClick={() => void shareAgent(menuAgent)}
+              data-testid={`my-agents-menu-share-${menuAgent.id}`}
+              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-gray-50"
+            >
+              <ShareIcon />
+              <span>Share</span>
+            </button>
+          ) : null}
+
+          {menuAgent.status === "APPROVED" ? (
+            <button
+              type="button"
+              role="menuitem"
               onClick={() => {
                 setMenu(null);
                 router.push(architectAnalyticsPath(menuAgent.id));
@@ -2067,16 +2206,29 @@ export function MyAgentsView() {
           ) : null}
 
           <div className="my-1 border-t border-gray-100" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => requestDeleteAgent(menuAgent)}
-            data-testid={`my-agents-menu-delete-${menuAgent.id}`}
-            className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
-          >
-            <TrashIcon />
-            <span>Delete</span>
-          </button>
+          {menuAgent.status === "PENDING_REVIEW" ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => requestCancelSubmission(menuAgent)}
+              data-testid={`my-agents-menu-withdraw-${menuAgent.id}`}
+              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-amber-700 transition-colors hover:bg-amber-50"
+            >
+              <StatusGlyphIcon />
+              <span>Withdraw</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => requestDeleteAgent(menuAgent)}
+              data-testid={`my-agents-menu-delete-${menuAgent.id}`}
+              className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
+            >
+              <TrashIcon />
+              <span>Delete</span>
+            </button>
+          )}
         </div>
       ) : null}
 

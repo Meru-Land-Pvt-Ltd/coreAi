@@ -1022,17 +1022,43 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const data = node.data as Record<string, unknown>;
     return String(data.type ?? data.kind ?? "");
   };
-  const previewVoiceData = (nodes.find((node) => nodeTypeOf(node) === "voice_conversation")?.data ?? {}) as Record<string, unknown>;
+  const previewDisplayName = businessName.trim() || agentName.trim() || "Your business";
+  const previewVoiceData = (
+    nodes.find((node) => nodeTypeOf(node) === VOICE_NODE_TYPES.voiceConversation)?.data ?? {}
+  ) as Record<string, unknown>;
   const previewAssistantName =
     typeof previewVoiceData.assistantName === "string" ? previewVoiceData.assistantName.trim() : "";
-  const previewGreeting = (typeof previewVoiceData.firstMessage === "string" ? previewVoiceData.firstMessage : "")
+  const previewGreetingRaw =
+    typeof previewVoiceData.firstMessage === "string" ? previewVoiceData.firstMessage : "";
+  const previewGreeting = previewGreetingRaw
+    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
+    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
+    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
     .replace(/\{\{[^}]*\}\}/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  const previewCanBook = nodes.some((node) => nodeTypeOf(node) === "book_appointment");
-  const previewCanText = nodes.some((node) =>
-    ["send_sms", "trigger.twilio_inbound_sms", "trigger.twilio_missed_call"].includes(nodeTypeOf(node))
-  );
+  const previewCanBook = nodes.some((node) => {
+    const type = nodeTypeOf(node);
+    return type === VOICE_NODE_TYPES.bookAppointment || type.includes("book_appointment");
+  });
+  const previewCanText = nodes.some((node) => {
+    const type = nodeTypeOf(node);
+    return (
+      type === VOICE_NODE_TYPES.sendSms ||
+      type === "action.send_sms" ||
+      type === "trigger.twilio_inbound_sms" ||
+      type === "trigger.twilio_missed_call" ||
+      type.includes("send_sms")
+    );
+  });
+  const previewBookingSlots = (() => {
+    const availability = runContext.calendarAvailability as { slots?: unknown } | undefined;
+    if (!availability || !Array.isArray(availability.slots)) return [];
+    return availability.slots
+      .map((slot) => (typeof slot === "string" ? slot.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 2);
+  })();
 
   if (loading) {
     return (
@@ -1329,12 +1355,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <PreviewModal
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
-        businessName={businessName.trim() || "Your business"}
+        businessName={previewDisplayName}
         assistantName={previewAssistantName}
         greeting={previewGreeting}
         agentPurpose={tagline.trim()}
         canBook={previewCanBook}
         canText={previewCanText}
+        bookingSlots={previewBookingSlots}
       />
 
       {typeof document !== "undefined" && publishSuccessName

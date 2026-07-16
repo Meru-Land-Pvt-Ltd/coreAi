@@ -7,6 +7,7 @@ import { formatDate } from "@/components/architect/ui/architect-ui";
 import { getArchitectListings, updateArchitectListingStatus } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
+import { Dot } from "lucide-react";
 
 type StatusState = 1 | 2 | 3 | 4;
 
@@ -48,12 +49,6 @@ function statusToState(status: ArchitectListing["status"]): StatusState {
   return 1;
 }
 
-const TL_BASE = [
-  { t: "Step 1", d: "Agent submitted for review", c: "green" },
-  { t: "Step 2", d: "Automated security scan passed", c: "green" },
-  { t: "Step 3", d: "Assigned to reviewer", c: "blue" }
-];
-
 const DOT: Record<string, string> = {
   green: "#10b981",
   blue: "#3b82f6",
@@ -61,7 +56,50 @@ const DOT: Record<string, string> = {
   red: "#ef4444"
 };
 
-type TimelineEntry = { t: string; d: string; c: string; pulse?: boolean };
+type TimelineEntry = { t: string; d: string; c: string; pulse?: boolean; date?: string | null };
+
+function buildReviewTimelineEntries(state: StatusState, agent: ResolvedAgent): TimelineEntry[] {
+  const submittedDate = agent.submittedAt ?? null;
+  const reviewedDate =
+    agent.updatedAt && agent.status !== "PENDING_REVIEW" && agent.status !== "DRAFT"
+      ? agent.updatedAt
+      : null;
+
+  const base: TimelineEntry[] = [
+    { t: "Step 1", d: "Agent submitted for review", c: "green", date: submittedDate },
+    { t: "Step 2", d: "Automated security scan passed", c: "green" ,date: submittedDate },
+    { t: "Step 3", d: "Assigned to reviewer", c: "blue" ,date: submittedDate }
+  ];
+
+  switch (state) {
+    case 1:
+      return [
+        ...base,
+        { t: "In progress", d: "Quality review in progress", c: "amber", pulse: true }
+      ];
+    case 2:
+      return [
+        ...base,
+        { t: "Latest", d: "Review completed — Approved", c: "green", date: reviewedDate }
+      ];
+    case 3:
+      return [
+        ...base,
+        { t: "Latest", d: "Review completed — Changes required", c: "amber", date: reviewedDate }
+      ];
+    case 4:
+      return [
+        ...base,
+        { t: "Earlier", d: "Review completed — Changes required", c: "amber", date: reviewedDate },
+        { t: "Resubmitted", d: "Resubmitted with fixes", c: "blue", date: submittedDate ?? reviewedDate },
+        { t: "In progress", d: "Re-review in progress", c: "amber", pulse: true }
+      ];
+    default:
+      return base;
+  }
+}
+
+//==============review timeline================
 
 function ReviewTimeline({ entries }: { entries: TimelineEntry[] }) {
   return (
@@ -81,7 +119,10 @@ function ReviewTimeline({ entries }: { entries: TimelineEntry[] }) {
               className={`absolute left-0 top-1.5 h-[11px] w-[11px] rounded-full ${e.pulse ? "ps-tl-pulse" : ""}`}
               style={{ background: DOT[e.c] }}
             />
-            <div className="text-[12px] text-slate-400">{e.t}</div>
+            <div className="text-[12px] text-slate-400">
+              {e.t}
+              {e.date ? <span className="ml-1">· {formatDate(e.date)}</span> : null}
+            </div>
             <div className={`text-sm ${e.pulse ? "font-semibold text-slate-900" : "text-slate-700"}`}>{e.d}</div>
           </li>
         ))}
@@ -114,6 +155,24 @@ function AgentGlyph({ className }: { className?: string }) {
   );
 }
 
+function AgentHeaderIcon({ iconUrl }: { iconUrl: string | null }) {
+  const url = iconUrl?.trim() || null;
+  return (
+    <div
+      className={`grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl ${url ? "border border-amber-100 bg-white" : "text-white"}`}
+      style={url ? undefined : { background: "linear-gradient(135deg,#f59e0b,#d97706)" }}
+      data-testid="publishing-status-agent-icon"
+    >
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element -- icons can be data URLs
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <AgentGlyph className="h-[30px] w-[30px]" />
+      )}
+    </div>
+  );
+}
+
 function StatBox({ value, label }: { value: string; label: string }) {
   return (
     <div className="rounded-xl border border-[#eef2f7] bg-[#f8fafc] px-3.5 py-3">
@@ -123,6 +182,7 @@ function StatBox({ value, label }: { value: string; label: string }) {
   );
 }
 
+//==============under review panel================
 function UnderReviewPanel({
   agent,
   onRequestCancelSubmission,
@@ -150,7 +210,9 @@ function UnderReviewPanel({
         <div className="mt-5">
           <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-sm">
             <span className="font-medium text-slate-600">Review in progress</span>
-            <span className="text-slate-400">Submitted {formatDate(agent.createdAt)}</span>
+            <span className="text-slate-400">
+              Submitted {formatDate(agent.submittedAt ?? agent.createdAt)}
+            </span>
           </div>
           <div className="h-2.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={60} aria-valuemin={0} aria-valuemax={100}>
             <div className="ps-bar-fill h-full rounded-full" style={{ width: "60%", background: "var(--ps-amber)" }} />
@@ -192,6 +254,7 @@ function UnderReviewPanel({
   );
 }
 
+//==============cancel submission modal================
 function CancelSubmissionModal({
   agentName,
   cancelling,
@@ -330,13 +393,13 @@ function ApprovedPanel({ agent, architectName, onViewAgent }: { agent: ResolvedA
           </button>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-lg text-white" style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
-            <AgentGlyph className="h-[22px] w-[22px]" />
-          </div>
+          
+          <AgentHeaderIcon iconUrl={agent.iconUrl} />
+          
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-slate-900">{agent.name}</div>
             <div className="text-xs text-slate-500">
-              {agent.category} · by {architectName}
+              {agent.category ?? "Agent"} · by {architectName}
             </div>
           </div>
           <span className="shrink-0 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700">Listed</span>
@@ -349,20 +412,16 @@ function ApprovedPanel({ agent, architectName, onViewAgent }: { agent: ResolvedA
           <li className="flex gap-2.5">
             <CheckIcon className="mt-0.5 shrink-0 text-emerald-500" />
             <span>
-              Add a video demo — agents with video get <strong>2.3× more installs</strong>
+            Showcase your agent with a compelling demo video.
             </span>
           </li>
           <li className="flex gap-2.5">
             <CheckIcon className="mt-0.5 shrink-0 text-emerald-500" />
-            Share your listing on social media
+            Promote your listing on your social platforms.
           </li>
           <li className="flex gap-2.5">
             <CheckIcon className="mt-0.5 shrink-0 text-emerald-500" />
-            Ask early users for reviews
-          </li>
-          <li className="flex gap-2.5">
-            <CheckIcon className="mt-0.5 shrink-0 text-emerald-500" />
-            Complete your architect profile
+            Complete your architect profile for a stronger presence.
           </li>
         </ul>
       </div>
@@ -447,7 +506,9 @@ function ChangesRequiredPanel({ agent, onResubmit }: { agent: ResolvedAgent; onR
             </span>
             <h2 className="mt-2 text-xl font-bold text-slate-900">Your agent needs some changes before it can go live</h2>
             <p className="mt-1.5 text-sm text-slate-600">Don&apos;t worry — most agents are approved on the second submission.</p>
-            <p className="mt-1 text-sm text-slate-400">Reviewed on {formatDate(agent.createdAt)}</p>
+            <p className="mt-1 text-sm text-slate-400">
+              Reviewed on {formatDate(agent.updatedAt ?? agent.submittedAt ?? agent.createdAt)}
+            </p>
           </div>
         </div>
       </div>
@@ -549,7 +610,9 @@ function ReReviewPanel({ agent }: { agent: ResolvedAgent }) {
               Re-review Pending
             </span>
             <h2 className="mt-2 text-xl font-bold text-slate-900">Your updated agent is back in the review queue</h2>
-            <p className="mt-1.5 text-sm text-slate-400">Resubmitted {formatDate(agent.createdAt)}</p>
+            <p className="mt-1.5 text-sm text-slate-400">
+              Resubmitted {formatDate(agent.submittedAt ?? agent.updatedAt ?? agent.createdAt)}
+            </p>
             <p className="mt-1 text-sm font-medium" style={{ color: "#1d4ed8" }}>
               Priority review — resubmissions are reviewed within 12 hours.
             </p>
@@ -587,11 +650,15 @@ function ReReviewPanel({ agent }: { agent: ResolvedAgent }) {
 type ResolvedAgent = {
   id: string;
   name: string;
-  category: string;
+  category: string | null;
+  tags: string[];
   createdAt: string;
+  submittedAt: string | null;
+  updatedAt: string | null;
   status: ArchitectListing["status"];
   workflowId: string | null;
   rejectionReason: string | null;
+  iconUrl: string | null;
 };
 
 function PublishingStatusContent() {
@@ -620,11 +687,17 @@ function PublishingStatusContent() {
           const resolved: ResolvedAgent = {
             id: match.id,
             name: match.name,
-            category: match.tags[0] ?? "Agent",
+            category: match.category?.trim() || null,
+            tags: (match.industryTags?.length ? match.industryTags : match.tags ?? [])
+              .map((tag) => tag.trim())
+              .filter(Boolean),
             createdAt: match.createdAt,
+            submittedAt: match.submittedAt ?? null,
+            updatedAt: match.updatedAt ?? null,
             status: match.status,
             workflowId: match.workflowId,
-            rejectionReason: match.rejectionReason ?? null
+            rejectionReason: match.rejectionReason ?? null,
+            iconUrl: match.iconUrl?.trim() || null
           };
           setAgent(resolved);
           setActiveState(statusToState(match.status));
@@ -646,14 +719,31 @@ function PublishingStatusContent() {
       agent ?? {
         id: listingId,
         name: "Your agent",
-        category: "Agent",
+        category: null,
+        tags: [],
         createdAt: new Date().toISOString(),
+        submittedAt: null,
+        updatedAt: null,
         status: "PENDING_REVIEW",
         workflowId: null,
-        rejectionReason: null
+        rejectionReason: null,
+        iconUrl: null
       },
     [agent, listingId]
   );
+
+  const categoryTags = useMemo(() => {
+    const primary = headerAgent.category?.trim();
+    const extras = headerAgent.tags
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .filter((tag) => tag !== primary);
+    const combined = primary ? [primary, ...extras] : extras;
+    return [...new Set(combined)];
+  }, [headerAgent.category, headerAgent.tags]);
+  const visibleCategoryTags = categoryTags.slice(0, 3);
+  const extraCategoryCount = Math.max(0, categoryTags.length - 3);
+  const hiddenCategoryTags = categoryTags.slice(3);
 
   function goToMyAgents() {
     router.push(ARCHITECT_MY_AGENTS_PATH);
@@ -708,20 +798,22 @@ function PublishingStatusContent() {
           </button>
 
           <section className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 text-center sm:flex-row sm:items-center sm:p-6 sm:text-left">
-            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl text-white" style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
-              <AgentGlyph className="h-[30px] w-[30px]" />
-            </div>
+            <AgentHeaderIcon iconUrl={headerAgent.iconUrl} />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start ">
                 <h1 className="text-lg font-bold text-slate-900" data-testid="publishing-status-agent-name">
                   {headerAgent.name}
                 </h1>
-                <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: "#eff6ff", color: "#1d4ed8" }}>
-                  {headerAgent.category}
-                </span>
+                <div className="group/tags relative flex items-center gap-1" data-testid={`publishing-status-category-${headerAgent.id}`}>
+                <div className="text-xs font-semibold text-slate-500 rounded-full bg-gray-300/50 px-2.5 py-0.5 whitespace-nowrap flex items-center justify-center">{headerAgent.category ?? "Category not set"}</div>
+                
               </div>
+              </div>
+
+  
+
               <p className="mt-1.5 text-sm text-slate-500">
-                Submitted {formatDate(headerAgent.createdAt)}
+                Submitted {formatDate(headerAgent.submittedAt ?? headerAgent.createdAt)}
                 {headerAgent.id ? (
                   <>
                     {" · "}
@@ -771,21 +863,7 @@ function PublishingStatusContent() {
                 {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} onResubmit={viewAgent} /> : null}
                 {activeState === 4 ? <ReReviewPanel agent={headerAgent} /> : null}
 
-                {activeState === 3 ? (
-                  <ReviewTimeline
-                    entries={[...TL_BASE, { t: "Latest", d: "Review completed — Changes required", c: "amber" }]}
-                  />
-                ) : null}
-                {activeState === 4 ? (
-                  <ReviewTimeline
-                    entries={[
-                      ...TL_BASE,
-                      { t: "Earlier", d: "Review completed — Changes required", c: "amber" },
-                      { t: "Resubmitted", d: "Resubmitted with fixes", c: "blue" },
-                      { t: "In progress", d: "Re-review in progress", c: "amber", pulse: true }
-                    ]}
-                  />
-                ) : null}
+                <ReviewTimeline entries={buildReviewTimelineEntries(activeState, headerAgent)} />
               </>
             )}
           </div>
