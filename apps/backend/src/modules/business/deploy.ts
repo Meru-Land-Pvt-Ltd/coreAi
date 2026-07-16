@@ -5,6 +5,7 @@ import {
   buildSilencePolicy,
   formatBuyerAnswerValue
 } from "@coreai/shared";
+import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import {
@@ -274,11 +275,33 @@ Live call handling:
 - Never say "Y-Y-Y-Y, M-M, D-D"; say dates in plain spoken language.
 `.trim();
 
-export async function deployInstalledAgentVoiceAssistant(
-  businessId: string
-): Promise<{ assistantId: string; created: boolean } | null> {
-  if (!isVapiConfigured()) return null;
+const PREVIEW_TOOL_NOTES = `
+Preview call handling:
+- This is a setup preview call placed by the business owner, not a live customer call.
+- Booking, SMS, and email actions are disabled in preview — if the caller asks to book, collect the details, confirm what you captured, and explain the booking will be completed once the agent is live.
+- Never say "Y-Y-Y-Y, M-M, D-D"; say dates in plain spoken language.
+`.trim();
 
+type InstalledAgentAssistantPlan = {
+  businessId: string;
+  installedAgentId: string;
+  configJson: unknown;
+  workflowJson: unknown;
+  profileExists: boolean;
+  /** BusinessProfile.vapiAssistantId — the live assistant, if any. */
+  priorAssistantId: string | undefined;
+  voiceNode: Record<string, unknown>;
+  systemPrompt: string;
+  firstMessage: string;
+  override: VoiceOverride;
+  businessName: string;
+  assistantName: string;
+};
+
+async function buildInstalledAgentAssistantPlan(
+  businessId: string,
+  options?: { extraSections?: string[] }
+): Promise<InstalledAgentAssistantPlan | null> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     include: {
@@ -399,7 +422,7 @@ export async function deployInstalledAgentVoiceAssistant(
       : undefined,
     bookingLabel,
     customFields,
-    extraSections: [LIVE_TOOL_NOTES]
+    extraSections: options?.extraSections ?? [LIVE_TOOL_NOTES]
   });
 
   const firstMessage = buildAgentFirstMessage({
@@ -423,37 +446,208 @@ export async function deployInstalledAgentVoiceAssistant(
     capabilities
   });
 
-  const override = readVoiceOverride(installedAgent.configJson);
-  const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
+  return {
+    businessId: business.id,
+    installedAgentId: installedAgent.id,
+    configJson: installedAgent.configJson,
+    workflowJson: installedAgent.workflow.workflowJson,
+    profileExists: Boolean(business.profile),
+    priorAssistantId: cleanString(business.profile?.vapiAssistantId),
+    voiceNode,
+    systemPrompt,
+    firstMessage,
+    override: readVoiceOverride(installedAgent.configJson),
+    businessName,
+    assistantName
+  };
+}
 
-  const prior = business.profile?.vapiAssistantId;
-  const existingAssistantId = prior && prior !== env.VAPI_DEFAULT_ASSISTANT_ID ? prior : undefined;
+export async function deployInstalledAgentVoiceAssistant(
+  businessId: string
+): Promise<{ assistantId: string; created: boolean } | null> {
+  if (!isVapiConfigured()) return null;
+
+  const plan = await buildInstalledAgentAssistantPlan(businessId);
+  if (!plan) return null;
+
+  const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
+  const existingAssistantId =
+    plan.priorAssistantId && plan.priorAssistantId !== env.VAPI_DEFAULT_ASSISTANT_ID
+      ? plan.priorAssistantId
+      : undefined;
 
   const assistant = await deployVapiAssistant({
-    name: `${businessName} - ${assistantName}`,
-    firstMessage,
-    systemPrompt,
-    model: cleanString(voiceNode.model) || "gpt-4o-mini",
-    voice: override.voice || "triven-default",
-    voiceProvider: override.provider,
-    voiceId: override.voiceId,
-    language: cleanString(voiceNode.language),
-    speakingSpeed: cleanString(voiceNode.speakingSpeed),
+    name: `${plan.businessName} - ${plan.assistantName}`,
+    firstMessage: plan.firstMessage,
+    systemPrompt: plan.systemPrompt,
+    model: cleanString(plan.voiceNode.model) || "gpt-4o-mini",
+    voice: plan.override.voice || "triven-default",
+    voiceProvider: plan.override.provider,
+    voiceId: plan.override.voiceId,
+    language: cleanString(plan.voiceNode.language),
+    speakingSpeed: cleanString(plan.voiceNode.speakingSpeed),
     serverUrl: webhookUrl,
     existingAssistantId,
-    recordingEnabled: endFlowRecordingEnabled(installedAgent.workflow.workflowJson)
+    recordingEnabled: endFlowRecordingEnabled(plan.workflowJson)
   });
 
-  if (business.profile) {
+  if (plan.profileExists) {
     await prisma.businessProfile.update({
-      where: { businessId: business.id },
+      where: { businessId: plan.businessId },
       data: { vapiAssistantId: assistant.id }
     });
   } else {
     await prisma.businessProfile.create({
-      data: { businessId: business.id, vapiAssistantId: assistant.id }
+      data: { businessId: plan.businessId, vapiAssistantId: assistant.id }
     });
   }
 
   return { assistantId: assistant.id, created: assistant.created };
+}
+
+/* ----------------------- Setup chat simulation ----------------------- */
+
+export type InstalledAgentChatTestSetup = {
+  workflowId: string;
+  workflowJson: unknown;
+  context: {
+    businessName?: string;
+    businessType?: string;
+    assistantName?: string;
+    calendarId?: string;
+    timeZone?: string;
+    services?: string[];
+    faqs?: string[];
+  };
+};
+
+/**
+ * The buyer's real setup as conversation-test context, so the Test step's
+ * chat simulation answers with their actual business data through the shared
+ * agent runtime (tools run as dry-runs there).
+ */
+export async function buildInstalledAgentChatTestSetup(
+  businessId: string
+): Promise<InstalledAgentChatTestSetup | null> {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    include: {
+      profile: true,
+      installedAgents: {
+        where: { status: "ACTIVE" },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { workflow: true }
+      }
+    }
+  });
+
+  const installedAgent = business?.installedAgents[0] ?? null;
+  if (!business || !installedAgent?.workflow) return null;
+
+  const buyer = readBuyerConfig(installedAgent.configJson);
+  const services = buyer.services.length ? buyer.services : stringArray(business.profile?.services);
+  const faqs = buyer.faqs.length ? buyer.faqs : faqStrings(business.profile?.faqsJson);
+
+  return {
+    workflowId: installedAgent.workflowId,
+    workflowJson: installedAgent.workflow.workflowJson,
+    context: {
+      businessName: resolveBusinessName(buyer.businessName, business.name),
+      businessType: firstString(buyer.businessType, business.type) ?? "business",
+      assistantName: resolveAssistantName(buyer.assistantName),
+      calendarId: cleanString(business.profile?.calendarId) || "primary",
+      timeZone: cleanString(business.profile?.timeZone),
+      services,
+      faqs
+    }
+  };
+}
+
+/* ------------------------- Setup preview call ------------------------- */
+
+const PREVIEW_MAX_DURATION_SECONDS = 300;
+const SETUP_PREVIEW_PURPOSE = "BUYER_SETUP_PREVIEW";
+
+export class SetupPreviewCallError extends Error {
+  constructor(
+    message: string,
+    public status: 404 | 422 | 503,
+    public code: string
+  ) {
+    super(message);
+    this.name = "SetupPreviewCallError";
+  }
+}
+
+export type SetupPreviewCallSession = {
+  publicKey: string;
+  assistantId: string;
+  assistantName: string;
+  businessName: string;
+  maxDurationSeconds: number;
+  preview: true;
+};
+
+export async function startInstalledAgentPreviewCall(businessId: string): Promise<SetupPreviewCallSession> {
+  if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
+    throw new SetupPreviewCallError("Voice preview is not configured on this server.", 503, "PREVIEW_NOT_CONFIGURED");
+  }
+
+  const plan = await buildInstalledAgentAssistantPlan(businessId, {
+    extraSections: [PREVIEW_TOOL_NOTES]
+  });
+
+  if (!plan) {
+    throw new SetupPreviewCallError(
+      "Save your setup first — the preview needs an installed agent with an AI Voice Conversation node.",
+      422,
+      "PREVIEW_NOT_AVAILABLE"
+    );
+  }
+
+  const config = recordOf(plan.configJson);
+  const priorPreview = cleanString(config.previewAssistantId);
+  // Reuse the preview assistant across runs, but never overwrite the live one.
+  const existingAssistantId =
+    priorPreview && priorPreview !== env.VAPI_DEFAULT_ASSISTANT_ID && priorPreview !== plan.priorAssistantId
+      ? priorPreview
+      : undefined;
+
+  const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
+
+  const assistant = await deployVapiAssistant({
+    name: `Setup Preview — ${plan.businessName}`,
+    firstMessage: plan.firstMessage,
+    systemPrompt: plan.systemPrompt,
+    model: cleanString(plan.voiceNode.model) || "gpt-4o-mini",
+    voice: plan.override.voice || "triven-default",
+    voiceProvider: plan.override.provider,
+    voiceId: plan.override.voiceId,
+    language: cleanString(plan.voiceNode.language),
+    speakingSpeed: cleanString(plan.voiceNode.speakingSpeed),
+    serverUrl: webhookUrl,
+    existingAssistantId,
+    metadata: { purpose: SETUP_PREVIEW_PURPOSE, businessId: plan.businessId, installedAgentId: plan.installedAgentId },
+    includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false },
+    silenceTimeoutSeconds: 60,
+    maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,
+    recordingEnabled: false
+  });
+
+  if (assistant.id !== priorPreview) {
+    await prisma.installedAgent.update({
+      where: { id: plan.installedAgentId },
+      data: { configJson: { ...config, previewAssistantId: assistant.id } as Prisma.InputJsonValue }
+    });
+  }
+
+  return {
+    publicKey: env.VAPI_PUBLIC_KEY,
+    assistantId: assistant.id,
+    assistantName: plan.assistantName,
+    businessName: plan.businessName,
+    maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,
+    preview: true
+  };
 }
