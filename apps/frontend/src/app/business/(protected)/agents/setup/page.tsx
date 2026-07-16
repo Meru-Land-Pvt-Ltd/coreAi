@@ -331,7 +331,7 @@ function SetupWizard() {
       if (mailRes.success && mailRes.data) setMailAlias(mailRes.data.alias);
     });
 
-    const res = await getBusinessSetup();
+    const res = await getBusinessSetup(listingId);
 
     if (res.success && res.data) {
       const data = res.data;
@@ -421,6 +421,7 @@ function SetupWizard() {
       }
 
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
+      let loadedBuyerSetupFields = data.buyerSetupSchema?.filter((field) => field && field.key && field.label) || [];
 
       if (listingId) {
         const listingRes = await getMarketplaceListing(listingId);
@@ -434,21 +435,54 @@ function SetupWizard() {
             (field) => field.key && field.label
           );
           setBuyerSetupFields(setupFields);
+          loadedBuyerSetupFields = setupFields;
           setBuyerSetupInstructions((listingRes.data.listing.buyerSetupInstructions ?? "").trim());
         }
       }
 
       setRequiredKeys(keys);
-    }
 
-    if (typeof window !== "undefined") {
-      const savedStep = Number(window.sessionStorage.getItem(STEP_STORAGE_KEY) || "");
+      if (typeof window !== "undefined") {
+        const savedStep = Number(window.sessionStorage.getItem(STEP_STORAGE_KEY) || "");
 
-      if (savedStep >= 1 && savedStep <= STEPS.length) {
-        setStep(savedStep);
+        if (savedStep >= 1 && savedStep <= STEPS.length) {
+          setStep(savedStep);
+        } else {
+          // Dynamic resumption: evaluate which step is incomplete based on loaded data
+          const bName = data.business?.name || "";
+          const bType = data.business?.type || "";
+
+          // Step 1 check
+          const setupIssues = validateBuyerSetupAnswers(loadedBuyerSetupFields, data.customFields || [], { requireMissing: true });
+          const step1Ok = bName.trim().length >= 2 && bType.trim().length >= 2 && setupIssues.length === 0;
+
+          if (!step1Ok) {
+            setStep(1);
+          } else {
+            // Step 2 check
+            const hasPhone = Boolean(data.selectedPlatformPhoneNumberId || data.phoneNumber?.phoneNumber);
+            const routingMode = data.answeringMode || "AI_FIRST";
+            const fwPhone = data.phoneNumber?.forwardToPhone || "";
+            const step2Ok = hasPhone && (routingMode === "AI_FIRST" || fwPhone.trim().length >= 5);
+
+            if (!step2Ok) {
+              setStep(2);
+            } else {
+              // Step 3 check
+              const assistantNameVal = readAssistantName(data);
+              const step3Ok = assistantNameVal.trim().length >= 2;
+
+              if (!step3Ok) {
+                setStep(3);
+              } else {
+                setStep(4);
+              }
+            }
+          }
+        }
+
+        window.sessionStorage.removeItem(STEP_STORAGE_KEY);
       }
-
-      window.sessionStorage.removeItem(STEP_STORAGE_KEY);
     }
 
     setLoading(false);

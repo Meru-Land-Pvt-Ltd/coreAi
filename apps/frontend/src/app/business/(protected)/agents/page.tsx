@@ -42,6 +42,7 @@ type ApiListing = {
     workflowId?: string | null;
     createdAt?: string;
     architect?: ApiArchitect | null;
+    pricingModel?: string | null;
 };
 
 type ApiPurchasedAgent = {
@@ -50,6 +51,7 @@ type ApiPurchasedAgent = {
     purchaseStatus: string;
     installedAgentId?: string | null;
     installedAgentStatus?: string | null;
+    isTrial?: boolean;
     listing: ApiListing;
 };
 
@@ -71,6 +73,8 @@ type OwnedAgent = {
     purchasedAt: string;
     installedAgentId: string | null;
     installedAgentStatus: string | null;
+    isTrial?: boolean;
+    pricingModel?: string | null;
 };
 
 /** Setup is complete once the agent was deployed (ACTIVE) — PAUSED still counts. */
@@ -85,14 +89,14 @@ function isAgentPaused(agent: OwnedAgent) {
 
 // Trial runs for TRIAL_DAYS from the purchase date. Day of purchase = 7 left,
 // counting down to 0 when the trial has fully elapsed.
-function getTrialInfo(purchasedAt: string, status: string) {
-    const isTrial = status.toUpperCase() === "TRIALING";
+function getTrialInfo(purchasedAt: string, status: string, isTrialProp?: boolean) {
+    const isTrial = isTrialProp ?? status.toUpperCase() === "TRIALING";
     const start = new Date(purchasedAt).getTime();
     const elapsedDays = Number.isFinite(start)
         ? Math.floor((Date.now() - start) / (1000 * 60 * 60 * 24))
         : 0;
     const daysLeft = Math.max(0, TRIAL_DAYS - elapsedDays);
-    const trialEnded = isTrial && daysLeft <= 0;
+    const trialEnded = isTrial && (status.toUpperCase() === "FAILED" || status.toUpperCase() === "CANCELED" || daysLeft <= 0);
     return { isTrial, daysLeft, trialEnded };
 }
 
@@ -165,7 +169,9 @@ function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {
         purchaseStatus: entry.purchaseStatus,
         purchasedAt: entry.purchasedAt,
         installedAgentId: entry.installedAgentId ?? null,
-        installedAgentStatus: entry.installedAgentStatus ?? null
+        installedAgentStatus: entry.installedAgentStatus ?? null,
+        isTrial: entry.isTrial,
+        pricingModel: listing.pricingModel
     };
 }
 
@@ -364,11 +370,12 @@ function OwnedAgentCard({
     /** Resolves with an error message, or null on success. */
     onTogglePause: () => Promise<string | null>;
 }) {
-    const { isTrial, daysLeft, trialEnded } = getTrialInfo(agent.purchasedAt, agent.purchaseStatus);
+    const { isTrial, daysLeft, trialEnded } = getTrialInfo(agent.purchasedAt, agent.purchaseStatus, agent.isTrial);
     const setupCompleted = isSetupCompleted(agent);
     const paused = isAgentPaused(agent);
-    const badge = trialEnded
-        ? { label: "Trial ended", className: "bg-red-50 text-red-700" }
+    const isPaymentFailed = agent.purchaseStatus.toUpperCase() === "FAILED" || agent.purchaseStatus.toUpperCase() === "CANCELED";
+    const badge = (trialEnded || isPaymentFailed)
+        ? { label: isTrial ? "Trial ended" : "Suspended", className: "bg-red-50 text-red-700" }
         : paused
           ? { label: "Paused", className: "bg-gray-100 text-slate-600" }
           : statusBadge(agent.purchaseStatus);
@@ -430,9 +437,17 @@ function OwnedAgentCard({
                         >
                             {badge.label}
                         </span>
-                        <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-my-agent-price-text">
-                            ${agent.price}
-                        </span>
+                        <div className="flex flex-col items-end">
+                            <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-my-agent-price-text">
+                                {agent.pricingModel === "FREE" ? "Free" : `$${agent.price}${agent.pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
+                            </span>
+                            <span className="block text-[10px] font-semibold text-slate-600 mt-1">
+                                {agent.pricingModel === "FREE" ? "Free to install" : agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                            </span>
+                            <span className="block text-[9px] text-slate-400 italic text-right leading-tight max-w-[130px]">
+                                {agent.pricingModel === "FREE" ? "Pay only for usage" : agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
+                            </span>
+                        </div>
 
                         {setupCompleted ? (
                             <div ref={menuRef} className="relative">
@@ -539,7 +554,7 @@ function OwnedAgentCard({
             </div>
 
             <div className="px-6 pb-6 pt-4">
-                {trialEnded ? (
+                {(trialEnded || isPaymentFailed) ? (
                     <button
                         type="button"
                         onClick={(event) => {
@@ -571,7 +586,7 @@ function OwnedAgentCard({
                         data-testid={`business-my-agent-setup-${agent.listingId}`}
                         className="w-full rounded-xl bg-amber-500 py-2.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-amber-600"
                     >
-                        Setup
+                        Continue Setup
                     </button>
                 )}
 

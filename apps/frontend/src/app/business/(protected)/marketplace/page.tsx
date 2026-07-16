@@ -962,9 +962,11 @@ export default function MarketplacePage() {
                                             >
                                                 {featuredAgent.pricingModel === "FREE"
                                                     ? "Install Agent"
-                                                    : featuredAgent.freeTrialEnabled
+                                                    : featuredAgent.freeTrialEnabled && (featuredAgent.trialDays ?? 7) > 0
                                                         ? `Start ${featuredAgent.trialDays ?? 7} days free trial`
-                                                        : "Get Agent"}
+                                                        : featuredAgent.pricingModel === "ONE_TIME"
+                                                            ? "Get It Now"
+                                                            : "Get Access Instantly"}
                                             </button>
                                         )}
 
@@ -1551,31 +1553,47 @@ function AgentDetailsModal({
                 <div className="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50/60 px-6 py-5 sm:px-8">
                     <div>
                         {agent.pricingModel === "FREE" ? (
-                            <span
-                                className="text-3xl font-extrabold text-slate-900"
-                                data-testid="business-marketplace-agent-details-modal-price"
-                            >
-                                Free
-                            </span>
-                        ) : (
-                            <>
+                            <div className="flex flex-col">
                                 <span
                                     className="text-3xl font-extrabold text-slate-900"
                                     data-testid="business-marketplace-agent-details-modal-price"
                                 >
-                                    ${agent.price}
+                                    Free
                                 </span>
-                                {agent.pricingModel !== "ONE_TIME" && (
-                                    <span className="ml-2 text-sm text-slate-500">
-                                        /month
+                                <span className="text-xs font-semibold text-slate-600 mt-1">
+                                    Free to install
+                                </span>
+                                <span className="text-[10px] text-slate-400 italic">
+                                    Pay only for usage
+                                </span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col">
+                                <div className="flex items-baseline">
+                                    <span
+                                        className="text-3xl font-extrabold text-slate-900"
+                                        data-testid="business-marketplace-agent-details-modal-price"
+                                    >
+                                        ${agent.price}
                                     </span>
-                                )}
-                                {agent.freeTrialEnabled ? (
+                                    {agent.pricingModel !== "ONE_TIME" && (
+                                        <span className="ml-1 text-sm text-slate-500">
+                                            /month
+                                        </span>
+                                    )}
+                                </div>
+                                <span className="text-xs font-semibold text-slate-600 mt-1">
+                                    {agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                                </span>
+                                <span className="text-[10px] text-slate-400 italic">
+                                    {agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
+                                </span>
+                                {agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
                                     <span className="block text-xs font-semibold text-amber-600 mt-1">
                                         ⏱ Includes {agent.trialDays ?? 7}-day free trial
                                     </span>
                                 ) : null}
-                            </>
+                            </div>
                         )}
                     </div>
 
@@ -1595,9 +1613,11 @@ function AgentDetailsModal({
                         >
                             {agent.pricingModel === "FREE"
                                 ? "Install agent"
-                                : agent.freeTrialEnabled
+                                : agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0
                                     ? `Start ${agent.trialDays ?? 7}-day free trial`
-                                    : "Get agent"}
+                                    : agent.pricingModel === "ONE_TIME"
+                                        ? "Get It Now"
+                                        : "Get Access Instantly"}
                         </Link>
                     )}
                 </div>
@@ -1635,11 +1655,17 @@ function AgentGridCard({
                         {agent.iconUrl ? <Image src={agent.iconUrl} alt={agent.name} width={48} height={48} className="object-cover" /> : "🤖"}
                     </span>
 
-                    <div className="text-right">
+                    <div className="text-right flex flex-col items-end">
                         <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="business-protected-marketplace-agent-price-text">
                             {agent.pricingModel === "FREE" ? "Free" : agent.pricingModel === "ONE_TIME" ? `$${agent.price}` : `$${agent.price}/mo`}
                         </span>
-                        {agent.pricingModel !== "FREE" && agent.freeTrialEnabled ? (
+                        <span className="block text-[10px] font-semibold text-slate-600 mt-1">
+                            {agent.pricingModel === "FREE" ? "Free to install" : agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                        </span>
+                        <span className="block text-[9px] text-slate-400 italic text-right leading-tight max-w-[140px]">
+                            {agent.pricingModel === "FREE" ? "Pay only for usage" : agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
+                        </span>
+                        {agent.pricingModel !== "FREE" && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
                             <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mt-1 block">
                                 {agent.trialDays ?? 7}-Day Trial
                             </span>
@@ -1763,11 +1789,17 @@ function AgentListCard({
             </div>
 
             <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-3">
-                <div className="text-right">
+                <div className="text-right flex flex-col items-end">
                     <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="business-protected-marketplace-agent-price-text-2">
                         {agent.pricingModel === "FREE" ? "Free" : agent.pricingModel === "ONE_TIME" ? `$${agent.price}` : `$${agent.price}/mo`}
                     </span>
-                    {agent.pricingModel !== "FREE" && agent.freeTrialEnabled ? (
+                    <span className="block text-[10px] font-semibold text-slate-600 mt-1">
+                        {agent.pricingModel === "FREE" ? "Free to install" : agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                    </span>
+                    <span className="block text-[9px] text-slate-400 italic text-right leading-tight max-w-[140px]">
+                        {agent.pricingModel === "FREE" ? "Pay only for usage" : agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
+                    </span>
+                    {agent.pricingModel !== "FREE" && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
                         <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mt-1 block">
                             {agent.trialDays ?? 7}-Day Trial
                         </span>

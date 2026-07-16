@@ -502,9 +502,9 @@ export default function BusinessAgentDetailPage() {
   const freeTrialEnabled = listingAccess?.freeTrialEnabled ?? true;
   const trialDays = listingAccess?.trialDays ?? 7;
 
-  const canStartTrial = pricingModel !== "FREE" && freeTrialEnabled && (listingAccess?.canStartTrial ?? true);
+  const canStartTrial = pricingModel !== "FREE" && freeTrialEnabled && trialDays > 0 && (listingAccess?.canStartTrial ?? true);
   const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
-  const shouldPayNow = listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false;
+  const shouldPayNow = listingAccess ? (!canStartTrial || listingAccess.trialUsed) && !listingAccess.hasActiveAccess : false;
 
   const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
   const managePath = listing ? businessSetupPath(listing.id) : BUSINESS_AGENTS_PATH;
@@ -512,7 +512,7 @@ export default function BusinessAgentDetailPage() {
   const primaryCtaLabel = hasActiveAccess
     ? "Manage agent"
     : shouldPayNow
-      ? `Pay $${price}`
+      ? (pricingModel === "ONE_TIME" ? "Get It Now" : "Get Access Instantly")
       : pricingModel === "FREE"
         ? "Install Agent"
         : `Start ${trialDays}-Day Free Trial`;
@@ -645,7 +645,7 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                {canStartTrial ? (
+                {canStartTrial && trialDays > 0 ? (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
                     ⚡ $0 for the first {trialDays} days
                   </span>
@@ -668,13 +668,13 @@ export default function BusinessAgentDetailPage() {
 
                 <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
                   {pricingModel === "FREE" ? (
-                    hasActiveAccess ? "free agent · active on your account" : "free agent · get access instantly"
+                    hasActiveAccess ? "Free to install · active on your account · Pay only for usage" : "Free to install · Pay only for usage"
                   ) : (
-                    canStartTrial
-                      ? "per business location · billed after your free trial"
+                    canStartTrial && trialDays > 0
+                      ? `per business location · free trial for ${trialDays} days · ${pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}`
                       : shouldPayNow
-                        ? "per business location · one-time purchase"
-                        : "per business location · active on your account"
+                        ? (pricingModel === "ONE_TIME" ? "per business location · One-time purchase · Usage charges apply separately" : "per business location · Monthly subscription · Usage charges billed separately")
+                        : `per business location · active on your account · ${pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage/renewal charges billed separately"}`
                   )}
                 </p>
 
@@ -691,9 +691,9 @@ export default function BusinessAgentDetailPage() {
                   </Link>
                 </div>
 
-                {canStartTrial ? (
+                {canStartTrial && trialDays > 0 ? (
                   <p className="mt-3 text-xs text-slate-500">
-                    No credit card required to start. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
+                    No credit card required to start. ${price}{pricingModel === "ONE_TIME" ? " one-time purchase (Usage charges apply separately)" : "/month subscription (Usage charges billed separately)"} after trial.
                   </p>
                 ) : null}
 
@@ -702,7 +702,7 @@ export default function BusinessAgentDetailPage() {
                 ) : null}
               </div>
 
-              {canStartTrial ? (
+              {canStartTrial && trialDays > 0 ? (
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
                 {[`${trialDays}-day free trial`, "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
                   <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
@@ -836,11 +836,11 @@ export default function BusinessAgentDetailPage() {
                 <ArrowIcon className="h-5 w-5" />
               </Link>
             </div>
-            {canStartTrial ? (
-            <p className="mt-5 text-sm text-slate-500">
-              No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
-            </p>
-            ) : null}
+             {canStartTrial && trialDays > 0 ? (
+             <p className="mt-5 text-sm text-slate-500">
+               No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
+             </p>
+             ) : null}
           </div>
         </section>
       </main>

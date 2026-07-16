@@ -73,6 +73,8 @@ function BusinessPaymentFailedContent() {
     const agentName = searchParams.get("agent") || "your agent";
     const amountParam = Number(searchParams.get("amount"));
     const amount = Number.isFinite(amountParam) && amountParam > 0 ? amountParam : null;
+    const trialDaysParam = searchParams.get("trialDays");
+    const trialDays = trialDaysParam ? Number(trialDaysParam) : 7;
     const paymentMode = resolvePaymentMode(searchParams);
     const isTrial = paymentMode === "trial";
 
@@ -140,7 +142,7 @@ function BusinessPaymentFailedContent() {
                     </h1>
                     <p className="mt-2 text-slate-600" data-testid="payment-failed-subtitle">
                         {isTrial
-                            ? "We couldn't start your 7-day free trial. This is usually a quick fix."
+                            ? `We couldn't start your ${trialDays}-day free trial. This is usually a quick fix.`
                             : amount
                                 ? `Your payment of $${amount.toFixed(2)} was declined. This is usually a quick fix.`
                                 : "Your payment was declined. This is usually a quick fix."}

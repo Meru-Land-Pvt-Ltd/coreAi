@@ -32,7 +32,7 @@ import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
-import { Prisma } from "@prisma/client";
+import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
 import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
@@ -1075,10 +1075,16 @@ type SetupChecklistItem = {
   blocker?: string;
 };
 
-function buildSetupReadiness(business: LoadedBusiness | null, calendarConnected: boolean) {
+function buildSetupReadiness(
+  business: LoadedBusiness | null,
+  calendarConnected: boolean,
+  listingId?: string | null
+) {
   const profile = business?.profile ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
-  const installedAgent = business?.installedAgents?.[0] ?? null;
+  const installedAgent = listingId
+    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
+    : business?.installedAgents?.[0] ?? null;
   const workflowJson = installedAgent?.workflow?.workflowJson ?? null;
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
@@ -1162,11 +1168,17 @@ function buildSetupReadiness(business: LoadedBusiness | null, calendarConnected:
   return { requiredConnectors, checklist, readyToDeploy, blockers };
 }
 
-function serializeSetup(business: LoadedBusiness | null, calendar: { connected: boolean; email: string | null }) {
+function serializeSetup(
+  business: LoadedBusiness | null,
+  calendar: { connected: boolean; email: string | null },
+  listingId?: string | null
+) {
   const profile = business?.profile ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
-  const installedAgent = business?.installedAgents?.[0] ?? null;
-  const readiness = buildSetupReadiness(business, calendar.connected);
+  const installedAgent = listingId
+    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
+    : business?.installedAgents?.[0] ?? null;
+  const readiness = buildSetupReadiness(business, calendar.connected, listingId);
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
 
@@ -1400,6 +1412,7 @@ businessRoutes.post("/mail-setup/test-email", async (c) => {
 
 businessRoutes.get("/setup", async (c) => {
   const authUser = c.get("authUser");
+  const listingId = c.req.query("listingId")?.trim() || null;
 
   const [business, calendar] = await Promise.all([
     loadBusinessForOwner(authUser.id),
@@ -1409,7 +1422,7 @@ businessRoutes.get("/setup", async (c) => {
   const phoneOptions = await loadPhoneOptions(business?.id ?? null);
 
   return successResponse(c, {
-    ...serializeSetup(business, calendar),
+    ...serializeSetup(business, calendar, listingId),
     ...phoneOptions
   });
 });
@@ -1488,12 +1501,9 @@ businessRoutes.post("/setup", async (c) => {
       listingId: input.listingId || undefined
     });
 
-    const agentForAccessCheck =
-      existing?.installedAgents?.find(
-        (agent) => input.listingId && agent.listingId === input.listingId
-      ) ??
-      existing?.installedAgents?.[0] ??
-      null;
+    const agentForAccessCheck = input.listingId
+      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
+      : existing?.installedAgents?.[0] ?? null;
 
     const setupAccess = await canBusinessRunSetup({
       userId: authUser.id,
@@ -1630,14 +1640,11 @@ businessRoutes.post("/setup", async (c) => {
       }
     };
 
-    const existingAgent =
-      existing?.installedAgents?.find(
-        (agent) => resolved.listingId && agent.listingId === resolved.listingId
-      ) ??
-      existing?.installedAgents?.[0] ??
-      null;
+    const existingAgent = resolved.listingId
+      ? existing?.installedAgents?.find((agent) => agent.listingId === resolved.listingId) ?? null
+      : existing?.installedAgents?.[0] ?? null;
 
-    let installedAgent;
+    let installedAgent: InstalledAgent;
     if (existingAgent) {
       installedAgent = await prisma.installedAgent.update({
         where: { id: existingAgent.id },
@@ -1645,7 +1652,6 @@ businessRoutes.post("/setup", async (c) => {
           workflowId: resolved.workflow.id,
           listingId: resolved.listingId ?? undefined,
           name: resolved.workflow.name,
-          status: "ACTIVE",
           configJson: configJson as never
         }
       });
@@ -1657,7 +1663,7 @@ businessRoutes.post("/setup", async (c) => {
             workflowId: resolved.workflow.id,
             listingId: resolved.listingId ?? undefined,
             name: resolved.workflow.name,
-            status: "ACTIVE",
+            status: "PROVISIONING",
             configJson: configJson as never
           }
         });
@@ -1678,7 +1684,6 @@ businessRoutes.post("/setup", async (c) => {
           data: {
             workflowId: resolved.workflow.id,
             name: resolved.workflow.name,
-            status: "ACTIVE",
             configJson: configJson as never
           }
         });
@@ -1857,9 +1862,10 @@ businessRoutes.post("/setup", async (c) => {
 
       const prevConfig = (installedAgent.configJson as Record<string, unknown> | null) ?? {};
 
-      await prisma.installedAgent.update({
+      installedAgent = await prisma.installedAgent.update({
         where: { id: installedAgent.id },
         data: {
+          status: "ACTIVE",
           configJson: {
             ...prevConfig,
             vapiAssistantId: deployedVapiAssistantId
@@ -1875,7 +1881,9 @@ businessRoutes.post("/setup", async (c) => {
 
     const phoneOptions = await loadPhoneOptions(refreshed?.id ?? null);
 
-    const refreshedAgent = refreshed?.installedAgents?.[0] ?? null;
+    const refreshedAgent = input.listingId
+      ? refreshed?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
+      : refreshed?.installedAgents?.[0] ?? null;
     const refreshedConfig = (refreshedAgent?.configJson ?? null) as Record<string, unknown> | null;
 
     const responseVapiAssistantId =
@@ -1889,7 +1897,7 @@ businessRoutes.post("/setup", async (c) => {
     return successResponse(
       c,
       {
-        ...serializeSetup(refreshed, calendar),
+        ...serializeSetup(refreshed, calendar, input.listingId),
         installedAgentId: refreshedAgent?.id ?? installedAgent.id,
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
         vapiAssistantId: responseVapiAssistantId,

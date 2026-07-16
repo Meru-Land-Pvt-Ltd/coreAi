@@ -429,7 +429,7 @@ export default function BusinessBillingUsagePage() {
                         </div>
                         <h2 className="mt-2 text-2xl font-bold">{billing?.plan.name ?? NA}</h2>
                         <p className="mt-1 text-sm text-slate-500">
-                            Agent access is purchased once. Ongoing billing is based only on actual usage.
+                            Agent access is billed based on its model (one-time or monthly subscription). Usage charges apply separately.
                         </p>
                         <div className="mt-5 divide-y divide-gray-100 rounded-xl border border-gray-100">
                             {agents.length === 0 ? (
@@ -440,10 +440,10 @@ export default function BusinessBillingUsagePage() {
                                         <p className="truncate text-sm font-semibold text-slate-800">{agent.name}</p>
                                         <p className="text-xs text-slate-400">
                                             {agent.pricingModel === "FREE"
-                                                ? "Free agent"
+                                                ? "Free to install (Pay only for usage)"
                                                 : agent.pricingModel === "ONE_TIME"
-                                                    ? "One-time purchase"
-                                                    : "Monthly subscription"}
+                                                    ? "One-time purchase (Usage charges apply separately)"
+                                                    : "Monthly subscription (Usage charges billed separately)"}
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-4">

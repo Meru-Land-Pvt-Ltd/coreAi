@@ -129,22 +129,27 @@ function renderPriceTag(agent: RecommendedAgent) {
   const model = (agent.pricingModel ?? "subscription").toLowerCase();
   if (model === "free") {
     return (
-      <span className="ml-auto font-mono text-lg font-bold text-green-600">Free</span>
+      <span className="ml-auto text-right">
+        <span className="font-mono text-sm font-bold text-green-600 block leading-tight">Free</span>
+        <span className="block text-[9px] font-normal text-slate-400 leading-tight">Pay only for usage</span>
+      </span>
     );
   }
   if (model === "one_time" || model === "one-time" || model === "onetime") {
     return (
       <span className="ml-auto text-right">
-        <span className="font-mono text-lg font-bold text-slate-900">{formatPrice(agent.priceCents)}</span>
-        <span className="block text-[10px] font-normal text-slate-400 leading-none">one-time</span>
+        <span className="font-mono text-sm font-bold text-slate-900 block leading-tight">{formatPrice(agent.priceCents)} one-time</span>
+        <span className="block text-[9px] font-normal text-slate-400 leading-tight">Usage charges apply separately</span>
       </span>
     );
   }
   // default: subscription / monthly
   return (
-    <span className="ml-auto font-mono text-lg font-bold text-slate-900">
-      {formatPrice(agent.priceCents)}
-      <span className="text-xs font-normal text-slate-400">/mo</span>
+    <span className="ml-auto text-right">
+      <span className="font-mono text-sm font-bold text-slate-900 block leading-tight">
+        {formatPrice(agent.priceCents)}/mo
+      </span>
+      <span className="block text-[9px] font-normal text-slate-400 leading-tight">Usage charges billed separately</span>
     </span>
   );
 }

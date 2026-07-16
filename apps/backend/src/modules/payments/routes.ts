@@ -29,7 +29,7 @@ import {
 import { getStripeClient, isStripeConfigured } from "./stripe";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
-import { OWNED_PAYMENT_STATUSES, resolveActivePayment } from "../business/purchase-access";
+import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
 
 export const paymentRoutes = new Hono();
 
@@ -482,8 +482,7 @@ paymentRoutes.get("/my-agents", async (c) => {
     prisma.payment.findMany({
       where: {
         userId: authUser.id,
-        listingId: { not: null },
-        status: { in: OWNED_PAYMENT_STATUSES }
+        listingId: { not: null }
       },
       orderBy: { createdAt: "desc" },
       include: {
@@ -512,7 +511,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       select: {
         id: true,
         installedAgents: {
-          select: { id: true, listingId: true, status: true }
+          select: { id: true, listingId: true, status: true, createdAt: true }
         }
       }
     })
@@ -528,7 +527,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       .map((agent) => [agent.listingId as string, agent])
   );
 
-  // Dedupe by listing — prefer the current active payment (paid over trial).
+  // Group payments by listing
   const paymentsByListing = new Map<string, typeof payments>();
 
   for (const payment of payments) {
@@ -540,24 +539,87 @@ paymentRoutes.get("/my-agents", async (c) => {
     paymentsByListing.set(listing.id, existing);
   }
 
+  // Find all distinct listings we need details for
+  const allListingIds = new Set([
+    ...paymentsByListing.keys(),
+    ...installedByListingId.keys()
+  ]);
+
+  const missingListingIds = Array.from(allListingIds).filter((id) => !paymentsByListing.has(id));
+
+  // Load details for listings that are installed but have no payment record
+  const missingListings = missingListingIds.length > 0
+    ? await prisma.agentListing.findMany({
+        where: { id: { in: missingListingIds } },
+        include: {
+          workflow: {
+            select: { id: true, name: true, description: true }
+          },
+          architect: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              architectProfile: {
+                select: { title: true, rating: true, completedJobs: true }
+              }
+            }
+          }
+        }
+      })
+    : [];
+
+  const missingListingsMap = new Map(missingListings.map((l) => [l.id, l]));
   const agents = [];
 
-  for (const listingPayments of paymentsByListing.values()) {
-    const listing = listingPayments[0]?.listing;
+  for (const listingId of allListingIds) {
+    const listingPayments = paymentsByListing.get(listingId) ?? [];
+    const installedAgent = installedByListingId.get(listingId) ?? null;
+
+    const listing = listingPayments[0]?.listing ?? missingListingsMap.get(listingId) ?? null;
     if (!listing) continue;
 
     const activePayment = resolveActivePayment(listingPayments);
-    if (!activePayment) continue;
 
-    const installedAgent = installedByListingId.get(listing.id) ?? null;
+    let statusToUse: string;
+    let purchaseIdToUse: string;
+    let purchasedAtToUse: Date;
+
+    if (activePayment) {
+      statusToUse = activePayment.status;
+      purchaseIdToUse = activePayment.id;
+      purchasedAtToUse = activePayment.createdAt;
+    } else {
+      // No active payment. Only include if an installed agent record exists.
+      if (!installedAgent) continue;
+
+      const mostRecentPayment = listingPayments[0] ?? null;
+      if (mostRecentPayment) {
+        statusToUse = mostRecentPayment.status;
+        purchaseIdToUse = mostRecentPayment.id;
+        purchasedAtToUse = mostRecentPayment.createdAt;
+      } else {
+        // Installed but no payment record exists at all (e.g. legacy/subscription user)
+        const hasSub = await hasLegacyActiveSubscription(authUser.id);
+        statusToUse = hasSub ? "SUCCEEDED" : "FAILED";
+        purchaseIdToUse = `installed-${installedAgent.id}`;
+        purchasedAtToUse = installedAgent.createdAt;
+      }
+    }
+
+    const isTrial = listingPayments.some(
+      (p) => p.status === "TRIALING" || p.description?.toLowerCase().includes("trial")
+    );
+
     const stats = installedAgent
       ? runStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
       : { runs: 0, costMicroUsd: 0 };
 
     agents.push({
-      purchaseId: activePayment.id,
-      purchasedAt: activePayment.createdAt,
-      purchaseStatus: activePayment.status,
+      purchaseId: purchaseIdToUse,
+      purchasedAt: purchasedAtToUse,
+      purchaseStatus: statusToUse,
+      isTrial,
       installedAgentId: installedAgent?.id ?? null,
       installedAgentStatus: installedAgent?.status ?? null,
       stats: {
