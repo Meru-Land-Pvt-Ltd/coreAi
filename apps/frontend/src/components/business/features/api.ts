@@ -204,8 +204,9 @@ export type BusinessCalendarStatus = {
   scopes?: string[];
 };
 
-export function getBusinessSetup() {
-  return apiGet<BusinessSetupData>("/business/setup");
+export function getBusinessSetup(listingId?: string | null) {
+  const url = listingId ? `/business/setup?listingId=${encodeURIComponent(listingId)}` : "/business/setup";
+  return apiGet<BusinessSetupData>(url);
 }
 
 export function saveBusinessSetup(body: BusinessSetupInput) {

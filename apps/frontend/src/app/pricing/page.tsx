@@ -15,8 +15,8 @@ const pricingSteps = [
   {
     title: "Choose Your Agent",
     description:
-      "Browse the marketplace. Each agent has a one-time price set by its builder.",
-    badge: "$49 — $500",
+      "Browse the marketplace. Each agent has its price and billing model set by its builder.",
+    badge: "$0 — $500",
     icon: "grid"
   },
   {
@@ -29,7 +29,7 @@ const pricingSteps = [
   {
     title: "Pay Per Execution",
     description:
-      "No monthly fee. If it runs 0 times, you pay $0. Only pay when it delivers value.",
+      "Only pay for usage when it delivers value. Execution charges are billed separately based on actual actions performed.",
     badge: undefined,
     icon: "gauge"
   }
@@ -50,7 +50,7 @@ const faqItems = [
   {
     question: "Is there a monthly subscription?",
     answer:
-      "No. Buy the agent once, then pay per execution only as there’s no recurring subscription."
+      "It depends on the agent. Triven supports free-to-install, one-time purchase, and monthly subscription agents. In all cases, usage charges apply separately based on executions."
   },
   {
     question: "What counts as one execution?",
@@ -60,7 +60,7 @@ const faqItems = [
   {
     question: "What if my agent doesn’t run?",
     answer:
-      "You pay $0. There are zero minimum fees, you’re only charged for actions the agent actually performs."
+      "For free-to-install and one-time purchase agents, you pay $0. Execution/usage fees are only charged when the agent actually performs actions."
   },
   // {
   //   question: "Can I set a spending cap?",
@@ -70,7 +70,7 @@ const faqItems = [
   {
     question: "Do I own the agent forever?",
     answer:
-      "Yes, lifetime access. The only ongoing charges are execution fees when it works for you."
+      "For one-time purchase agents, yes—you get lifetime access. For monthly subscription agents, access continues as long as your subscription is active. For free agents, they remain free to install on your account. In all cases, usage/execution charges apply separately."
   },
   // {
   //   question: "What about agent updates?",
@@ -143,8 +143,8 @@ export default function PricingPage() {
               className="mx-auto mt-5 max-w-2xl text-pretty text-xl leading-relaxed text-slate-600"
               data-testid="pricing-buy-an-agent-once-pay-only-when-text"
             >
-              Buy an agent once. Pay only when it works for you. No subscriptions, no
-              monthly fees, no surprises.
+              Install or purchase an agent. Pay only when it works for you. Clear pricing,
+              simple terms, no surprises.
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
