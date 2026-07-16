@@ -194,13 +194,14 @@ async function loadSettingsPayload(userId: string, currentSid?: string) {
     },
     storefront: {
       displayName: profile?.displayName ?? user.fullName ?? "",
+      marketplacePhotoUrl: profile?.marketplacePhotoUrl ?? null,
       tagline: profile?.tagline ?? profile?.title ?? "",
       bio: profile?.bio ?? "",
       portfolioUrl: profile?.portfolioUrl ?? "",
       githubUrl: profile?.githubUrl ?? "",
       linkedinUrl: profile?.linkedinUrl ?? "",
       twitterHandle: profile?.twitterHandle ?? "",
-      experienceBand: profile?.experienceBand ?? "5-10",
+      experienceBand: profile?.experienceBand ?? "",
       skills: profile?.skills ?? [],
       approvalStatus: profile?.approvalStatus ?? "PENDING",
       rating: profile?.rating ?? 0,
@@ -488,6 +489,37 @@ architectSettingsRoutes.put("/storefront", async (c) => {
     }
 
     return errorResponse(c, "Could not save storefront", 500, "STOREFRONT_SAVE_FAILED");
+  }
+});
+
+architectSettingsRoutes.put("/storefront/photo", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = profilePhotoSchema.parse(await c.req.json());
+    const marketplacePhotoUrl = parseProfilePhotoDataUrl(input.photoDataUrl);
+
+    const profile = await prisma.architectProfile.upsert({
+      where: { userId: authUser.id },
+      update: { marketplacePhotoUrl },
+      create: {
+        userId: authUser.id,
+        marketplacePhotoUrl,
+        skills: []
+      },
+      select: { marketplacePhotoUrl: true }
+    });
+
+    return successResponse(c, { marketplacePhotoUrl: profile.marketplacePhotoUrl }, "Marketplace photo saved");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid marketplace photo", 422, "VALIDATION_ERROR");
+    }
+
+    if (error instanceof Error && error.message) {
+      return errorResponse(c, error.message, 422, "INVALID_MARKETPLACE_PHOTO");
+    }
+
+    return errorResponse(c, "Could not save marketplace photo", 500, "MARKETPLACE_PHOTO_SAVE_FAILED");
   }
 });
 

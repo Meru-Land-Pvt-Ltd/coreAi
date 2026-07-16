@@ -178,11 +178,14 @@ async function syncStripePayoutMethod(architectUserId: string) {
     const account = await stripe.accounts.retrieve(method.stripeAccountId);
     const externalAccounts = await stripe.accounts.listExternalAccounts(method.stripeAccountId, {
       object: "bank_account",
-      limit: 1
+      limit: 100
     });
-    const bank = externalAccounts.data.find(
+    const banks = externalAccounts.data.filter(
       (item): item is Stripe.BankAccount => item.object === "bank_account"
     );
+    const bank = banks.find((item) => item.id === method.stripeExternalAccountId)
+      ?? banks.find((item) => item.default_for_currency)
+      ?? banks[0];
     const bankFailed = bank?.status === "errored" || bank?.status === "verification_failed";
     const requirementsDue = (account.requirements?.currently_due?.length ?? 0) > 0;
     const transfersActive = account.capabilities?.transfers === "active";
@@ -711,6 +714,149 @@ architectPayoutRoutes.put("/method", async (c) => {
     }
     console.error("[stripe-connect] Could not save payout method", stripeErrorMessage(error));
     return errorResponse(c, stripeErrorMessage(error), 422, "PAYOUT_METHOD_SAVE_FAILED");
+  }
+});
+
+architectPayoutRoutes.put("/method/backup", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = directPayoutMethodSchema.parse(await c.req.json());
+    const stripe = getStripeClient();
+    if (!stripe || !isStripeConfigured()) {
+      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
+    }
+
+    const primary = await prisma.architectPayoutMethod.findUnique({
+      where: { architectUserId: authUser.id }
+    });
+    if (!primary?.stripeAccountId) {
+      return errorResponse(c, "Add a primary payout method first", 422, "PRIMARY_PAYOUT_METHOD_REQUIRED");
+    }
+    if (primary.country !== input.country) {
+      return errorResponse(
+        c,
+        `The backup account must be in ${primary.country === "IN" ? "India" : "the United States"}`,
+        422,
+        "PAYOUT_METHOD_COUNTRY_MISMATCH"
+      );
+    }
+
+    if (input.country === "IN") {
+      const response = await fetch(`https://ifsc.razorpay.com/${input.routingNumber}`);
+      if (!response.ok) return errorResponse(c, "IFSC code not found", 422, "IFSC_NOT_FOUND");
+    }
+
+    const token = await stripe.tokens.create({
+      bank_account: {
+        country: input.country,
+        currency: input.country === "IN" ? "inr" : "usd",
+        account_holder_name: input.accountHolderName,
+        account_holder_type: "individual",
+        routing_number: input.routingNumber,
+        account_number: input.accountNumber
+      }
+    });
+    const external = await stripe.accounts.createExternalAccount(primary.stripeAccountId, {
+      external_account: token.id,
+      default_for_currency: false
+    });
+
+    const backup = await prisma.architectBackupPayoutMethod.upsert({
+      where: { architectUserId: authUser.id },
+      update: {
+        bankName: input.bankName,
+        accountHolderName: input.accountHolderName,
+        country: input.country,
+        currency: input.country === "IN" ? "inr" : "usd",
+        accountLast4: input.accountNumber.slice(-4),
+        routingLast4: input.routingNumber.slice(-4),
+        stripeAccountId: primary.stripeAccountId,
+        stripeExternalAccountId: external.id,
+        verificationStatus: "PENDING"
+      },
+      create: {
+        architectUserId: authUser.id,
+        bankName: input.bankName,
+        accountHolderName: input.accountHolderName,
+        country: input.country,
+        currency: input.country === "IN" ? "inr" : "usd",
+        accountLast4: input.accountNumber.slice(-4),
+        routingLast4: input.routingNumber.slice(-4),
+        stripeAccountId: primary.stripeAccountId,
+        stripeExternalAccountId: external.id,
+        verificationStatus: "PENDING"
+      }
+    });
+
+    return successResponse(c, { backupPayoutMethod: backup }, "Backup payout method saved with Stripe");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid payout method", 422, "VALIDATION_ERROR");
+    }
+    console.error("[stripe-connect] Could not save backup payout method", stripeErrorMessage(error));
+    return errorResponse(c, stripeErrorMessage(error), 422, "BACKUP_PAYOUT_METHOD_SAVE_FAILED");
+  }
+});
+
+architectPayoutRoutes.post("/method/backup/primary", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const [primary, backup] = await Promise.all([
+      prisma.architectPayoutMethod.findUnique({ where: { architectUserId: authUser.id } }),
+      prisma.architectBackupPayoutMethod.findUnique({ where: { architectUserId: authUser.id } })
+    ]);
+    if (!primary || !backup) {
+      return errorResponse(c, "Primary and backup payout methods are required", 422, "PAYOUT_METHODS_REQUIRED");
+    }
+
+    const stripe = getStripeClient();
+    if (!stripe || !isStripeConfigured() || !primary.stripeAccountId || !backup.stripeExternalAccountId) {
+      return errorResponse(c, "Stripe payout method is not ready", 422, "STRIPE_PAYOUT_METHOD_NOT_READY");
+    }
+
+    await stripe.accounts.updateExternalAccount(
+      primary.stripeAccountId,
+      backup.stripeExternalAccountId,
+      { default_for_currency: true }
+    );
+
+    const [nextPrimary, nextBackup] = await prisma.$transaction([
+      prisma.architectPayoutMethod.update({
+        where: { architectUserId: authUser.id },
+        data: {
+          bankName: backup.bankName,
+          accountHolderName: backup.accountHolderName,
+          country: backup.country,
+          currency: backup.currency,
+          accountLast4: backup.accountLast4,
+          routingLast4: backup.routingLast4,
+          stripeExternalAccountId: backup.stripeExternalAccountId,
+          verificationStatus: backup.verificationStatus
+        }
+      }),
+      prisma.architectBackupPayoutMethod.update({
+        where: { architectUserId: authUser.id },
+        data: {
+          bankName: primary.bankName,
+          accountHolderName: primary.accountHolderName,
+          country: primary.country,
+          currency: primary.currency,
+          accountLast4: primary.accountLast4 ?? legacyAccountLast4(primary.accountNumber),
+          routingLast4: primary.routingLast4 ?? primary.ifscCode?.slice(-4),
+          stripeAccountId: primary.stripeAccountId,
+          stripeExternalAccountId: primary.stripeExternalAccountId,
+          verificationStatus: primary.verificationStatus
+        }
+      })
+    ]);
+
+    return successResponse(c, {
+      payoutMethod: serializePayoutMethod(nextPrimary),
+      backupPayoutMethod: nextBackup
+    }, "Primary payout method updated");
+  } catch (error) {
+    console.error("[stripe-connect] Could not change primary payout method", stripeErrorMessage(error));
+    return errorResponse(c, stripeErrorMessage(error), 422, "PRIMARY_PAYOUT_METHOD_UPDATE_FAILED");
   }
 });
 

@@ -17,6 +17,7 @@ import {
   revokeBusinessSession,
   revokeOtherBusinessSessions,
   saveBusinessBillingAddress,
+  saveBusinessPaymentMethod,
   saveBusinessProfilePhoto,
   saveBusinessSettingsProfile,
   saveBusinessSetup,
@@ -26,10 +27,12 @@ import {
   type BusinessSettingsSession,
   type BusinessSetupData
 } from "@/components/business/features/api";
+import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { apiGet } from "@/lib/api";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
 import { BUSINESS_BILLING_PATH } from "@/lib/routes";
+import { requestSignedDpa } from "@/lib/dpa";
 
 type SettingsTab =
   | "profile"
@@ -99,8 +102,40 @@ const TIMEZONES = [
   "America/New_York (Eastern Time)",
   "America/Anchorage (Alaska Time)",
   "Pacific/Honolulu (Hawaii Time)",
-  "Europe/London (GMT)"
+  "Europe/London (GMT)",
+  "Asia/Kolkata (India Standard Time)"
 ];
+
+const PHONE_COUNTRIES = [
+  { dialCode: "+1", label: "+1 US / Canada" },
+  { dialCode: "+44", label: "+44 United Kingdom" },
+  { dialCode: "+91", label: "+91 India" },
+  { dialCode: "+61", label: "+61 Australia" },
+  { dialCode: "+971", label: "+971 UAE" },
+  { dialCode: "+65", label: "+65 Singapore" },
+  { dialCode: "+49", label: "+49 Germany" },
+  { dialCode: "+33", label: "+33 France" },
+  { dialCode: "+81", label: "+81 Japan" },
+  { dialCode: "+55", label: "+55 Brazil" }
+] as const;
+
+function getPhoneCountryCode(phone: string) {
+  return (
+    [...PHONE_COUNTRIES]
+      .sort((a, b) => b.dialCode.length - a.dialCode.length)
+      .find(({ dialCode }) => phone.trim().startsWith(dialCode))?.dialCode ?? "+1"
+  );
+}
+
+function getNationalPhoneNumber(phone: string, dialCode = getPhoneCountryCode(phone)) {
+  const trimmedPhone = phone.trim();
+  return trimmedPhone.startsWith(dialCode) ? trimmedPhone.slice(dialCode.length).trimStart() : trimmedPhone;
+}
+
+function buildInternationalPhoneNumber(dialCode: string, nationalNumber: string) {
+  const trimmedNumber = nationalNumber.trim();
+  return trimmedNumber ? `${dialCode}${trimmedNumber}` : "";
+}
 
 function optionSlug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -259,13 +294,13 @@ const PRIVACY_PREFS = [
   {
     key: "personalizedRecommendations",
     label: "Personalized recommendations",
-    description: "Allow CORE to suggest agents based on your usage patterns",
+    description: "Allow Triven to suggest agents based on your usage patterns",
     defaultOn: true
   },
   {
     key: "usageAnalytics",
     label: "Usage analytics",
-    description: "Help improve CORE by sharing anonymized usage data",
+    description: "Help improve Triven by sharing anonymized usage data",
     defaultOn: true
   },
   {
@@ -287,7 +322,7 @@ const COOKIE_PREFS = [
   {
     key: "analyticsCookies",
     label: "Analytics cookies",
-    description: "Help us understand how you use CORE",
+    description: "Help us understand how you use Triven",
     defaultOn: true
   },
   {
@@ -306,6 +341,7 @@ const PASSWORD_REQUIREMENTS = [
 ];
 
 type BillingPaymentMethod = {
+  id: string;
   brand: string;
   last4: string;
   expMonth: number;
@@ -325,6 +361,7 @@ type BillingData = {
   summary: { nextChargeCents: number };
   invoices: BillingInvoice[];
   paymentMethod: BillingPaymentMethod | null;
+  backupPaymentMethod: BillingPaymentMethod | null;
   businessName: string | null;
   billingEmail: string | null;
   billingAddress: string | null;
@@ -559,6 +596,9 @@ export function BusinessSettingsView() {
   const [billingAddressSaving, setBillingAddressSaving] = useState(false);
   const [billingAddressForm, setBillingAddressForm] = useState({ address: "", pincode: "" });
   const [exportingData, setExportingData] = useState(false);
+  const [requestingDpa, setRequestingDpa] = useState(false);
+  const [cardModalMode, setCardModalMode] = useState<"primary" | "backup" | null>(null);
+  const [makingCardPrimary, setMakingCardPrimary] = useState(false);
 
   const initials = getInitials(profileForm.fullName || accountEmail || "User");
   const pwStrength = passwordStrength(passwordForm.next);
@@ -568,11 +608,26 @@ export function BusinessSettingsView() {
   const emailDraftChanged =
     Boolean(normalizedEmailDraft) && normalizedEmailDraft !== normalizedAccountEmail;
   const emailDraftValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmailDraft);
+  const phoneCountryCode = getPhoneCountryCode(profileForm.phone);
+  const nationalPhoneNumber = getNationalPhoneNumber(profileForm.phone, phoneCountryCode);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3000);
   }, []);
+
+  async function handleMakeBackupCardPrimary() {
+    if (!billing?.backupPaymentMethod || makingCardPrimary) return;
+    setMakingCardPrimary(true);
+    const result = await saveBusinessPaymentMethod("primary", billing.backupPaymentMethod.id);
+    setMakingCardPrimary(false);
+    if (!result.success) {
+      showToast(result.error ?? "Could not update the primary payment method");
+      return;
+    }
+    await loadData();
+    showToast("Primary payment method updated ✓");
+  }
 
   const loadData = useCallback(async () => {
     const [setupResult, billingResult, calendarResult, profileResult, sessionsResult, loginHistoryResult] =
@@ -914,6 +969,19 @@ export function BusinessSettingsView() {
     showToast("Preferences saved ✓");
   }
 
+  async function handleRequestSignedDpa() {
+    if (requestingDpa) return;
+    setRequestingDpa(true);
+    const result = await requestSignedDpa({
+      fullName: profileForm.fullName,
+      company: profileForm.businessName,
+      email: accountEmail,
+      industry: profileForm.industry
+    });
+    setRequestingDpa(false);
+    showToast(result.success ? "Signed DPA request sent" : result.error ?? "Could not send DPA request");
+  }
+
   function handleUpdatePassword() {
     if (!passwordForm.current || !passwordForm.next || passwordForm.next !== passwordForm.confirm) {
       showToast("Please complete all password fields correctly");
@@ -1219,16 +1287,40 @@ export function BusinessSettingsView() {
                         <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-slate-700">
                           Phone number
                         </label>
-                        <div className="relative">
-                          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-500">
-                            +1
-                          </span>
+                        <div className="flex">
+                          <select
+                            aria-label="Phone country code"
+                            data-testid="business-settings-phone-country-code"
+                            value={phoneCountryCode}
+                            onChange={(e) =>
+                              setProfileForm((current) => ({
+                                ...current,
+                                phone: buildInternationalPhoneNumber(
+                                  e.target.value,
+                                  getNationalPhoneNumber(current.phone)
+                                )
+                              }))
+                            }
+                            className="w-36 shrink-0 rounded-l-xl border border-r-0 border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100 sm:w-44"
+                          >
+                            {PHONE_COUNTRIES.map((country) => (
+                              <option key={country.dialCode} value={country.dialCode}>
+                                {country.label}
+                              </option>
+                            ))}
+                          </select>
                           <input
                             id="phone"
+                            type="tel"
                             data-testid="business-settings-phone"
-                            value={profileForm.phone}
-                            onChange={(e) => setProfileForm((c) => ({ ...c, phone: e.target.value }))}
-                            className="w-full rounded-xl border border-gray-200 py-3 pl-10 pr-4 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                            value={nationalPhoneNumber}
+                            onChange={(e) =>
+                              setProfileForm((current) => ({
+                                ...current,
+                                phone: buildInternationalPhoneNumber(phoneCountryCode, e.target.value)
+                              }))
+                            }
+                            className="min-w-0 w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
                           />
                         </div>
                       </div>
@@ -1309,19 +1401,19 @@ export function BusinessSettingsView() {
                         <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium text-slate-700">
                           Timezone
                         </label>
-                        <input
+                        <select
                           id="timezone"
-                          list="business-settings-tz-list"
                           data-testid="business-settings-timezone"
                           value={profileForm.timezone}
                           onChange={(e) => setProfileForm((c) => ({ ...c, timezone: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        />
-                        <datalist id="business-settings-tz-list">
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                        >
                           {TIMEZONES.map((option) => (
-                            <option key={option} value={option} />
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
                           ))}
-                        </datalist>
+                        </select>
                       </div>
                     </div>
 
@@ -1469,7 +1561,7 @@ export function BusinessSettingsView() {
             >
                   <div className="mb-6">
                     <h2 className="text-lg font-bold text-slate-900">Notification preferences</h2>
-                    <p className="mt-1 text-sm text-slate-500">Choose how and when CORE contacts you.</p>
+                    <p className="mt-1 text-sm text-slate-500">Choose how and when Triven contacts you.</p>
                   </div>
 
                   <div className="hidden grid-cols-[1fr_5rem] gap-4 px-1 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 sm:grid">
@@ -1536,7 +1628,7 @@ export function BusinessSettingsView() {
                   <div className="mb-6">
                     <h2 className="text-lg font-bold text-slate-900">Connected services</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Manage third-party services connected to your CORE account. Agents use these integrations to perform
+                      Manage third-party services connected to your Triven account. Agents use these integrations to perform
                       tasks.
                     </p>
                   </div>
@@ -1570,7 +1662,7 @@ export function BusinessSettingsView() {
                     />
                     <IntegrationCard
                       name="Zapier"
-                      description="Connect CORE to 5,000+ apps with automated workflows"
+                      description="Connect Triven to 5,000+ apps with automated workflows"
                       connected={false}
                       testId="zapier"
                       icon="zapier"
@@ -1602,20 +1694,21 @@ export function BusinessSettingsView() {
 
                   <h3 className="mb-4 text-base font-semibold text-slate-900">Payment method</h3>
                   {billing?.paymentMethod ? (
+                    <div className="space-y-4">
                     <div className="rounded-xl border border-gray-100 p-4">
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
                           <svg viewBox="0 0 48 32" className="h-8 w-12 shrink-0" aria-hidden="true">
                             <rect width="48" height="32" rx="5" fill="#fff" stroke="#E5E7EB" />
                             <text x="24" y="21" textAnchor="middle" fontFamily="Inter, Arial, sans-serif" fontSize="11" fontWeight="800" fontStyle="italic" fill="#1434CB">
-                              VISA
+                              {billing.paymentMethod.brand.toUpperCase()}
                             </text>
                           </svg>
                           <div className="min-w-0">
                             <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
                               •••• •••• •••• {billing.paymentMethod.last4}
                               <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
-                                Default
+                                Primary
                               </span>
                             </p>
                             <p className="mt-0.5 text-xs text-slate-500">
@@ -1628,7 +1721,7 @@ export function BusinessSettingsView() {
                             type="button"
                             data-testid="business-settings-update-card"
                             className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                            onClick={() => showToast("Card update coming soon")}
+                            onClick={() => setCardModalMode("primary")}
                           >
                             Update card
                           </button>
@@ -1636,15 +1729,33 @@ export function BusinessSettingsView() {
                             type="button"
                             className="text-sm font-semibold text-amber-700 hover:underline"
                             data-testid="business-settings-add-backup-card"
-                            onClick={() => showToast("Backup payment method coming soon")}
+                            onClick={() => setCardModalMode("backup")}
                           >
                             Add backup method
                           </button>
                         </div>
                       </div>
                     </div>
+                    {billing.backupPaymentMethod ? (
+                      <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-settings-backup-card">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <span className="grid h-8 w-12 shrink-0 place-items-center rounded-md border border-gray-200 bg-white text-[10px] font-extrabold uppercase text-slate-600">{billing.backupPaymentMethod.brand}</span>
+                            <div>
+                              <p className="flex items-center gap-2 text-sm font-medium text-slate-800">•••• •••• •••• {billing.backupPaymentMethod.last4}<span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">Backup</span></p>
+                              <p className="mt-0.5 text-xs text-slate-500">Expires {String(billing.backupPaymentMethod.expMonth).padStart(2, "0")}/{billing.backupPaymentMethod.expYear}</p>
+                            </div>
+                          </div>
+                          <button type="button" disabled={makingCardPrimary} onClick={() => void handleMakeBackupCardPrimary()} className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50" data-testid="business-settings-make-card-primary">{makingCardPrimary ? "Updating…" : "Make primary"}</button>
+                        </div>
+                      </div>
+                    ) : null}
+                    </div>
                   ) : (
-                    <p className="text-sm text-slate-500">No payment method on file.</p>
+                    <div className="rounded-xl border border-gray-100 p-4">
+                      <p className="text-sm text-slate-500">No payment method on file.</p>
+                      <button type="button" onClick={() => setCardModalMode("primary")} className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600" data-testid="business-settings-add-card">Add payment method</button>
+                    </div>
                   )}
                   <p className="mt-2 text-xs text-slate-400">Your card will be charged on the 1st of each month.</p>
 
@@ -1887,22 +1998,22 @@ export function BusinessSettingsView() {
 
                   <h3 className="mb-2 text-base font-semibold text-slate-900">Data processing agreement</h3>
                   <p className="mb-4 text-sm text-slate-500">
-                    <button
-                      type="button"
+                    <Link
+                      href={"/DPA" as Route}
                       className="font-semibold text-amber-700 hover:underline"
                       data-testid="business-settings-view-dpa"
-                      onClick={() => showToast("Opening DPA")}
                     >
                       View our Data Processing Agreement
-                    </button>
+                    </Link>
                   </p>
                   <button
                     type="button"
                     data-testid="business-settings-request-dpa"
                     className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                    onClick={() => showToast("DPA request submitted")}
+                    disabled={requestingDpa}
+                    onClick={() => void handleRequestSignedDpa()}
                   >
-                    Request a signed DPA for your organization
+                    {requestingDpa ? "Sending request..." : "Request a signed DPA for your organization"}
                   </button>
                   <p className="mt-2 text-xs text-slate-400">
                     Enterprise customers can request a countersigned DPA. Delivered within 2 business days.
@@ -2053,6 +2164,19 @@ export function BusinessSettingsView() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {cardModalMode ? (
+        <BusinessPaymentMethodModal
+          mode={cardModalMode}
+          onClose={() => setCardModalMode(null)}
+          onSaved={async () => {
+            const savedMode = cardModalMode;
+            setCardModalMode(null);
+            await loadData();
+            showToast(savedMode === "backup" ? "Backup payment method added ✓" : "Payment method updated ✓");
+          }}
+        />
       ) : null}
 
       {toast ? (

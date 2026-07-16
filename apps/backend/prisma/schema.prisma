@@ -8,7 +8,7 @@ datasource db {
 }
 
 model User {
-  id                   String                 @id @default(cuid())
+  id                   String                       @id @default(cuid())
   email                String
   passwordHash         String?
   role                 UserRole
@@ -17,9 +17,9 @@ model User {
   location             String?
   timezone             String?
   profilePhotoUrl      String?
-  isSuspended          Boolean                @default(false)
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  isSuspended          Boolean                      @default(false)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
   listings             AgentListing[]
   architectProfile     ArchitectProfile?
   businesses           Business[]
@@ -30,6 +30,7 @@ model User {
   workflows            WorkflowDefinition[]
   workflowRuns         WorkflowRun[]
   payoutMethod         ArchitectPayoutMethod?
+  backupPayoutMethod   ArchitectBackupPayoutMethod?
   payouts              ArchitectPayout[]
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
@@ -42,29 +43,30 @@ model User {
 }
 
 model ArchitectProfile {
-  id                String          @id @default(cuid())
-  userId            String          @unique
-  title             String?
-  displayName       String?
-  tagline           String?
-  bio               String?
-  portfolioUrl      String?
-  githubUrl         String?
-  linkedinUrl       String?
-  twitterHandle     String?
-  experienceBand    String?
-  skills            String[]
-  approvalStatus    ArchitectStatus @default(PENDING)
-  rating            Float           @default(0)
-  completedJobs     Int             @default(0)
-  notificationPrefs Json?
-  privacyPrefs      Json?
-  payoutSchedule    Json?
-  agentsPaused      Boolean         @default(false)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  hourlyRateCents   Int?
-  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String          @id @default(cuid())
+  userId              String          @unique
+  title               String?
+  displayName         String?
+  marketplacePhotoUrl String?
+  tagline             String?
+  bio                 String?
+  portfolioUrl        String?
+  githubUrl           String?
+  linkedinUrl         String?
+  twitterHandle       String?
+  experienceBand      String?
+  skills              String[]
+  approvalStatus      ArchitectStatus @default(PENDING)
+  rating              Float           @default(0)
+  completedJobs       Int             @default(0)
+  notificationPrefs   Json?
+  privacyPrefs        Json?
+  payoutSchedule      Json?
+  agentsPaused        Boolean         @default(false)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  hourlyRateCents     Int?
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([approvalStatus])
 }
@@ -617,6 +619,25 @@ model ArchitectPayoutMethod {
 
   @@index([country])
   @@index([verificationStatus])
+}
+
+model ArchitectBackupPayoutMethod {
+  id                      String   @id @default(cuid())
+  architectUserId         String   @unique
+  bankName                String?
+  accountHolderName       String?
+  country                 String   @default("IN")
+  currency                String   @default("inr")
+  accountLast4            String?
+  routingLast4            String?
+  stripeAccountId         String?
+  stripeExternalAccountId String?
+  verificationStatus      String   @default("PENDING")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  architect               User     @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@index([country])
 }
 
 model ArchitectPayout {
