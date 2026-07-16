@@ -290,6 +290,86 @@ architectRoutes.get("/listings/public", listPublicMarketplaceListings);
 architectRoutes.get("/listings/public/:id", getPublicMarketplaceListingById);
 architectRoutes.get("/listings/completed", requireAuth, listCompletedMarketplaceListings);
 
+architectRoutes.get("/listings/public/:id/similar", async (c) => {
+  const id = c.req.param("id");
+  const limitParam = Number(c.req.query("limit") ?? "4");
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 8) : 4;
+
+  if (!id) {
+    return errorResponse(c, "Listing id is required", 400);
+  }
+
+  // Load the target listing to get its category/tags for matching.
+  const targetListing = await prisma.agentListing.findFirst({
+    where: { id, status: "APPROVED" },
+    select: { id: true, category: true, tags: true, industryTags: true }
+  });
+
+  if (!targetListing) {
+    return successResponse(c, { listings: [] });
+  }
+
+  // Build similarity filter: match on category or any shared tag/industryTag.
+  const categoryFilter = targetListing.category?.trim()
+    ? [{ category: { equals: targetListing.category.trim(), mode: "insensitive" as const } }]
+    : [];
+
+  const tagFilters = [
+    ...targetListing.tags.slice(0, 5).map((tag) => ({ tags: { has: tag } })),
+    ...targetListing.industryTags.slice(0, 5).map((tag) => ({ industryTags: { has: tag } }))
+  ];
+
+  const orConditions = [...categoryFilter, ...tagFilters];
+
+  const similarListings = await prisma.agentListing.findMany({
+    where: {
+      status: "APPROVED",
+      id: { not: id },
+      ...(orConditions.length > 0 ? { OR: orConditions } : {})
+    },
+    include: {
+      architect: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          architectProfile: {
+            select: {
+              title: true,
+              rating: true,
+              completedJobs: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit
+  });
+
+  const installCountByListing = await countSalesByListingIds(
+    similarListings.map((listing) => listing.id)
+  );
+
+  const listings = similarListings.map((listing) => ({
+    id: listing.id,
+    name: listing.name,
+    shortDescription: listing.shortDescription,
+    priceCents: listing.priceCents,
+    pricingModel: listing.pricingModel,
+    category: listing.category,
+    tags: listing.tags,
+    industryTags: listing.industryTags,
+    iconUrl: listing.iconUrl,
+    freeTrialEnabled: listing.freeTrialEnabled,
+    trialDays: listing.trialDays,
+    installCount: installCountByListing.get(listing.id) ?? 0,
+    architect: listing.architect
+  }));
+
+  return successResponse(c, { listings });
+});
+
 architectRoutes.get("/voices", requireAuth, (c) => successResponse(c, listVoicePresets()));
 architectRoutes.get("/voices/debug", requireAuth, (c) => successResponse(c, voicePreviewDiagnostics()));
 architectRoutes.post("/voices/preview", requireAuth, async (c) => {

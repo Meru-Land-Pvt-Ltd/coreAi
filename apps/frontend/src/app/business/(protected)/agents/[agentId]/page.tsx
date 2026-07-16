@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
 
 const TRIAL_DAYS = 7;
 
@@ -318,72 +319,6 @@ function PhoneIcon({ className = "h-5 w-5" }: { className?: string }) {
     >
       <path d="M3 5a2 2 0 0 1 2-2h2l2 5-2 1a11 11 0 0 0 5 5l1-2 5 2v2a2 2 0 0 1-2 2A16 16 0 0 1 3 5z" />
     </svg>
-  );
-}
-
-function PhoneMockup({ agentName }: { agentName: string }) {
-  return (
-    <div className="relative">
-      <div className="pointer-events-none absolute -inset-6 -z-10 rounded-[3rem] bg-[radial-gradient(60%_60%_at_50%_40%,rgba(245,158,11,0.12),transparent_70%)]" />
-
-      <div className="mx-auto w-full max-w-[320px] animate-float">
-        <div className="rounded-[2.5rem] border border-gray-200 bg-white p-2.5 shadow-2xl">
-          <div className="overflow-hidden rounded-[2rem] bg-gray-50">
-            <div className="flex items-center justify-between px-5 pb-1 pt-3 text-[10px] font-semibold text-slate-500">
-              <span data-testid="business-protected-agents-9-41-text">9:41</span>
-              <span className="inline-flex items-center gap-1" aria-hidden="true">
-                5G
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 border-b border-gray-100 bg-white px-4 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700">
-                AI
-              </span>
-              <div className="min-w-0">
-                <div className="truncate text-xs font-semibold text-slate-900">{agentName}</div>
-                <div className="text-[10px] text-slate-500">Text Message · SMS</div>
-              </div>
-            </div>
-
-            <div className="space-y-3 px-4 py-4">
-              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-500">
-                  <PhoneIcon className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-900">Missed call</div>
-                  <div className="truncate text-[11px] text-slate-500">{agentName} · just now</div>
-                </div>
-              </div>
-
-              <div className="flex">
-                <div className="max-w-[82%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm">
-                  Hi! Sorry we missed your call. How can we help you today?
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <div className="max-w-[82%] rounded-2xl rounded-br-md bg-amber-500 px-3 py-2 text-[12px] font-medium leading-snug text-slate-950 shadow-sm">
-                  I need to book an appointment
-                </div>
-              </div>
-
-              <div className="flex">
-                <div className="max-w-[86%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm">
-                  I&apos;d be happy to help! Here are our available slots this week.
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Automated by CORE · replied in 5s
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -775,7 +710,7 @@ export default function BusinessAgentDetailPage() {
             </div>
 
             <div ref={demoRef} id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
-              <PhoneMockup agentName={listing.name} />
+              <AgentWorkflowPreview listing={listing} />
             </div>
           </div>
         </section>
@@ -963,3 +898,5 @@ function SectionHeader({ title, description }: { title: string; description?: st
     </div>
   );
 }
+
+

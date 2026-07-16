@@ -12,6 +12,7 @@ import {
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+import { BusinessPageHeader } from "@/components/business/business-page-header";
 
 const TRIAL_DAYS = 7;
 
@@ -43,6 +44,7 @@ type ApiListing = {
     createdAt?: string;
     architect?: ApiArchitect | null;
     pricingModel?: string | null;
+    iconUrl?: string | null;
 };
 
 type ApiPurchasedAgent = {
@@ -57,6 +59,13 @@ type ApiPurchasedAgent = {
 
 type MyAgentsResponse = {
     agents?: ApiPurchasedAgent[];
+};
+
+type ListingsApiResponse = {
+    data?: {
+        listings?: ApiListing[];
+    };
+    listings?: ApiListing[];
 };
 
 type OwnedAgent = {
@@ -75,6 +84,7 @@ type OwnedAgent = {
     installedAgentStatus: string | null;
     isTrial?: boolean;
     pricingModel?: string | null;
+    iconUrl?: string | null;
 };
 
 /** Setup is complete once the agent was deployed (ACTIVE) — PAUSED still counts. */
@@ -171,8 +181,26 @@ function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {
         installedAgentId: entry.installedAgentId ?? null,
         installedAgentStatus: entry.installedAgentStatus ?? null,
         isTrial: entry.isTrial,
-        pricingModel: listing.pricingModel
+        pricingModel: listing.pricingModel,
+        iconUrl: listing.iconUrl?.trim() || null
     };
+}
+
+function mergeListingImages(agents: ApiPurchasedAgent[], listings: ApiListing[]) {
+    const publicListingById = new Map(listings.map((listing) => [listing.id, listing]));
+
+    return agents.map((agent) => {
+        const publicListing = publicListingById.get(agent.listing.id);
+        if (!publicListing) return agent;
+
+        return {
+            ...agent,
+            listing: {
+                ...agent.listing,
+                iconUrl: agent.listing.iconUrl ?? publicListing.iconUrl ?? null
+            }
+        };
+    });
 }
 
 function statusBadge(status: string) {
@@ -223,7 +251,14 @@ export default function BusinessMyAgentsPage() {
                     return;
                 }
 
-                setAgents((response.data?.agents ?? []).map(mapPurchasedAgent));
+                const purchasedAgents = response.data?.agents ?? [];
+                const listingsResponse = await apiGet<ListingsApiResponse>("/architect/listings/public");
+                const publicListings =
+                    listingsResponse.success && listingsResponse.data
+                        ? listingsResponse.data.data?.listings ?? listingsResponse.data.listings ?? []
+                        : [];
+
+                setAgents(mergeListingImages(purchasedAgents, publicListings).map(mapPurchasedAgent));
             } catch (error) {
                 if (!mounted) return;
                 setApiError(error instanceof Error ? error.message : "Could not load your agents");
@@ -282,25 +317,13 @@ export default function BusinessMyAgentsPage() {
     return (
         <main className="min-h-screen bg-gray-50 text-slate-900">
             <div className="mx-auto max-w-full px-4 py-8 sm:px-6 lg:px-8">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-black tracking-tight text-slate-900" data-testid="business-my-agents-heading">
-                            My Agents
-                        </h1>
-                        <p className="mt-1 text-sm text-slate-500" data-testid="business-my-agents-subtitle">
-                            Agents you&apos;ve purchased. Set each one up to put it to work.
-                        </p>
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={() => router.push(BUSINESS_MARKETPLACE_PATH)}
-                        data-testid="business-my-agents-browse-marketplace"
-                        className="inline-flex items-center gap-2 self-start rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600 sm:self-auto"
-                    >
-                        Browse marketplace
-                    </button>
-                </div>
+                <BusinessPageHeader
+                    eyebrow="Installed"
+                    title="My Agents"
+                    description="Agents you've purchased. Set each one up to put it to work."
+                    actionLabel="Browse marketplace"
+                    actionHref={BUSINESS_MARKETPLACE_PATH}
+                />
 
                 <div className="mt-8">
                     {isLoading ? (
@@ -426,8 +449,13 @@ function OwnedAgentCard({
         >
             <div className="flex-1 p-6">
                 <div className="flex items-start justify-between gap-2">
-                    <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                        🤖
+                    <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
+                        {agent.iconUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- listing icons may be data URLs or uploaded URLs from arbitrary hosts.
+                            <img src={agent.iconUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                            "🤖"
+                        )}
                     </span>
 
                     <div className="flex items-center gap-2">

@@ -122,7 +122,7 @@ type Activity = {
     recordingUrl?: string | null;
 };
 
-type ChartMetric = "executions" | "revenue" | "cost";
+type ChartMetric = "executions" | "cost";
 
 type IconName =
     | "dashboard"
@@ -230,26 +230,7 @@ const metrics: MetricCard[] = [
     }
 ];
 
-const notifications = [
-    {
-        title: "New 5-star review posted",
-        meta: "Google Review Booster · 6 min ago",
-        icon: "star" as IconName,
-        tone: "amber"
-    },
-    {
-        title: "Agent update available",
-        meta: "Missed Call Text-Back v2.1 · 2 hr ago",
-        icon: "arrowUp" as IconName,
-        tone: "blue"
-    },
-    {
-        title: "January invoice is ready",
-        meta: "$62.40 due Feb 1 · 1 day ago",
-        icon: "card" as IconName,
-        tone: "slate"
-    }
-];
+
 
 function formatCurrencyCents(cents: number) {
     return `$${(cents / 100).toFixed(2)}`;
@@ -293,7 +274,6 @@ function fallbackChartDays(): ActivityChartDay[] {
 function chartMetricValue(day: ActivityChartDay, metric: ChartMetric) {
     if (metric === "executions") return day.executions;
     if (metric === "cost") return day.costMicroUsd / 1_000_000;
-    // Revenue saved has no data source yet (needs an average job value setting).
     return 0;
 }
 
@@ -661,7 +641,7 @@ export default function BusinessDashboardPage() {
                             </h2>
 
                             <div className="flex gap-1 rounded-xl bg-gray-50 p-1" role="tablist" aria-label="Chart metric">
-                                {(["executions", "revenue", "cost"] as ChartMetric[]).map((metric) => (
+                                {(["executions", "cost"] as ChartMetric[]).map((metric) => (
                                     <button
                                         key={metric}
                                         type="button"
@@ -1101,7 +1081,6 @@ function getYAxis(max: number, metric: ChartMetric) {
     return steps.map((step) => {
         const value = max * step;
 
-        if (metric === "revenue") return `$${Math.round(value).toLocaleString()}`;
         if (metric === "cost") return `$${value.toFixed(value < 10 ? 1 : 0)}`;
         return Math.round(value).toString();
     });
@@ -1109,12 +1088,10 @@ function getYAxis(max: number, metric: ChartMetric) {
 
 function chartLabel(metric: ChartMetric) {
     if (metric === "executions") return "Executions";
-    if (metric === "revenue") return "Revenue Saved";
     return "Cost";
 }
 
 function formatChartValue(value: number, metric: ChartMetric) {
-    if (metric === "revenue") return `$${Math.round(value).toLocaleString()} saved`;
     if (metric === "cost") return `$${value.toFixed(2)}`;
     return `${Math.round(value)} executions`;
 }
