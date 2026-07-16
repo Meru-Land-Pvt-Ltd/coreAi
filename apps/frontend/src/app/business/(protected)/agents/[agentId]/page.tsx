@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
 
 const TRIAL_DAYS = 7;
@@ -236,7 +237,7 @@ function getWorkflowFeatures(listing: ApiListing) {
 
   const connectors = listing.requiredConnectors ?? [];
   if (connectors.length) {
-    return connectors.map((connector) => `Integrates with ${connector}`);
+    return connectors.map((connector) => getConnectorIncludedItem(connector));
   }
 
   return [
@@ -254,8 +255,8 @@ function getIncludedItems(listing: ApiListing) {
   if (fromFeatures.length) return fromFeatures;
 
   const items = [
-    ...(listing.requiredConnectors ?? []).map((connector) => `${connector} integration`),
-    ...(listing.supportedLlms ?? []).map((llm) => `${llm} support`),
+    ...(listing.requiredConnectors ?? []).map((connector) => getConnectorIncludedItem(connector)),
+    ...(listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm)),
     "Real-time workflow automation",
     "Business-specific configuration"
   ];
@@ -711,6 +712,47 @@ export default function BusinessAgentDetailPage() {
 
             <div ref={demoRef} id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
               <AgentWorkflowPreview listing={listing} />
+            </div>
+          </div>
+        </section>
+
+        {/* How It Works Section */}
+        <section className="bg-gray-50 px-6 py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">How It Works</h2>
+              <p className="mt-3 text-lg text-slate-600">
+                {getHowItWorksSubtitle(listing.requiredConnectors, listing.workflow?.workflowJson)}
+              </p>
+            </div>
+
+            <div className="relative mt-14">
+              <div className="absolute top-7 hidden border-t-2 border-dashed border-amber-300 md:block" style={{ left: "16.66%", right: "16.66%" }}></div>
+              <div className="relative grid gap-10 md:grid-cols-3">
+                {getHowItWorksSteps(listing.requiredConnectors, listing.workflow?.workflowJson).map((step) => (
+                  <div key={step.step} className="text-center">
+                    <div className="relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-lg font-bold text-slate-950 shadow-glow-sm ring-4 ring-gray-50">
+                      {step.step}
+                    </div>
+                    <h3 className="mt-5 text-lg font-semibold text-slate-900">{step.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{step.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Key Metrics Section */}
+        <section className="px-6 py-16 sm:py-20">
+          <div id="metrics" className="mx-auto grid max-w-2xl gap-5 sm:grid-cols-2">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+              <div className="text-4xl font-extrabold tracking-tight text-amber-600">5 sec</div>
+              <div className="mt-2 text-sm text-slate-600">Average response time</div>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+              <div className="text-4xl font-extrabold tracking-tight text-amber-600">24/7</div>
+              <div className="mt-2 text-sm text-slate-600">Always active, never sleeps</div>
             </div>
           </div>
         </section>

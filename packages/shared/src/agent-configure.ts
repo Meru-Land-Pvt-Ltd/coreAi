@@ -1063,3 +1063,226 @@ export function buildMarketplacePreview(
     architectName
   };
 }
+
+/**
+ * Maps technical connector/integration keys to buyer-friendly, understandable terms
+ * to avoid displaying jargon (e.g. 'phone_provider integration', 'twilio integration') to users.
+ */
+export function getConnectorIncludedItem(connector: string): string {
+  const key = connector.toLowerCase().trim();
+  if (key === "phone" || key === "phone_provider" || key === "phone-provider") {
+    return "AI voice call capability";
+  }
+  if (key === "twilio" || key === "twillow") {
+    return "Call forwarding & routing";
+  }
+  if (key === "vapi") {
+    return "AI voice assistant engine";
+  }
+  if (key === "sms" || key === "twilio_sms") {
+    return "Unlimited text messages";
+  }
+  if (key === "google_calendar" || key === "calendar" || key === "google calendar" || key === "google_calendar integration") {
+    return "Calendar booking & scheduling";
+  }
+  if (key === "gmail" || key === "email" || key === "triven_mail") {
+    return "Automated email confirmations";
+  }
+  if (key === "crm") {
+    return "CRM lead synchronization";
+  }
+  if (key === "webhook") {
+    return "Custom system connection";
+  }
+  if (key === "elevenlabs") {
+    return "Realistic voice generation";
+  }
+
+  const formatted = connector
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return `${formatted} integration`;
+}
+
+/**
+ * Maps technical LLM model names to a clean, buyer-friendly capability description.
+ */
+export function getLlmIncludedItem(llm: string): string {
+  return "Advanced AI reasoning engine";
+}
+
+export type HowItWorksStep = {
+  step: number;
+  title: string;
+  description: string;
+};
+
+/**
+ * Helper to determine the channel type from workflow nodes and connectors.
+ * Logic matches inferChannel in the frontend.
+ */
+function determineAgentChannel(requiredConnectors?: string[] | null, workflowJson?: any): string {
+  const connectors = (requiredConnectors ?? []).map(c => c.toLowerCase().trim());
+  const rawNodes = workflowJson && Array.isArray(workflowJson.nodes) ? workflowJson.nodes : [];
+  
+  const nodeTypes = rawNodes.map((node: any) => {
+    const data = node?.data ?? {};
+    const type = typeof data.type === "string" ? data.type : typeof data.kind === "string" ? data.kind : "";
+    const connector = typeof data.connector === "string" ? data.connector : "";
+    return `${type} ${connector}`.toLowerCase();
+  });
+  
+  const haystack = [...nodeTypes, ...connectors].join(" ");
+
+  if (haystack.includes("missed_call") || haystack.includes("missed call") || haystack.includes("no-answer") || haystack.includes("no_answer")) {
+    return "missed-call";
+  }
+  if (haystack.includes("phone_call") || haystack.includes("voice_conversation") || haystack.includes("vapi") || haystack.includes("voice call") || haystack.includes("incoming call")) {
+    return "voice";
+  }
+  if (haystack.includes("whatsapp")) {
+    return "whatsapp";
+  }
+  if (haystack.includes("gmail") || haystack.includes("email") || haystack.includes("mail")) {
+    return "email";
+  }
+  if (haystack.includes("inbound_sms") || haystack.includes("send_sms") || haystack.includes("sms") || haystack.includes("text message") || haystack.includes("twilio")) {
+    return "sms";
+  }
+  return "general";
+}
+
+/**
+ * Generates dynamic "How It Works" steps based on listing connectors and workflow capabilities.
+ */
+export function getHowItWorksSteps(
+  requiredConnectors?: string[] | null,
+  workflowJson?: any
+): HowItWorksStep[] {
+  const channel = determineAgentChannel(requiredConnectors, workflowJson);
+
+  if (channel === "missed-call") {
+    return [
+      {
+        step: 1,
+        title: "Customer Calls",
+        description: "When someone calls your business and no one picks up, the agent detects the missed call instantly."
+      },
+      {
+        step: 2,
+        title: "Auto Text in 5 Seconds",
+        description: "A personalized text message is sent immediately to keep the caller engaged and prevent them from leaving."
+      },
+      {
+        step: 3,
+        title: "Lead Captured",
+        description: "The conversation continues via text. The agent books appointments, answers FAQs, or escalates to your team."
+      }
+    ];
+  }
+
+  if (channel === "voice") {
+    return [
+      {
+        step: 1,
+        title: "Customer Calls",
+        description: "When a customer dials your business number, the AI agent answers instantly without keeping them waiting."
+      },
+      {
+        step: 2,
+        title: "Natural Conversation",
+        description: "The AI speaks in a natural voice, answers questions, checks calendar availability, and processes requests."
+      },
+      {
+        step: 3,
+        title: "Action Completed",
+        description: "Appointments are booked directly into your calendar, lead details are synced, and email updates are sent."
+      }
+    ];
+  }
+
+  if (channel === "email") {
+    return [
+      {
+        step: 1,
+        title: "Email Received",
+        description: "The agent monitors your incoming emails and detects new customer inquiries or requests immediately."
+      },
+      {
+        step: 2,
+        title: "AI Response Drafted",
+        description: "A professional response is drafted or sent using your business context and scheduling options."
+      },
+      {
+        step: 3,
+        title: "Workflow Automated",
+        description: "Leads are logged, appointments are booked, and your team is notified of any urgent escalations."
+      }
+    ];
+  }
+
+  if (channel === "sms" || channel === "whatsapp") {
+    return [
+      {
+        step: 1,
+        title: "Message Received",
+        description: `When a customer sends an ${channel === "whatsapp" ? "WhatsApp" : "SMS"} message, the agent detects it instantly.`
+      },
+      {
+        step: 2,
+        title: "AI Auto-Response",
+        description: "A personalized text reply is sent back immediately using your custom business rules and tone."
+      },
+      {
+        step: 3,
+        title: "Lead Captured",
+        description: "The conversation continues via text. The agent can book appointments, answer FAQs, or route to your team."
+      }
+    ];
+  }
+
+  return [
+    {
+      step: 1,
+      title: "Trigger Event",
+      description: "The workflow starts automatically when a trigger event (like a webhook, form submission, or new lead) occurs."
+    },
+    {
+      step: 2,
+      title: "AI Processing",
+      description: "The AI agent analyzes the request, references your custom business guidelines, and executes actions."
+    },
+    {
+      step: 3,
+      title: "Task Completed",
+      description: "Leads are captured, calendar events are created, notifications are sent, and databases are synced."
+    }
+  ];
+}
+
+/**
+ * Generates dynamic "How It Works" subtitles based on listing connectors and workflow capabilities.
+ */
+export function getHowItWorksSubtitle(
+  requiredConnectors?: string[] | null,
+  workflowJson?: any
+): string {
+  const channel = determineAgentChannel(requiredConnectors, workflowJson);
+
+  if (channel === "missed-call") {
+    return "From missed call to captured lead in three automatic steps.";
+  }
+  if (channel === "voice") {
+    return "From inbound call to completed appointment in three automatic steps.";
+  }
+  if (channel === "email") {
+    return "From new inquiry to resolved request in three automatic steps.";
+  }
+  if (channel === "sms" || channel === "whatsapp") {
+    return "From incoming message to customer conversion in three automatic steps.";
+  }
+  return "From trigger event to completed task in three automatic steps.";
+}
+
+
+

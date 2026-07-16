@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
 import { BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -242,14 +243,14 @@ function getWorkflowFeatures(listing: ApiListing) {
 
   const connectors = listing.requiredConnectors ?? [];
   if (connectors.length) {
-    return connectors.map((connector) => `Integrates with ${connector}`);
+    return connectors.map((connector) => getConnectorIncludedItem(connector));
   }
 
   return [
     listing.shortDescription ||
-      listing.description ||
-      listing.workflow?.description ||
-      "Automates business workflows with AI."
+    listing.description ||
+    listing.workflow?.description ||
+    "Automates business workflows with AI."
   ];
 }
 
@@ -264,12 +265,12 @@ function getIncludedItems(listing: ApiListing) {
 
   // Connector integrations
   for (const connector of listing.requiredConnectors ?? []) {
-    items.push(`${connector} integration`);
+    items.push(getConnectorIncludedItem(connector));
   }
 
   // LLM support
   for (const llm of listing.supportedLlms ?? []) {
-    items.push(`${llm} AI support`);
+    items.push(getLlmIncludedItem(llm));
   }
 
   // Always-included items
@@ -356,53 +357,36 @@ function SimilarAgentCard({ agent }: { agent: SimilarListing }) {
   const iconUrl = agent.iconUrl?.trim() || null;
 
   return (
+    
     <Link
       href={`/business/${agent.id}` as Route}
       data-testid={`similar-agent-card-${agent.id}`}
-      className="group flex flex-col rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition duration-200 hover:border-amber-200 hover:shadow-md"
     >
-      <div className="flex items-start gap-3">
-        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-amber-500 shadow-glow-sm">
-          {iconUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={iconUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <BotIcon className="h-5 w-5 text-slate-950" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-slate-900 group-hover:text-amber-700 transition-colors">
-            {agent.name}
-          </p>
-          <span className="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-            {category}
-          </span>
-        </div>
-      </div>
 
-      {agent.shortDescription ? (
-        <p className="mt-3 line-clamp-2 text-sm text-slate-500 flex-1">{agent.shortDescription}</p>
-      ) : null}
-
-      <div className="mt-4 flex items-center justify-between">
+      <div className="flex w-[280px] shrink-0 snap-start flex-col rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition duration-200 hover:shadow-md md:w-auto">
+        <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
+          {agent.iconUrl ? <img src={agent.iconUrl} alt="" className="h-full w-full object-fill" /> : "🤖"}
+        </span>
+        <h3 className="mt-4 text-lg font-semibold text-slate-900">{agent.name}</h3>
         <div>
           {pricingModel === "FREE" ? (
-            <span className="text-base font-bold text-slate-900">Free</span>
+            <span className="font-medium text-slate-500">Free</span>
           ) : (
-            <span className="text-base font-bold text-slate-900">
+            <span className="mt-1 text-sm font-bold text-amber-600">
               ${price}
               {pricingModel === "SUBSCRIPTION" ? (
-                <span className="text-xs font-normal text-slate-500">/mo</span>
+                <span className="font-medium text-slate-500">/month</span>
               ) : null}
             </span>
           )}
         </div>
-        {agent.freeTrialEnabled && (agent.trialDays ?? 0) > 0 ? (
-          <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-            {agent.trialDays}d free trial
-          </span>
+        {agent.shortDescription ? (
+          <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600 line-clamp-2">{agent.shortDescription}</p>
         ) : null}
+
+        <a href={`/business/${agent.id}` as Route } className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">View agent <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
       </div>
+      
     </Link>
   );
 }
@@ -675,7 +659,9 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               {/* Short Description */}
-              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription}</p>
+              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription ? (heroDescription) : agentDescription}</p>
+
+              <p className="mt-4 text-sm leading-relaxed text-slate-600">{heroDescription ? (agentDescription) : null}</p>
 
               {/* Industry Tags */}
               <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -789,21 +775,54 @@ export default function BusinessAgentDetailPage() {
           </div>
         </section>
 
+        {/* How It Works Section */}
+        <section className="bg-gray-50 px-6 py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">How It Works</h2>
+              <p className="mt-3 text-lg text-slate-600">
+                {getHowItWorksSubtitle(listing.requiredConnectors, listing.workflow?.workflowJson)}
+              </p>
+            </div>
+
+            <div className="relative mt-14">
+              <div className="absolute top-7 hidden border-t-2 border-dashed border-amber-300 md:block" style={{ left: "16.66%", right: "16.66%" }}></div>
+              <div className="relative grid gap-10 md:grid-cols-3">
+                {getHowItWorksSteps(listing.requiredConnectors, listing.workflow?.workflowJson).map((step) => (
+                  <div key={step.step} className="text-center">
+                    <div className="relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-lg font-bold text-slate-950 shadow-glow-sm ring-4 ring-gray-50">
+                      {step.step}
+                    </div>
+                    <h3 className="mt-5 text-lg font-semibold text-slate-900">{step.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{step.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Key Metrics Section */}
+        <section className="px-6 py-16 sm:py-20">
+          <div id="metrics" className="mx-auto grid max-w-2xl gap-5 sm:grid-cols-2">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+              <div className="text-4xl font-extrabold tracking-tight text-amber-600">5 sec</div>
+              <div className="mt-2 text-sm text-slate-600">Average response time</div>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+              <div className="text-4xl font-extrabold tracking-tight text-amber-600">24/7</div>
+              <div className="mt-2 text-sm text-slate-600">Always active, never sleeps</div>
+            </div>
+          </div>
+        </section>
+
         {/* What this agent does (Architect Description) */}
         <section className="bg-gray-50 px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-6xl">
             <SectionHeader
               title="What this agent does"
-              description="Powered by AI to handle your business workflows automatically."
+              description={heroDescription}
             />
-
-            {agentDescription ? (
-              <div className="mt-10 mx-auto max-w-3xl rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">
-                <p className="text-base leading-relaxed text-slate-700 whitespace-pre-wrap" data-testid="agent-detail-full-description">
-                  {agentDescription}
-                </p>
-              </div>
-            ) : null}
 
             {/* Features Grid */}
             <div className="mt-8 grid gap-4 sm:grid-cols-2">

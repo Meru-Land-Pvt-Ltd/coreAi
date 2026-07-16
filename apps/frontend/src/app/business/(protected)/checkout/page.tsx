@@ -15,6 +15,7 @@ import {
     businessPaymentSuccessPath,
     businessSetupPath
 } from "@/lib/routes";
+import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
 
 type CheckoutWorkflowNode = {
     data?: {
@@ -512,9 +513,9 @@ function getIncludedItems(listing: CheckoutListing) {
         .filter((value): value is string => Boolean(value?.trim()));
 
     const fromConnectors = (listing.requiredConnectors ?? []).map(
-        (connector) => `${connector} integration`
+        (connector) => getConnectorIncludedItem(connector)
     );
-    const fromLlms = (listing.supportedLlms ?? []).map((llm) => `${llm} support`);
+    const fromLlms = (listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm));
 
     const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
 

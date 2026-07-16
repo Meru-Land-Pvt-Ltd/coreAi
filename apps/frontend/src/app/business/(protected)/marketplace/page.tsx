@@ -13,7 +13,9 @@ import {
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
 import Image from "next/image";
+import { X, Check, Dot } from "lucide-react";
 
 type Agent = {
     id: string;
@@ -403,9 +405,9 @@ function getWhatYouGetItems(listing: ApiListing): string[] {
         .filter((value): value is string => Boolean(value?.trim()));
 
     const fromConnectors = (listing.requiredConnectors ?? []).map(
-        (connector) => `${connector} integration`
+        (connector) => getConnectorIncludedItem(connector)
     );
-    const fromLlms = (listing.supportedLlms ?? []).map((llm) => `${llm} support`);
+    const fromLlms = (listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm));
 
     const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
 
@@ -413,7 +415,7 @@ function getWhatYouGetItems(listing: ApiListing): string[] {
 
     const connectors = listing.requiredConnectors ?? [];
     if (connectors.length) {
-        return connectors.map((connector) => `Integrates with ${connector}`);
+        return connectors.map((connector) => `Includes ${getConnectorIncludedItem(connector)}`);
     }
 
     return [
@@ -1456,8 +1458,8 @@ function AgentDetailsModal({
         agent.industries.length > 0
             ? agent.industries.join(" · ")
             : agent.industry === "all"
-              ? "All industries"
-              : formatLabel(agent.industry);
+                ? "All industries"
+                : formatLabel(agent.industry);
 
     return (
         <div
@@ -1469,27 +1471,33 @@ function AgentDetailsModal({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="marketplace-agent-modal-title"
-                className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
+                className="relative flex h-[670px] w-[690px] flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
             >
-                <button
-                    type="button"
-                    onClick={onClose}
-                    data-testid="business-marketplace-agent-details-modal-close"
-                    className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-                    aria-label="Close"
-                >
-                    ✕
-                </button>
+                <div className="relative shrink-0 border-b border-gray-100 p-6">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        data-testid="business-marketplace-agent-details-modal-close"
+                        className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full text-slate-400 transition hover:bg-gray-100 hover:text-slate-700"
+                        aria-label="Close"
+                    >
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
 
-                <div className="p-6 sm:p-8">
-                    <div className="flex items-start gap-4">
-                        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                            {agent.iconUrl ? <Image src={agent.iconUrl} alt={agent.name} width={48} height={48} className="object-cover" /> : "🤖"}
+                    <div className="flex items-start gap-4 pr-8">
+                        <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-500 ring-1 ring-amber-100">
+                            {agent.iconUrl ? (
+                                <Image src={agent.iconUrl} alt={agent.name} width={64} height={64} className="object-cover" />
+                            ) : (
+                                <span className="text-2xl">🤖</span>
+                            )}
                         </span>
 
-                        <div className="min-w-0 pr-8">
-                            <div className="flex flex-wrap gap-2">
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600">
                                     {agent.category}
                                 </span>
@@ -1500,126 +1508,96 @@ function AgentDetailsModal({
 
                             <h2
                                 id="marketplace-agent-modal-title"
-                                className="mt-3 text-2xl font-extrabold text-slate-900"
+                                className="mt-2 truncate text-2xl font-extrabold text-slate-900"
                                 data-testid="business-marketplace-agent-details-modal-title"
                             >
                                 {agent.name}
                             </h2>
 
-                            <p
-                                className="mt-1 text-sm text-slate-500"
+                            <div
+                                className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500"
                                 data-testid="business-marketplace-agent-details-modal-meta"
                             >
-                                {agent.installs} installs · {agent.author}
-                            </p>
+                                <span>{agent.installs} installs</span>
+                                <span className="text-slate-300">·</span>
+                                <span>By {agent.author}</span>
+                            </div>
                         </div>
                     </div>
+                </div>
 
+                <div className="flex-1 space-y-6 overflow-y-auto p-6">
                     <p
-                        className="mt-5 text-sm leading-relaxed text-slate-600"
+                        className="leading-relaxed text-slate-600"
                         data-testid="business-marketplace-agent-details-modal-description"
                     >
                         {agent.description}
                     </p>
 
-                    <div className="mt-6">
-                        <p className="text-xs font-bold uppercase tracking-wide text-indigo-500">
+                    <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                             What you get
-                        </p>
-
-                        <ul className="mt-3 space-y-2.5">
+                        </h3>
+                        <ul className="mt-3 space-y-2">
                             {agent.whatYouGet.map((item) => (
                                 <li
                                     key={item}
-                                    className="flex items-start gap-2.5 text-sm text-slate-700"
+                                    className="flex items-start gap-2 text-sm text-slate-700"
                                     data-testid={`business-marketplace-agent-details-modal-bullet-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                                 >
-                                    <span className="mt-0.5 text-amber-500">✓</span>
-                                    {item}
+                                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span>{item}</span>
                                 </li>
                             ))}
                         </ul>
                     </div>
-
-                    <Link
-                        href={businessAgentPath(agent.id)}
-                        data-testid="business-marketplace-agent-details-modal-view-full-details"
-                        className="mt-6 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
-                    >
-                        View full details →
-                    </Link>
                 </div>
 
-                <div className="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50/60 px-6 py-5 sm:px-8">
-                    <div>
+                <div className="flex shrink-0 flex-col-reverse items-stretch gap-3 border-t border-gray-100 bg-gray-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-center sm:text-left">
                         {agent.pricingModel === "FREE" ? (
-                            <div className="flex flex-col">
+                            <span
+                                className="text-2xl font-black text-slate-900"
+                                data-testid="business-marketplace-agent-details-modal-price"
+                            >
+                                Free
+                            </span>
+                        ) : (
+                            <>
                                 <span
-                                    className="text-3xl font-extrabold text-slate-900"
+                                    className="text-2xl font-black text-slate-900"
                                     data-testid="business-marketplace-agent-details-modal-price"
                                 >
-                                    Free
+                                    ${agent.price}
                                 </span>
-                                <span className="text-xs font-semibold text-slate-600 mt-1">
-                                    Free to install
+                                <span className="text-sm text-slate-500">
+                                    {agent.pricingModel === "ONE_TIME" ? " one-time" : " /month"}
                                 </span>
-                                <span className="text-[10px] text-slate-400 italic">
-                                    Pay only for usage
-                                </span>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col">
-                                <div className="flex items-baseline">
-                                    <span
-                                        className="text-3xl font-extrabold text-slate-900"
-                                        data-testid="business-marketplace-agent-details-modal-price"
-                                    >
-                                        ${agent.price}
-                                    </span>
-                                    {agent.pricingModel !== "ONE_TIME" && (
-                                        <span className="ml-1 text-sm text-slate-500">
-                                            /month
-                                        </span>
-                                    )}
-                                </div>
-                                <span className="text-xs font-semibold text-slate-600 mt-1">
-                                    {agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
-                                </span>
-                                <span className="text-[10px] text-slate-400 italic">
-                                    {agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
-                                </span>
-                                {agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
-                                    <span className="block text-xs font-semibold text-amber-600 mt-1">
-                                        ⏱ Includes {agent.trialDays ?? 7}-day free trial
-                                    </span>
-                                ) : null}
-                            </div>
+                            </>
                         )}
                     </div>
 
-                    {isOwned ? (
+                    <div className="flex gap-3">
+                        {!isOwned && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 && (
+                            <Link
+                                href={businessCheckoutPath(agent.id)}
+                                data-testid="business-marketplace-agent-details-modal-start-trial"
+                                className="inline-flex items-center justify-center rounded-xl border-2 border-amber-500 px-5 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-50"
+                            >
+                                Start {agent.trialDays ?? 7}-day trial
+                            </Link>
+                        )}
+
                         <Link
-                            href={setupPending ? businessSetupPath(agent.id) : BUSINESS_AGENTS_PATH}
-                            data-testid="business-marketplace-agent-details-modal-manage-agent"
-                            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
+                            href={isOwned ? (setupPending ? businessSetupPath(agent.id) : BUSINESS_AGENTS_PATH) : businessAgentPath(agent.id)}
+                            data-testid="business-marketplace-agent-details-modal-view-full-details"
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
                         >
-                            {setupPending ? "Continue Setup" : "Manage agent"}
+                            {isOwned ? (setupPending ? "Continue Setup" : "Manage agent") : "View full details →"}
                         </Link>
-                    ) : (
-                        <Link
-                            href={businessCheckoutPath(agent.id)}
-                            data-testid="business-marketplace-agent-details-modal-start-trial"
-                            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
-                        >
-                            {agent.pricingModel === "FREE"
-                                ? "Install agent"
-                                : agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0
-                                    ? `Start ${agent.trialDays ?? 7}-day free trial`
-                                    : agent.pricingModel === "ONE_TIME"
-                                        ? "Get It Now"
-                                        : "Get Access Instantly"}
-                        </Link>
-                    )}
+                    </div>
                 </div>
             </div>
         </div>
@@ -1635,6 +1613,16 @@ function AgentGridCard({
     onOpen: () => void;
     onViewDetails: () => void;
 }) {
+    const category = agent.category;
+    const otherTags = Array.from(
+        new Set([
+            ...(agent.industries ?? []),
+            ...(agent.tags ?? [])
+        ].map(t => t.trim()).filter(Boolean))
+    ).filter(tag => tag.toLowerCase() !== category.toLowerCase());
+    const visibleOtherTags = otherTags.slice(0, 3);
+    const extraOtherTagsCount = Math.max(0, otherTags.length - 3);
+
     return (
         <article
             role="button"
@@ -1651,8 +1639,8 @@ function AgentGridCard({
         >
             <div className="flex-1 p-6">
                 <div className="flex items-start justify-between">
-                    <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                        {agent.iconUrl ? <Image src={agent.iconUrl} alt={agent.name} width={48} height={48} className="object-cover" /> : "🤖"}
+                    <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
+                        {agent.iconUrl ? <img src={agent.iconUrl} alt="" className="h-full w-full object-fill" /> : "🤖"}
                     </span>
 
                     <div className="text-right flex flex-col items-end">
@@ -1682,21 +1670,53 @@ function AgentGridCard({
                     ) : null}
                 </h3>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text">
-                        {agent.category}
-                    </span>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {category ? (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-protected-marketplace-agent-category-text">
+                            {category}
+                        </span>
+                    ) : null}
 
-                    {agent.industries.length > 0 ? (
-                        agent.industries.map((tag) => (
-                            <span 
-                                key={tag}
-                                className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700"
-                                data-testid="business-protected-marketplace-agent-industry-all-industries-format-label-agent-text"
-                            >
-                                {tag}
-                            </span>
-                        ))
+                    {otherTags.length > 0 ? (
+                        <div className="group/tags relative" data-testid={`business-marketplace-agent-tags-container-${agent.id}`}>
+                            <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                {visibleOtherTags.map((tag, index) => (
+                                    <span key={`${tag}-${index}`} className="flex items-center text-[11px] font-semibold text-amber-700">
+                                        {tag}
+                                        {index < visibleOtherTags.length - 1 || extraOtherTagsCount > 0 ? (
+                                            <span className="mx-1 text-amber-700 font-bold">·</span>
+                                        ) : null}
+                                    </span>
+                                ))}
+                                {extraOtherTagsCount > 0 ? (
+                                    <span
+                                        className="text-[11px] font-bold text-amber-700"
+                                        data-testid={`business-marketplace-agent-tags-more-${agent.id}`}
+                                        aria-label={`${extraOtherTagsCount} more tags`}
+                                    >
+                                        +{extraOtherTagsCount}
+                                    </span>
+                                ) : null}
+                            </div>
+                            {extraOtherTagsCount > 0 ? (
+                                <div
+                                    role="tooltip"
+                                    className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
+                                    data-testid={`business-marketplace-agent-tags-tooltip-${agent.id}`}
+                                >
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {otherTags.map((tag, index) => (
+                                            <span
+                                                key={`${tag}-${index}`}
+                                                className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                                            >
+                                                {tag}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
                     ) : null}
                 </div>
 
@@ -1753,15 +1773,15 @@ function AgentListCard({
             <span className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-amber-50 ring-1 ring-amber-100">
                 {agent.iconUrl ? (
                     <img
-                    src={agent.iconUrl}
-                    alt={agent.name}
-                    className="h-full w-full object-cover"
-                    
+                        src={agent.iconUrl}
+                        alt={agent.name}
+                        className="h-full w-full object-fill"
+
                     />
                 ) : (
                     "🤖"
                 )}
-            </span>     
+            </span>
 
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

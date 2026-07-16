@@ -615,6 +615,54 @@ paymentRoutes.get("/my-agents", async (c) => {
       ? runStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
       : { runs: 0, costMicroUsd: 0 };
 
+    let totalExecutions = 0;
+    let totalBookings = 0;
+
+    if (installedAgent && business) {
+      const vapiExecutions = await prisma.vapiCall.count({
+        where: {
+          businessId: business.id,
+          installedAgentId: installedAgent.id
+        }
+      });
+      totalExecutions = vapiExecutions;
+
+      if (installedAgents.length === 1) {
+        const missedCalls = await prisma.lead.count({
+          where: {
+            businessId: business.id,
+            source: { contains: "MISSED_CALL" }
+          }
+        });
+        totalExecutions += missedCalls;
+
+        totalBookings = await prisma.appointment.count({
+          where: { businessId: business.id }
+        });
+      } else {
+        const agentVapiCalls = await prisma.vapiCall.findMany({
+          where: {
+            businessId: business.id,
+            installedAgentId: installedAgent.id,
+            conversationId: { not: null }
+          },
+          select: { conversationId: true }
+        });
+        const agentConversationIds = agentVapiCalls
+          .map((c) => c.conversationId)
+          .filter(Boolean) as string[];
+
+        if (agentConversationIds.length > 0) {
+          totalBookings = await prisma.appointment.count({
+            where: {
+              businessId: business.id,
+              conversationId: { in: agentConversationIds }
+            }
+          });
+        }
+      }
+    }
+
     agents.push({
       purchaseId: purchaseIdToUse,
       purchasedAt: purchasedAtToUse,
@@ -626,6 +674,8 @@ paymentRoutes.get("/my-agents", async (c) => {
         runsThisMonth: stats.runs,
         costThisMonthMicroUsd: stats.costMicroUsd
       },
+      totalExecutions,
+      totalBookings,
       listing: {
         id: listing.id,
         name: listing.name,
@@ -634,12 +684,16 @@ paymentRoutes.get("/my-agents", async (c) => {
         priceCents: listing.priceCents,
         status: listing.status,
         tags: listing.tags,
+        category: listing.category,
+        industryTags: listing.industryTags,
         requiredConnectors: listing.requiredConnectors,
         supportedLlms: listing.supportedLlms,
         workflowId: listing.workflowId,
         createdAt: listing.createdAt,
         workflow: listing.workflow,
-        architect: listing.architect
+        architect: listing.architect,
+        freeTrialEnabled: listing.freeTrialEnabled,
+        trialDays: listing.trialDays
       }
     });
   }

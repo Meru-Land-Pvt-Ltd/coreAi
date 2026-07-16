@@ -585,7 +585,7 @@ export default function BusinessDashboardPage() {
                                 </h2>
                                 {overview?.bookings?.agentName ? (
                                     <p className="mt-0.5 text-xs text-slate-400" data-testid="dashboard-bookings-agent-name">
-                                        Booked by {overview.bookings.agentName} via Google Calendar
+                                        Booked by agents via Google Calendar
                                     </p>
                                 ) : null}
                             </div>
