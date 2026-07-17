@@ -2,15 +2,19 @@
 
 import type { Route } from "next";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { CallRecordingPlayer } from "@/components/common/call-recording-player";
-import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH } from "@/lib/routes";
+import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
+import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
     purchasedAt: string;
     purchaseStatus: string;
+    installedAgentId?: string | null;
+    installedAgentStatus?: string | null;
     stats?: {
         runsThisMonth: number;
         costThisMonthMicroUsd: number;
@@ -111,6 +115,8 @@ type Agent = {
     icon: IconName;
     purchaseStatus: string;
     isActive: boolean;
+    installedAgentId?: string | null;
+    installedAgentStatus?: string | null;
 };
 
 type Activity = {
@@ -329,11 +335,14 @@ function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
         cost: formatUsageCostUsd(costMicroUsd),
         icon: pickAgentIcon(listing.name, listing.tags ?? []),
         purchaseStatus: entry.purchaseStatus,
-        isActive: isActivePurchaseStatus(entry.purchaseStatus)
+        isActive: isActivePurchaseStatus(entry.purchaseStatus),
+        installedAgentId: entry.installedAgentId ?? null,
+        installedAgentStatus: entry.installedAgentStatus ?? null
     };
 }
 
 export default function BusinessDashboardPage() {
+    const router = useRouter();
     const [bellOpen, setBellOpen] = useState(false);
     const [activeAgentMenu, setActiveAgentMenu] = useState<string | null>(null);
     const [chartMetric, setChartMetric] = useState<ChartMetric>("executions");
@@ -456,6 +465,38 @@ export default function BusinessDashboardPage() {
     }, []);
 
     const userFirstName = getFirstName(currentUser);
+
+    function setupAgent(agent: Agent) {
+        router.push(businessSetupPath(agent.listingId));
+    }
+
+    function openAgent(agent: Agent) {
+        router.push(businessAgentDetailPath(agent.listingId));
+    }
+
+    async function togglePause(agent: Agent): Promise<string | null> {
+        if (!agent.installedAgentId) return "This agent has not been deployed yet.";
+
+        const isPaused = (agent.installedAgentStatus ?? "").toUpperCase() === "PAUSED";
+        const response = isPaused
+            ? await resumeInstalledAgent(agent.installedAgentId)
+            : await pauseInstalledAgent(agent.installedAgentId);
+
+        if (!response.success || !response.data) {
+            return response.error ?? "Could not update the agent.";
+        }
+
+        const nextStatus = response.data.status;
+        setAgents((current) =>
+            current.map((item) =>
+                item.installedAgentId === agent.installedAgentId
+                    ? { ...item, installedAgentStatus: nextStatus }
+                    : item
+            )
+        );
+        return null;
+    }
+
     function closeMenus() {
         setBellOpen(false);
         setActiveAgentMenu(null);
@@ -564,6 +605,9 @@ export default function BusinessDashboardPage() {
                                         setActiveAgentMenu(activeAgentMenu === agent.id ? null : agent.id);
                                         setBellOpen(false);
                                     }}
+                                    onSetup={() => setupAgent(agent)}
+                                    onOpen={() => openAgent(agent)}
+                                    onTogglePause={() => togglePause(agent)}
                                 />
                             ))}
                         </div>
@@ -821,12 +865,51 @@ function MetricCard({ metric }: { metric: MetricCard }) {
 function AgentRow({
     agent,
     open,
-    onToggle
+    onToggle,
+    onSetup,
+    onOpen,
+    onTogglePause
 }: {
     agent: Agent;
     open: boolean;
     onToggle: () => void;
+    onSetup: () => void;
+    onOpen: () => void;
+    onTogglePause: () => Promise<string | null>;
 }) {
+    const [pausing, setPausing] = useState(false);
+    const [menuError, setMenuError] = useState("");
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+
+        function onPointerDown(event: MouseEvent) {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                onToggle();
+            }
+        }
+
+        document.addEventListener("mousedown", onPointerDown);
+        return () => document.removeEventListener("mousedown", onPointerDown);
+    }, [open, onToggle]);
+
+    const paused = (agent.installedAgentStatus ?? "").toUpperCase() === "PAUSED";
+    const setupCompleted = Boolean(agent.installedAgentId) &&
+        ((agent.installedAgentStatus ?? "").toUpperCase() === "ACTIVE" || (agent.installedAgentStatus ?? "").toUpperCase() === "PAUSED");
+
+    async function handleTogglePause() {
+        setPausing(true);
+        setMenuError("");
+        const error = await onTogglePause();
+        setPausing(false);
+        if (error) {
+            setMenuError(error);
+            return;
+        }
+        onToggle();
+    }
+
     return (
         <div className="group flex flex-wrap items-center gap-4 px-6 py-5 transition-colors hover:bg-gray-50">
             <span
@@ -865,10 +948,14 @@ function AgentRow({
                 </div>
             </div>
 
-            <div className="relative">
+            <div ref={menuRef} className="relative">
                 <button
                     type="button"
-                    onClick={onToggle}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        setMenuError("");
+                        onToggle();
+                    }}
                     data-testid={`dashboard-agent-menu-${agent.id}`}
                     className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-600"
                     aria-label={`Manage ${agent.name}`}
@@ -879,9 +966,39 @@ function AgentRow({
                 </button>
 
                 {open ? (
-                    <div className="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
-                        <AgentMenuButton icon="pause" label="Pause agent" />
-                        <AgentMenuButton icon="settings" label="Configure" />
+                    <div className="absolute right-0 top-9 z-30 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg" onClick={(event) => event.stopPropagation()}>
+                        <AgentMenuButton
+                            icon="settings"
+                            label={setupCompleted ? "Edit Configuration" : "Continue Setup"}
+                            onClick={() => {
+                                onSetup();
+                                onToggle();
+                            }}
+                        />
+
+                        {setupCompleted ? (
+                            <AgentMenuButton
+                                icon="pause"
+                                label={pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
+                                disabled={pausing}
+                                onClick={handleTogglePause}
+                            />
+                        ) : null}
+
+                        <AgentMenuButton
+                            icon="bot"
+                            label="View details"
+                            onClick={() => {
+                                onOpen();
+                                onToggle();
+                            }}
+                        />
+
+                        {menuError ? (
+                            <p className="px-4 py-2 text-xs font-semibold text-red-600">
+                                {menuError}
+                            </p>
+                        ) : null}
                     </div>
                 ) : null}
             </div>
@@ -892,18 +1009,24 @@ function AgentRow({
 function AgentMenuButton({
     icon,
     label,
-    danger
+    danger,
+    onClick,
+    disabled
 }: {
     icon: IconName;
     label: string;
     danger?: boolean;
+    onClick?: () => void;
+    disabled?: boolean;
 }) {
     return (
         <button
             type="button"
+            onClick={onClick}
+            disabled={disabled}
             data-testid={`dashboard-agent-action-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm transition-colors ${danger ? "text-red-600 hover:bg-red-50" : "text-slate-600 hover:bg-gray-50"
-                }`}
+                } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >
             <Icon name={icon} className={`h-4 w-4 ${danger ? "" : "text-slate-400"}`} />
             {label}

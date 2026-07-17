@@ -1,6 +1,7 @@
 import type { PlatformPhoneNumber } from "@prisma/client";
 import { requiredConnectorsForWorkflow } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import { isProduction } from "../../config/env";
 import {
   PhoneNumberServiceError,
   purchaseNumber,
@@ -339,8 +340,30 @@ export async function autoProvisionPhoneNumber(input: {
   let source: ProvisionedNumber["source"] = "INVENTORY";
 
   if (!platform) {
-    platform = await purchaseAndClaim(links);
-    source = "PURCHASED";
+    try {
+      platform = await purchaseAndClaim(links);
+      source = "PURCHASED";
+    } catch (error) {
+      if (!isProduction) {
+        console.warn("[phone-provision] Twilio purchase failed in dev/test. Creating a mock number instead.", error);
+        const mockPhone = `+1555${Math.floor(1000000 + Math.random() * 9000000)}`;
+        platform = await prisma.platformPhoneNumber.create({
+          data: {
+            phoneNumber: mockPhone,
+            provider: "TWILIO",
+            twilioSid: `PNmock${Math.floor(100000000 + Math.random() * 900000000)}`,
+            status: "ASSIGNED",
+            businessId: input.businessId ?? null,
+            buyerUserId: input.buyerUserId,
+            installedAgentId: input.installedAgentId ?? null,
+            assignedAt: new Date()
+          }
+        });
+        source = "PURCHASED";
+      } else {
+        throw error;
+      }
+    }
   }
 
   if (!platform) {

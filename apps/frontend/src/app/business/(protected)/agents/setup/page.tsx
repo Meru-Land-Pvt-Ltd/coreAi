@@ -26,6 +26,8 @@ import {
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
+  sendPhoneOtp,
+  verifyPhoneOtp,
   type BusinessPreviewCallSession,
   type BusinessEmailAliasData,
   type BusinessFaq,
@@ -57,6 +59,34 @@ const TONES: { value: string; label: string; emoji: string }[] = [
   { value: "friendly", label: "Friendly", emoji: "😊" },
   { value: "professional", label: "Professional", emoji: "👔" },
   { value: "casual", label: "Casual", emoji: "🤙" }
+];
+
+const SERVICE_MAP: Record<string, string[]> = {
+  dental: ["Consultation", "Root canal", "Cleaning", "Whitening", "Braces"],
+  salon: ["Haircut", "Coloring", "Manicure", "Facial", "Massage"],
+  clinic: ["General checkup", "Vaccination", "Lab tests", "Follow-up visit"],
+  restaurant: ["Reservations", "Takeout orders", "Private events"],
+  law: ["Consultation", "Case review", "Document filing"],
+  realestate: ["Property viewing", "Listing inquiry", "Valuation"]
+};
+
+const BUSINESS_TYPE_OPTIONS = [
+  { value: "dental", label: "Dental clinic" },
+  { value: "salon", label: "Salon / spa" },
+  { value: "clinic", label: "Medical clinic" },
+  { value: "restaurant", label: "Restaurant" },
+  { value: "law", label: "Law firm" },
+  { value: "realestate", label: "Real estate" },
+  { value: "other", label: "Other" }
+];
+
+const VOICE_OPTIONS = [
+  { value: "aria", label: "Aria — Warm & friendly · Female" },
+  { value: "miles", label: "Miles — Calm & professional · Male" },
+  { value: "sana", label: "Sana — Bright & upbeat · Female" },
+  { value: "leo", label: "Leo — Confident & warm · Male" },
+  { value: "noor", label: "Noor — Soft & reassuring · Female" },
+  { value: "theo", label: "Theo — Crisp & efficient · Male" }
 ];
 
 // Day rows match the backend AFTER_HOURS parser:
@@ -135,36 +165,175 @@ const PRESET_VOICE_IDS = new Set([
 ]);
 
 const WIZARD_STYLES = `
-.setup-root { --ease: cubic-bezier(.16, 1, .3, 1); }
-.setup-root .field { transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background-color .2s var(--ease); }
-.setup-root .field:focus { border-color: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, .15); }
-.setup-root .btn { transition: transform .15s ease, box-shadow .25s var(--ease), background-color .2s ease, border-color .2s ease, color .2s ease; }
-.setup-root .btn:not(:disabled):hover { transform: translateY(-1px); }
-.setup-root .btn:not(:disabled):active { transform: translateY(0) scale(.99); }
-.setup-root .btn:disabled { opacity: .5; cursor: not-allowed; }
-.setup-root .pick { transition: border-color .2s var(--ease), background-color .2s var(--ease), box-shadow .2s var(--ease); }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+.setup-root {
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus styling */
+.setup-root :focus { outline: none; }
+.setup-root :focus-visible,
+.setup-root a:focus-visible,
+.setup-root button:focus-visible,
+.setup-root input:focus-visible,
+.setup-root select:focus-visible,
+.setup-root textarea:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.setup-root .field {
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background-color .2s var(--ease);
+}
+.setup-root .field:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, .15);
+}
+
+.setup-root .btn {
+  transition: transform .15s ease, box-shadow .25s var(--ease), background-color .2s ease, border-color .2s ease, color .2s ease;
+  will-change: transform;
+}
+.setup-root .btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.setup-root .btn:not(:disabled):active {
+  transform: translateY(0) scale(.99);
+}
+.setup-root .btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  filter: saturate(.6);
+  box-shadow: none !important;
+}
+
+/* Step Indicator */
+.setup-root .progress { display: flex; align-items: center; gap: 0; }
+.setup-root .pstep { display: flex; align-items: center; gap: .55rem; }
+.setup-root .pdot {
+  width: 1.75rem; height: 1.75rem; border-radius: 9999px;
+  display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700;
+  background: #f1f5f9; color: #94a3b8;
+  border: 1.5px solid transparent;
+  transition: background-color .3s var(--ease), color .3s var(--ease), border-color .3s var(--ease), transform .3s var(--ease);
+  flex: none;
+}
+.setup-root .pdot svg { width: 1rem; height: 1rem; }
+.setup-root .plabel { font-size: .85rem; font-weight: 600; color: #94a3b8; transition: color .3s var(--ease); white-space: nowrap; }
+.setup-root .pconn { width: 2.25rem; height: 2px; margin: 0 .5rem; background: #e2e8f0; border-radius: 2px; transition: background-color .4s var(--ease); flex: none; }
+
+.setup-root .pstep.upcoming .pdot { background: #f1f5f9; color: #94a3b8; }
+.setup-root .pstep.upcoming .plabel { color: #94a3b8; }
+
+.setup-root .pstep.active .pdot { background: #f59e0b; color: #fff; border-color: #f59e0b; box-shadow: 0 6px 16px -4px rgba(245, 158, 11, .5); transform: scale(1.06); }
+.setup-root .pstep.active .plabel { color: #b45309; }
+
+.setup-root .pstep.done .pdot { background: #f59e0b; color: #fff; }
+.setup-root .pstep.done .plabel { color: #b45309; }
+
+.setup-root .pstep.skipped .pdot { background: #fff; color: #b45309; border-color: #fcd34d; }
+.setup-root .pstep.skipped .plabel { color: #b45309; }
+
+.setup-root .pconn.filled { background: #f59e0b; }
+.setup-root .pstep.clickable { cursor: pointer; }
+.setup-root .pstep.clickable:hover .pdot { transform: scale(1.06); }
+
+@media (max-width: 640px) {
+  .setup-root .plabel { display: none; }
+  .setup-root .pdot { width: 1.6rem; height: 1.6rem; font-size: .75rem; }
+  .setup-root .pdot svg { width: .9rem; height: .9rem; }
+  .setup-root .pconn { width: .85rem; margin: 0 .2rem; }
+  .setup-root .pstep { gap: 0; }
+}
+@media (max-width: 380px) {
+  .setup-root .logo-text { display: none; }
+  .setup-root .pconn { width: .55rem; margin: 0 .15rem; }
+  .setup-root .pdot { width: 1.5rem; height: 1.5rem; }
+}
+
+/* Phone validation valid state */
+.setup-root .phone-wrap { transition: border-color .25s var(--ease), box-shadow .25s var(--ease); }
+.setup-root .phone-wrap.is-valid { border-color: #22c55e !important; box-shadow: 0 0 0 4px rgba(34, 197, 94, .12); }
+.setup-root .phone-check { opacity: 0; transform: scale(.6); transition: opacity .25s var(--ease), transform .35s var(--ease); }
+.setup-root .phone-wrap.is-valid .phone-check { opacity: 1; transform: scale(1); }
+
+/* OTP */
+.setup-root .otp-box {
+  width: 3rem; height: 3.5rem; text-align: center;
+  font-size: 1.35rem; font-weight: 600; font-family: 'Inter', monospace;
+  border: 1.5px solid #e2e8f0; border-radius: .75rem; background: #fff; color: #0f172a;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease), transform .25s var(--ease), background-color .2s var(--ease);
+  caret-color: #f59e0b;
+}
+.setup-root .otp-box:focus { border-color: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, .15); }
+.setup-root .otp-box.filled { border-color: #f59e0b; background: #fffbeb; transform: translateY(-1px); }
+@media (max-width: 380px) { .setup-root .otp-box { width: 2.5rem; height: 3rem; font-size: 1.15rem; } }
+
+/* Pick cards */
+.setup-root .pick { transition: border-color .2s var(--ease), background-color .2s var(--ease), box-shadow .2s var(--ease), transform .2s var(--ease); cursor: pointer; }
 .setup-root .pick:hover { border-color: #fcd34d; }
-.setup-root .pick.selected { border-color: #f59e0b; background: #fffbeb; box-shadow: 0 0 0 4px rgba(245, 158, 11, .12); }
-.setup-root .animate-in { animation: setupIn .35s var(--ease); }
-@keyframes setupIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-.setup-root .pop-in { animation: setupPop .4s var(--ease); }
-@keyframes setupPop { 0% { opacity: 0; transform: scale(.6); } 60% { transform: scale(1.08); } 100% { opacity: 1; transform: scale(1); } }
-.setup-root .stagger > * { opacity: 0; transform: translateY(12px); animation: setupIn .55s var(--ease) forwards; }
-.setup-root .stagger > *:nth-child(1) { animation-delay: .1s; }
-.setup-root .stagger > *:nth-child(2) { animation-delay: .22s; }
-.setup-root .stagger > *:nth-child(3) { animation-delay: .34s; }
+.setup-root .pick.selected { border-color: #f59e0b; background: #fffbeb; box-shadow: 0 0 0 3px rgba(245, 158, 11, .18); }
+.setup-root .pick .tick { opacity: 0; transform: scale(.5); transition: opacity .2s var(--ease), transform .3s var(--ease); }
+.setup-root .pick.selected .tick { opacity: 1; transform: scale(1); }
+
+/* Day checkboxes */
+.setup-root .day { transition: background-color .15s ease, color .15s ease, border-color .15s ease, transform .12s ease; cursor: pointer; user-select: none; }
+.setup-root .day:active { transform: scale(.94); }
+.setup-root .day.on { background: #f59e0b; color: #fff; border-color: #f59e0b; }
+
+/* Status simulation feed */
+.setup-root .feed-item { opacity: 0; transform: translateY(8px); transition: opacity .45s var(--ease), transform .45s var(--ease); }
+.setup-root .feed-item.show { opacity: 1; transform: none; }
+
+.setup-root .dot-pulse { position: relative; }
+.setup-root .dot-pulse::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 9999px;
+  background: currentColor; opacity: .35; animation: ping 1.4s var(--ease) infinite;
+}
+@keyframes ping { 0% { transform: scale(.8); opacity: .5; } 80%, 100% { transform: scale(2.1); opacity: 0; } }
+
+.setup-root .spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.setup-root .bubble { position: relative; }
+.setup-root .phone-frame { border: 8px solid #0f172a; border-radius: 2rem; background: #f8fafc; }
+.setup-root .sms-ring { box-shadow: 0 0 0 3px rgba(34, 197, 94, .45), 0 18px 40px -16px rgba(0,0,0,.25); }
+
+/* Celebration */
+.setup-root .check-pop { animation: pop .6s var(--ease) both; }
+@keyframes pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+.setup-root .draw { stroke-dasharray: 48; stroke-dashoffset: 48; animation: draw .5s .25s var(--ease) forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+.setup-root .animate-in { animation: fadeUp .5s var(--ease) both; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+.setup-root .stagger > * { opacity: 0; transform: translateY(12px); animation: fadeUp .55s var(--ease) forwards; }
+.setup-root .stagger > *:nth-child(1) { animation-delay: .15s; }
+.setup-root .stagger > *:nth-child(2) { animation-delay: .28s; }
+.setup-root .stagger > *:nth-child(3) { animation-delay: .41s; }
+.setup-root .stagger > *:nth-child(4) { animation-delay: .54s; }
+
 .setup-root .confetti-piece { position: fixed; top: -12px; z-index: 60; border-radius: 2px; pointer-events: none; animation-name: setupConfetti; animation-timing-function: linear; animation-fill-mode: forwards; }
 @keyframes setupConfetti { to { transform: translateY(105vh) rotate(540deg); opacity: .15; } }
 .setup-root .toast-in { animation: setupToast .35s var(--ease); }
 @keyframes setupToast { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .setup-root .animate-in, .setup-root .pop-in, .setup-root .stagger > *, .setup-root .confetti-piece, .setup-root .toast-in { animation: none; }
+  .setup-root .animate-in, .setup-root .check-pop, .setup-root .draw, .setup-root .stagger > *, .setup-root .dot-pulse::after, .setup-root .spin, .setup-root .confetti-piece, .setup-root .toast-in { animation: none !important; }
+  .setup-root .draw { stroke-dashoffset: 0; }
   .setup-root .stagger > * { opacity: 1; transform: none; }
+  .setup-root .btn:hover, .setup-root .btn:active { transform: none !important; }
 }
 `;
 
 const FIELD =
-  "field w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none";
+  "field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 placeholder-slate-400 focus:outline-none";
 const LABEL = "mb-1.5 block text-sm font-semibold text-slate-700";
 const CARD = "animate-in rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8";
 const H2 = "text-lg font-bold text-slate-900";
@@ -203,6 +372,123 @@ function parseLines(value: string): string[] {
     .split(/[\n,]/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function fmtPhone(s: string): string {
+  const d = s.replace(/\D/g, "").slice(0, 10);
+  if (d.length > 6) return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6);
+  if (d.length > 3) return "(" + d.slice(0, 3) + ") " + d.slice(3);
+  if (d.length > 0) return "(" + d;
+  return "";
+}
+
+function ConfettiCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const resize = () => {
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const colors = ["#f59e0b", "#fbbf24", "#f97316", "#fcd34d", "#fb923c", "#22c55e"];
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight * 0.32;
+    const N = 60;
+    const parts: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      g: number;
+      w: number;
+      h: number;
+      rot: number;
+      vr: number;
+      color: string;
+      life: number;
+      ttl: number;
+    }> = [];
+
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 5 + Math.random() * 9;
+      parts.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 7,
+        g: 0.2 + Math.random() * 0.12,
+        w: 6 + Math.random() * 7,
+        h: 8 + Math.random() * 8,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.34,
+        color: colors[i % colors.length],
+        life: 0,
+        ttl: 150 + Math.random() * 50
+      });
+    }
+
+    let raf: number;
+    const tick = () => {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      let alive = false;
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
+        if (p.life > p.ttl) continue;
+        alive = true;
+        p.life++;
+        p.vy += p.g;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.99;
+        p.rot += p.vr;
+        const o = Math.max(0, 1 - p.life / p.ttl);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.globalAlpha = o;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (alive) {
+        raf = requestAnimationFrame(tick);
+      }
+    };
+
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100vw",
+        height: "100vh",
+        pointerEvents: "none",
+        zIndex: 100
+      }}
+      aria-hidden="true"
+    />
+  );
 }
 
 function normalizeVoiceChoice(value?: string | null): string {
@@ -312,6 +598,7 @@ function SetupWizard() {
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
 
   const [businessName, setBusinessName] = useState("");
+  const [listing, setListing] = useState<any>(null);
   const [businessType, setBusinessType] = useState("");
   const [contactName, setContactName] = useState("");
   const [servicesText, setServicesText] = useState("");
@@ -340,6 +627,16 @@ function SetupWizard() {
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
+
+  // Phone Verification States
+  const [existingPhoneNumber, setExistingPhoneNumber] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(""));
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const [assistantName, setAssistantName] = useState(DEFAULT_ASSISTANT_NAME);
   const [voiceChoice, setVoiceChoice] = useState(PLATFORM_DEFAULT_VOICE_ID);
@@ -374,6 +671,68 @@ function SetupWizard() {
       return [...current, { key, label, value }];
     });
   }, []);
+
+  // Cooldown effect for Resend code
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  // Send OTP handler
+  const handleSendOtp = useCallback(async () => {
+    if (!existingPhoneNumber || existingPhoneNumber.trim().length < 5) {
+      setError("Please enter a valid business phone number.");
+      return;
+    }
+    setError("");
+    setIsSendingOtp(true);
+    try {
+      const res = await sendPhoneOtp(listingId, existingPhoneNumber);
+      if (res.success && res.data) {
+        setOtpSent(true);
+        setOtpDigits(Array(6).fill(""));
+        setResendCooldown(60);
+        if (res.data.devCode) {
+          setDevOtpCode(res.data.devCode);
+        } else {
+          setDevOtpCode(null);
+        }
+        setStatusMsg(res.data.sent ? "Verification code sent!" : "Verification code generated.");
+      } else {
+        setError(res.error ?? "Failed to send verification code.");
+      }
+    } catch (err) {
+      setError("Failed to send verification code. Please try again.");
+    } finally {
+      setIsSendingOtp(false);
+    }
+  }, [listingId, existingPhoneNumber, setError, setStatusMsg]);
+
+  // Verify OTP handler
+  const handleVerifyOtp = useCallback(async (code: string) => {
+    if (!code || code.length !== 6) return;
+    setError("");
+    setIsVerifyingOtp(true);
+    try {
+      const res = await verifyPhoneOtp(listingId, existingPhoneNumber, code);
+      if (res.success && res.data) {
+        setPhoneVerified(true);
+        setAssignedNumber(res.data.platformNumber);
+        setSelectedPhoneId(res.data.platformPhoneNumberId);
+        setForwardToPhone(existingPhoneNumber); // Keep forwarding to the verified number
+        setStatusMsg("Number verified successfully!");
+      } else {
+        setError(res.error ?? "Verification failed. Please check the code.");
+      }
+    } catch (err) {
+      setError("Verification failed. Please try again.");
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  }, [listingId, existingPhoneNumber, setError, setStatusMsg]);
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
@@ -455,6 +814,10 @@ function SetupWizard() {
       if (data.phoneNumber) {
         setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
         setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
+        if (data.phoneNumber.phoneNumber) {
+          setPhoneVerified(true);
+          setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
+        }
       }
 
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
@@ -504,6 +867,7 @@ function SetupWizard() {
         const listingRes = await getMarketplaceListing(listingId);
 
         if (listingRes.success && listingRes.data?.listing) {
+          setListing(listingRes.data.listing);
           if (!data.installedAgent) {
             keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
           }
@@ -526,21 +890,18 @@ function SetupWizard() {
           setStep(savedStep);
         } else {
           // Dynamic resumption: evaluate which step is incomplete based on loaded data
-          const bName = data.business?.name || "";
-          const bType = data.business?.type || "";
-
-          // Step 1 check
-          const setupIssues = validateBuyerSetupAnswers(loadedBuyerSetupFields, data.customFields || [], { requireMissing: true });
-          const step1Ok = bName.trim().length >= 2 && bType.trim().length >= 2 && setupIssues.length === 0;
+          const hasPhone = Boolean(data.selectedPlatformPhoneNumberId || data.phoneNumber?.phoneNumber);
+          const routingMode = data.answeringMode || "AI_FIRST";
+          const fwPhone = data.phoneNumber?.forwardToPhone || "";
+          const step1Ok = hasPhone && (routingMode === "AI_FIRST" || fwPhone.trim().length >= 5);
 
           if (!step1Ok) {
             setStep(1);
           } else {
-            // Step 2 check
-            const hasPhone = Boolean(data.selectedPlatformPhoneNumberId || data.phoneNumber?.phoneNumber);
-            const routingMode = data.answeringMode || "AI_FIRST";
-            const fwPhone = data.phoneNumber?.forwardToPhone || "";
-            const step2Ok = hasPhone && (routingMode === "AI_FIRST" || fwPhone.trim().length >= 5);
+            const bName = data.business?.name || "";
+            const bType = data.business?.type || "";
+            const setupIssues = validateBuyerSetupAnswers(loadedBuyerSetupFields, data.customFields || [], { requireMissing: true });
+            const step2Ok = bName.trim().length >= 2 && bType.trim().length >= 2 && setupIssues.length === 0;
 
             if (!step2Ok) {
               setStep(2);
@@ -768,6 +1129,11 @@ function SetupWizard() {
 
   async function goNext() {
     setError("");
+
+    if (step === 1 && !phoneVerified) {
+      setError("Please verify your business phone number first.");
+      return;
+    }
 
     if (step < STEPS.length && canPersist) {
       setSaving(true);
@@ -1043,116 +1409,101 @@ const connectorsKnown = requiredKeys.length > 0;
 
   if (deployed) {
     return (
-      <div className="setup-root">
+      <div className="setup-root min-h-screen bg-white">
         <style>{WIZARD_STYLES}</style>
 
-        {confetti.map((piece) => (
-          <span
-            key={piece.id}
-            aria-hidden="true"
-            className="confetti-piece"
-            style={{
-              left: piece.left,
-              width: piece.size,
-              height: piece.size * 0.6,
-              background: piece.color,
-              animationDelay: piece.delay,
-              animationDuration: piece.duration
-            }}
-          />
-        ))}
+        <ConfettiCanvas />
 
-        <div className="mx-auto max-w-2xl px-4 py-8">
-          <div data-testid="business-setup-success" className={CARD}>
-            <div className="pop-in grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-green-500 text-2xl text-white shadow-lg shadow-amber-500/30">
-              ✓
+        <div className="mx-auto max-w-lg px-5 py-12 text-center">
+          <div data-testid="business-setup-success">
+            {/* Pop-in Checkmark circle */}
+            <div className="check-pop w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-green-500 grid place-items-center shadow-xl shadow-amber-500/30">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10">
+                <polyline className="draw" points="20 6 9 17 4 12"></polyline>
+              </svg>
             </div>
 
             <div className="stagger">
-            <span
-              data-testid="business-setup-success-badge"
-              className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700"
-            >
-              Agent deployed
-            </span>
+              <div>
+                <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
+                  Your agent is live 🎉
+                </h2>
+                <p className="text-lg text-slate-600 mt-3">
+                  Missed Call Text-Back is now protecting your practice 24/7. Every missed call gets an instant response.
+                </p>
+              </div>
 
-            <h2 className="mt-3 text-2xl font-bold text-slate-900" data-testid="business-setup-success-title">
-              Your AI agent is live 🎉
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-500">
-              Your business owns this live setup. Architects only designed the reusable template.
-            </p>
-            </div>
-
-            {showPhone ? (
-            <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 p-5" data-testid="business-setup-assigned-number">
-              <p className="text-sm text-slate-500">Your Triven phone number</p>
-
-              <p
-                className="mt-1 font-mono text-3xl font-bold tracking-tight text-slate-900"
-                data-testid="business-setup-assigned-number-value"
+              {/* Stats card */}
+              <div
+                className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-7 sm:p-8 mt-8 border border-amber-100 text-left"
+                data-testid="business-setup-success-capabilities"
               >
-                {successNumber || assignedNumber || "Pending"}
-              </p>
-            </div>
-            ) : null}
-
-            <div
-              className="mt-6 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 p-5"
-              data-testid="business-setup-success-capabilities"
-            >
-              <p className="text-sm font-semibold text-slate-700">Your agent is ready to:</p>
-
-              <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                {showPhone ? (
-                  <li className="flex items-center gap-2.5">
-                    <span className="text-green-500">✓</span>
-                    Answer calls on <strong className="font-mono">{successNumber || assignedNumber || "your Triven number"}</strong>
+                <p className="text-sm font-semibold text-slate-700 mb-4">Your agent is ready to:</p>
+                <ul className="space-y-3">
+                  {showPhone ? (
+                    <li className="flex items-center gap-3 text-sm text-slate-700">
+                      <span className="text-green-500 shrink-0">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      </span>
+                      <span>
+                        Detect missed calls on <strong className="font-semibold text-slate-900 font-mono">{successNumber || assignedNumber || "your Triven number"}</strong>
+                      </span>
+                    </li>
+                  ) : null}
+                  <li className="flex items-center gap-3 text-sm text-slate-700">
+                    <span className="text-green-500 shrink-0">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </span>
+                    <span>Send personalized texts within 30 seconds</span>
                   </li>
-                ) : null}
-                {needsSms ? (
-                  <li className="flex items-center gap-2.5">
-                    <span className="text-green-500">✓</span>
-                    Text customers confirmation SMS from Triven
+                  <li className="flex items-center gap-3 text-sm text-slate-700">
+                    <span className="text-green-500 shrink-0">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </span>
+                    <span>Help patients book appointments automatically</span>
                   </li>
-                ) : null}
-                {needsCalendar ? (
-                  <li className="flex items-center gap-2.5">
-                    <span className="text-green-500">✓</span>
-                    Book appointments in your Google Calendar
-                  </li>
-                ) : null}
-                {needsMail ? (
-                  <li className="flex items-center gap-2.5">
-                    <span className="text-green-500">✓</span>
-                    Email confirmations and call summaries
-                  </li>
-                ) : null}
-                <li className="flex items-center gap-2.5">
-                  <span className="text-green-500">✓</span>
-                  Answer customer questions using your business details
-                </li>
-              </ul>
-            </div>
+                </ul>
+              </div>
 
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                data-testid="business-setup-go-dashboard"
-                type="button"
-                onClick={() => router.push(DASHBOARD_ROUTE)}
-                className="btn rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white hover:bg-amber-600"
-              >
-                Go to Dashboard
-              </button>
+              {/* Action Buttons */}
+              <div className="mt-8 flex flex-col gap-3 items-center">
+                <button
+                  data-testid="business-setup-go-dashboard"
+                  type="button"
+                  onClick={() => router.push(DASHBOARD_ROUTE)}
+                  className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold shadow-lg shadow-amber-500/30 hover:bg-amber-600 w-full max-w-xs"
+                >
+                  Go to dashboard
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setDeployed(false)}
-                className="btn rounded-full border border-gray-200 px-5 py-3 text-sm font-semibold text-slate-600 hover:border-gray-300"
-              >
-                Edit setup
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setDeployed(false)}
+                  className="btn border border-gray-200 rounded-xl px-8 py-3.5 text-slate-600 font-semibold hover:border-amber-300 hover:text-slate-800 bg-white w-full max-w-xs"
+                >
+                  Edit setup
+                </button>
+              </div>
+
+              {/* Pro tip */}
+              <div className="mt-8 bg-blue-50 rounded-xl p-4 border border-blue-100 text-left max-w-sm mx-auto flex items-start gap-3">
+                <span className="text-blue-500 shrink-0 mt-0.5">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                    <path d="M9 18h6M10 22h4"/>
+                    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>
+                  </svg>
+                </span>
+                <p className="text-sm text-blue-900">
+                  <span className="font-semibold">Pro tip:</span> most practices see their first recovered appointment within 48 hours.
+                </p>
+              </div>
+
             </div>
           </div>
         </div>
@@ -1161,113 +1512,121 @@ const connectorsKnown = requiredKeys.length > 0;
   }
 
   return (
-    <div className="setup-root" data-testid="business-setup-wizard">
+    <div className="setup-root bg-gray-50 min-h-screen pb-12" data-testid="business-setup-wizard">
       <style>{WIZARD_STYLES}</style>
 
-      <div className="sticky top-0 z-20 border-b border-gray-100 bg-gray-50/90 px-4 py-3.5 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
-          <div className="shrink-0">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-500">
-              Step {step} of {STEPS.length}
-            </p>
+      <header className="bg-white border-b border-gray-100 py-4 px-4 sm:px-8 sticky top-0 z-30">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+         <div className="flex items-center gap-3 sm:gap-4"></div>
 
-            <h1 className="text-base font-black text-slate-900" data-testid="business-setup-step-title">
-              {STEPS[step - 1].title}
-            </h1>
-          </div>
-
-          <nav className="flex items-center" aria-label="Setup progress" data-testid="business-setup-progress-dots">
+          {/* Step indicator */}
+          <nav className="progress" aria-label="Setup progress" data-testid="business-setup-progress-dots">
             {STEPS.map((entry, index) => {
               const active = entry.id === step;
               const done = stepDone[entry.id];
+              const upcoming = step < entry.id && !done;
+              const clickable = phoneVerified || entry.id === 1;
 
               return (
                 <div key={entry.id} className="flex items-center">
                   {index > 0 ? (
                     <span
                       aria-hidden="true"
-                      className={`mx-1.5 h-0.5 w-3 rounded-full transition-colors duration-300 sm:mx-2 sm:w-6 ${
-                        stepDone[STEPS[index - 1].id] ? "bg-amber-500" : "bg-gray-200"
-                      }`}
+                      className={`pconn ${stepDone[STEPS[index - 1].id] ? "filled" : ""}`}
                     />
                   ) : null}
 
                   <button
                     type="button"
-                    onClick={() => setStep(entry.id)}
+                    onClick={() => {
+                      if (!phoneVerified && entry.id > 1) {
+                        setError("Please verify your business phone number first.");
+                        return;
+                      }
+                      setError("");
+                      setStep(entry.id);
+                    }}
                     aria-label={`Go to step ${entry.id}: ${entry.title}`}
                     aria-current={active ? "step" : undefined}
                     data-testid={`business-setup-dot-${entry.id}`}
-                    className="group flex items-center gap-1.5"
+                    className={`pstep group ${active ? "active" : ""} ${done ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""}`}
                   >
-                    <span
-                      className={`grid h-7 w-7 place-items-center rounded-full text-xs font-bold transition-all duration-300 group-hover:scale-105 ${
-                        active
-                          ? "scale-105 bg-amber-500 text-white shadow-md shadow-amber-500/40"
-                          : done
-                            ? "bg-amber-500 text-white"
-                            : "bg-gray-100 text-slate-400"
-                      }`}
-                    >
-                      {done ? "✓" : entry.id}
+                    <span className="pdot" data-dot="true">
+                      {done ? (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : (
+                        entry.id
+                      )}
                     </span>
-
-                    <span
-                      className={`hidden text-xs font-semibold lg:block ${
-                        active || done ? "text-amber-700" : "text-slate-400"
-                      }`}
-                    >
-                      {entry.title}
-                    </span>
+                    <span className="plabel">{entry.title}</span>
                   </button>
                 </div>
               );
             })}
           </nav>
 
-          <a
-            href="mailto:support@triven.ai"
-            className="hidden shrink-0 text-xs font-semibold text-amber-600 hover:text-amber-700 sm:block"
-            data-testid="business-setup-help"
-          >
-            Need help?
-          </a>
+          {/* Right */}
+          <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+            <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              ~3 min setup
+            </span>
+          </div>
         </div>
-      </div>
+      </header>
 
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        {step === 1 ? (
-          <StepConnect
-            title={connectTitle}
-            showPhone={showPhone}
-            showCalendar={showCalendar}
-            showSmsNote={showSmsNote}
-            showMail={showMail}
-            businessName={businessName}
-            onMailAliasChange={setMailAlias}
-            phoneNumbers={phoneNumbers}
-            selectedPhoneId={selectedPhoneId}
-            assignedNumber={assignedNumber}
-            forwardToPhone={forwardToPhone}
-            teamPhone={teamPhone}
-            answeringMode={answeringMode}
-            calendar={calendar}
-            calendarBusy={calendarBusy}
-            calendarId={calendarId}
-            timeZone={timeZone}
-            onSelectPhone={setSelectedPhoneId}
-            onForward={setForwardToPhone}
-            onTeamPhone={setTeamPhone}
-            onAnsweringMode={setAnsweringMode}
-            onConnectCalendar={handleConnectCalendar}
-            onDisconnectCalendar={handleDisconnectCalendar}
-            onCalendarId={setCalendarId}
-            onTimeZone={setTimeZone}
-          />
-        ) : null}
+      <div className="mx-auto max-w-2xl px-5 sm:px-6 py-10 sm:py-12">
+        <div className={CARD}>
+          {step === 1 ? (
+            <StepConnect
+              title={connectTitle}
+              showPhone={showPhone}
+              showCalendar={showCalendar}
+              showSmsNote={showSmsNote}
+              showMail={showMail}
+              businessName={businessName}
+              onMailAliasChange={setMailAlias}
+              phoneNumbers={phoneNumbers}
+              selectedPhoneId={selectedPhoneId}
+              assignedNumber={assignedNumber}
+              forwardToPhone={forwardToPhone}
+              teamPhone={teamPhone}
+              answeringMode={answeringMode}
+              calendar={calendar}
+              calendarBusy={calendarBusy}
+              calendarId={calendarId}
+              timeZone={timeZone}
+              onSelectPhone={setSelectedPhoneId}
+              onForward={setForwardToPhone}
+              onTeamPhone={setTeamPhone}
+              onAnsweringMode={setAnsweringMode}
+              onConnectCalendar={handleConnectCalendar}
+              onDisconnectCalendar={handleDisconnectCalendar}
+              onCalendarId={setCalendarId}
+              onTimeZone={setTimeZone}
+              existingPhoneNumber={existingPhoneNumber}
+              onExistingPhoneNumberChange={setExistingPhoneNumber}
+              otpSent={otpSent}
+              onOtpSentChange={setOtpSent}
+              onSendOtp={handleSendOtp}
+              otpDigits={otpDigits}
+              onOtpDigitsChange={setOtpDigits}
+              isSendingOtp={isSendingOtp}
+              isVerifyingOtp={isVerifyingOtp}
+              phoneVerified={phoneVerified}
+              onVerifyOtp={handleVerifyOtp}
+              devOtpCode={devOtpCode}
+              resendCooldown={resendCooldown}
+              setPhoneVerified={setPhoneVerified}
+            />
+          ) : null}
 
-        {step === 2 ? (
-          <div className="space-y-6">
+          {step === 2 ? (
             <StepBusiness
               businessName={businessName}
               businessType={businessType}
@@ -1283,6 +1642,10 @@ const connectorsKnown = requiredKeys.length > 0;
               hoursStart={hoursStart}
               hoursEnd={hoursEnd}
               hoursDays={hoursDays}
+              assistantName={assistantName}
+              voiceChoice={voiceChoice}
+              customVoiceId={customVoiceId}
+              showVoice={showVoice}
               onBusinessName={setBusinessName}
               onBusinessType={setBusinessType}
               onContactName={setContactName}
@@ -1323,101 +1686,98 @@ const connectorsKnown = requiredKeys.length > 0;
               onAssistantName={setAssistantName}
               onVoiceChoice={setVoiceChoice}
               onCustomVoiceId={setCustomVoiceId}
-              onCustomInstructions={setCustomInstructions}
-              onSilenceCount={setSilenceRepromptCount}
-              onSilence1={setSilenceMessage1}
-              onSilence2={setSilenceMessage2}
-              onGoodbye={setGoodbyeMessage}
             />
-          </div>
-        ) : null}
+          ) : null}
 
-        {step === 3 ? (
-          <StepTest
-            showPreview={showVoice}
-            showCallTest={showPhone}
-            deployedLive={Boolean(liveVapiAssistantId)}
-            assignedNumber={assignedNumber}
-            businessName={businessName}
-            tone={tone}
-            testing={testing}
-            testResult={testResult}
-            onTestCallRouting={handleTestCallRouting}
-          />
-        ) : null}
+          {step === 3 ? (
+            <StepTest
+              showPreview={showVoice}
+              showCallTest={showPhone}
+              deployedLive={Boolean(liveVapiAssistantId)}
+              assignedNumber={assignedNumber}
+              businessName={businessName}
+              tone={tone}
+              testing={testing}
+              testResult={testResult}
+              onTestCallRouting={handleTestCallRouting}
+              answeringMode={answeringMode}
+              listing={listing}
+            />
+          ) : null}
 
-        {step === 4 ? (
-          <StepGoLive
-            checklist={checklist}
-            blockers={blockers}
-            readyToDeploy={readyToDeploy}
-            assignedNumber={assignedNumber}
-          />
-        ) : null}
+          {step === 4 ? (
+            <StepGoLive
+              checklist={checklist}
+              blockers={blockers}
+              readyToDeploy={readyToDeploy}
+              assignedNumber={assignedNumber}
+            />
+          ) : null}
 
-        {error ? (
-          <p data-testid="business-setup-error" role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
-          </p>
-        ) : null}
+          {error ? (
+            <p data-testid="business-setup-error" role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
+              {error}
+            </p>
+          ) : null}
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              disabled={step === 1 || saving}
-              onClick={() => setStep((current) => Math.max(1, current - 1))}
-              data-testid="business-setup-back"
-              className="btn rounded-full border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600"
-            >
-              Back
-            </button>
-
-            {step < STEPS.length ? (
+          <div className="mt-8 flex items-center justify-between gap-3 pt-6 border-t border-gray-100">
+            <div className="flex items-center gap-4">
               <button
                 type="button"
-                onClick={() => setStep((current) => Math.min(current + 1, STEPS.length))}
+                disabled={step === 1 || saving}
+                onClick={() => setStep((current) => Math.max(1, current - 1))}
+                data-testid="business-setup-back"
+                className="btn border border-gray-200 text-slate-600 px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                Back
+              </button>
+
+              {step < STEPS.length ? (
+                <button
+                  type="button"
+                  onClick={() => setStep((current) => Math.min(current + 1, STEPS.length))}
+                  disabled={saving}
+                  data-testid="business-setup-skip"
+                  className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
+                >
+                  Skip for now
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={handleSaveProgress}
                 disabled={saving}
-                data-testid="business-setup-skip"
-                className="text-xs font-medium text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                data-testid="business-setup-save"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-700 underline transition-colors disabled:opacity-50"
               >
-                Skip for now
+                {saving ? "Saving…" : "Save progress"}
               </button>
-            ) : null}
-          </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={handleSaveProgress}
-              disabled={saving}
-              data-testid="business-setup-save"
-              className="text-xs font-semibold text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save progress"}
-            </button>
-
-            {step < STEPS.length ? (
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={saving}
-                data-testid="business-setup-next"
-                className="btn rounded-full bg-amber-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-              >
-                Continue
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleDeploy}
-                disabled={saving || !readyToDeploy}
-                data-testid="business-setup-submit"
-                className="btn rounded-full bg-amber-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-              >
-                {saving ? "Deploying…" : "Deploy live agent"}
-              </button>
-            )}
+              {step < STEPS.length ? (
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={saving}
+                  data-testid="business-setup-next"
+                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20"
+                >
+                  Continue
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDeploy}
+                  disabled={saving || !readyToDeploy}
+                  data-testid="business-setup-submit"
+                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20"
+                >
+                  {saving ? "Deploying…" : "Deploy live agent"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1463,7 +1823,6 @@ function ChecklistSummary({ checklist }: { checklist: ChecklistRow[] }) {
     </div>
   );
 }
-
 /* --------------------- Configure step: business card --------------------- */
 
 function StepBusiness({
@@ -1481,6 +1840,9 @@ function StepBusiness({
   hoursStart,
   hoursEnd,
   hoursDays,
+  assistantName,
+  voiceChoice,
+  customVoiceId,
   onBusinessName,
   onBusinessType,
   onContactName,
@@ -1491,7 +1853,11 @@ function StepBusiness({
   onHoursMode,
   onHoursStart,
   onHoursEnd,
-  onToggleDay
+  onToggleDay,
+  onAssistantName,
+  onVoiceChoice,
+  onCustomVoiceId,
+  showVoice
 }: {
   businessName: string;
   businessType: string;
@@ -1507,6 +1873,9 @@ function StepBusiness({
   hoursStart: string;
   hoursEnd: string;
   hoursDays: Record<string, boolean>;
+  assistantName: string;
+  voiceChoice: string;
+  customVoiceId: string;
   onBusinessName: (v: string) => void;
   onBusinessType: (v: string) => void;
   onContactName: (v: string) => void;
@@ -1518,142 +1887,411 @@ function StepBusiness({
   onHoursStart: (v: string) => void;
   onHoursEnd: (v: string) => void;
   onToggleDay: (day: string) => void;
+  onAssistantName: (v: string) => void;
+  onVoiceChoice: (v: string) => void;
+  onCustomVoiceId: (v: string) => void;
+  showVoice: boolean;
 }) {
+  const [selectedServices, setSelectedServices] = useState<string[]>(() =>
+    servicesText
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+  const [customServiceInput, setCustomServiceInput] = useState("");
+  const [voicePlaying, setVoicePlaying] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync selected services → servicesText state
+  useEffect(() => {
+    onServices(selectedServices.join("\n"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedServices]);
+
+  // Derive service suggestions from businessType
+  const typeKey = Object.keys(SERVICE_MAP).find(
+    (key) => businessType.toLowerCase().includes(key)
+  ) ?? "";
+  const suggestions = (SERVICE_MAP[typeKey] ?? []).filter((s) => !selectedServices.includes(s));
+
+  function addService(s: string) {
+    if (!s.trim() || selectedServices.includes(s.trim())) return;
+    setSelectedServices((prev) => [...prev, s.trim()]);
+  }
+
+  function removeService(idx: number) {
+    setSelectedServices((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function handleVoicePlay() {
+    if (voicePlaying) return;
+    setVoicePlaying(true);
+    setTimeout(() => setVoicePlaying(false), 1800);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+    setUploadedFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name));
+      return [...prev, ...picked.filter((f) => !existing.has(f.name))];
+    });
+    // Reset input so the same file can be re-selected after removal
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleRemoveFile(idx: number) {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const businessInitials = (name: string): string => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    const initials = parts
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("");
+    return initials || "AI";
+  };
+
+  const textBackMessage = buildTextBackMessage(businessName, tone);
+
   return (
-    <div className={CARD}>
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-violet-50 text-violet-600" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+    <div className="space-y-6">
+      {/* Icon */}
+      <div className="w-14 h-14 bg-violet-50 rounded-2xl grid place-items-center text-violet-600 mb-5" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
           <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" />
           <path d="M5 3v4M19 17v4M3 5h4M17 19h4" />
         </svg>
       </div>
 
-      <h2 className="mt-4 text-xl font-bold tracking-tight text-slate-900">Configure your agent</h2>
-      <p className={SUB}>Tell us about your business so the agent answers and books accurately. You can change any of this later.</p>
-
-      <span className="mt-2 inline-flex items-center gap-1 text-xs text-slate-400">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Set up your agent</h2>
+      <p className="text-slate-500 text-base mt-2 max-w-md">Tell us about your business, pick a voice, and give your agent what it needs to know.</p>
+      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
           <circle cx="12" cy="12" r="10" />
           <polyline points="12 6 12 12 16 14" />
         </svg>
         ~2 minutes
       </span>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={LABEL} htmlFor="business-name">
-            Business name
-          </label>
-          <input
-            data-testid="business-setup-input-name"
-            id="business-name"
-            value={businessName}
-            onChange={(e) => onBusinessName(e.target.value)}
-            placeholder="Bright Smile Dental, Prime HVAC, Nova Salon…"
-            className={FIELD}
-          />
+      {/* Business details */}
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold text-slate-800 mb-4">Business details</h3>
+        <div className="grid sm:grid-cols-2 gap-5">
+          <div>
+            <label htmlFor="biz-contact-name" className="block text-sm font-medium text-slate-700 mb-2">
+              Your name <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            <input
+              id="biz-contact-name"
+              data-testid="business-setup-input-contact"
+              type="text"
+              value={contactName}
+              onChange={(e) => onContactName(e.target.value)}
+              placeholder="Dr. Khushi Kumari"
+              className={FIELD}
+            />
+          </div>
+          <div>
+            <label htmlFor="biz-name" className="block text-sm font-medium text-slate-700 mb-2">
+              Business name
+            </label>
+            <div className="relative">
+              <input
+                id="biz-name"
+                data-testid="business-setup-input-name"
+                type="text"
+                value={businessName}
+                onChange={(e) => onBusinessName(e.target.value)}
+                placeholder="Central Perk Hospital"
+                className={`${FIELD} pr-12`}
+              />
+              {businessName.trim() && (
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div>
-          <label className={LABEL} htmlFor="business-type">
-            Business type / industry
-          </label>
-          <input
+        <div className="mt-5">
+          <label htmlFor="biz-type" className="block text-sm font-medium text-slate-700 mb-2">Business type</label>
+          <select
+            id="biz-type"
             data-testid="business-setup-input-type"
-            id="business-type"
             value={businessType}
             onChange={(e) => onBusinessType(e.target.value)}
-            placeholder="Dental practice, HVAC, salon…"
             className={FIELD}
-          />
+          >
+            <option value="">Select your business type</option>
+            {BUSINESS_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
+      </div>
 
-        <div>
-          <label className={LABEL} htmlFor="contact-name">
-            Contact / owner name optional
-          </label>
+      {/* Services offered */}
+      <div className="mt-6">
+        <label className="block text-sm font-medium text-slate-700 mb-2">Services offered</label>
+        <p className="text-xs text-slate-400 mb-3 font-semibold">Select what applies, or add your own.</p>
+        <div id="serviceChips" className="flex flex-wrap gap-2">
+          {selectedServices.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              className="text-xs font-semibold border border-amber-400 bg-amber-400 text-white rounded-full px-3 py-1.5 transition-colors hover:bg-amber-500"
+              onClick={() => removeService(i)}
+            >
+              {s} ✕
+            </button>
+          ))}
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className="text-xs font-semibold border border-gray-200 text-slate-600 rounded-full px-3 py-1.5 hover:border-amber-300 transition-colors"
+              onClick={() => addService(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-3">
           <input
-            data-testid="business-setup-input-contact"
-            id="contact-name"
-            value={contactName}
-            onChange={(e) => onContactName(e.target.value)}
-            placeholder="Dr. Lee, Priya, front desk…"
-            className={FIELD}
-          />
-        </div>
-
-        <div>
-          <label className={LABEL} htmlFor="services">
-            Services one per line
-          </label>
-          <textarea
+            id="custom-service"
             data-testid="business-setup-input-services"
-            id="services"
-            value={servicesText}
-            onChange={(e) => onServices(e.target.value)}
-            rows={3}
-            placeholder={"Consultation\nEmergency service\nNew appointment"}
+            type="text"
+            value={customServiceInput}
+            onChange={(e) => setCustomServiceInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); addService(customServiceInput); setCustomServiceInput(""); }
+            }}
+            placeholder="Add another service"
+            className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => { addService(customServiceInput); setCustomServiceInput(""); }}
+            className="btn shrink-0 border border-gray-200 rounded-xl px-5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Agent voice */}
+      {showVoice ? (
+        <div className="mt-7">
+          <span className="block text-sm font-medium text-slate-700 mb-2">Agent voice</span>
+          <p className="text-xs text-slate-400 mb-3 font-semibold">Pick the voice your customers will hear on every call.</p>
+          <div className="flex gap-2">
+            <select
+              id="voice-select"
+              data-testid="business-setup-voice-select"
+              value={voiceChoice}
+              onChange={(e) => {
+                onVoiceChoice(normalizeVoiceChoice(e.target.value));
+                onCustomVoiceId("");
+              }}
+              className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-slate-900 focus:outline-none"
+            >
+              {VOICE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              id="voice-play"
+              data-testid="business-setup-voice-play"
+              onClick={handleVoicePlay}
+              aria-label="Listen to voice sample"
+              className={`shrink-0 w-12 rounded-xl border border-gray-200 text-slate-600 grid place-items-center hover:bg-slate-50 transition-colors ${voicePlaying ? "bg-amber-50 border-amber-300" : ""}`}
+            >
+              {voicePlaying ? (
+                <span className="inline-flex items-end gap-[2px] h-3">
+                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0s" }} />
+                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "12px", animationDelay: "0.15s" }} />
+                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0.3s" }} />
+                </span>
+              ) : (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5.14v13.72a.5.5 0 0 0 .77.42l10.7-6.86a.5.5 0 0 0 0-.84L8.77 4.72a.5.5 0 0 0-.77.42z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Agent name */}
+      {showVoice ? (
+        <div className="mt-7">
+          <label htmlFor="agent-name" className="block text-sm font-medium text-slate-700 mb-2">Name your agent</label>
+          <input
+            id="agent-name"
+            data-testid="business-setup-input-assistant-name"
+            type="text"
+            value={assistantName}
+            onChange={(e) => onAssistantName(e.target.value)}
+            placeholder={DEFAULT_ASSISTANT_NAME}
             className={FIELD}
           />
+          <p className="text-xs text-slate-400 mt-2 font-semibold">
+            Example: &ldquo;Hello, this is{" "}
+            <span className="font-semibold text-slate-600">{assistantName.trim() || DEFAULT_ASSISTANT_NAME}</span>{" "}
+            from{" "}
+            <span className="font-semibold text-slate-600">{businessName.trim() || "your business"}</span>. How can I help today?&rdquo;
+          </p>
         </div>
-      </div>
+      ) : null}
 
-      <div className={SECTION} data-testid="business-setup-tone">
-        <h3 className={SECTION_TITLE}>Message tone</h3>
-        <p className="mt-1 text-sm text-slate-400">Sets how the agent sounds on calls, texts, and emails.</p>
+      {/* Knowledge */}
+      <div className="mt-7">
+        <span className="block text-sm font-medium text-slate-700">Knowledge</span>
+        <p className="text-xs text-slate-400 mt-1 mb-3 font-semibold">Provide the documents you want your AI agent to use, and what it needs to know.</p>
 
-        <div className="mt-3 grid grid-cols-3 gap-3" role="radiogroup" aria-label="Message tone">
-          {TONES.map((option) => {
-            const selected = tone === option.value;
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-slate-700">
+            FAQs <span className="text-slate-400 font-normal">(optional)</span>
+          </span>
+          <button
+            type="button"
+            data-testid="business-setup-faq-add"
+            onClick={() => onFaqs([...faqs, { question: "", answer: "" }])}
+            className="text-sm font-semibold text-amber-600 hover:text-amber-700 inline-flex items-center gap-1"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add FAQ
+          </button>
+        </div>
 
-            return (
+        <div className="space-y-3">
+          {faqs.map((faq, index) => (
+            <div key={index} className="border border-gray-200 rounded-xl p-4 flex gap-3" data-testid="business-setup-faq-row">
+              <div className="flex-1 space-y-2">
+                <input
+                  type="text"
+                  value={faq.question}
+                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))}
+                  className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none"
+                  placeholder="Question, e.g. Do you accept insurance?"
+                />
+                <textarea
+                  rows={2}
+                  value={faq.answer}
+                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))}
+                  className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none resize-none"
+                  placeholder="Answer the agent should give"
+                />
+              </div>
               <button
-                key={option.value}
                 type="button"
-                role="radio"
-                aria-checked={selected}
-                data-testid={`business-setup-tone-${option.value}`}
-                onClick={() => onTone(option.value)}
-                className={`pick rounded-xl border border-gray-200 p-4 text-center ${selected ? "selected" : ""}`}
+                onClick={() => onFaqs(faqs.filter((_, i) => i !== index))}
+                className="text-slate-400 hover:text-red-500 shrink-0 self-start mt-1"
+                aria-label="Remove FAQ"
               >
-                <span className="block text-2xl" aria-hidden="true">
-                  {option.emoji}
-                </span>
-                <span className="mt-1.5 block text-sm font-semibold text-slate-700">{option.label}</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
-            );
-          })}
+            </div>
+          ))}
         </div>
+
+        {/* File upload dropzone — always visible */}
+        <label
+          htmlFor="file-input"
+          className="dropzone rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-2.5 mt-4 border-2 border-dashed border-gray-200 cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-colors"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-slate-400">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          <span className="text-sm text-slate-600">
+            <span className="font-semibold text-amber-600">Click to upload</span> or drag and drop documents
+          </span>
+          <span className="text-xs text-slate-400 font-semibold">PDF, DOC, or TXT · up to 10 MB each · multiple allowed</span>
+          <input
+            ref={fileInputRef}
+            id="file-input"
+            type="file"
+            accept=".pdf,.doc,.docx,.txt"
+            multiple
+            className="sr-only"
+            onChange={handleFileChange}
+          />
+        </label>
+
+        {/* Uploaded files list */}
+        {uploadedFiles.length > 0 ? (
+          <div className="mt-3 space-y-2" data-testid="business-setup-uploaded-files">
+            {uploadedFiles.map((file, idx) => (
+              <div
+                key={`${file.name}-${idx}`}
+                className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 group transition-colors hover:border-slate-200"
+                data-testid="business-setup-file-chip"
+              >
+                <span className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                  <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveFile(idx)}
+                  className="text-slate-300 hover:text-red-500 shrink-0 transition-colors"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      <div className={SECTION} data-testid="business-setup-hours">
-        <h3 className={SECTION_TITLE}>When should the agent respond?</h3>
-
-        <div className="mt-3 space-y-3">
+      {/* Availability */}
+      <div className="mt-7" data-testid="business-setup-hours">
+        <span className="block text-sm font-medium text-slate-700 mb-2">When should the agent respond?</span>
+        <div className="space-y-3">
           <button
             type="button"
             role="radio"
             aria-checked={hoursMode === "247"}
             data-testid="business-setup-hours-247"
             onClick={() => onHoursMode("247")}
-            className={`pick flex w-full items-start gap-3 rounded-xl border border-gray-200 p-4 text-left ${hoursMode === "247" ? "selected" : ""}`}
+            className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left ${hoursMode === "247" ? "selected" : "border-gray-200 bg-white"}`}
           >
-            <span
-              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${
-                hoursMode === "247" ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300"
-              }`}
-            >
-              {hoursMode === "247" ? "✓" : ""}
+            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+              hoursMode === "247" ? "border-amber-500" : "border-slate-300"
+            }`}>
+              {hoursMode === "247" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
             </span>
-
-            <span className="min-w-0 flex-1">
-              <span className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-slate-800">24/7 — always respond</span>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
-                  Recommended
-                </span>
+            <span className="flex-1">
+              <span className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-slate-800">24/7 — always respond</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">Recommended</span>
               </span>
-              <span className="mt-0.5 block text-xs text-slate-500">Never miss a customer, even after hours or on weekends.</span>
+              <span className="text-sm text-slate-500 block mt-0.5">Never miss a call, even after hours or on weekends.</span>
             </span>
           </button>
 
@@ -1663,65 +2301,51 @@ function StepBusiness({
             aria-checked={hoursMode === "custom"}
             data-testid="business-setup-hours-custom"
             onClick={() => onHoursMode("custom")}
-            className={`pick flex w-full items-start gap-3 rounded-xl border border-gray-200 p-4 text-left ${hoursMode === "custom" ? "selected" : ""}`}
+            className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left ${hoursMode === "custom" ? "selected" : "border-gray-200 bg-white"}`}
           >
-            <span
-              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${
-                hoursMode === "custom" ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300"
-              }`}
-            >
-              {hoursMode === "custom" ? "✓" : ""}
+            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+              hoursMode === "custom" ? "border-amber-500" : "border-slate-300"
+            }`}>
+              {hoursMode === "custom" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
             </span>
-
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-slate-800">Business hours only</span>
-              <span className="mt-0.5 block text-xs text-slate-500">
-                Used with the after-hours answering mode so the AI takes over when you are closed.
-              </span>
+            <span className="flex-1">
+              <span className="font-semibold text-slate-800 block">Business hours only</span>
+              <span className="text-sm text-slate-500 block mt-0.5">Respond during the days and hours you choose.</span>
             </span>
           </button>
 
           {hoursMode === "custom" ? (
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="business-setup-hours-editor">
-              <div className="flex flex-wrap items-end gap-3">
+            <div className="rounded-xl border border-gray-100 bg-slate-50 p-4" data-testid="business-setup-hours-editor">
+              <div className="flex items-center gap-3 flex-wrap">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="hours-start">
-                    Start
-                  </label>
+                  <label htmlFor="hours-start" className="block text-xs font-medium text-slate-500 mb-1">Start</label>
                   <input
-                    data-testid="business-setup-hours-start"
                     id="hours-start"
+                    data-testid="business-setup-hours-start"
                     type="time"
                     value={hoursStart}
                     onChange={(e) => onHoursStart(e.target.value)}
-                    className="field rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                    className="field border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white"
                   />
                 </div>
-
-                <span className="pb-2 text-slate-400">→</span>
-
+                <span className="text-slate-400 mt-5">→</span>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500" htmlFor="hours-end">
-                    End
-                  </label>
+                  <label htmlFor="hours-end" className="block text-xs font-medium text-slate-500 mb-1">End</label>
                   <input
-                    data-testid="business-setup-hours-end"
                     id="hours-end"
+                    data-testid="business-setup-hours-end"
                     type="time"
                     value={hoursEnd}
                     onChange={(e) => onHoursEnd(e.target.value)}
-                    className="field rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                    className="field border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white"
                   />
                 </div>
               </div>
-
               <div className="mt-4">
-                <span className="mb-2 block text-xs font-medium text-slate-500">Active days</span>
-
-                <div className="flex flex-wrap gap-1.5">
+                <span className="block text-xs font-medium text-slate-500 mb-2">Active days</span>
+                <div className="flex gap-1.5 flex-wrap">
                   {HOURS_DAYS.map((entry) => {
                     const on = Boolean(hoursDays[entry.day]);
-
                     return (
                       <button
                         key={entry.day}
@@ -1731,7 +2355,7 @@ function StepBusiness({
                         aria-label={entry.day}
                         data-testid={`business-setup-hours-day-${entry.day.toLowerCase()}`}
                         onClick={() => onToggleDay(entry.day)}
-                        className={`grid h-10 w-10 place-items-center rounded-lg border text-sm font-semibold transition-colors ${
+                        className={`day w-10 h-10 grid place-items-center rounded-lg border text-sm font-semibold transition-colors ${
                           on ? "border-amber-500 bg-amber-500 text-white" : "border-gray-200 bg-white text-slate-600"
                         }`}
                       >
@@ -1746,22 +2370,22 @@ function StepBusiness({
         </div>
       </div>
 
+      {/* Agent-specific custom fields */}
       {setupFields.length > 0 ? (
-        <div className={SECTION} data-testid="business-setup-custom-fields">
-          <h3 className={SECTION_TITLE}>Agent setup details</h3>
-          <p className="mt-1 text-sm text-slate-400">
+        <div className="mt-7 pt-7 border-t border-gray-100" data-testid="business-setup-custom-fields">
+          <h3 className="text-sm font-semibold text-slate-800 mb-1">Agent setup details</h3>
+          <p className="text-xs text-slate-400 mb-3 font-semibold">
             This agent asks for a few extra details so it can answer callers accurately.
           </p>
           {setupInstructions ? (
             <p
-              className="mt-2 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
+              className="mb-3 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
               data-testid="business-setup-buyer-instructions"
             >
               {setupInstructions}
             </p>
           ) : null}
-
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             {setupFields.map((field) => (
               <BuyerSetupFieldControl
                 key={field.key}
@@ -1773,60 +2397,6 @@ function StepBusiness({
           </div>
         </div>
       ) : null}
-
-      <div className={SECTION} data-testid="business-setup-faqs">
-        <div className="flex items-center justify-between">
-          <h3 className={SECTION_TITLE}>FAQs / knowledge optional</h3>
-
-          <button
-            type="button"
-            data-testid="business-setup-faq-add"
-            onClick={() => onFaqs([...faqs, { question: "", answer: "" }])}
-            className="btn rounded-full border border-gray-200 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:border-amber-300"
-          >
-            + Add FAQ
-          </button>
-        </div>
-
-        {faqs.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-400">Add common questions so the agent answers accurately.</p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {faqs.map((faq, index) => (
-              <div key={index} className="rounded-xl border border-gray-100 bg-gray-50 p-3" data-testid="business-setup-faq-row">
-                <input
-                  value={faq.question}
-                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))}
-                  placeholder="Question"
-                  className={FIELD}
-                />
-
-                <textarea
-                  value={faq.answer}
-                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))}
-                  rows={2}
-                  placeholder="Answer"
-                  className={`${FIELD} mt-2`}
-                />
-
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => onFaqs(faqs.filter((_, i) => i !== index))}
-                    className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-500 hover:border-gray-300"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className={SECTION}>
-        <ChecklistSummary checklist={checklist} />
-      </div>
     </div>
   );
 }
@@ -2005,7 +2575,22 @@ function StepConnect({
   onCalendarId,
   onTimeZone,
   businessName,
-  onMailAliasChange
+  onMailAliasChange,
+
+  existingPhoneNumber,
+  onExistingPhoneNumberChange,
+  otpSent,
+  onOtpSentChange,
+  onSendOtp,
+  otpDigits,
+  onOtpDigitsChange,
+  isSendingOtp,
+  isVerifyingOtp,
+  phoneVerified,
+  onVerifyOtp,
+  devOtpCode,
+  resendCooldown,
+  setPhoneVerified
 }: {
   title: string;
   showPhone: boolean;
@@ -2032,297 +2617,397 @@ function StepConnect({
   onDisconnectCalendar: () => void;
   onCalendarId: (v: string) => void;
   onTimeZone: (v: string) => void;
+
+  existingPhoneNumber: string;
+  onExistingPhoneNumberChange: (v: string) => void;
+  otpSent: boolean;
+  onOtpSentChange: (v: boolean) => void;
+  onSendOtp: () => void;
+  otpDigits: string[];
+  onOtpDigitsChange: React.Dispatch<React.SetStateAction<string[]>>;
+  isSendingOtp: boolean;
+  isVerifyingOtp: boolean;
+  phoneVerified: boolean;
+  onVerifyOtp: (code: string) => void;
+  devOtpCode: string | null;
+  resendCooldown: number;
+  setPhoneVerified: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
-  const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
-  const forwardRequired = answeringMode !== "AI_FIRST";
-  // "Forward my existing number" covers every conditional answering mode;
-  // "Use the Triven number directly" is AI_FIRST (the Triven number is the main line).
+  const [countryFlag, setCountryFlag] = useState("🇺🇸");
+  const [countryCode, setCountryCode] = useState("+1");
+  const [countryMenuOpen, setCountryMenuOpen] = useState(false);
+
   const routingMode = answeringMode === "AI_FIRST" ? "direct" : "forward";
+  const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
+
+  const handleDigitChange = (index: number, value: string) => {
+    const val = value.replace(/\D/g, "").slice(-1);
+    const newDigits = [...otpDigits];
+    newDigits[index] = val;
+    onOtpDigitsChange(newDigits);
+
+    // Auto-focus next input
+    if (val && index < 5) {
+      const nextInput = document.getElementById(`otp-${index + 1}`);
+      nextInput?.focus();
+    }
+
+    // Auto verify if complete
+    const fullCode = newDigits.join("");
+    if (fullCode.length === 6 && /^\d{6}$/.test(fullCode)) {
+      onVerifyOtp(fullCode);
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-${index - 1}`);
+      prevInput?.focus();
+    }
+  };
+
+  const phoneValid = existingPhoneNumber.replace(/\D/g, "").length === 10;
 
   return (
-    <div className={CARD}>
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-600" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+    <div className="space-y-6">
+      {/* Icon */}
+      <div className="w-14 h-14 bg-amber-50 rounded-2xl grid place-items-center text-amber-600 mb-5" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
           <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
         </svg>
       </div>
 
-      <h2 className="mt-4 text-xl font-bold tracking-tight text-slate-900">{title}</h2>
-
-      <p className={SUB}>
-        Only the connections this agent actually uses appear here. Your business owns the live accounts — architects only designed the template.
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
+      <p className="text-slate-500 text-base mt-2 max-w-md">
+        This is the number your patients call. We detect missed calls and text them back automatically.
       </p>
-
-      <span className="mt-2 inline-flex items-center gap-1 text-xs text-slate-400">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
           <circle cx="12" cy="12" r="10" />
           <polyline points="12 6 12 12 16 14" />
         </svg>
-        ~60 seconds
+        ~90 seconds
       </span>
 
-      {showPhone ? (
-      <div className="mt-6">
-        <h3 className={SECTION_TITLE}>Select your Triven number</h3>
-        <p className="mt-0.5 text-sm text-slate-500">Choose the number customers will call or forward missed calls to.</p>
+      {/* Phone number input block */}
+      {showPhone && !phoneVerified && !otpSent && (
+        <div className="mt-4">
+          <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">Business phone number</label>
 
-        <div className="mt-3 space-y-2.5" data-testid="business-setup-phone-list">
-          {phoneNumbers.length === 0 ? (
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 text-sm text-slate-600" data-testid="business-setup-phone-empty">
-              <p className="font-semibold text-slate-700">No Triven numbers are available yet.</p>
-              <p className="mt-0.5 text-slate-500">Add a platform phone number before deploying this agent.</p>
-
-              {process.env.NODE_ENV !== "production" ? (
-                <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-empty-dev-hint">
-                  Run{" "}
-                  <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px] text-amber-700 ring-1 ring-gray-200">
-                    npm run seed:platform-phone-numbers --workspace=@coreai/backend
-                  </code>{" "}
-                  to add a demo number.
-                </p>
-              ) : null}
+          <div className={`phone-wrap flex items-stretch border rounded-xl overflow-hidden bg-white relative ${phoneValid ? "is-valid" : "border-gray-200"}`}>
+            {/* Country code */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setCountryMenuOpen(!countryMenuOpen)}
+                aria-haspopup="listbox"
+                aria-expanded={countryMenuOpen}
+                className="h-full flex items-center gap-1.5 bg-gray-50 border-r border-gray-200 px-4 py-4 text-base font-medium text-slate-700 hover:bg-gray-100 transition-colors"
+              >
+                <span className="text-lg leading-none">{countryFlag}</span>
+                <span className="text-slate-700">{countryCode}</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-slate-400">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              {countryMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setCountryMenuOpen(false)} />
+                  <ul role="listbox" className="cc-menu absolute left-0 top-full mt-1.5 w-52 bg-white border border-gray-100 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 z-50 text-sm">
+                    <li onClick={() => { setCountryFlag("🇺🇸"); setCountryCode("+1"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇺🇸 <span className="flex-1">United States</span><span className="text-slate-400">+1</span></li>
+                    <li onClick={() => { setCountryFlag("🇨🇦"); setCountryCode("+1"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇨🇦 <span className="flex-1">Canada</span><span className="text-slate-400">+1</span></li>
+                    <li onClick={() => { setCountryFlag("🇬🇧"); setCountryCode("+44"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇬🇧 <span className="flex-1">United Kingdom</span><span className="text-slate-400">+44</span></li>
+                    <li onClick={() => { setCountryFlag("🇦🇺"); setCountryCode("+61"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇦🇺 <span className="flex-1">Australia</span><span className="text-slate-400">+61</span></li>
+                    <li onClick={() => { setCountryFlag("🇮🇳"); setCountryCode("+91"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇮🇳 <span className="flex-1">India</span><span className="text-slate-400">+91</span></li>
+                  </ul>
+                </>
+              )}
             </div>
+
+            {/* Number input */}
+            <input
+              id="phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              value={existingPhoneNumber}
+              onChange={(e) => {
+                const formatted = fmtPhone(e.target.value);
+                onExistingPhoneNumberChange(formatted);
+              }}
+              className="field flex-1 px-5 py-4 text-lg font-mono placeholder:text-slate-300 outline-none border-0"
+              placeholder="(555) 123-4567"
+            />
+
+            {/* Check icon */}
+            <span className="phone-check absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true" style={{ opacity: phoneValid ? 1 : 0, transform: phoneValid ? "scale(1)" : "scale(0.6)" }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400 mt-2 font-semibold">We&apos;ll send a verification code to confirm this is your number.</p>
+
+          <button
+            type="button"
+            disabled={isSendingOtp || !phoneValid}
+            onClick={onSendOtp}
+            className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold shadow-lg shadow-amber-500/30 hover:bg-amber-600 inline-flex items-center justify-center gap-2 mt-4 w-full sm:w-auto"
+          >
+            {isSendingOtp ? "Sending code…" : "Send verification code"}
+          </button>
+        </div>
+      )}
+
+      {/* Verification OTP Box */}
+      {showPhone && !phoneVerified && otpSent && (
+        <div id="verifyBlock" className="mt-6">
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-slate-600 flex items-start gap-3">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-amber-500 mt-0.5 shrink-0">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+            </svg>
+            <span>
+              Enter the 6-digit code we sent to <strong className="text-slate-800">{existingPhoneNumber}</strong>.
+            </span>
+          </div>
+
+          <div className="flex gap-2 sm:gap-2.5 mt-4 justify-between" id="otp" role="group" aria-label="6-digit verification code">
+            {otpDigits.map((digit, idx) => (
+              <input
+                key={idx}
+                id={`otp-${idx}`}
+                type="text"
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleDigitChange(idx, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(idx, e)}
+                className={`otp-box ${digit ? "filled" : ""}`}
+                aria-label={`Digit ${idx + 1}`}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center gap-4 mt-4 text-sm">
+            {resendCooldown > 0 ? (
+              <span className="text-slate-400 font-semibold">Resend code in {resendCooldown}s</span>
+            ) : (
+              <button
+                type="button"
+                id="resend"
+                onClick={onSendOtp}
+                className="text-amber-600 font-semibold hover:text-amber-700 transition-colors"
+              >
+                Resend code
+              </button>
+            )}
+            <span className="text-slate-300">·</span>
+            <button
+              type="button"
+              id="diffNum"
+              onClick={() => {
+                onOtpSentChange(false);
+                onExistingPhoneNumberChange("");
+              }}
+              className="text-slate-500 font-semibold hover:text-slate-700 transition-colors"
+            >
+              Use a different number
+            </button>
+          </div>
+          {devOtpCode ? (
+            <p className="text-xs text-slate-500 font-semibold mt-2">
+              Dev OTP Code: <strong className="font-mono text-slate-800">{devOtpCode}</strong> (Automatically generated in testing)
+            </p>
           ) : (
-            phoneNumbers.map((number) => {
-              const selected = selectedPhoneId === number.id;
-              const statusLabel = number.assignedToThisBusiness ? "Assigned to you" : selected ? "Selected" : "Available";
-              const statusClass = number.assignedToThisBusiness
-                ? "bg-green-100 text-green-700"
-                : selected
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-gray-100 text-gray-500";
+            <p className="text-xs text-slate-300 mt-2 font-semibold">For this demo, any 6 digits will work.</p>
+          )}
 
-              const location = [number.locality, number.region, number.country].filter(Boolean).join(", ");
-
-              const capabilities = number.capabilities
-                ? (["voice", "sms", "mms"] as const).filter((cap) => number.capabilities?.[cap])
-                : [];
-
-              return (
-                <button
-                  key={number.id}
-                  type="button"
-                  onClick={() => onSelectPhone(number.id)}
-                  data-testid={`business-setup-phone-${number.id}`}
-                  aria-pressed={selected}
-                  className={`pick flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left ${selected ? "selected" : ""}`}
-                >
-                  <span
-                    className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${selected ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300"
-                      }`}
-                  >
-                    {selected ? "✓" : ""}
-                  </span>
-
-                  <span className="min-w-0">
-                    <span className="block font-mono text-lg font-bold text-slate-900">{number.phoneNumber}</span>
-
-                    {location || capabilities.length > 0 ? (
-                      <span className="block text-xs text-slate-400" data-testid={`business-setup-phone-meta-${number.id}`}>
-                        {location}
-                        {location && capabilities.length > 0 ? " · " : ""}
-                        {capabilities.map((cap) => cap.toUpperCase()).join(" / ")}
-                      </span>
-                    ) : null}
-                  </span>
-
-                  <span className={PROVIDER_BADGE}>{number.provider === "TWILIO" ? "Twilio" : number.provider}</span>
-
-                  <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>
-                    {statusLabel}
-                  </span>
-                </button>
-              );
-            })
+          {isVerifyingOtp && (
+            <div id="verifying" className="flex items-center gap-2 text-sm text-slate-500 mt-3 font-semibold">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="w-4 h-4 spin text-amber-500">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+              </svg>
+              Verifying…
+            </div>
           )}
         </div>
-      </div>
-      ) : null}
+      )}
 
-      {showPhone ? (
-      <div className={SECTION} data-testid="business-setup-routing-mode">
-        <h3 className={SECTION_TITLE}>Number routing</h3>
-        <p className="mt-0.5 text-sm text-slate-500">Choose how customers reach this agent.</p>
-
-        <div className="mt-3 space-y-2.5">
-          <button
-            type="button"
-            data-testid="business-setup-routing-forward"
-            aria-pressed={routingMode === "forward"}
-            onClick={() => {
-              if (routingMode !== "forward") onAnsweringMode("NO_ANSWER");
-            }}
-            className={`pick flex w-full items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left ${routingMode === "forward" ? "selected" : ""}`}
-          >
-            <span
-              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${routingMode === "forward" ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300"}`}
-            >
-              {routingMode === "forward" ? "✓" : ""}
-            </span>
-
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold text-slate-800">Forward my existing number</span>
-              <span className="mt-0.5 block text-xs text-slate-500">
-                Keep your current number as the public one — it forwards to your Triven number and the AI answers based on your answering mode.
+      {/* Success Block */}
+      {showPhone && phoneVerified && (
+        <div className="space-y-6">
+          <div id="phoneSuccess" className="bg-green-50 border border-green-100 rounded-xl p-4 flex items-center justify-between gap-3" role="status">
+            <div className="flex items-center gap-3">
+              <span className="w-8 h-8 rounded-full bg-green-500 grid place-items-center text-white shrink-0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
               </span>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="business-setup-routing-direct"
-            aria-pressed={routingMode === "direct"}
-            onClick={() => onAnsweringMode("AI_FIRST")}
-            className={`pick flex w-full items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left ${routingMode === "direct" ? "selected" : ""}`}
-          >
-            <span
-              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] ${routingMode === "direct" ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300"}`}
+              <p className="text-sm text-green-800">
+                <span className="font-semibold">Phone connected.</span> <span id="successNum" className="font-bold">{existingPhoneNumber}</span> is now linked to your agent.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onExistingPhoneNumberChange("");
+                onOtpSentChange(false);
+                setPhoneVerified(false);
+              }}
+              className="text-xs font-bold text-slate-500 hover:text-red-500 underline shrink-0 transition-colors"
             >
-              {routingMode === "direct" ? "✓" : ""}
-            </span>
+              Change
+            </button>
+          </div>
 
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold text-slate-800">Use the Triven number directly</span>
-              <span className="mt-0.5 block text-xs text-slate-500">
-                Give out your Triven number as your main line — the AI answers calls to it directly.
+          <div className="mt-5 flex items-start gap-3 bg-slate-50 rounded-xl p-5 border border-slate-100">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 grid place-items-center shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your Triven phone number is ready:</p>
+              <p className="mt-1 font-mono text-2xl font-bold tracking-tight text-slate-900">{assignedNumber || "Pending..."}</p>
+            </div>
+          </div>
+
+          {/* Answering mode selection */}
+          <div className="space-y-3">
+            <span className="block text-sm font-semibold text-slate-700 mb-2">How should calls reach your agent?</span>
+
+            <button
+              type="button"
+              onClick={() => onAnsweringMode("NO_ANSWER")}
+              className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 ${
+                answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+              }`}
+            >
+              <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+                answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+              }`}>
+                {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
               </span>
-            </span>
-          </button>
+              <span className="flex-1">
+                <span className="block text-sm font-semibold text-slate-900">Forward my existing number</span>
+                <span className="block text-xs text-slate-500 mt-0.5 leading-relaxed">
+                  Keep giving out {existingPhoneNumber}. Forward it to {assignedNumber || "your Triven number"} so calls reach your agent.
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onAnsweringMode("AI_FIRST")}
+              className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 ${
+                answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+              }`}
+            >
+              <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+                answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+              }`}>
+                {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
+              </span>
+              <span className="flex-1">
+                <span className="block text-sm font-semibold text-slate-900">Use the CORE number directly</span>
+                <span className="block text-xs text-slate-500 mt-0.5 leading-relaxed">
+                  Give {assignedNumber || "your Triven number"} to customers as your main line. Calls go straight to your agent.
+                </span>
+              </span>
+            </button>
+          </div>
         </div>
-      </div>
-      ) : null}
+      )}
 
-      {showPhone ? (
-      <div className={SECTION}>
-        <h3 className={SECTION_TITLE}>Call handling</h3>
-
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+      {showPhone && phoneVerified && routingMode === "forward" ? (
+        <div className="mt-6 border-t border-gray-100 pt-6">
+          <h3 className="text-sm font-bold text-slate-900 mb-3">Call handling</h3>
           <div>
-            <label className={LABEL} htmlFor="forward-phone">
-              Forwarding / public business phone {forwardRequired ? "" : "optional"}
-            </label>
-
-            <input
-              data-testid="business-setup-input-forward"
-              id="forward-phone"
-              type="tel"
-              value={forwardToPhone}
-              onChange={(e) => onForward(e.target.value)}
-              placeholder="+1 555 123 4567"
-              className={FIELD}
-            />
-
-            <p className="mt-1 text-xs text-slate-400">
-              {forwardRequired
-                ? "Required for this answering mode so missed or fallback calls can reach your team."
-                : "Optional for AI-first mode. Add this only if calls the AI cannot handle should forward to your team."}
-            </p>
-          </div>
-
-          <div>
-            <label className={LABEL} htmlFor="team-phone">
-              Team phone optional
-            </label>
-
-            <input
-              data-testid="business-setup-input-team"
-              id="team-phone"
-              type="tel"
-              value={teamPhone}
-              onChange={(e) => onTeamPhone(e.target.value)}
-              placeholder="+1 555 765 4321"
-              className={FIELD}
-            />
-          </div>
-
-          <div className="sm:col-span-2">
-            <label className={LABEL} htmlFor="answering-mode">
+            <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="answering-mode">
               Answering mode
             </label>
-
             <select
-              data-testid="business-setup-input-answering-mode"
               id="answering-mode"
               value={answeringMode}
               onChange={(e) => onAnsweringMode(e.target.value)}
-              className={FIELD}
+              className="field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 focus:outline-none"
             >
-              {ANSWERING_MODES.map((mode) => (
+              {ANSWERING_MODES.filter(m => m.value !== "AI_FIRST").map((mode) => (
                 <option key={mode.value} value={mode.value}>
                   {mode.label}
                 </option>
               ))}
             </select>
-          </div>
-
-          {assignedNumber ? (
-            <p className="text-xs text-slate-400 sm:col-span-2" data-testid="business-setup-assigned-forwarding">
-              Assigned Triven number: <span className="font-mono font-bold text-slate-600">{assignedNumber}</span>. Publish it directly or forward your existing number to it.
+            <p className="mt-2 text-xs text-slate-400 font-semibold">
+              Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber}.
             </p>
-          ) : null}
+          </div>
         </div>
-      </div>
       ) : null}
 
-      {showCalendar ? (
-      <div className={SECTION} data-testid="business-setup-calendar">
-        <h3 className={SECTION_TITLE}>Google Calendar</h3>
+      {/* Calendar Connection block */}
+      {phoneVerified && showCalendar ? (
+        <div className="mt-6 border-t border-gray-100 pt-6">
+          <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
-          <p className="text-sm text-slate-600" data-testid="business-setup-calendar-status">
-            {calendar.connected ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}` : "Not connected. Connect so the agent can book appointments."}
-          </p>
+          <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${
+            calendar.connected 
+              ? "border-green-100 bg-green-50/30" 
+              : "border-gray-100 bg-slate-50"
+          }`}>
+            <div className="flex items-center gap-3">
+              {/* Google Calendar Icon */}
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm-5-8h-4v4h4v-4z"/>
+                </svg>
+              </div>
 
-          {calendar.connected ? (
-            <button
-              type="button"
-              data-testid="business-setup-calendar-disconnect"
-              disabled={calendarBusy}
-              onClick={onDisconnectCalendar}
-              className="btn rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-gray-300"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="business-setup-calendar-connect"
-              disabled={calendarBusy}
-              onClick={onConnectCalendar}
-              className="btn rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
-            >
-              {calendarBusy ? "Connecting…" : "Connect Google Calendar"}
-            </button>
-          )}
-        </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {calendar.connected ? "Google Calendar connected" : "Google Calendar"}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {calendar.connected 
+                    ? `Connected as ${calendar.email || "your account"}` 
+                    : "Not connected. Connect so the agent can book appointments."}
+                </p>
+              </div>
+            </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className={LABEL} htmlFor="calendar-id">
-              Calendar ID
-            </label>
-
-            <input
-              data-testid="business-setup-input-calendar-id"
-              id="calendar-id"
-              value={calendarId}
-              onChange={(e) => onCalendarId(e.target.value)}
-              placeholder="primary"
-              className={FIELD}
-            />
+            {calendar.connected ? (
+              <button
+                type="button"
+                disabled={calendarBusy}
+                onClick={onDisconnectCalendar}
+                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-gray-300 shadow-sm"
+              >
+                Disconnect
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={calendarBusy}
+                onClick={onConnectCalendar}
+                className="btn shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600 shadow-sm"
+              >
+                {calendarBusy ? "Connecting…" : "Connect"}
+              </button>
+            )}
           </div>
 
-          <div>
-            <label className={LABEL} htmlFor="timezone">
-              Calendar timezone
+          <div className="mt-4">
+            <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="timezone">
+              Business timezone
             </label>
 
             <select
-              data-testid="business-setup-input-timezone"
               id="timezone"
               value={timeZone}
               onChange={(e) => onTimeZone(e.target.value)}
-              className={FIELD}
+              className="field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 focus:outline-none"
             >
               {timezoneMissing ? <option value={timeZone}>{timeZone}</option> : null}
 
@@ -2337,20 +3022,19 @@ function StepConnect({
               ))}
             </select>
 
-            <p className="mt-1 text-xs text-slate-400">All availability, bookings, and “today/tomorrow” use this timezone.</p>
+            <p className="mt-2 text-xs text-slate-400 font-semibold">All availability, bookings, and call times use this timezone.</p>
           </div>
         </div>
-      </div>
       ) : null}
 
       {showSmsNote ? (
-      <div className={SECTION} data-testid="business-setup-sms-note">
-        <h3 className={SECTION_TITLE}>SMS</h3>
-        <p className="mt-0.5 text-sm text-slate-500">Confirmation SMS will be sent to your customers from Triven.</p>
-      </div>
+        <div className={SECTION} data-testid="business-setup-sms-note">
+          <h3 className={SECTION_TITLE}>SMS</h3>
+          <p className="mt-1 text-sm text-slate-500">Confirmation SMS will be sent to your customers from Triven.</p>
+        </div>
       ) : null}
 
-      {showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
+      {phoneVerified && showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
     </div>
   );
 }
@@ -3291,9 +3975,122 @@ const SIMULATION_BADGES: Record<SimulationStage, { label: string; dot: string; t
   failed: { label: "Failed", dot: "bg-red-500", text: "text-red-600" }
 };
 
+const includesAny = (value: string, needles: string[]) => {
+  return needles.some((needle) => value.includes(needle));
+};
+
+const nodeText = (node: any) => {
+  const data = node.data ?? {};
+  return [
+    data.type,
+    data.nodeKind,
+    data.connector,
+    data.connectorAction,
+    data.label,
+    data.title,
+    data.subtitle
+  ]
+    .map((value) => String(value ?? "").toLowerCase())
+    .join(" ");
+};
+
+const inferWorkflowChannel = (nodes: any[], connectors: string[]): "sms" | "missed-call" | "voice" | "whatsapp" | "email" | "manual" => {
+  const haystack = [...nodes.map(nodeText), connectors.join(" ").toLowerCase()].join(" ");
+
+  if (includesAny(haystack, ["missed_call", "missed call", "no-answer", "no_answer"])) return "missed-call";
+  if (includesAny(haystack, ["phone_call", "voice_conversation", "vapi", "voice call", "incoming call"])) return "voice";
+  if (includesAny(haystack, ["whatsapp"])) return "whatsapp";
+  if (includesAny(haystack, ["gmail", "email", "mail"])) return "email";
+  if (includesAny(haystack, ["inbound_sms", "send_sms", "sms", "text message", "twilio"])) return "sms";
+  return "manual";
+};
+
+const getAnsweringLabels = (mode: string, listing?: any) => {
+  let channel = "missed-call";
+  if (listing) {
+    const nodes = listing.workflow?.workflowJson?.nodes || [];
+    const connectors = listing.requiredConnectors || [];
+    channel = inferWorkflowChannel(nodes, connectors);
+  } else {
+    // fallback to answeringMode
+    if (mode === "AI_FIRST") {
+      channel = "voice";
+    } else if (mode === "BUSY" || mode === "AFTER_HOURS" || mode === "UNREACHABLE" || mode === "NO_ANSWER") {
+      channel = "missed-call";
+    }
+  }
+
+  switch (channel) {
+    case "sms":
+      return {
+        waiting: "Waiting for an incoming text…",
+        detected: "Text message received",
+        action: "Simulate an incoming SMS",
+        subtitle: "Send a text message to your Triven number and watch the agent reply dynamically.",
+        instruction2: "Send an SMS to your business number",
+        instruction3: "Watch the live feed below update in real time"
+      };
+    case "whatsapp":
+      return {
+        waiting: "Waiting for a WhatsApp message…",
+        detected: "WhatsApp message received",
+        action: "Simulate a WhatsApp message",
+        subtitle: "Send a WhatsApp message to your number and watch the agent respond.",
+        instruction2: "Send a WhatsApp message to your Triven number",
+        instruction3: "Watch the live feed below update in real time"
+      };
+    case "email":
+      return {
+        waiting: "Waiting for an email…",
+        detected: "Email received",
+        action: "Simulate an email",
+        subtitle: "Send an email to your address and watch the agent respond.",
+        instruction2: "Send an email to your Triven email alias",
+        instruction3: "Watch the live feed below update in real time"
+      };
+    case "voice":
+      return {
+        waiting: "Waiting for an inbound call…",
+        detected: "Inbound call detected",
+        action: "Simulate an inbound call",
+        subtitle: "Call your Triven number and speak to your live agent, or simulate a call below.",
+        instruction2: "Let the call connect, and speak to the agent",
+        instruction3: "Watch the live feed update as you talk"
+      };
+    case "manual":
+      return {
+        waiting: "Waiting for a manual trigger…",
+        detected: "Manual trigger detected",
+        action: "Simulate a manual trigger",
+        subtitle: "Run a workflow trigger and watch the agent execute actions.",
+        instruction2: "Start a manual trigger run",
+        instruction3: "Watch the live feed below update in real time"
+      };
+    default:
+      return {
+        waiting: "Waiting for a missed call…",
+        detected: "Missed call detected",
+        action: "Simulate a missed call",
+        subtitle: "Call your business number and hang up after 3 rings, then watch the agent respond in real time.",
+        instruction2: "Let it ring 3 times, then hang up",
+        instruction3: "Watch the live feed below light up"
+      };
+  }
+};
+
 const SIMULATION_STAGE_ORDER: SimulationStage[] = ["idle", "waiting", "detected", "generating", "sent"];
 
-function MissedCallSimulationSection({ businessName, tone }: { businessName: string; tone: string }) {
+function MissedCallSimulationSection({
+  businessName,
+  tone,
+  answeringMode,
+  listing
+}: {
+  businessName: string;
+  tone: string;
+  answeringMode: string;
+  listing?: any;
+}) {
   const [phone, setPhone] = useState("");
   const [stage, setStage] = useState<SimulationStage>("idle");
   const [error, setError] = useState("");
@@ -3355,8 +4152,6 @@ function MissedCallSimulationSection({ businessName, tone }: { businessName: str
 
     schedule(() => setStage("generating"), 2600);
 
-    // The SMS is real — the request fires while the feed plays out, and the
-    // "sent" row only shows once Twilio actually accepted the message.
     const minPlaytime = new Promise((resolve) => schedule(() => resolve(null), 4200));
     const [res] = await Promise.all([sendBusinessTestSms({ to, message }), minPlaytime]);
 
@@ -3372,19 +4167,17 @@ function MissedCallSimulationSection({ businessName, tone }: { businessName: str
     }
   }
 
-  return (
-    <div className={SECTION} data-testid="business-setup-simulate">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className={SECTION_TITLE}>Simulate a missed call</h3>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Watch the live feed handle a missed call — the text-back SMS at the end is real and arrives on your phone,
-            sent from Triven.
-          </p>
-        </div>
+  const [testConfirmed, setTestConfirmed] = useState(false);
+  const labels = getAnsweringLabels(answeringMode, listing);
 
+  return (
+    <div className="mt-8 border-t border-slate-100 pt-6" data-testid="business-setup-simulate">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-semibold text-slate-700">Live agent feed</span>
         <span
-          className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${badge.text}`}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
+            stage === "idle" ? "text-slate-400 bg-slate-50" : badge.text
+          }`}
           data-testid="business-setup-simulate-badge"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${badge.dot} ${running ? "animate-pulse" : ""}`} />
@@ -3392,100 +4185,80 @@ function MissedCallSimulationSection({ businessName, tone }: { businessName: str
         </span>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <input
-          type="tel"
-          value={phone}
-          onChange={(event) => setPhone(event.target.value)}
-          placeholder="+15551234567"
-          data-testid="business-setup-simulate-phone"
-          className="w-56 rounded-full border border-gray-200 px-4 py-2 text-sm text-slate-700 focus:border-amber-300 focus:outline-none"
-        />
-
-        <button
-          type="button"
-          data-testid="business-setup-simulate-run"
-          disabled={running}
-          onClick={() => void runSimulation()}
-          className="btn shrink-0 rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-        >
-          {running ? "Simulating…" : stage === "sent" || stage === "failed" ? "Run again" : "Simulate a missed call"}
-        </button>
-      </div>
-      <p className="mt-2 text-xs text-slate-400">
-        Use a phone you own and have consent to text. Country code required — E.164 format.
-      </p>
-
-      {stage !== "idle" ? (
-        <div className="mt-4 divide-y divide-slate-50 rounded-xl border border-slate-100 bg-white" data-testid="business-setup-simulate-feed">
-          <div className="flex items-center gap-3 p-4">
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400 ${stage === "waiting" ? "animate-ping" : ""}`} />
-            <span className="text-sm text-slate-500">Waiting for a missed call…</span>
-          </div>
-
-          {stageReached("detected") ? (
-            <div className="flex items-center gap-3 p-4" data-testid="business-setup-simulate-detected">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
-              <span className="flex-1 text-sm text-slate-700">
-                Missed call detected from <strong className="font-mono">{phone.trim()}</strong>
-              </span>
-              <span className="font-mono text-xs text-slate-400">{detectedAt}</span>
-            </div>
-          ) : null}
-
-          {stageReached("generating") ? (
-            <div className="flex items-center gap-3 p-4" data-testid="business-setup-simulate-generating">
-              {stage === "generating" ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="h-4 w-4 shrink-0 animate-spin text-violet-500">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-              ) : (
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-500" />
-              )}
-              <span className="flex-1 text-sm text-slate-700">
-                {stage === "generating" ? "AI generating a personalized response…" : "Personalized response generated"}
-              </span>
-            </div>
-          ) : null}
-
-          {stage === "sent" ? (
-            <div className="flex items-center gap-3 p-4" data-testid="business-setup-simulate-sent">
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-green-500 text-[11px] font-bold text-white">✓</span>
-              <span className="flex-1 text-sm font-semibold text-green-700">SMS sent successfully</span>
-              <span className="font-mono text-xs text-slate-400">{sentAt}</span>
-            </div>
-          ) : null}
-
-          {stage === "failed" ? (
-            <div className="flex items-center gap-3 p-4" data-testid="business-setup-simulate-failed">
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">✕</span>
-              <span className="flex-1 text-sm font-semibold text-red-600">SMS could not be sent</span>
-            </div>
-          ) : null}
+      {/* Live status feed container */}
+      <div className="rounded-xl border border-slate-100 bg-white divide-y divide-slate-50 overflow-hidden shadow-sm" id="feed">
+        {/* Waiting step */}
+        <div className={`feed-item flex items-center gap-3 p-4 ${stage !== "idle" ? "show" : ""}`}>
+          <span className={`${stage === "waiting" ? "text-amber-400 dot-pulse" : "text-green-500"} w-2.5 h-2.5 rounded-full bg-current shrink-0`} />
+          <span className={`text-sm ${stage !== "idle" ? "text-slate-700 font-semibold" : "text-slate-500"}`}>
+            {labels.waiting}
+          </span>
         </div>
-      ) : null}
 
-      {stage === "sent" && result ? (
-        <>
-          <div className="mt-5 flex justify-center" data-testid="business-setup-simulate-preview">
-            <div className="w-64 rounded-[2rem] border-8 border-slate-900 bg-slate-50 p-4 shadow-xl">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-500 text-xs font-bold text-white">
-                  {businessInitials(businessName)}
-                </span>
-                <span className="leading-tight">
-                  <span className="block text-xs font-semibold text-slate-800">{businessName.trim() || "Your business"}</span>
-                  <span className="block text-[10px] text-slate-400">Text message · now</span>
-                </span>
-              </div>
+        {/* Detected step */}
+        {stageReached("detected") && (
+          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-detected">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
+            <span className="flex-1 text-sm text-slate-700 font-semibold">
+              {labels.detected} from <strong className="font-mono">{phone.trim() || "unknown"}</strong>
+            </span>
+            <span className="font-mono text-xs text-slate-400">{detectedAt}</span>
+          </div>
+        )}
 
-              <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] leading-snug text-slate-700 shadow-sm">
-                {message}
+        {/* Generating step */}
+        {stageReached("generating") && (
+          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-generating">
+            {stage === "generating" ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="h-4 w-4 shrink-0 spin text-violet-500">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+            ) : (
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-500" />
+            )}
+            <span className="flex-1 text-sm text-slate-700 font-semibold">
+              {stage === "generating" ? "AI generating a personalized response…" : "Personalized response generated"}
+            </span>
+          </div>
+        )}
+
+        {/* Sent / Delivery step */}
+        {stage === "sent" && (
+          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-sent">
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-green-500 text-[11px] font-bold text-white">✓</span>
+            <span className="flex-1 text-sm font-semibold text-green-700">SMS sent successfully</span>
+            <span className="font-mono text-xs text-slate-400">{sentAt}</span>
+          </div>
+        )}
+
+        {/* Failed step */}
+        {stage === "failed" && (
+          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-failed">
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">✕</span>
+            <span className="flex-1 text-sm font-semibold text-red-600">SMS could not be sent</span>
+          </div>
+        )}
+      </div>
+
+      {/* SMS Preview Mockup */}
+      {stage === "sent" && result && (
+        <div className="mt-6 flex flex-col items-center" data-testid="business-setup-simulate-preview">
+          <div className="phone-frame sms-ring rounded-[2rem] w-64 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-500 text-xs font-bold text-white">
+                {businessInitials(businessName)}
+              </span>
+              <div className="leading-tight">
+                <span className="block text-xs font-semibold text-slate-800">{businessName.trim() || "Your business"}</span>
+                <span className="block text-[10px] text-slate-400">Text message · now</span>
               </div>
             </div>
-          </div>
 
-          <p className="mt-3 text-center text-xs text-slate-500" data-testid="business-setup-simulate-result">
+            <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] leading-snug text-slate-700 shadow-sm">
+              {message}
+            </div>
+          </div>
+          <p className="mt-3 text-center text-xs text-slate-400" data-testid="business-setup-simulate-result">
             {result.simulated
               ? "Simulated — no Twilio request was made; nothing was delivered."
               : result.testCredentials
@@ -3493,11 +4266,71 @@ function MissedCallSimulationSection({ businessName, tone }: { businessName: str
                 : `Really sent — check ${result.to}.`}
             {result.from ? ` Sender: ${result.from}.` : ""}
           </p>
-        </>
-      ) : null}
+        </div>
+      )}
+
+      {/* Input phone & simulate controls */}
+      <div className="mt-6 flex flex-col items-center gap-4">
+        {!running && stage !== "sent" && (
+          <div className="w-full max-w-sm">
+            <label htmlFor="test-phone" className="block text-xs font-semibold text-slate-500 mb-1.5 text-center uppercase tracking-wider">
+              Enter your mobile number to receive the test SMS
+            </label>
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 transition-all focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-500/10">
+              <input
+                id="test-phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+15551234567"
+                data-testid="business-setup-simulate-phone"
+                className="flex-1 min-w-0 px-3 py-2.5 text-sm bg-transparent outline-none text-slate-900 placeholder-slate-400"
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5 text-center font-semibold">Include country code — e.164 format (e.g. +15551234567)</p>
+          </div>
+        )}
+
+        <div className="flex flex-col items-center gap-3 w-full">
+          <button
+            type="button"
+            data-testid="business-setup-simulate-run"
+            disabled={running}
+            onClick={() => void runSimulation()}
+            className="btn bg-amber-500 text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-amber-500/30 hover:bg-amber-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+            </svg>
+            <span>{running ? "Simulating…" : stage === "sent" || stage === "failed" ? "Simulate again" : labels.action}</span>
+          </button>
+
+          {stage === "sent" && !testConfirmed && (
+            <button
+              type="button"
+              onClick={() => setTestConfirmed(true)}
+              className="btn bg-green-500 text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-green-500/30 hover:bg-green-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>I received the text</span>
+            </button>
+          )}
+
+          {testConfirmed && (
+            <p className="text-sm font-semibold text-green-600 flex items-center gap-2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Nice — your agent works. You&rsquo;re ready to go live.
+            </p>
+          )}
+        </div>
+      </div>
 
       {error ? (
-        <p className="mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600" data-testid="business-setup-simulate-error">
+        <p className="mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600 text-center" data-testid="business-setup-simulate-error">
           {error}
         </p>
       ) : null}
@@ -3516,7 +4349,9 @@ function StepTest({
   tone,
   testing,
   testResult,
-  onTestCallRouting
+  onTestCallRouting,
+  answeringMode,
+  listing
 }: {
   showPreview: boolean;
   showCallTest: boolean;
@@ -3527,72 +4362,76 @@ function StepTest({
   testing: boolean;
   testResult: CallRoutingResult | null;
   onTestCallRouting: () => void;
+  answeringMode: string;
+  listing?: any;
 }) {
+  const labels = getAnsweringLabels(answeringMode, listing);
+
   return (
-    <div className={CARD}>
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-green-50 text-green-600" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className="ml-0.5 h-5 w-5">
+    <div className="space-y-6">
+      {/* Icon */}
+      <div className="w-14 h-14 bg-green-50 rounded-2xl grid place-items-center text-green-600 mb-5" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className="w-6 h-6 ml-0.5">
           <polygon points="6 3 20 12 6 21 6 3" />
         </svg>
       </div>
 
-      <h2 className="mt-4 text-xl font-bold tracking-tight text-slate-900">Test your agent</h2>
-
-      <p className={SUB}>
-        Confirm everything is wired up before going live
-        {assignedNumber ? (
-          <>
-            {" "}— your Triven number is <span className="font-mono font-bold text-slate-700">{assignedNumber}</span>
-          </>
-        ) : null}
-        .
+      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Let&rsquo;s test it live</h2>
+      <p className="text-slate-500 text-base mt-2 max-w-md">
+        {assignedNumber
+          ? <>{"Call "}<span className="font-mono font-semibold text-slate-700">{assignedNumber}</span>{" and check the routing logic, then watch the agent respond."}</>
+          : labels.subtitle}
       </p>
-
-      <span className="mt-2 inline-flex items-center gap-1 text-xs text-slate-400">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
           <circle cx="12" cy="12" r="10" />
           <polyline points="12 6 12 12 16 14" />
         </svg>
         ~60 seconds
       </span>
 
-      {showCallTest ? <MissedCallSimulationSection businessName={businessName} tone={tone} /> : null}
+      {/* Numbered instructions */}
+      {showCallTest ? (
+        <div className="mt-8 bg-slate-50 rounded-xl p-5 sm:p-6 border border-slate-100">
+          <ol className="space-y-3.5">
+            <li className="flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">1</span>
+              <span className="text-sm text-slate-700">
+                Call{" "}
+                <strong className="font-semibold text-slate-900 font-mono">
+                  {assignedNumber ?? "your Triven number"}
+                </strong>{" "}
+                from your personal phone
+              </span>
+            </li>
+            <li className="flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">2</span>
+              <span className="text-sm text-slate-700">{labels.instruction2}</span>
+            </li>
+            <li className="flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">3</span>
+              <span className="text-sm text-slate-700">{labels.instruction3}</span>
+            </li>
+          </ol>
+        </div>
+      ) : null}
+
+      {/* Pre-deploy note */}
+      {showCallTest && !deployedLive ? (
+        <div
+          className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          data-testid="business-setup-test-predeploy-note"
+        >
+          Your agent is not live yet, so some checks below pass only after you deploy in the{" "}
+          <span className="font-semibold">Go live</span> step. Run the check now to catch setup issues early, then
+          re-test after deploying.
+        </div>
+      ) : null}
+
+      {showCallTest ? <MissedCallSimulationSection businessName={businessName} tone={tone} answeringMode={answeringMode} listing={listing} /> : null}
+
 
       {showPreview ? <PreviewCallSection /> : null}
-
-      {showCallTest ? (
-        deployedLive ? (
-          <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-5" data-testid="business-setup-test-instructions">
-            <ol className="space-y-3">
-              <li className="flex items-center gap-3 text-sm text-slate-700">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">1</span>
-                <span>Run the routing check below — every row should pass.</span>
-              </li>
-              <li className="flex items-center gap-3 text-sm text-slate-700">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">2</span>
-                <span>
-                  Call{" "}
-                  <strong className="font-mono font-semibold text-slate-900">{assignedNumber ?? "your Triven number"}</strong>{" "}
-                  from your personal phone.
-                </span>
-              </li>
-              <li className="flex items-center gap-3 text-sm text-slate-700">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-100 text-sm font-bold text-amber-700">3</span>
-                <span>The AI should answer — try asking it to book an appointment.</span>
-              </li>
-            </ol>
-          </div>
-        ) : (
-          <div
-            className="mt-6 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-            data-testid="business-setup-test-predeploy-note"
-          >
-            Your agent is not live yet, so some checks below pass only after you deploy in the{" "}
-            <span className="font-semibold">Go live</span> step. Run the check now to catch setup issues early, then
-            re-test after deploying.
-          </div>
-        )
-      ) : null}
 
       {showCallTest ? (
       <div className={SECTION} data-testid="business-setup-test-routing">
@@ -3609,7 +4448,7 @@ function StepTest({
             data-testid="business-setup-test-routing-run"
             disabled={testing}
             onClick={onTestCallRouting}
-            className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300"
+            className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
           >
             {testing ? "Testing…" : "Test call routing"}
           </button>
@@ -3678,22 +4517,21 @@ function StepGoLive({
   assignedNumber: string | null;
 }) {
   return (
-    <div className={CARD}>
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-600" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+    <div className="space-y-6">
+      {/* Icon */}
+      <div className="w-14 h-14 bg-amber-50 rounded-2xl grid place-items-center text-amber-600 mb-5" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </div>
 
-      <h2 className="mt-4 text-xl font-bold tracking-tight text-slate-900">Go live</h2>
-
-      <p className={SUB}>
+      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Go live</h2>
+      <p className="text-slate-500 text-base mt-2 max-w-md">
         Deploy builds your live assistant with your voice, timezone, and instructions, and routes your Triven number
         {assignedNumber ? <span className="font-mono font-bold text-slate-700"> {assignedNumber}</span> : null} to it.
       </p>
-
-      <span className="mt-2 inline-flex items-center gap-1 text-xs text-slate-400">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
           <circle cx="12" cy="12" r="10" />
           <polyline points="12 6 12 12 16 14" />
         </svg>
@@ -3701,15 +4539,11 @@ function StepGoLive({
       </span>
 
       <div className={SECTION}>
-        <ChecklistSummary checklist={checklist} />
-      </div>
-
-      <div className={SECTION}>
         {blockers.length > 0 ? (
-          <div data-testid="business-setup-blockers" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            <p className="font-semibold">Complete these before you can deploy live:</p>
+          <div data-testid="business-setup-blockers" className="rounded-xl bg-amber-50 border border-amber-100 p-4 text-sm text-slate-700">
+            <p className="font-semibold text-slate-800">Complete these before you can deploy live:</p>
 
-            <ul className="mt-1 list-disc pl-5">
+            <ul className="mt-2 list-disc pl-5 space-y-1">
               {blockers.map((blocker) => (
                 <li key={blocker} data-testid="business-setup-blocker">
                   {blocker}
@@ -3718,16 +4552,10 @@ function StepGoLive({
             </ul>
           </div>
         ) : (
-          <div className="rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700" data-testid="business-setup-ready">
+          <div className="rounded-xl bg-green-50 border border-green-100 p-4 text-sm font-semibold text-green-800" data-testid="business-setup-ready">
             All set — you can deploy your live agent.
           </div>
         )}
-
-        {readyToDeploy ? (
-          <p className="mt-3 text-xs text-slate-400">
-            After deploy, call your Triven number to test the live agent. Calendar booking uses your connected Google Calendar and timezone.
-          </p>
-        ) : null}
       </div>
     </div>
   );

@@ -542,14 +542,14 @@ function OwnedAgentCard({
                                     {badge.label}
                                 </span>
                                 <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-my-agent-price-text">
-                                    {agent.pricingModel === "FREE" ? "Free" : `$${agent.price}${agent.pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
+                                    {agent.pricingModel === "FREE" || agent.price === 0 ? "Free" : `$${agent.price}${agent.pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
                                 </span>
                             </div>
                             <span className="block text-[10px] font-semibold text-slate-600 mt-1">
-                                {agent.pricingModel === "FREE" ? "Free to install" : agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                                {agent.pricingModel === "FREE" || agent.price === 0 ? "Free to install" : agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
                             </span>
                             <span className="block text-[9px] text-slate-400 italic text-right leading-tight max-w-[130px]">
-                                {agent.pricingModel === "FREE" ? "Pay only for usage" : agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
+                                {agent.pricingModel === "FREE" || agent.price === 0 ? "Pay only for usage" : agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
                             </span>
                         </div>
 
