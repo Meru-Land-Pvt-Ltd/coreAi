@@ -12,7 +12,7 @@ import {
   useRef,
   useState
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiPost } from "@/lib/api";
 import { saveAuthSession, type AuthRole, type AuthUser } from "@/lib/auth";
 import {
@@ -20,7 +20,8 @@ import {
   TERM_PATH,
   HELP_PATH,
   BUSINESS_MARKETPLACE_PATH,
-  BUSINESS_ONBOARDING_PATH
+  BUSINESS_ONBOARDING_PATH,
+  resolveBusinessLoginReturnPath
 } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -110,6 +111,8 @@ function friendlyGoogleError(err: unknown): string | null {
 
 export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnPath = resolveBusinessLoginReturnPath(searchParams.get("next"));
 
   const [role, setRole] = useState<OtpAuthRole>(initialRole);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -125,6 +128,16 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const otpValue = useMemo(() => otp.join(""), [otp]);
+
+  function resolveLoginDestination(loginRole: OtpAuthRole, isNewUser: boolean) {
+    if (loginRole === "BUSINESS" && returnPath) {
+      return returnPath;
+    }
+    if (loginRole === "BUSINESS" && isNewUser) {
+      return BUSINESS_ONBOARDING_PATH;
+    }
+    return roleContent[loginRole].dashboardPath;
+  }
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
@@ -219,12 +232,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
 
       setStep(3);
 
-      // New buyers land on the marketplace to install their first agent;
-      // everyone else goes to their dashboard.
-      const destination =
-        role === "BUSINESS" && data.isNewUser
-          ? BUSINESS_ONBOARDING_PATH
-          : roleContent[role].dashboardPath;
+      const destination = resolveLoginDestination(role, Boolean(data.isNewUser));
 
       window.setTimeout(() => {
         router.push(destination);
@@ -256,10 +264,7 @@ export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
     const data = result.data;
     saveAuthSession(data.token, data.user);
 
-    const destination =
-      loginRole === "BUSINESS" && data.isNewUser
-        ? BUSINESS_ONBOARDING_PATH
-        : roleContent[loginRole].dashboardPath;
+    const destination = resolveLoginDestination(loginRole, Boolean(data.isNewUser));
 
     router.push(destination);
   }

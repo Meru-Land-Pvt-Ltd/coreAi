@@ -386,19 +386,12 @@ function isMarketplaceRoute(pathname: string) {
         return true;
     }
 
-    const staticBusinessRoutes = new Set([
-        "/business/dashboard",
-        "/business/marketplace",
-        "/business/checkout",
-        "/business/billingandusage",
-        "/business/paymentsuccess",
-        "/business/paymentfailed",
-        "/business/agents",
-        "/business/agents/setup",
-        "/business/setting"
-    ]);
+    // Public shareable agent details (/agent/[id]) shown with sidebar when logged in
+    if (pathname.startsWith("/agent/")) {
+        return true;
+    }
 
-    return pathname.startsWith("/business/") && !staticBusinessRoutes.has(pathname);
+    return false;
 }
 
 function isBusinessNavItemActive(

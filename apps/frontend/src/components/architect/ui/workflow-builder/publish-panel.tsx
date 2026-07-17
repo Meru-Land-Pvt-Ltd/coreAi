@@ -8,7 +8,7 @@ import { Dot } from "lucide-react";
 
 function formatPricingText(pricing: AgentConfigurePricing | null, fallbackPrice: string): string {
   if (!pricing) {
-    return `$${fallbackPrice} / month`;
+    return `$${fallbackPrice}/month`;
   }
 
   if (pricing.pricingModel === "free") {
@@ -17,7 +17,7 @@ function formatPricingText(pricing: AgentConfigurePricing | null, fallbackPrice:
 
   const amount = `$${Math.round(pricing.price).toLocaleString("en-US")}`;
   const base =
-    pricing.pricingModel === "subscription" ? `${amount} / month` : `${amount} one-time`;
+    pricing.pricingModel === "subscription" ? `${amount}/month` : `${amount} one-time`;
   if (pricing.freeTrialEnabled && pricing.trialDays > 0) {
     return `${base} · ${pricing.trialDays}-day trial`;
   }
@@ -94,7 +94,7 @@ export function PublishPanel({
   const hasCoverImage = Boolean(coverUrl);
 
 
-  const previewTags = [...new Set([category, ...tags].filter(Boolean))];
+  const previewTags = [...new Set([...tags].filter(Boolean))];
   if (previewTags.length === 0) previewTags.push("Business Automation");
   const visiblePreviewTags = previewTags.slice(0, 3);
   const extraPreviewTagCount = Math.max(0, previewTags.length - 3);
@@ -201,8 +201,8 @@ export function PublishPanel({
                 </div>
                 <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
                   <div>
-                    <span className="text-2xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-price-text">${price}</span>
-                    <span className="text-sm text-slate-400" data-testid="architect-ui-workflow-builder-publish-panel-month-text">/month</span>
+                    <span className="text-2xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-price-text pricingText">{formatPricingText(pricing, price)}</span>
+                    
                   </div>
                   <span
                     data-testid="publish-panel-install-agent-link"

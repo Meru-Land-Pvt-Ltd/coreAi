@@ -357,7 +357,7 @@ async function processSubscriptionRenewals(now: Date) {
     where: {
       status: "SUCCEEDED",
       listing: {
-        pricingModel: "SUBSCRIPTION"
+        is: { pricingModel: "SUBSCRIPTION" }
       },
       stripeCustomerId: { not: null },
       stripePaymentId: { not: null }
