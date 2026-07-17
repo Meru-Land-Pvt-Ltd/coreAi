@@ -147,13 +147,32 @@ const termsSections: LegalSectionData[] = [
   },
   {
     id: "end-user-messaging",
-    title: "8. End-User Messaging Disclosures",
+    title: "8. Triven.ai SMS Program and End-User Messaging Disclosures",
     body: [
-      "End-users who affirmatively consent may receive transactional messages from the identified Business Owner through Triven, including appointment confirmations, reminders, booking updates, service updates, account-related notices, and customer-support messages.",
-      "Message frequency varies. Message and data rates may apply. End-users may reply STOP to opt out and HELP for assistance.",
+      "End-user SMS consent may be provided verbally during an inbound AI-assisted call (after the standardized consent disclosure is read aloud) or through a separate, optional consent checkbox on a public booking or service-request form that is unchecked by default and never required to submit the form.",
       "Consent is specific to the identified sending business and messaging program and is not shared or transferred to unrelated businesses for marketing or promotional purposes.",
-      "Consent to receive text messages is not a condition of purchase, booking, or receiving services unless expressly permitted by applicable law."
-    ]
+      "Business Owners remain responsible for lawful calling, call recording, and messaging practices, including any notices and consents required by applicable law.",
+      "Triven may disable or restrict messaging for invalid consent, end-user complaints, carrier requirements, or abuse."
+    ],
+    afterNode: (
+      <span data-testid="terms-sms-program-text">
+        <strong>Triven.ai SMS Program:</strong> Users who provide affirmative consent may receive
+        appointment confirmations, reminders, booking updates, rescheduling notices,
+        cancellations, service updates, and customer-support messages from the identified
+        business through Triven.ai. Message frequency varies. Message and data rates may apply.
+        Reply <strong data-testid="terms-sms-stop-bold">STOP</strong> to opt out or{" "}
+        <strong data-testid="terms-sms-help-bold">HELP</strong> for assistance. Consent is not a
+        condition of purchase, booking, or receiving services. For support, contact{" "}
+        <a
+          data-testid="terms-sms-support-email"
+          href="mailto:info@triven.ai"
+          className="font-medium text-amber-600 hover:text-amber-700"
+        >
+          info@triven.ai
+        </a>
+        .
+      </span>
+    )
   },
   {
     id: "acceptable-use",

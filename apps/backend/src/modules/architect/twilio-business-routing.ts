@@ -10,6 +10,14 @@ import {
   sendTrackedSms,
   type SmsSendOutcome
 } from "../notifications/sms-notification-service";
+import {
+  applySmsOptOut,
+  applySmsReOptIn,
+  classifyInboundSmsKeyword,
+  maskPhone,
+  recordVerbalSmsConsent,
+  smsHelpReplyText
+} from "../notifications/sms-consent";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
 import { enqueueEmail } from "../email/email-queue";
 import {
@@ -1233,19 +1241,45 @@ export async function handleTwilioMissedCall(c: Context) {
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
 
-/**
- * Inbound SMS to the SHARED Triven sender cannot be routed by `To` — every
- * reply lands on the same platform number, so NO business association is ever
- * inferred (no recency heuristics) and nothing enters a buyer workflow.
- * STOP/START/HELP are handled by Twilio's Messaging Service (Advanced
- * Opt-Out) before this webhook fires. Everything else is logged as an
- * unmatched shared-sender inbound message (metadata only — never the message
- * content) and answered with empty TwiML: no auto-reply, and no claim that
- * any business received it.
- */
-function handleSharedSenderInboundSms(c: Context, customerPhone: string, incomingBody: string) {
+async function handleSharedSenderInboundSms(
+  c: Context,
+  customerPhone: string,
+  incomingBody: string,
+  optOutType?: string
+) {
+  const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
+  if (keyword) {
+    try {
+      if (keyword === "STOP") {
+        const { updated } = await applySmsOptOut({ phoneNumber: customerPhone, source: "SMS_STOP" });
+        console.log("[twilio.sms] STOP on shared sender — consent revoked", {
+          from: maskPhone(customerPhone),
+          recordsUpdated: updated
+        });
+      } else if (keyword === "START") {
+        const { updated } = await applySmsReOptIn({ phoneNumber: customerPhone });
+        console.log("[twilio.sms] START on shared sender — prior STOP opt-outs restored", {
+          from: maskPhone(customerPhone),
+          recordsUpdated: updated
+        });
+      } else {
+        console.log("[twilio.sms] HELP on shared sender", { from: maskPhone(customerPhone) });
+      }
+    } catch (error) {
+      console.error("[twilio.sms] keyword consent sync failed", error);
+    }
+if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
+      return c.text(
+        `<Response><Message>${escapeXml(smsHelpReplyText())}</Message></Response>`,
+        200,
+        { "Content-Type": "text/xml" }
+      );
+    }
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
   console.log("[twilio.sms] unmatched shared-sender inbound message (not routed to any business)", {
-    from: customerPhone,
+    from: maskPhone(customerPhone),
     bodyLength: incomingBody.length
   });
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
@@ -1262,13 +1296,14 @@ export async function handleTwilioInboundSms(c: Context) {
   const businessNumber = readBodyString(body, ["To", "to"]);
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
+const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
 
   const sharedSender = normalizePhoneE164(env.TWILIO_SHARED_SMS_NUMBER ?? "");
   if (sharedSender && normalizePhoneE164(businessNumber) === sharedSender) {
     if (!customerPhone || !incomingBody) {
       return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
     }
-    return handleSharedSenderInboundSms(c, customerPhone, incomingBody);
+    return handleSharedSenderInboundSms(c, customerPhone, incomingBody, optOutType);
   }
 
   const agent = await resolveAgent({ calledNumber: businessNumber, workflowId });
@@ -1276,9 +1311,42 @@ export async function handleTwilioInboundSms(c: Context) {
   if (!agent || !customerPhone || !incomingBody) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
+const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
+  if (keyword) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "INBOUND",
+      body: incomingBody,
+      providerId: readBodyString(body, ["MessageSid", "SmsSid"])
+    }).catch(() => null);
 
-  // Paused agents never reply — the inbound message is still recorded so the
-  // buyer sees it after resuming.
+    if (agent.business?.businessId) {
+      try {
+        if (keyword === "STOP") {
+          await applySmsOptOut({
+            phoneNumber: customerPhone,
+            businessId: agent.business.businessId,
+            source: "SMS_STOP"
+          });
+        } else if (keyword === "START") {
+          await applySmsReOptIn({ phoneNumber: customerPhone, businessId: agent.business.businessId });
+        }
+      } catch (error) {
+        console.error("[inbound-sms] keyword consent sync failed", error);
+      }
+    }
+
+    if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
+      return c.text(
+        `<Response><Message>${escapeXml(smsHelpReplyText())}</Message></Response>`,
+        200,
+        { "Content-Type": "text/xml" }
+      );
+    }
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
   if (agent.agentPaused) {
     await upsertConversation({
       businessId: agent.business?.businessId,
@@ -1290,9 +1358,7 @@ export async function handleTwilioInboundSms(c: Context) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  // Workflows without any SMS-capable node (e.g. voice-only agents) record the
-  // inbound text but never auto-reply — the SMS trigger node now has real effect.
-  if (!workflowSupportsSmsReplies(agent.workflowJson)) {
+ if (!workflowSupportsSmsReplies(agent.workflowJson)) {
     await upsertConversation({
       businessId: agent.business?.businessId,
       customerPhone,
@@ -1349,7 +1415,7 @@ export async function handleTwilioInboundSms(c: Context) {
 
       bookedEventId = calendarEvent.id;
       bookedAppointmentId = appointment.id;
-      replyBody = `You're booked with ${agent.business.businessName}: ${service} on ${formatAppointmentTime(
+      replyBody = `${agent.business.businessName} via Triven.ai: You're booked — ${service} on ${formatAppointmentTime(
         calendarEvent.startAt,
         agent.business.timeZone
       )}.${agent.business.businessPhoneNumber ? ` For assistance call ${agent.business.businessPhoneNumber}.` : ""}`;
@@ -2256,6 +2322,9 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const smsResultShape = (outcome: SmsSendOutcome | null) => ({
     attempted: Boolean(outcome?.attempted),
     sent: Boolean(outcome && (outcome.sent || outcome.alreadySent)),
+    // SMS_CONSENT_REQUIRED / SMS_OPTED_OUT when the consent gate blocked the
+    // text — the assistant must not tell the caller a text was sent.
+    blocked_reason: outcome?.suppressed ? outcome.errorCode : null,
     messageSid: outcome?.messageSid ?? null,
     status: outcome?.status ?? null
   });
@@ -2346,6 +2415,61 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   return localFallback("not_connected");
 }
+async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  if (!ctx.business?.businessId) {
+    return { success: false, error: "business_not_resolved", consent_recorded: false };
+  }
+
+  const affirmative = args["affirmative"];
+  if (typeof affirmative !== "boolean") {
+    return {
+      success: false,
+      error: "affirmative_must_be_boolean",
+      consent_recorded: false,
+      message: "Ask the yes/no consent question and call again with affirmative true or false."
+    };
+  }
+
+  const phone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
+  if (!phone) {
+    return { success: false, error: "customer_phone_unavailable", consent_recorded: false };
+  }
+
+  // Architect browser test: acknowledge without persisting.
+  if (ctx.dental?.dryRun) {
+    return { success: true, dry_run: true, consent_recorded: false, sms_allowed: affirmative };
+  }
+
+  const outcome = await recordVerbalSmsConsent({
+    businessId: ctx.business.businessId,
+    installedAgentId: ctx.business.installedAgentId ?? null,
+    phoneNumber: phone,
+    businessName: ctx.business.businessName,
+    vapiCallId: ctx.callId ?? null,
+    affirmative
+  });
+
+  if (!outcome.ok) {
+    console.log("[vapi-webhook] record_sms_consent rejected", { reason: outcome.error });
+    return { success: false, error: outcome.error, consent_recorded: false };
+  }
+
+  console.log("[vapi-webhook] record_sms_consent stored", {
+    businessId: ctx.business.businessId,
+    phone: maskPhone(phone),
+    optedIn: outcome.consent.status === "OPTED_IN",
+    callId: ctx.callId ?? null
+  });
+  return {
+    success: true,
+    consent_recorded: true,
+    sms_allowed: outcome.consent.status === "OPTED_IN",
+    message:
+      outcome.consent.status === "OPTED_IN"
+        ? "SMS consent recorded. Transactional texts may now be sent."
+        : "Declined recorded. Do not send texts. Continue the booking normally — it is not affected."
+  };
+}
 
 /** send_notification: SMS the customer and/or the business team. */
 async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiToolContext) {
@@ -2353,6 +2477,9 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   let teamSmsSent = false;
   let customerEmailSent = false;
   let teamEmailSent = false;
+  // Set when the consent gate suppressed the customer SMS — surfaced to the
+  // assistant so it can explain instead of claiming a text was sent.
+  let customerSmsBlockedReason: string | null = null;
 
   const service = argStr(args, ["service", "service_type"]) || ctx.dental?.bookingLabel || "appointment";
   const teamName =
@@ -2366,7 +2493,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
     const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
     const preview = applyBracketTemplate(
-      ctx.dental?.patientTemplate ?? "Confirmed: [Service] on [Date] at [Time].",
+      ctx.dental?.patientTemplate ?? "[Business Name] via Triven.ai: Confirmed: [Service] on [Date] at [Time].",
       bracketTemplateValues({
         service,
         customerName: previewName,
@@ -2429,9 +2556,10 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
             timeZone: recentAppointment.timeZone || ctx.timeZone
           });
           customerSmsSent = outcome.sent || outcome.alreadySent;
+          if (outcome.suppressed) customerSmsBlockedReason = outcome.errorCode;
         } else {
           const sms = applyBracketTemplate(
-            ctx.dental?.patientTemplate ?? "Confirmed: [Service] on [Date] at [Time] with [Business Name].",
+            ctx.dental?.patientTemplate ?? "[Business Name] via Triven.ai: Confirmed: [Service] on [Date] at [Time].",
             values
           );
           const outcome = await sendTrackedSms({
@@ -2445,6 +2573,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
             dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:customer` : null
           });
           customerSmsSent = outcome.sent || outcome.alreadySent;
+          if (outcome.suppressed) customerSmsBlockedReason = outcome.errorCode;
           if (customerSmsSent) {
             await upsertConversation({
               businessId: ctx.business.businessId,
@@ -2469,8 +2598,10 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
         );
         const outcome = await sendTrackedSms({
           to: teamPhone,
+          // Message to the business's own staff — TEAM_NOTIFICATION is exempt
+          // from the customer-consent gate.
           body: sms,
-          messageType: "WORKFLOW_SMS",
+          messageType: "TEAM_NOTIFICATION",
           businessId: ctx.business.businessId,
           installedAgentId: ctx.business.installedAgentId ?? null,
           dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:team` : null
@@ -2672,6 +2803,13 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   return {
     success: customerSmsSent || teamSmsSent || customerEmailSent || teamEmailSent,
     customer_sms_sent: customerSmsSent,
+    customer_sms_blocked_reason: customerSmsBlockedReason,
+    ...(customerSmsBlockedReason
+      ? {
+          message:
+            "Customer SMS was not sent: no SMS consent on record (or the customer opted out). Do not promise a text. The booking itself is unaffected."
+        }
+      : {}),
     team_sms_sent: teamSmsSent,
     customer_email_sent: customerEmailSent,
     team_email_sent: teamEmailSent,
@@ -2680,21 +2818,6 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   };
 }
 
-/**
- * Vapi tool-call + status webhook. Bulletproof by design: it NEVER responds 5xx
- * for a tool call. Any failure (calendar not connected, Twilio off, DB hiccup)
- * degrades to a safe Vapi tool result so the live conversation continues. Tool
- * names are matched by alias (check_availability / checkAvailability / check_calendar,
- * book_appointment / bookAppointment, send_notification / send_sms_notification).
- */
-/**
- * Vapi webhook auth. Vapi never sends the app JWT, so this route must not use
- * normal bearer auth. When VAPI_WEBHOOK_SECRET is configured, accept
- * `Authorization: Bearer <secret>` or `X-Vapi-Secret: <secret>`. Unsigned
- * requests stay allowed outside production, for architect browser-test
- * sessions (metadata.purpose === "ARCHITECT_TEST"), and when no secret is
- * configured — existing live assistants were deployed without one.
- */
 function authorizeVapiWebhook(c: Context, body: Record<string, unknown>): { authorized: boolean; reason: string } {
   const secret = (env.VAPI_WEBHOOK_SECRET ?? "").trim();
 
@@ -2851,9 +2974,12 @@ export async function handleVapiWebhook(c: Context) {
     const results: Array<{ name: string; toolCallId: string; result: string }> = [];
     for (const toolCall of toolCalls) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
-      const isCheck = fnName.startsWith("check") || fnName.includes("availab");
-      const isBook = fnName.startsWith("book");
-      const isNotify = fnName.startsWith("send") || fnName.includes("notif");
+      // Consent first: "recordsmsconsent" must never fall through to the
+      // send/notify matcher.
+      const isConsent = fnName.includes("consent");
+      const isCheck = !isConsent && (fnName.startsWith("check") || fnName.includes("availab"));
+      const isBook = !isConsent && fnName.startsWith("book");
+      const isNotify = !isConsent && (fnName.startsWith("send") || fnName.includes("notif"));
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -2861,7 +2987,8 @@ export async function handleVapiWebhook(c: Context) {
 
       let payload: unknown;
       try {
-        if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
+        if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
+        else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
         else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
         else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
         else payload = { ok: true };
@@ -2871,7 +2998,9 @@ export async function handleVapiWebhook(c: Context) {
           ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
           : isBook
             ? { success: false, message: "Could not complete the booking right now. Please try again." }
-            : { success: false };
+            : isConsent
+              ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
+              : { success: false };
       }
 
       results.push({

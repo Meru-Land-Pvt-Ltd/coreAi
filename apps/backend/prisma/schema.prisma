@@ -221,12 +221,14 @@ model EmailVerificationCode {
 }
 
 model Business {
-  id        String   @id @default(cuid())
-  ownerId   String
-  name      String
-  type      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  ownerId           String
+  name              String
+  type              String
+  /// URL-safe slug for the public booking/service-request page (/book/[slug]).
+  publicBookingSlug String?  @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   // Stripe billing (AI Receptionist subscription).
   stripeCustomerId     String?
@@ -255,6 +257,7 @@ model Business {
   emailAliases    BusinessEmailAlias[]
   emailMessages   EmailMessage[]
   smsExecutions   SmsExecution[]
+  smsConsents     SmsConsent[]
 
   @@index([ownerId])
   @@index([type])
@@ -1178,6 +1181,8 @@ enum SmsMessageType {
   TEST_SMS
   MISSED_CALL_TEXT_BACK
   WORKFLOW_SMS
+  /// SMS to the business's own team/staff phone (not a customer message).
+  TEAM_NOTIFICATION
 }
 
 enum SmsExecutionStatus {
@@ -1189,6 +1194,9 @@ enum SmsExecutionStatus {
   UNDELIVERED
   FAILED
   SIMULATED
+  /// Blocked before reaching Twilio — e.g. missing/withdrawn SMS consent.
+  /// The suppression reason is stored in errorCode (SMS_CONSENT_REQUIRED / SMS_OPTED_OUT).
+  SUPPRESSED
 }
 
 model SmsExecution {
@@ -1227,4 +1235,73 @@ model SmsExecution {
   @@index([status])
   @@index([createdAt])
   @@index([toPhone, createdAt])
+}
+
+enum SmsConsentStatus {
+  OPTED_IN
+  OPTED_OUT
+}
+
+enum SmsConsentMethod {
+  /// Verbal affirmative consent captured during an inbound AI-receptionist call.
+  VERBAL_CALL
+  /// Optional, unchecked-by-default checkbox on a public booking/service-request form.
+  WEB_FORM
+}
+
+enum SmsConsentPurpose {
+  TRANSACTIONAL_BOOKING
+}
+
+/// Auditable SMS consent record. Consent is scoped to ONE business + ONE
+/// customer phone + ONE messaging program — consent captured for Business A
+/// never authorizes messages from Business B. Every business-initiated
+/// transactional SMS must pass canSendTransactionalSms() against this table.
+model SmsConsent {
+  id               String  @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  /// Customer phone in strict E.164 (validated via validateSmsRecipientE164).
+  phoneNumber      String
+  /// Messaging program identifier (e.g. TRANSACTIONAL_BOOKING).
+  messagingProgram String  @default("TRANSACTIONAL_BOOKING")
+
+  status  SmsConsentStatus
+  method  SmsConsentMethod
+  purpose SmsConsentPurpose @default(TRANSACTIONAL_BOOKING)
+
+  /// When affirmative consent was captured. Null when the only event so far is
+  /// a decline/opt-out (a declined ask is stored as OPTED_OUT with no consentAt).
+  consentAt    DateTime?
+  optOutAt     DateTime?
+  /// What triggered the opt-out: SMS_STOP | VERBAL_DECLINE | ADMIN.
+  optOutSource String?
+
+  /// Business name presented to the customer in the disclosure.
+  businessNamePresented String?
+  /// Version tag of the disclosure script shown/read at consent time.
+  disclosureVersion     String
+  /// SHA-256 hash of the exact disclosure text presented (immutable evidence).
+  disclosureHash        String?
+
+  /// Vapi call id for VERBAL_CALL consent.
+  vapiCallId    String?
+  /// Appointment / booking / service-request id for WEB_FORM consent.
+  appointmentId String?
+  /// Public page URL the WEB_FORM consent was submitted from.
+  sourceUrl     String?
+  /// Request metadata for WEB_FORM consent (where legally appropriate).
+  ipAddress     String?
+  userAgent     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, phoneNumber, messagingProgram])
+  @@index([phoneNumber])
+  @@index([businessId, status])
+  @@index([vapiCallId])
+  @@index([installedAgentId])
 }

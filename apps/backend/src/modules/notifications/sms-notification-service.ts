@@ -5,6 +5,11 @@ import {
   sendTwilioSms,
   validateSmsRecipientE164
 } from "../architect/twilio-connector";
+import {
+  canSendTransactionalSms,
+  maskPhone,
+  messagingProgramForMessageType
+} from "./sms-consent";
 
 export type AppointmentConfirmationInput = {
   appointmentId: string;
@@ -26,6 +31,12 @@ export type SmsSendOutcome = {
   testCredentials: boolean;
   /** True when the dedupe key matched an existing execution — nothing was re-sent. */
   alreadySent: boolean;
+  /**
+   * True when the message was blocked by the SMS-consent gate before reaching
+   * Twilio. The reason is in errorCode (SMS_CONSENT_REQUIRED / SMS_OPTED_OUT).
+   * Suppression must never fail the surrounding booking/service flow.
+   */
+  suppressed: boolean;
   executionId: string | null;
   messageSid: string | null;
   status: string | null;
@@ -69,19 +80,21 @@ function outcomeFromExecution(
   testCredentials = false
 ): SmsSendOutcome {
   const failed = execution.status === "FAILED" || execution.status === "UNDELIVERED";
+  const suppressed = execution.status === "SUPPRESSED";
   return {
-    attempted: true,
-    sent: !failed && (Boolean(execution.messageSid) || execution.status === "SIMULATED"),
+    attempted: !suppressed,
+    sent: !failed && !suppressed && (Boolean(execution.messageSid) || execution.status === "SIMULATED"),
     simulated: execution.status === "SIMULATED",
     testCredentials,
     alreadySent,
+    suppressed,
     executionId: execution.id,
     messageSid: execution.messageSid,
     status: execution.status,
     from: execution.fromPhone,
     messagingServiceSid: execution.messagingServiceSid,
-    error: failed ? execution.errorMessage : null,
-    errorCode: failed ? execution.errorCode : null
+    error: failed || suppressed ? execution.errorMessage : null,
+    errorCode: failed || suppressed ? execution.errorCode : null
   };
 }
 
@@ -115,6 +128,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
       simulated: false,
       testCredentials: false,
       alreadySent: false,
+      suppressed: false,
       executionId: null,
       messageSid: null,
       status: null,
@@ -126,6 +140,56 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
   }
   const to = recipient.e164;
 
+  // Consent gate — every customer-directed message class requires a valid
+  // OPTED_IN SmsConsent for (business, phone, program). This is THE central
+  // authorization point: nothing below it reaches Twilio without passing.
+  const messagingProgram = messagingProgramForMessageType(input.messageType);
+  if (messagingProgram) {
+    const authorization = await canSendTransactionalSms({
+      businessId: input.businessId ?? null,
+      phoneNumber: to,
+      messagingProgram
+    });
+    if (!authorization.allowed) {
+      const reason =
+        authorization.reason === "SMS_OPTED_OUT" ? "SMS_OPTED_OUT" : "SMS_CONSENT_REQUIRED";
+      // Audit row. Deliberately NO dedupeKey: a suppressed attempt must not
+      // consume the idempotency key of a later, properly consented send.
+      const suppressedExecution = await prisma.smsExecution.create({
+        data: {
+          businessId: input.businessId ?? null,
+          installedAgentId: input.installedAgentId ?? null,
+          appointmentId: input.appointmentId ?? null,
+          messageType: input.messageType,
+          toPhone: to,
+          body: input.body,
+          status: "SUPPRESSED",
+          errorCode: reason,
+          errorMessage:
+            reason === "SMS_OPTED_OUT"
+              ? "Recipient has opted out of this business's SMS program."
+              : "No affirmative SMS consent on record for this business and recipient.",
+          failedAt: new Date()
+        }
+      });
+      console.info("[sms-consent] send suppressed", {
+        executionId: suppressedExecution.id,
+        messageType: input.messageType,
+        businessId: input.businessId ?? null,
+        to: maskPhone(to),
+        reason
+      });
+      return outcomeFromExecution(suppressedExecution, false);
+    }
+  }
+
+  // Every customer-directed message must carry the opt-out/help notice —
+  // append it when the template didn't already include one.
+  const body =
+    messagingProgram && !/\bSTOP\b/i.test(input.body)
+      ? `${input.body}\nReply STOP to opt out or HELP for assistance. Msg & data rates may apply.`
+      : input.body;
+
   let execution: SmsExecution;
   try {
     execution = await prisma.smsExecution.create({
@@ -136,7 +200,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
         dedupeKey: input.dedupeKey ?? null,
         messageType: input.messageType,
         toPhone: to,
-        body: input.body,
+        body,
         status: "QUEUED",
         queuedAt: new Date()
       }
@@ -150,7 +214,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
   }
 
   try {
-    const result = await sendTwilioSms({ to, body: input.body });
+    const result = await sendTwilioSms({ to, body });
     const updated = await prisma.smsExecution.update({
       where: { id: execution.id },
       data: {
@@ -189,6 +253,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
       simulated: false,
       testCredentials: false,
       alreadySent: false,
+      suppressed: false,
       executionId: (failed ?? execution).id,
       messageSid: null,
       status: "FAILED",
@@ -237,20 +302,17 @@ export type AppointmentConfirmationTemplateValues = {
   businessPhone: string;
 };
 
+// Transactional template — identifies both the business and Triven, and
+// carries the required STOP/HELP + rates notice. No promotional content.
 export function renderAppointmentConfirmationSms(values: AppointmentConfirmationTemplateValues): string {
+  const service = values.serviceName && values.serviceName !== "your" ? `${values.serviceName} ` : "";
   const lines = [
-    `Hi ${values.customerName},`,
-    "",
-    `Your ${values.serviceName} appointment with ${values.businessName} has been confirmed.`,
-    "",
-    `Date: ${values.appointmentDate}`,
-    `Time: ${values.appointmentTime}`,
-    ""
+    `${values.businessName} via Triven.ai: Hi ${values.customerName}, your ${service}appointment is confirmed for ${values.appointmentDate} at ${values.appointmentTime}.`
   ];
   if (values.businessPhone) {
-    lines.push(`For assistance call ${values.businessPhone}.`, "");
+    lines.push(`For assistance call ${values.businessPhone}.`);
   }
-  lines.push("Reply STOP to opt out.");
+  lines.push("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
   return lines.join("\n");
 }
 
@@ -291,6 +353,7 @@ export async function sendAppointmentConfirmationSms(
       simulated: false,
       testCredentials: false,
       alreadySent: false,
+      suppressed: false,
       executionId: null,
       messageSid: null,
       status: null,
@@ -349,7 +412,10 @@ const STATUS_RANK: Record<SmsExecutionStatus, number> = {
   SIMULATED: 3,
   DELIVERED: 4,
   UNDELIVERED: 4,
-  FAILED: 4
+  FAILED: 4,
+  // Terminal: a suppressed message never reached Twilio, so no status
+  // callback should ever try to move it (rank keeps it frozen if one does).
+  SUPPRESSED: 5
 };
 
 /** micro-USD from a Twilio price string (prices arrive negative, e.g. "-0.0079"). */

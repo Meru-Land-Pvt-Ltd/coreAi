@@ -2,6 +2,7 @@ import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES } fr
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
+import { getSmsConsentStatusLabel } from "../notifications/sms-consent";
 import {
   extractSendEmailNodeConfig,
   fillEmailTemplate,
@@ -827,7 +828,7 @@ async function runSmsConnectorNode({
     return;
   }
 
-  const defaultBody = context.ai?.output ?? `Hi, this is ${context.business?.name ?? "the business"}. Sorry we missed your call. We can help by text right now.`;
+  const defaultBody = context.ai?.output ?? `${context.business?.name ?? "The business"} via Triven.ai: Sorry we missed your call. We can help by text right now.`;
   const actionTo = renderTemplate(node.data?.smsTo, context) || context.caller_number || "";
   const actionBody = renderTemplate(node.data?.smsBody, context) || defaultBody;
   const sendAt = renderTemplate(node.data?.sendAt, context) || "8:00 AM next business day";
@@ -868,9 +869,21 @@ async function runSmsConnectorNode({
         mode,
         providerCalled: outcome.attempted,
         twilioTestMode: false,
-        executionId: outcome.executionId
+        executionId: outcome.executionId,
+        ...(outcome.suppressed ? { suppressedReason: outcome.errorCode } : {})
       };
-      logs.push(createLog(node, "error", `Twilio SMS failed: ${outcome.error ?? "unknown error"}`, context.sentSms));
+      // Consent suppression is expected behavior, not a Twilio failure — the
+      // missed-call flow itself continues (e.g. the Vapi callback still runs).
+      logs.push(
+        outcome.suppressed
+          ? createLog(
+              node,
+              "waiting",
+              `SMS skipped: ${outcome.errorCode === "SMS_OPTED_OUT" ? "the caller has opted out of texts" : "no SMS consent on record for this caller"} (${outcome.errorCode}).`,
+              context.sentSms
+            )
+          : createLog(node, "error", `Twilio SMS failed: ${outcome.error ?? "unknown error"}`, context.sentSms)
+      );
       return;
     }
 
@@ -959,6 +972,7 @@ async function runVapiConnectorNode({
   const call = await startVapiOutboundCall({
     customerPhone,
     customerName: context.caller_name,
+    smsConsentStatus: await getSmsConsentStatusLabel(context.business?.id, customerPhone),
     business: {
       businessId: context.business?.id,
       businessName: context.business?.name ?? "the business",

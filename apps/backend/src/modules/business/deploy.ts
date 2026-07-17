@@ -403,6 +403,7 @@ async function buildInstalledAgentAssistantPlan(
     currentDateTimeText: "{{currentDateTime}}",
     currentDateText: "{{currentDate}}",
     tomorrowDateText: "{{tomorrowDate}}",
+    smsConsentStatusText: "{{smsConsentStatus}}",
     customInstructions,
     silencePolicy,
     calendarRules: DEFAULT_CALENDAR_BOOKING_RULES,

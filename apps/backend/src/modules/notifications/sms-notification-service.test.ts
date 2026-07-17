@@ -8,6 +8,7 @@ import {
   sendAppointmentConfirmationSms,
   sendTrackedSms
 } from "./sms-notification-service";
+import { recordVerbalSmsConsent } from "./sms-consent";
 
 /**
  * Template tests are pure. Everything else runs against the local dev
@@ -98,6 +99,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (dbAvailable && businessId) {
     await prisma.smsExecution.deleteMany({ where: { businessId } });
+    await prisma.smsConsent.deleteMany({ where: { businessId } });
     await prisma.appointment.deleteMany({ where: { businessId } });
     await prisma.business.deleteMany({ where: { id: businessId } });
     await prisma.user.deleteMany({ where: { email: `${RUN}@test.local` } });
@@ -111,7 +113,7 @@ afterEach(() => {
 });
 
 describe("renderAppointmentConfirmationSms", () => {
-  it("renders every dynamic value", () => {
+  it("renders every dynamic value and identifies the business via Triven", () => {
     const body = renderAppointmentConfirmationSms({
       customerName: "Jane Smith",
       businessName: "Smile Dental",
@@ -121,12 +123,11 @@ describe("renderAppointmentConfirmationSms", () => {
       businessPhone: "+15557654321"
     });
 
-    expect(body).toContain("Hi Jane Smith,");
-    expect(body).toContain("Cleaning appointment with Smile Dental");
-    expect(body).toContain("Date: Tue, Jul 14, 2026");
-    expect(body).toContain("Time: 3:00 PM");
+    expect(body).toContain("Smile Dental via Triven.ai:");
+    expect(body).toContain("Hi Jane Smith");
+    expect(body).toContain("Cleaning appointment is confirmed for Tue, Jul 14, 2026 at 3:00 PM");
     expect(body).toContain("For assistance call +15557654321.");
-    expect(body).toContain("Reply STOP to opt out.");
+    expect(body).toContain("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
   });
 
   it("drops the assistance line when there is no business phone", () => {
@@ -139,7 +140,7 @@ describe("renderAppointmentConfirmationSms", () => {
       businessPhone: ""
     });
     expect(body).not.toContain("For assistance call");
-    expect(body).toContain("Reply STOP to opt out.");
+    expect(body).toContain("Reply STOP to opt out or HELP for assistance.");
   });
 });
 
@@ -147,6 +148,15 @@ describe("appointment confirmation idempotency (DB)", () => {
   it("sends exactly once for the same appointment, even when re-triggered", async () => {
     if (!dbAvailable) return;
     const fetchMock = stubTwilioAccepting();
+
+    // Appointment confirmations are consent-gated — record the opt-in first.
+    await recordVerbalSmsConsent({
+      businessId,
+      phoneNumber: "+15551112222",
+      businessName: "Test Business",
+      vapiCallId: `${RUN}-call-idempotency`,
+      affirmative: true
+    });
 
     const appointment = await prisma.appointment.create({
       data: {

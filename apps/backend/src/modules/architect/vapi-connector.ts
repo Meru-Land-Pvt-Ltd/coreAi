@@ -223,12 +223,15 @@ export function buildVapiVariableValues({
   customerPhone,
   customerName,
   business,
-  reason
+  reason,
+  smsConsentStatus
 }: {
   customerPhone: string;
   customerName?: string | null;
   business: VapiBusinessContext;
   reason: string;
+  /** "granted" | "declined" | "none" — resolved per call by the caller of this fn. */
+  smsConsentStatus?: string | null;
 }) {
   const timeZone = business.timeZone
     ? normalizeTimeZone(business.timeZone)
@@ -265,7 +268,8 @@ export function buildVapiVariableValues({
     escalationRules: business.escalationRules || "",
     calendarId: business.calendarId || "primary",
     timeZone,
-    callReason: reason
+    callReason: reason,
+    smsConsentStatus: smsConsentStatus || "unknown"
   };
 }
 
@@ -276,7 +280,8 @@ export async function startVapiOutboundCall({
   reason,
   assistantId,
   phoneNumberId,
-  metadata = {}
+  metadata = {},
+  smsConsentStatus
 }: {
   customerPhone: string;
   customerName?: string | null;
@@ -285,6 +290,7 @@ export async function startVapiOutboundCall({
   assistantId?: string | null;
   phoneNumberId?: string | null;
   metadata?: Record<string, unknown>;
+  smsConsentStatus?: string | null;
 }): Promise<VapiCallResult> {
   const config = requireVapiConfig(assistantId, phoneNumberId);
 
@@ -306,7 +312,8 @@ export async function startVapiOutboundCall({
           customerPhone,
           customerName,
           business,
-          reason
+          reason,
+          smsConsentStatus
         })
       },
       metadata: {
@@ -342,7 +349,8 @@ export async function createVapiInboundTwiml({
   assistantId,
   phoneNumberId,
   phoneNumber,
-  metadata = {}
+  metadata = {},
+  smsConsentStatus
 }: {
   callerNumber: string;
   callerName?: string | null;
@@ -352,6 +360,7 @@ export async function createVapiInboundTwiml({
   phoneNumberId?: string | null;
   phoneNumber?: string | null;
   metadata?: Record<string, unknown>;
+  smsConsentStatus?: string | null;
 }): Promise<string | null> {
   const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
 
@@ -370,7 +379,8 @@ export async function createVapiInboundTwiml({
         customerPhone: callerNumber,
         customerName: callerName,
         business,
-        reason
+        reason,
+        smsConsentStatus
       })
     },
     metadata: {
@@ -688,6 +698,36 @@ function genericAssistantTools() {
       messages: [
         {
           type: "request-start",
+          content: "Let me note that down."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.recordSmsConsent,
+        description:
+          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine'). Pass affirmative=false for no, silence, hesitation, an unclear answer, or an interruption. Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
+        parameters: {
+          type: "object",
+          properties: {
+            affirmative: {
+              type: "boolean",
+              description:
+                "true ONLY for a clear yes to the SMS consent question; false for no, silence, uncertainty, or an ambiguous answer."
+            },
+            customer_phone: {
+              type: "string",
+              description:
+                "Customer phone number in E.164 format. If unknown, leave blank and the caller's number will be used."
+            }
+          },
+          required: ["affirmative"]
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
           content: "Sending you the details now."
         }
       ],
@@ -823,6 +863,8 @@ export async function deployVapiAssistant({
           if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
           if (name === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
           if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
+          // Consent capture only matters where SMS can be sent at all.
+          if (name === VOICE_TOOL_NAMES.recordSmsConsent) return includeTools.sendNotification !== false;
           return true;
         })
         : []

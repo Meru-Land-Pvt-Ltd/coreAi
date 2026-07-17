@@ -79,11 +79,6 @@ export const VOICE_NODE_TYPES = {
   endFlow: "flow.end"
 } as const;
 
-/**
- * The default voice-booking template chain. Email follow-up is the MVP
- * default; the SMS node stays available in the palette (A2P/10DLC add-on)
- * but is no longer part of new receptionist templates.
- */
 export const VOICE_TEMPLATE_NODE_ORDER: string[] = [
   VOICE_NODE_TYPES.phoneCallTrigger,
   VOICE_NODE_TYPES.voiceConversation,
@@ -99,7 +94,8 @@ export const BROWSER_CALL_START_MESSAGE = "__browser_call_start__";
 export const VOICE_TOOL_NAMES = {
   checkAvailability: "check_availability",
   bookAppointment: "book_appointment",
-  sendNotification: "send_notification"
+  sendNotification: "send_notification",
+  recordSmsConsent: "record_sms_consent"
 } as const;
 
 export const DEFAULT_VOICE_PROVIDER = "11labs";
@@ -203,7 +199,7 @@ RULES:
 2. When a caller wants to book, call check_availability first.
 3. Offer the available slots and let the caller choose.
 4. After they choose, call book_appointment to confirm.
-5. After booking, call send_notification to send any confirmations.
+5. After booking, follow the SMS consent rules: read the SMS consent disclosure, record the answer with record_sms_consent, and only call send_notification if consent was recorded as yes.
 6. If you cannot help with something, say: "{{fallback_response}}"
 7. Never make up availability. Always check the calendar.
 

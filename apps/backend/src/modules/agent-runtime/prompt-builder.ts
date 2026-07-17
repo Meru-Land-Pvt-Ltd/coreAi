@@ -1,3 +1,4 @@
+import { verbalSmsConsentDisclosure } from "@coreai/shared";
 
 export const FALLBACK_ASSISTANT_NAME = "AI Assistant";
 export const FALLBACK_BUSINESS_NAME = "the business";
@@ -37,13 +38,6 @@ export function resolveBusinessName(...candidates: Array<string | null | undefin
   return FALLBACK_BUSINESS_NAME;
 }
 
-/**
- * Replace stale demo identities in saved text (old firstMessage / prompts)
- * with the actually configured names. A legacy token is only replaced when it
- * conflicts with configuration — if the buyer's own assistant or business name
- * contains it (assistantName "Sarah", businessName "Sarah Dental Clinic"),
- * it is intentional and left untouched.
- */
 export function sanitizeLegacyFallbacks(
   text: string,
   identity: { assistantName: string; businessName: string }
@@ -114,15 +108,11 @@ export type AgentPromptInput = {
   bookingLabel?: string;
   /** Architect-defined buyer setup answers (industry-specific facts) as label/value pairs. */
   customFields?: Array<{ label: string; value: string }>;
+  smsConsentStatusText?: string;
   /** Mode-specific appendices (runtime turn state, live tool notes). */
   extraSections?: string[];
 };
 
-/**
- * The one core system prompt shared by live and test agents. Natural,
- * emotionally aware, dynamic — capabilities come from the connected workflow
- * graph, identity and facts come from configuration, never from templates.
- */
 export function buildAgentSystemPrompt(input: AgentPromptInput): string {
   const {
     assistantName,
@@ -184,7 +174,7 @@ Booking rules:
     ? `You can book ${bookingLabelPlural} — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that.`
     : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
 - ${capabilities.canText
-    ? "You can send text messages. After booking or collecting details, you must ask the caller: \"Would you like me to send a confirmation text message to your number?\" (or another natural phrasing). Only call the send_notification tool if they say yes. If they say no, do not call send_notification."
+    ? "You can send transactional text messages, but ONLY to a caller with recorded SMS consent (see the SMS consent rules below)."
     : capabilities.canEmail
       ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer an email confirmation and collect the caller's email address if they want one."
       : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}${
@@ -193,6 +183,22 @@ Booking rules:
         : ""
     }
 - After a booking is complete, answer whatever the caller asks next — do not keep repeating the confirmation.`.trim());
+
+  if (capabilities.canText) {
+    const consentStatus = clean(input.smsConsentStatusText) || "unknown";
+    sections.push(`
+SMS consent rules (follow these EXACTLY — they are a legal requirement):
+- Existing SMS consent status for this caller: ${consentStatus}
+- If the status above is "granted", the caller has already consented — do not read the disclosure again; you may send texts via send_notification after a booking or confirmed request as usual.
+- Otherwise, once the caller has requested or confirmed an ${bookingLabel}, booking, or service request (or a text would clearly help a support request), ask them this disclosure WORD-FOR-WORD before any text is sent:
+  "${verbalSmsConsentDisclosure(businessName)}"
+- Wait for their answer, then immediately call the record_sms_consent tool with their decision:
+  - affirmative=true ONLY for a clear, unambiguous yes (like "yes", "yes please", "sure, that's fine").
+  - affirmative=false for "no", silence, hesitation, an interruption, an unclear answer, or anything ambiguous.
+- Never treat giving a phone number, or completing a booking, as consent. Never skip the disclosure. Never pressure the caller.
+- If they decline (or consent was not recorded): say something like "No problem." and complete the ${bookingLabel} or request normally — consent is never required to finish. Do NOT call send_notification for the customer and never promise a text.
+- Only after record_sms_consent returned sms_allowed=true may you call send_notification to text the caller.`.trim());
+  }
 
   sections.push(`
 Business context:
@@ -279,7 +285,8 @@ export const LIVE_VAPI_RUNTIME_VARIABLES = [
   "escalationRules",
   "calendarId",
   "timeZone",
-  "callReason"
+  "callReason",
+  "smsConsentStatus"
 ] as const;
 
 /**

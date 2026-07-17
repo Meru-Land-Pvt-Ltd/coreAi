@@ -55,6 +55,13 @@ const envSchema = z.object({
   /** @deprecated Use TWILIO_SMS_MODE. true maps to SIMULATED (no provider request). */
   TWILIO_TEST_MODE: booleanFromEnv.default(false),
   TWILIO_VALIDATE_SIGNATURE: booleanFromEnv.default(false),
+  /**
+   * App-level auto-replies to inbound STOP/HELP keywords. Keep false when the
+   * Twilio Messaging Service has (Advanced) Opt-Out enabled — Twilio replies
+   * itself and a second app reply would be a duplicate. Consent-database
+   * syncing happens regardless of this flag.
+   */
+  SMS_KEYWORD_APP_REPLIES: booleanFromEnv.default(false),
 
   // Only SES is supported; the literal guards against configuring a removed provider.
   MAIL_PROVIDER: z.enum(["ses"]).default("ses"),

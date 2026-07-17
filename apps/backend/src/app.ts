@@ -18,6 +18,7 @@ import { countryRoutes } from "./modules/countries/routes";
 import { memoryRoutes } from "./modules/memory/routes";
 import { emailRoutes } from "./modules/email/routes";
 import { legalRoutes } from "./modules/legal/routes";
+import { publicBookingRoutes } from "./modules/public/booking-routes";
 
 export const app = new Hono();
 
@@ -47,6 +48,8 @@ app.route("/memory", memoryRoutes);
 // SES/SNS webhooks — public by design (no session), guarded by topic ARN match.
 app.route("/email", emailRoutes);
 app.route("/legal", legalRoutes);
+// Public customer-facing booking/service-request endpoints (slug-addressed).
+app.route("/public", publicBookingRoutes);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");
