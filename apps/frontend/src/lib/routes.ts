@@ -33,8 +33,31 @@ export const CONTACT_PATH = "/contact" as Route;
 export const ABOUT_PATH = "/about" as Route;
 
 
-export function businessAgentPath(agentId: string): Route {
-  return `/business/${agentId}` as Route;
+/** Public shareable agent details page (no login required to view). */
+export function publicAgentPath(agentId: string): Route {
+  return `/agent/${agentId}` as Route;
+}
+
+/** Public share URL for a marketplace listing — same as publicAgentPath. */
+export function businessAgentSharePath(listingId: string): Route {
+  return publicAgentPath(listingId);
+}
+
+/** Optional short share alias that redirects to /agent/[listingId]. */
+export function shareAgentPath(listingId: string): Route {
+  return `/share/agent/${listingId}` as Route;
+}
+
+/** Business login with a safe post-auth return path (e.g. checkout). */
+export function businessLoginPathWithNext(nextPath: string): Route {
+  return `/business/login?next=${encodeURIComponent(nextPath)}` as Route;
+}
+
+export function resolveBusinessLoginReturnPath(next: string | null | undefined): Route | null {
+  if (!next) return null;
+  if (!next.startsWith("/business/")) return null;
+  if (next.startsWith("/business/login") || next.startsWith("/business/signup")) return null;
+  return next as Route;
 }
 
 // Owned-agent detail page under My Agents (/business/agents/[agentId]).

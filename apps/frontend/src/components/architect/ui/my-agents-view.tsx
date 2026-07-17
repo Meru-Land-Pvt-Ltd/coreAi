@@ -16,7 +16,7 @@ import {
   type ArchitectAgentsStats
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
-import { architectPublishingStatusPath, architectAnalyticsPath, MARKETPLACE_PATH } from "@/lib/routes";
+import { architectPublishingStatusPath, architectAnalyticsPath, publicAgentPath } from "@/lib/routes";
 import { ArrowDown, ArrowUp, Dot } from "lucide-react";
 
 const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
@@ -131,35 +131,151 @@ const MY_AGENTS_STYLES = `
   z-index: 5;
 }
 
-.ma-card { display: flex; flex-direction: column; }
+.ma-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  position: relative;
+  z-index: 0;
+  border-color: #f1f5f9;
+  box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 10px 24px rgba(15,23,42,.03);
+  transition:
+    transform 320ms cubic-bezier(.16,1,.3,1),
+    box-shadow 320ms cubic-bezier(.16,1,.3,1),
+    border-color 220ms ease;
+}
 .ma-card .ma-band { margin-top: auto; }
-.ma-card:active { transform: translateY(-2px) scale(0.997); }
+.ma-card:active {
+  transform: translateY(-4px) scale(0.996);
+  z-index: 3;
+  transition-duration: 140ms;
+}
+.ma-card:hover {
+  transform: translateY(-8px) scale(1.018);
+  border-color: var(--app-accent) !important;
+  box-shadow:
+    0 18px 42px rgba(15,23,42,.11),
+    0 8px 18px rgba(15,23,42,.06),
+    0 0 0 1px rgba(245,158,11,.2);
+  z-index: 2;
+}
+.ma-card .ma-band { border-top-color: #f1f5f9 !important; }
+.ma-card .ma-action {
+  transition: transform .2s ease, background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.ma-card .ma-action:hover { transform: scale(1.02); }
+.ma-card .ma-action:active { transform: scale(.98); }
 .ma-continue .ma-arrow { transition: transform .2s ease; }
 .ma-continue:hover .ma-arrow { transform: translateX(2px); }
+
+.ma-foot { min-width: 0; }
+.ma-foot > .ma-foot-actions { flex-shrink: 0; flex-wrap: nowrap; gap: 4px; }
+.ma-foot .ma-updated {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ma-foot .ma-foot-action {
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 4px 8px;
+}
+.ma-foot .ma-foot-action .ma-arrow { width: 12px; height: 12px; }
+@media (max-width: 640px) {
+  .ma-foot { gap: 6px !important; padding-left: 14px !important; padding-right: 14px !important; }
+  .ma-foot .ma-updated { font-size: 10px; }
+  .ma-foot .ma-foot-action { font-size: 10px; padding: 2px 5px; }
+  .ma-foot > .ma-foot-actions { gap: 2px; }
+}
 
 /* List view layout */
 .ma-grid.view-list { grid-template-columns: 1fr !important; }
 .ma-grid.view-list .ma-card {
   display: grid;
-  grid-template-columns: 76px minmax(0,1fr) 232px auto;
+  grid-template-columns: 96px minmax(0, 1.35fr) minmax(220px, .85fr) minmax(150px, auto);
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
 }
+.ma-grid .ma-card:hover { z-index: 5; }
 .ma-grid.view-list .ma-card .ma-band { margin-top: 0; }
-.ma-grid.view-list .ma-top { flex-direction: column; align-items: center; gap: 10px; padding: 16px; }
+.ma-grid.view-list .ma-top {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px 12px;
+  min-width: 0;
+}
 .ma-grid.view-list .ma-top-actions { flex-direction: column; gap: 8px; align-items: center; }
-.ma-grid.view-list .ma-body { padding: 16px 10px; }
-.ma-grid.view-list .ma-band { background: transparent !important; border: none !important; padding: 14px 16px; min-width: 232px; }
-.ma-grid.view-list .ma-foot { border: none !important; flex-direction: column; align-items: flex-end; gap: 8px; padding: 16px; }
+.ma-grid.view-list .ma-top-actions .ma-status {
+  max-width: 100%;
+  justify-content: center;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+  font-size: 10px;
+  padding: 4px 8px;
+}
+.ma-grid.view-list .ma-body { padding: 20px 8px 20px 0; min-width: 0; }
+.ma-grid.view-list .ma-band {
+  background: transparent !important;
+  border: none !important;
+  padding: 16px 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ma-grid.view-list .ma-foot {
+  border: none !important;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px 16px 20px 12px;
+  min-width: 0;
+}
+.ma-grid.view-list .ma-foot > .ma-foot-actions,
+.ma-grid.view-list .ma-foot > .min-w-0 { flex-wrap: nowrap; justify-content: flex-end; min-width: 0; }
+.ma-grid.view-list .ma-updated { white-space: normal; min-width: 0; text-align: right; }
 .ma-grid.view-list .ma-extra { display: none; }
 .ma-grid.view-list .ma-desc { -webkit-line-clamp: 1; }
+.ma-grid.view-list .ma-live-band {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #f1f5f9;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+  border-radius: 16px;
+}
+@media (max-width: 1024px) {
+  .ma-grid.view-list .ma-card { grid-template-columns: 88px minmax(0, 1fr); }
+  .ma-grid.view-list .ma-band,
+  .ma-grid.view-list .ma-foot {
+    grid-column: 1 / -1;
+    align-items: flex-start;
+  }
+  .ma-grid.view-list .ma-foot {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    border-top: 1px solid #f1f5f9 !important;
+    padding: 14px 20px 18px;
+  }
+  .ma-grid.view-list .ma-updated { text-align: left; }
+}
 @media (max-width: 720px) {
-  .ma-grid.view-list .ma-card { grid-template-columns: 64px minmax(0,1fr); }
-  .ma-grid.view-list .ma-band, .ma-grid.view-list .ma-foot { grid-column: 1 / -1; align-items: flex-start; }
-  .ma-grid.view-list .ma-foot { flex-direction: row; justify-content: space-between; }
+  .ma-grid.view-list .ma-card { grid-template-columns: 72px minmax(0, 1fr); }
+  .ma-grid.view-list .ma-top { padding: 16px 8px; }
+  .ma-grid.view-list .ma-body { padding: 16px 12px 18px 0; }
+  .ma-grid.view-list .ma-band { padding: 4px 16px 14px; }
+  .ma-grid.view-list .ma-foot { padding: 12px 16px 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ma-pulse-dot, .ma-spin-slow, .ma-card.ma-entering, .ma-pop, .ma-ripple { animation: none !important; }
+  .ma-card:hover, .ma-card:active { transform: none; }
 }
 `;
 
@@ -175,42 +291,42 @@ const STATUS_STYLES: Record<
 > = {
   APPROVED: {
     label: "Live",
-    pill: "bg-green-50 text-green-700",
+    pill: "border-green-100 bg-green-50 text-green-700",
     iconBg: "bg-green-50",
     iconBorder: "border-green-100",
     iconText: "text-green-600"
   },
   PENDING_REVIEW: {
     label: "Under Review",
-    pill: "bg-amber-50 text-amber-700",
+    pill: "border-amber-100 bg-amber-50 text-amber-700",
     iconBg: "bg-amber-50",
     iconBorder: "border-amber-100",
     iconText: "text-amber-600"
   },
   DRAFT: {
     label: "Draft",
-    pill: "bg-slate-100 text-slate-600",
+    pill: "border-slate-200 bg-slate-100 text-slate-600",
     iconBg: "bg-slate-50",
     iconBorder: "border-slate-100",
     iconText: "text-slate-500"
   },
   REJECTED: {
     label: "Rejected",
-    pill: "bg-red-50 text-red-700",
+    pill: "border-red-100 bg-red-50 text-red-700",
     iconBg: "bg-red-50",
     iconBorder: "border-red-100",
     iconText: "text-red-600"
   },
   SUSPENDED: {
     label: "Suspended",
-    pill: "bg-red-50 text-red-700",
+    pill: "border-red-100 bg-red-50 text-red-700",
     iconBg: "bg-red-50",
     iconBorder: "border-red-100",
     iconText: "text-red-600"
   },
   PAUSED: {
     label: "Paused",
-    pill: "bg-amber-50 text-amber-700",
+    pill: "border-amber-100 bg-amber-50 text-amber-700",
     iconBg: "bg-amber-50",
     iconBorder: "border-amber-100",
     iconText: "text-amber-600"
@@ -367,7 +483,7 @@ function StatusPill({ status }: { status: AgentStatus }) {
   const style = STATUS_STYLES[status];
   return (
     <span
-      className={`ma-status inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${style.pill}`}
+      className={`ma-status inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] ${style.pill}`}
       data-testid="my-agents-status-pill"
     >
       {status === "APPROVED" ? (
@@ -398,15 +514,18 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
       ]
     };
     return (
-      <div className="ma-band border-t border-amber-100 bg-amber-50/60 px-5 py-3" data-testid={`my-agents-review-notice-${agent.id}`}>
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-amber-700">Review progress</span>
+      <div className="ma-band border-t border-amber-100 bg-amber-50/60 px-5 py-4" data-testid={`my-agents-review-notice-${agent.id}`}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-2 text-xs font-semibold text-amber-700">
+            <SpinnerGlyph />
+            Review progress
+          </span>
           <span className="text-xs font-semibold text-amber-600">{review.percent}%</span>
         </div>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-amber-100">
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-amber-100">
           <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, Math.max(0, review.percent))}%` }} />
         </div>
-        <p className="mt-1.5 text-xs text-amber-700">
+        <p className="mt-2 text-xs font-medium text-amber-700">
           {review.passed} of {review.total} checks passed
         </p>
         <ul className="ma-extra mt-2 space-y-1">
@@ -435,19 +554,19 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
       missing: ["Name", "Tagline", "Category", "Industry", "Description", "Pricing", "Compliance"]
     };
     return (
-      <div className="ma-band border-t border-gray-100 bg-slate-50 px-5 py-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500">Completion</span>
+      <div className="ma-band border-t border-gray-100 bg-slate-50 px-5 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold text-slate-600">Completion</span>
           <span className="text-xs font-semibold text-slate-500">{draft.percent}%</span>
         </div>
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
           <div className="h-full rounded-full bg-slate-400" style={{ width: `${Math.min(100, Math.max(0, draft.percent))}%` }} />
         </div>
-        <p className="mt-1.5 text-xs text-slate-500">
+        <p className="mt-2 text-xs font-medium text-slate-500">
           {draft.stepsCompleted} of {draft.stepsTotal} steps completed
         </p>
         {draft.missing.length ? (
-          <p className="ma-extra mt-1 text-xs text-slate-400">Missing: {draft.missing.slice(0, 3).join(", ")}</p>
+          <p className="ma-extra mt-1.5 text-xs text-slate-400">Missing: {draft.missing.slice(0, 3).join(", ")}</p>
         ) : null}
       </div>
     );
@@ -477,22 +596,22 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
   const installs = agent.installCount ?? 0;
 
   return (
-    <div className="ma-band grid grid-cols-3 gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
-      <div>
-        <div className="text-xs text-slate-400">Executions</div>
-        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-executions-${agent.id}`}>
+    <div className="ma-band ma-live-band grid grid-cols-3 gap-3 border-t border-gray-100 bg-gray-50 px-5 py-3">
+      <div className="min-w-0 rounded-xl px-3  shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="text-[11px] font-medium capitalize tracking-wide text-slate-400">Executions</div>
+        <div className=" text-sm font-bold text-slate-900" data-testid={`my-agents-executions-${agent.id}`}>
           {executions.toLocaleString("en-US")}
         </div>
       </div>
-      <div>
-        <div className="text-xs text-slate-400">Revenue</div>
-        <div className="text-sm font-bold text-amber-600" data-testid={`my-agents-revenue-${agent.id}`}>
+      <div className="min-w-0 rounded-xl  px-3  shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="text-[11px] font-medium capitalize tracking-wide text-slate-400">Revenue</div>
+        <div className=" text-sm font-bold text-amber-600" data-testid={`my-agents-revenue-${agent.id}`}>
           {formatUsdFromCents(revenue)}
         </div>
       </div>
-      <div>
-        <div className="text-xs text-slate-400">Installs</div>
-        <div className="text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
+      <div className="min-w-0 rounded-xl  px-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="text-[11px] font-medium capitalize tracking-wide text-slate-400">Installs</div>
+        <div className=" text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
           {installs.toLocaleString("en-US")}
         </div>
       </div>
@@ -525,7 +644,7 @@ function FooterActions({
   // submission (back to Draft) or pause first.
   if (agent.status === "APPROVED") {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1">
+      <div className="ma-foot-actions flex items-center justify-end">
         <button
           type="button"
           onClick={(event) => {
@@ -533,7 +652,7 @@ function FooterActions({
             onPause(agent);
           }}
           data-testid={`my-agents-pause-${agent.id}-button`}
-          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-amber-50 hover:text-amber-700"
+          className="ma-action ma-foot-action rounded-lg border border-transparent font-medium text-slate-500 transition-colors hover:bg-amber-50 hover:text-amber-700"
         >
           Pause
         </button>
@@ -544,7 +663,7 @@ function FooterActions({
             onDuplicate(agent);
           }}
           data-testid={`my-agents-duplicate-${agent.id}-button`}
-          className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
+          className="ma-action ma-foot-action rounded-lg border border-transparent font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
         >
           Duplicate
         </button>
@@ -554,12 +673,12 @@ function FooterActions({
 
   if (agent.status === "PENDING_REVIEW") {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1">
+      <div className="ma-foot-actions flex items-center justify-end">
         <Link
           data-testid={`my-agents-feedback-${agent.id}-link`}
           href={statusHref}
           onClick={stop}
-          className="rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
+          className="ma-action ma-foot-action rounded-lg border border-transparent font-semibold text-amber-600 transition-colors hover:bg-amber-50"
         >
           View Feedback
         </Link>
@@ -573,12 +692,12 @@ function FooterActions({
 
   if (agent.status === "DRAFT") {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1">
+      <div className="ma-foot-actions flex items-center justify-end">
         <Link
           data-testid={`my-agents-update-${agent.id}-link`}
           href={builderHref}
           onClick={stop}
-          className="ma-continue inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50"
+          className="ma-action ma-foot-action ma-continue inline-flex items-center gap-0.5 rounded-lg border border-transparent font-semibold text-amber-600 transition-colors hover:bg-amber-50"
         >
           Continue Building <ArrowIcon />
         </Link>
@@ -590,7 +709,7 @@ function FooterActions({
               onDelete(agent);
             }}
             data-testid={`my-agents-delete-${agent.id}-button`}
-            className="rounded-lg px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50"
+            className="ma-action ma-foot-action rounded-lg border border-transparent font-semibold text-red-500 transition-colors hover:bg-red-50"
           >
             Delete
           </button>
@@ -601,14 +720,16 @@ function FooterActions({
 
   // REJECTED / SUSPENDED
   return (
-    <Link
-      data-testid={`my-agents-update-${agent.id}-link`}
-      href={builderHref}
-      onClick={stop}
-      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-50"
-    >
-      Edit &amp; resubmit <ArrowIcon />
-    </Link>
+    <div className="ma-foot-actions flex items-center justify-end">
+      <Link
+        data-testid={`my-agents-update-${agent.id}-link`}
+        href={builderHref}
+        onClick={stop}
+        className="ma-action ma-foot-action inline-flex items-center gap-0.5 rounded-lg border border-transparent font-semibold text-amber-600 transition-colors hover:bg-amber-50"
+      >
+        Edit &amp; resubmit <ArrowIcon />
+      </Link>
+    </div>
   );
 }
 
@@ -646,21 +767,9 @@ function AgentCard({
   )
     .map((tag) => tag.trim())
     .filter(Boolean);
-  const visibleIndustryTags = industryTags.slice(0, 3);
-  const extraIndustryCount = Math.max(0, industryTags.length - 3);
-  const hiddenIndustryTags = industryTags.slice(3);
-  const visibleTagParts = visibleIndustryTags.map((tag) => ({
-    full: tag,
-    ...splitLongTag(tag, 25)
-  }));
-  const truncatedOverflowTags = visibleTagParts
-    .map((part) => part.overflow)
-    .filter((value): value is string => Boolean(value));
-  const popupTags = [...truncatedOverflowTags, ...hiddenIndustryTags];
-  const showTagsPopup = popupTags.length > 0;
   const title = agent.name?.trim() || "Untitled Agent";
   const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
-  const description = agent.shortDescription?.trim() || agent.tagline?.trim() || "No description added yet.";
+  const description = agent.tagline?.trim() || agent.shortDescription?.trim() || "No Tagline added yet.";
   const activityAt = agent.updatedAt || agent.submittedAt || agent.createdAt;
   const activityLabel =
     agent.status === "PENDING_REVIEW"
@@ -689,15 +798,15 @@ function AgentCard({
         }
       }}
       style={animate ? { animationDelay: `${Math.min(index * 35, 280)}ms` } : undefined}
-      className={`ma-card group relative cursor-pointer overflow-visible rounded-2xl border ${dashed} bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+      className={`ma-card group relative cursor-pointer overflow-hidden rounded-2xl border ${dashed} bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
         animate ? "ma-entering" : ""
       }`}
     >
       <div className="ma-ripple-layer rounded-2xl" data-ma-ripple-layer aria-hidden="true" />
       <div className="ma-top flex items-start justify-between px-5 pb-3 pt-5">
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border ${
-            iconUrl ? "border-amber-100 bg-white" : `${style.iconBg} ${style.iconBorder} ${style.iconText}`
+          className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] ${
+            iconUrl ? "border-slate-200 bg-white" : `${style.iconBg} ${style.iconBorder} ${style.iconText}`
           }`}
           data-testid={`my-agents-icon-${agent.id}`}
         >
@@ -709,7 +818,7 @@ function AgentCard({
           )}
         </span>
 
-        <div className="ma-top-actions flex items-center gap-1">
+        <div className="ma-top-actions flex items-center gap-1.5">
           <StatusPill status={agent.status} />
           <button
             type="button"
@@ -718,74 +827,24 @@ function AgentCard({
             data-testid={`my-agents-menu-${agent.id}-button`}
             aria-haspopup="true"
             aria-label={`More actions for ${title}`}
-            className="-mr-1 rounded-md p-1 text-slate-300 transition-colors hover:bg-gray-50 hover:text-slate-500 focus-visible:ring-2 focus-visible:ring-amber-400"
+            className="ma-action -mr-1 rounded-xl border border-transparent p-1.5 text-slate-300 transition-colors hover:bg-gray-50 hover:text-slate-500 focus-visible:ring-2 focus-visible:ring-amber-400"
           >
             <DotsIcon />
           </button>
         </div>
       </div>
 
-      <div className="ma-body min-w-0 px-5 pb-3">
+      <div className="ma-body min-w-0 px-5 pb-4">
         <h3 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
           {title}
         </h3>
-        <div className="mt-1.5 flex min-w-0 items-center gap-1">
-        <span className="shrink-0 text-xs font-semibold text-slate-500 rounded-full bg-gray-300/50 px-2 py-0.5 whitespace-nowrap flex items-center justify-center">{category ?? "Industry not set"}</span>
-        <div className="group/tags relative min-w-0 flex-1 flex items-center gap-1" data-testid={`my-agents-industry-${agent.id}`}>
-          
-          {industryTags.length > 0 ? (
-            <>
-              <div className="inline-flex max-w-full min-w-0 flex-nowrap items-center overflow-hidden rounded-full bg-amber-50 px-2 py-0.5">
-                {visibleTagParts.map((part, index) => (
-                  <span key={part.full} className="flex shrink-0 items-center whitespace-nowrap text-xs font-semibold text-amber-700" title={part.overflow ? part.full : undefined}>
-                    {part.visible}
-                    {part.overflow ? "…" : null}
-                    {index < visibleTagParts.length - 1 || extraIndustryCount > 0 ? (
-                      <span className="text-amber-700">
-                        <Dot className="h-3 w-3" />
-                      </span>
-                    ) : null}
-                  </span>
-                ))}
-                {extraIndustryCount > 0 ? (
-                  <span
-                    className="shrink-0 text-xs font-bold text-amber-700"
-                    data-testid={`my-agents-industry-more-${agent.id}`}
-                    aria-label={`${extraIndustryCount} more industr${extraIndustryCount === 1 ? "y" : "ies"}`}
-                  >
-                    +{extraIndustryCount}
-                  </span>
-                ) : null}
-              </div>
-              {showTagsPopup ? (
-                <div
-                  role="tooltip"
-                  className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
-                  data-testid={`my-agents-industry-tooltip-${agent.id}`}
-                >
-                  <div className="flex flex-wrap gap-1.5">
-                    {popupTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5">
-              <span className="text-xs font-semibold text-amber-700/70">Industry not set</span>
-            </div>
-          )}
-        </div>
+        <div className="mt-2 flex min-w-0 items-center gap-1.5">
+        <span className="flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">{category ?? "Industry not set"}</span>
+        <ResponsiveIndustryTags agentId={agent.id} tags={industryTags} />
         </div>
 
         <p
-          className={`ma-desc mt-2 line-clamp-2 text-sm ${hasDescription ? "text-slate-500" : "italic text-slate-400"}`}
+          className={`ma-desc mt-3 line-clamp-2 text-sm leading-6 ${hasDescription ? "text-slate-500" : "italic text-slate-400"}`}
           data-testid="architect-ui-my-agents-view-agent-short-description-no-description-added-yet-text"
         >
           {description}
@@ -794,11 +853,11 @@ function AgentCard({
 
       <StatusBand agent={agent} />
 
-      <div className="ma-foot flex items-center justify-between gap-2 border-t border-gray-100 px-5 py-3">
+      <div className="ma-foot flex items-center justify-between gap-2 border-t border-slate-100 px-5 py-2">
         <span className="ma-updated whitespace-nowrap text-xs text-slate-400" data-testid="architect-ui-my-agents-view-format-date-agent-created-at-text">
           {activityLabel}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="min-w-0 shrink-0">
           <FooterActions
             agent={agent}
             onDuplicate={onDuplicate}
@@ -834,6 +893,150 @@ function ShareIcon() {
 
 function isWorkflowOnlyDraft(agent: ArchitectListing): boolean {
   return agent.id.startsWith("draft-");
+}
+
+const TAG_CHAR_WIDTH = 6.5;
+const TAG_PILL_PAD_X = 16;
+const TAG_DOT_WIDTH = 14;
+const PLUS_BADGE_BASE = 20;
+
+function estimateTagTextWidth(text: string): number {
+  return text.length * TAG_CHAR_WIDTH;
+}
+
+function computeResponsiveTagLayout(
+  tags: string[],
+  availableWidth: number
+): { visibleCount: number; maxLen: number } {
+  if (tags.length === 0) return { visibleCount: 0, maxLen: 25 };
+
+  const budget = Math.max(0, availableWidth - TAG_PILL_PAD_X);
+  if (budget < 36) return { visibleCount: 0, maxLen: 6 };
+
+  for (let count = Math.min(3, tags.length); count >= 1; count -= 1) {
+    const hidden = tags.length - count;
+    const plusWidth = hidden > 0 ? PLUS_BADGE_BASE + String(hidden).length * TAG_CHAR_WIDTH : 0;
+    const dotsWidth = count > 1 ? (count - 1) * TAG_DOT_WIDTH : 0;
+    const textBudget = budget - plusWidth - dotsWidth;
+    if (textBudget <= 0) continue;
+
+    const perTag = textBudget / count;
+    const maxLen =
+      perTag < 42 ? 6 :
+      perTag < 58 ? 10 :
+      perTag < 78 ? 14 :
+      perTag < 108 ? 18 :
+      25;
+
+    for (let ml = maxLen; ml >= 4; ml -= 1) {
+      let totalTextWidth = 0;
+      for (let i = 0; i < count; i += 1) {
+        const { visible, overflow } = splitLongTag(tags[i], ml);
+        totalTextWidth += estimateTagTextWidth(visible + (overflow ? "…" : ""));
+      }
+      if (totalTextWidth + dotsWidth + plusWidth <= budget + 6) {
+        return { visibleCount: count, maxLen: ml };
+      }
+    }
+  }
+
+  return { visibleCount: 1, maxLen: 6 };
+}
+
+function ResponsiveIndustryTags({ agentId, tags }: { agentId: string; tags: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState(() => ({
+    visibleCount: Math.min(3, tags.length),
+    maxLen: 25
+  }));
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const width = el.getBoundingClientRect().width;
+      setLayout(computeResponsiveTagLayout(tags, width));
+    };
+
+    update();
+    const observer = new ResizeObserver(() => update());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tags]);
+
+  const visibleTags = tags.slice(0, layout.visibleCount);
+  const hiddenTags = tags.slice(layout.visibleCount);
+  const visibleTagParts = visibleTags.map((tag) => ({
+    full: tag,
+    ...splitLongTag(tag, layout.maxLen)
+  }));
+  const truncatedOverflowTags = visibleTagParts
+    .map((part) => part.overflow)
+    .filter((value): value is string => Boolean(value));
+  const popupTags = [...truncatedOverflowTags, ...hiddenTags];
+  const showTagsPopup = popupTags.length > 0;
+
+  if (tags.length === 0) {
+    return (
+      <div className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1">
+        <span className="text-xs font-medium text-amber-700/70">Industry not set</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="group/tags relative min-w-0 flex-1"
+      data-testid={`my-agents-industry-${agentId}`}
+    >
+      <div className="inline-flex max-w-full min-w-0 flex-nowrap items-center overflow-hidden rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+        {visibleTagParts.map((part, index) => (
+          <span
+            key={part.full}
+            className="flex shrink-0 items-center whitespace-nowrap text-xs font-medium text-amber-700"
+            title={part.overflow ? part.full : undefined}
+          >
+            {part.visible}
+            {part.overflow ? "…" : null}
+            {index < visibleTagParts.length - 1 || hiddenTags.length > 0 ? (
+              <span className="text-amber-700">
+                <Dot className="h-3 w-3" />
+              </span>
+            ) : null}
+          </span>
+        ))}
+        {hiddenTags.length > 0 ? (
+          <span
+            className="shrink-0 text-xs font-semibold text-amber-700"
+            data-testid={`my-agents-industry-more-${agentId}`}
+            aria-label={`${hiddenTags.length} more industr${hiddenTags.length === 1 ? "y" : "ies"}`}
+          >
+            +{hiddenTags.length}
+          </span>
+        ) : null}
+      </div>
+      {showTagsPopup ? (
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
+          data-testid={`my-agents-industry-tooltip-${agentId}`}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {popupTags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /** Keep words that fit in maxLen; remaining last word(s) go into the hover popup. */
@@ -1780,13 +1983,13 @@ export function MyAgentsView() {
 
   async function shareAgent(agent: ArchitectListing) {
     setMenu(null);
-    const shareUrl = `${window.location.origin}${MARKETPLACE_PATH}`;
+    const shareUrl = `${window.location.origin}${publicAgentPath(agent.id)}`;
 
     try {
       if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
         await navigator.share({
           title: agent.name,
-          text: `Check out ${agent.name} on the Triven marketplace.`,
+          text: `Check out ${agent.name} on Triven.`,
           url: shareUrl
         });
         return;
@@ -1794,7 +1997,7 @@ export function MyAgentsView() {
 
       if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
-        setToast(`Marketplace link copied for ${agent.name}.`);
+        setToast(`Share link copied for ${agent.name}.`);
         return;
       }
 

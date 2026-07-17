@@ -3,11 +3,21 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
-import { BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+import { BusinessSidebarLayout } from "@/components/business/sidebar";
+import { getAuthToken, getAuthUser } from "@/lib/auth";
+import {
+  BUSINESS_MARKETPLACE_PATH,
+  MARKETPLACE_PATH,
+  businessCheckoutPath,
+  businessLoginPathWithNext,
+  businessSetupPath,
+  publicAgentPath
+} from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 
 const STYLES = `
@@ -117,6 +127,8 @@ type ApiListing = {
   tagline?: string | null;
   priceCents?: number | null;
   pricingModel?: string | null;
+  freeTrialEnabled?: boolean | null;
+  trialDays?: number | null;
   status?: string;
   tags?: string[];
   industryTags?: string[];
@@ -359,7 +371,7 @@ function SimilarAgentCard({ agent }: { agent: SimilarListing }) {
   return (
     
     <Link
-      href={`/business/${agent.id}` as Route}
+      href={publicAgentPath(agent.id)}
       data-testid={`similar-agent-card-${agent.id}`}
     >
 
@@ -384,14 +396,26 @@ function SimilarAgentCard({ agent }: { agent: SimilarListing }) {
           <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600 line-clamp-2">{agent.shortDescription}</p>
         ) : null}
 
-        <a href={`/business/${agent.id}` as Route } className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">View agent <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
+        <a href={publicAgentPath(agent.id)} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">View agent <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
       </div>
       
     </Link>
   );
 }
 
-export default function BusinessAgentDetailPage() {
+
+function AgentSharePageShell({
+  showSidebar,
+  children
+}: {
+  showSidebar: boolean;
+  children: ReactNode;
+}) {
+  if (!showSidebar) return <>{children}</>;
+  return <BusinessSidebarLayout>{children}</BusinessSidebarLayout>;
+}
+
+export default function PublicAgentDetailsPage() {
   const params = useParams<{ agentId: string }>();
   const agentId = params.agentId;
 
@@ -400,6 +424,13 @@ export default function BusinessAgentDetailPage() {
   const [similarListings, setSimilarListings] = useState<SimilarListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
+  const [isBusinessAuthed, setIsBusinessAuthed] = useState(false);
+
+  useEffect(() => {
+    const token = getAuthToken();
+    const user = getAuthUser();
+    setIsBusinessAuthed(Boolean(token && user?.role === "BUSINESS"));
+  }, []);
 
   useEffect(() => {
     if (!agentId) return;
@@ -443,7 +474,7 @@ export default function BusinessAgentDetailPage() {
   }, [agentId]);
 
   useEffect(() => {
-    if (!agentId || !listing) return;
+    if (!agentId || !listing || !isBusinessAuthed) return;
 
     let mounted = true;
 
@@ -466,7 +497,7 @@ export default function BusinessAgentDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [agentId, listing]);
+  }, [agentId, isBusinessAuthed, listing]);
 
   useEffect(() => {
     if (!agentId || !listing) return;
@@ -512,18 +543,18 @@ export default function BusinessAgentDetailPage() {
   // Do NOT default freeTrialEnabled=true or trialDays=7 to avoid showing
   // "Start 0-Day Free Trial" or wrong trial text before data arrives.
   const pricingModel = listingAccess?.pricingModel ?? listing?.pricingModel ?? "SUBSCRIPTION";
-  const freeTrialEnabled = listingAccess ? (listingAccess.freeTrialEnabled ?? false) : false;
-  const trialDays = listingAccess ? (listingAccess.trialDays ?? 0) : 0;
+  const freeTrialEnabled = listingAccess?.freeTrialEnabled ?? listing?.freeTrialEnabled ?? false;
+  const trialDays = listingAccess?.trialDays ?? listing?.trialDays ?? 0;
 
-  // Trial is only available when: listingAccess is loaded AND freeTrialEnabled AND trialDays > 0 AND canStartTrial
-  const canStartTrial =
-    listingAccess !== null &&
-    pricingModel !== "FREE" &&
-    freeTrialEnabled &&
-    trialDays > 0 &&
-    listingAccess.canStartTrial;
+  const canStartTrial = isBusinessAuthed
+    ? listingAccess !== null &&
+      pricingModel !== "FREE" &&
+      freeTrialEnabled &&
+      trialDays > 0 &&
+      listingAccess.canStartTrial
+    : pricingModel !== "FREE" && freeTrialEnabled && trialDays > 0;
 
-  const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
+  const hasActiveAccess = isBusinessAuthed && (listingAccess?.hasActiveAccess ?? false);
 
   // shouldPayNow: user has no active access AND can't start a trial
   const shouldPayNow = listingAccess
@@ -532,6 +563,11 @@ export default function BusinessAgentDetailPage() {
 
   const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
   const managePath = listing ? businessSetupPath(listing.id) : "/business/agents";
+  const protectedActionPath = hasActiveAccess ? managePath : checkoutPath;
+  const primaryCtaHref = isBusinessAuthed
+    ? protectedActionPath
+    : businessLoginPathWithNext(protectedActionPath);
+  const marketplacePath = isBusinessAuthed ? BUSINESS_MARKETPLACE_PATH : MARKETPLACE_PATH;
 
   // CTA label logic per spec:
   // - hasActiveAccess → "Manage agent"
@@ -545,8 +581,6 @@ export default function BusinessAgentDetailPage() {
       : canStartTrial
         ? `Start ${trialDays}-Day Free Trial`
         : "Buy This Agent";
-
-  const primaryCtaHref = hasActiveAccess ? managePath : checkoutPath;
   const primaryCtaTestId = hasActiveAccess
     ? "agent-detail-manage-agent"
     : canStartTrial
@@ -575,36 +609,41 @@ export default function BusinessAgentDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="agent-detail-root min-h-screen bg-white px-6 py-16">
-        <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-        <div className="mx-auto max-w-6xl animate-pulse space-y-6">
-          <div className="h-8 w-48 rounded-lg bg-gray-100" />
-          <div className="h-12 w-2/3 rounded-xl bg-gray-100" />
-          <div className="h-40 rounded-2xl bg-gray-100" />
+      <AgentSharePageShell showSidebar={isBusinessAuthed}>
+        <div className="agent-detail-root min-h-screen bg-white px-6 py-16">
+          <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+          <div className="mx-auto max-w-6xl animate-pulse space-y-6">
+            <div className="h-8 w-48 rounded-lg bg-gray-100" />
+            <div className="h-12 w-2/3 rounded-xl bg-gray-100" />
+            <div className="h-40 rounded-2xl bg-gray-100" />
+          </div>
         </div>
-      </div>
+      </AgentSharePageShell>
     );
   }
 
   if (apiError || !listing) {
     return (
-      <div className="agent-detail-root min-h-screen bg-white px-6 py-16">
-        <style dangerouslySetInnerHTML={{ __html: STYLES }} />
-        <div className="mx-auto max-w-xl rounded-2xl border border-red-100 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-xl font-bold text-slate-900">Could not load agent</h1>
-          <p className="mt-2 text-sm text-slate-600">{apiError || "Agent not found."}</p>
-          <Link
-            href={BUSINESS_MARKETPLACE_PATH}
-            className="mt-6 inline-flex items-center justify-center rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-400"
-          >
-            Back to marketplace
-          </Link>
+      <AgentSharePageShell showSidebar={isBusinessAuthed}>
+        <div className="agent-detail-root min-h-screen bg-white px-6 py-16">
+          <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+          <div className="mx-auto max-w-xl rounded-2xl border border-red-100 bg-white p-8 text-center shadow-sm">
+            <h1 className="text-xl font-bold text-slate-900">Could not load agent</h1>
+            <p className="mt-2 text-sm text-slate-600">{apiError || "Agent not found."}</p>
+            <Link
+              href={marketplacePath}
+              className="mt-6 inline-flex items-center justify-center rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-400"
+            >
+              Back to marketplace
+            </Link>
+          </div>
         </div>
-      </div>
+      </AgentSharePageShell>
     );
   }
 
   return (
+    <AgentSharePageShell showSidebar={isBusinessAuthed}>
     <div className="agent-detail-root min-h-screen bg-white text-slate-600">
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
@@ -613,7 +652,7 @@ export default function BusinessAgentDetailPage() {
         <nav className="mx-auto max-w-6xl px-6 py-3 text-sm" aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-2 text-slate-500">
             <li data-testid="business-protected-agents-marketplace-item">
-              <Link data-testid="agent-detail-marketplace-link-2" href={BUSINESS_MARKETPLACE_PATH} className="transition hover:text-amber-600">
+              <Link data-testid="agent-detail-marketplace-link-2" href={marketplacePath} className="transition hover:text-amber-600">
                 Marketplace
               </Link>
             </li>
@@ -906,6 +945,7 @@ export default function BusinessAgentDetailPage() {
         </section>
       </main>
     </div>
+    </AgentSharePageShell>
   );
 }
 

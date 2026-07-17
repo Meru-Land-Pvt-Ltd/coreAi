@@ -9,7 +9,7 @@ import {
     BUSINESS_AGENTS_PATH,
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
-    businessAgentPath,
+    publicAgentPath,
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
@@ -675,7 +675,7 @@ export default function MarketplacePage() {
     }, [openFilter]);
 
     function openAgentPage(agent: Agent) {
-        router.push(businessAgentPath(agent.id));
+        router.push(publicAgentPath(agent.id));
     }
 
     function openDetailsModal(agent: Agent) {
@@ -1591,7 +1591,7 @@ function AgentDetailsModal({
                         )}
 
                         <Link
-                            href={isOwned ? (setupPending ? businessSetupPath(agent.id) : BUSINESS_AGENTS_PATH) : businessAgentPath(agent.id)}
+                            href={isOwned ? (setupPending ? businessSetupPath(agent.id) : BUSINESS_AGENTS_PATH) : publicAgentPath(agent.id)}
                             data-testid="business-marketplace-agent-details-modal-view-full-details"
                             className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
                         >

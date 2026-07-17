@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import {
   BUSINESS_MARKETPLACE_PATH,
-  businessAgentPath
+  publicAgentPath
 } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = encodeURI("/triven.ai word logo transparent bg.PNG");
@@ -753,7 +753,7 @@ export function BusinessOnboardingFlow() {
                           <p className="mt-2 line-clamp-3 text-sm text-slate-600">{agent.description}</p>
                           <button
                             type="button"
-                            onClick={() => void finishAndNavigate("complete", businessAgentPath(agent.id))}
+                            onClick={() => void finishAndNavigate("complete", publicAgentPath(agent.id))}
                             className={index === 0 ? primaryBtn.replace("sm:w-auto", "") + " mt-3 w-full" : "mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"}
                             data-testid={`business-onboarding-view-agent-${agent.id}`}
                           >
