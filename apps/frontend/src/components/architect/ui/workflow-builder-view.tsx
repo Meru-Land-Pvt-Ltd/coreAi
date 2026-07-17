@@ -105,6 +105,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [calendarId, setCalendarId] = useState("");
   const [timeZone, setTimeZone] = useState("");
   const [appointmentService, setAppointmentService] = useState("");
+  const [testEmail, setTestEmail] = useState("");
   const [callerNumber, setCallerNumber] = useState("");
   const [callerName, setCallerName] = useState("");
   const [triggerMessage, setTriggerMessage] = useState("");
@@ -241,6 +242,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const isManualTriggerWorkflow = useMemo(() => {
     return nodes.some((node) => ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")));
   }, [nodes]);
+
+  // Send Email node present → the Test tab offers a Test Email recipient field.
+  const hasEmailNode = useMemo(
+    () => nodes.some((node) => String(node.data.type ?? "") === VOICE_NODE_TYPES.sendEmail),
+    [nodes]
+  );
 
   const testRunStatus = useMemo(() => {
     const totalNodes = nodes.length;
@@ -439,6 +446,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           calendarId,
           timeZone,
           appointmentService,
+          testEmail,
           callerNumber,
           callerName,
           triggerMessage
@@ -568,6 +576,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         const savedCalendarId = str(saved.calendarId);
         const savedTimeZone = str(saved.timeZone);
         const savedService = str(saved.appointmentService);
+        const savedTestEmail = str(saved.testEmail);
         const savedCallerNumber = str(saved.callerNumber);
         const savedCallerName = str(saved.callerName);
         const savedTriggerMessage = str(saved.triggerMessage);
@@ -577,6 +586,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         if (savedCalendarId) setCalendarId(savedCalendarId);
         if (savedTimeZone) setTimeZone(savedTimeZone);
         if (savedService) setAppointmentService(savedService);
+        if (savedTestEmail) setTestEmail(savedTestEmail);
         if (savedCallerNumber) setCallerNumber(savedCallerNumber);
         if (savedCallerName) setCallerName(savedCallerName);
         if (savedTriggerMessage) setTriggerMessage(savedTriggerMessage);
@@ -995,6 +1005,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         callTimestamp: new Date().toISOString(),
         missedCallReason: "No one picked up the customer call.",
         appointmentService: appointmentService.trim() || "General Consultation",
+        testEmail: testEmail.trim() || undefined,
         inboundSmsBody: effectiveTriggerMessage,
         latestMessage: effectiveTriggerMessage,
         attachments: triggerAttachments.length > 0 ? triggerAttachments : undefined
@@ -1233,6 +1244,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         {activeTab === "test" ? (
           <TestPanel
             hasGmailFlow={hasGmailFlow}
+            hasEmailNode={hasEmailNode}
             isVoiceWorkflow={isVoiceWorkflow}
             isDentalWorkflow={isDentalWorkflow}
             needsAnyTestConnection={needsAnyTestConnection}
@@ -1254,6 +1266,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             calendarId={calendarId}
             timeZone={timeZone}
             appointmentService={appointmentService}
+            testEmail={testEmail}
             testDeployment={testDeployment}
             runLogs={runLogs}
             runContext={runContext}
@@ -1280,6 +1293,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onCalendarIdChange={setCalendarId}
             onTimeZoneChange={setTimeZone}
             onAppointmentServiceChange={setAppointmentService}
+            onTestEmailChange={setTestEmail}
             onTriggerMessageChange={setTriggerMessage}
             onTriggerAttachmentsChange={setTriggerAttachments}
           />

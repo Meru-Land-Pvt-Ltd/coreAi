@@ -87,7 +87,7 @@ describe("Send Email node in the builder dry run", () => {
 
     const emailLog = logs.find((log) => log.nodeId === "email-1");
     expect(emailLog?.status).toBe("success");
-    expect(emailLog?.message).toContain("Dry run passed. Email would be sent");
+    expect(emailLog?.message).toContain("Dry run passed");
     expect(emailLog?.message).toContain("no email was sent");
 
     // Templates render with the test business details and land in the

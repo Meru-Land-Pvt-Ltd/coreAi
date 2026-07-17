@@ -674,6 +674,7 @@ export function runArchitectWorkflowTest(
       appointmentStartAt?: string;
       appointmentEndAt?: string;
       appointmentService?: string;
+      testEmail?: string;
     };
   } = {}
 ) {

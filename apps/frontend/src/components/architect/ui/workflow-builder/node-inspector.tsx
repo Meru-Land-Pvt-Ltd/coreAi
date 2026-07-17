@@ -1195,68 +1195,16 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
   );
 }
 
-const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 function SendEmailProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-
-  const recipientType = str("recipientType", "customer");
-  const customRecipient = str("customRecipient");
-  const customRecipientInvalid = customRecipient !== "" && !EMAIL_ADDRESS_PATTERN.test(customRecipient);
 
   return (
     <>
       <Section title="Recipient">
-        <Label>Send to</Label>
-        <SelectBox
-          value={recipientType}
-          onChange={set("recipientType")}
-          options={[
-            { value: "customer", label: "Customer email (collected on the call)" },
-            { value: "team", label: "Buyer / team email (Mail Setup forward-to)" },
-            { value: "custom", label: "Custom address" },
-            { value: "variable", label: "Workflow variable" }
-          ]}
-        />
-
-        {recipientType === "custom" ? (
-          <div className="mt-4">
-            <TextInput
-              value={customRecipient}
-              onChange={set("customRecipient")}
-              placeholder="e.g. frontdesk@business.com"
-            />
-            {customRecipientInvalid ? (
-              <p className="mt-2 text-[11px] leading-5 text-red-500" data-testid="send-email-recipient-error">
-                Enter a valid email address.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {recipientType === "variable" ? (
-          <div className="mt-4">
-            <TextInput
-              value={str("recipientVariable")}
-              onChange={set("recipientVariable")}
-              placeholder="e.g. customer.email"
-            />
-          </div>
-        ) : null}
-
-        <div className="mt-4">
-          <Label>CC</Label>
-          <TextInput value={str("ccTemplate")} onChange={set("ccTemplate")} placeholder="comma-separated emails (optional)" />
-        </div>
-
-        <div className="mt-4">
-          <Label>BCC</Label>
-          <TextInput value={str("bccTemplate")} onChange={set("bccTemplate")} placeholder="comma-separated emails (optional)" />
-        </div>
-
-        <p className="mt-2 text-[11px] leading-5 text-slate-400" data-testid="send-email-cc-note">
-          CC/BCC addresses are validated and deduplicated at send time. BCC is never shown to recipients.
-        </p>
+        <RequirementNotice title="Buyer email setup" testId="send-email-buyer-requirement">
+          To, CC, and BCC are configured by the buyer after installing this agent. During testing, use the Test Email
+          field on the Test tab to receive this email yourself.
+        </RequirementNotice>
       </Section>
 
       <Section title="Message">

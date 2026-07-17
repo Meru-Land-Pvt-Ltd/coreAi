@@ -59,6 +59,7 @@ import {
   sendBusinessEmail,
   validateLocalPart
 } from "../email/ses-mail-service";
+import { extractBuyerEmailRecipients, parseEmailList } from "../email/email-node-config";
 import {
   buildDashboardActivities,
   sumInvoiceTotalCents
@@ -544,6 +545,17 @@ const businessSetupSchema = z.object({
       openHour: z.coerce.number().int().min(0).max(23).optional(),
       closeHour: z.coerce.number().int().min(1).max(24).optional(),
       bookingLabel: z.string().trim().max(60).optional().or(z.literal(""))
+    })
+    .optional(),
+
+  // Buyer-owned Send Email recipients (To/CC/BCC). The architect's Email node
+  // only defines template/content; who receives it is configured here.
+  emailRecipients: z
+    .object({
+      recipientType: z.enum(["customer", "team", "custom"]).default("customer"),
+      customRecipient: z.string().trim().max(320).optional().or(z.literal("")),
+      cc: z.string().trim().max(2000).optional().or(z.literal("")),
+      bcc: z.string().trim().max(2000).optional().or(z.literal(""))
     })
     .optional(),
 
@@ -1410,6 +1422,8 @@ function serializeSetup(
     // Buyer setup schema snapshot saved at install time — lets the setup form
     // re-render the agent-specific fields without re-fetching the listing.
     buyerSetupSchema: normalizeBuyerSetupFields(config?.buyerSetupSchema),
+    // Buyer-owned Send Email recipients; null until the buyer saves them.
+    emailRecipients: extractBuyerEmailRecipients(config),
     silence: silenceConfig
       ? {
         repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
@@ -1689,6 +1703,43 @@ businessRoutes.post("/setup", async (c) => {
       }
     }
 
+    // Normalize + validate buyer email recipients before they reach configJson.
+    // Every typed address must be valid — silent drops would surprise buyers.
+    const firstInvalidEmail = (raw: string) =>
+      raw
+        .split(/[,;\s]+/)
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean)
+        .find((entry) => !isValidEmailAddress(entry));
+
+    let emailRecipients: { recipientType: "customer" | "team" | "custom"; customRecipient: string; cc: string[]; bcc: string[] } | null = null;
+    if (input.emailRecipients) {
+      const customRecipient = (input.emailRecipients.customRecipient ?? "").trim().toLowerCase();
+      const ccRaw = input.emailRecipients.cc ?? "";
+      const bccRaw = input.emailRecipients.bcc ?? "";
+
+      if (input.emailRecipients.recipientType === "custom" && !isValidEmailAddress(customRecipient)) {
+        return errorResponse(c, "Enter a valid recipient email address for agent emails.", 422, "EMAIL_RECIPIENTS_INVALID");
+      }
+
+      const invalidCc = firstInvalidEmail(ccRaw);
+      if (invalidCc) {
+        return errorResponse(c, `Invalid CC email address: ${invalidCc}`, 422, "EMAIL_RECIPIENTS_INVALID");
+      }
+
+      const invalidBcc = firstInvalidEmail(bccRaw);
+      if (invalidBcc) {
+        return errorResponse(c, `Invalid BCC email address: ${invalidBcc}`, 422, "EMAIL_RECIPIENTS_INVALID");
+      }
+
+      emailRecipients = {
+        recipientType: input.emailRecipients.recipientType,
+        customRecipient: input.emailRecipients.recipientType === "custom" ? customRecipient : "",
+        cc: parseEmailList(ccRaw),
+        bcc: parseEmailList(bccRaw)
+      };
+    }
+
     const timeZone = normalizeTimeZone(input.timeZone);
     const assistantName = cleanAssistantName(input.assistantName);
     const answeringMode = input.answeringMode || "AI_FIRST";
@@ -1754,6 +1805,7 @@ businessRoutes.post("/setup", async (c) => {
       },
       contactName: cleanOptional(input.contactName),
       customInstructions: cleanOptional(input.customInstructions),
+      ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
       ...(input.customFields.length > 0
         ? { customFields: input.customFields.filter((field) => !isBuyerAnswerEmpty(field.value)) }

@@ -99,6 +99,69 @@ export function extractSendEmailNodeConfig(workflowJson: unknown): SendEmailNode
 }
 
 /**
+ * Buyer-configured recipients, stored on InstalledAgent.configJson.emailRecipients
+ * by the buyer setup page. Buyer input is untrusted like workflow JSON:
+ * addresses are re-validated and CC/BCC lists capped with the same policy as
+ * the architect node fields they replace.
+ */
+export type BuyerEmailRecipients = {
+  recipientType: "customer" | "team" | "custom";
+  customRecipient: string;
+  cc: string[];
+  bcc: string[];
+};
+
+const BUYER_RECIPIENT_TYPES = new Set(["customer", "team", "custom"]);
+
+export function extractBuyerEmailRecipients(configJson: unknown): BuyerEmailRecipients | null {
+  const raw = (configJson as { emailRecipients?: unknown } | null)?.emailRecipients;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const data = raw as Record<string, unknown>;
+
+  const typeRaw = str(data, "recipientType", "customer");
+  const customRecipient = str(data, "customRecipient").toLowerCase();
+  const list = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? parseEmailList(value.filter((entry) => typeof entry === "string").join(","))
+      : parseEmailList(typeof value === "string" ? value : "");
+
+  return {
+    recipientType: (BUYER_RECIPIENT_TYPES.has(typeRaw) ? typeRaw : "customer") as BuyerEmailRecipients["recipientType"],
+    customRecipient: isValidEmailAddress(customRecipient) ? customRecipient : "",
+    cc: list(data.cc),
+    bcc: list(data.bcc)
+  };
+}
+
+/**
+ * Recipients are buyer-owned: when the buyer configured them, they override
+ * whatever legacy To/CC/BCC fields are still stored on the architect's node.
+ */
+export function applyBuyerEmailRecipients(
+  node: SendEmailNodeConfig,
+  buyer: BuyerEmailRecipients | null
+): SendEmailNodeConfig;
+export function applyBuyerEmailRecipients(
+  node: SendEmailNodeConfig | null,
+  buyer: BuyerEmailRecipients | null
+): SendEmailNodeConfig | null;
+export function applyBuyerEmailRecipients(
+  node: SendEmailNodeConfig | null,
+  buyer: BuyerEmailRecipients | null
+): SendEmailNodeConfig | null {
+  if (!node || !buyer) return node;
+
+  return {
+    ...node,
+    recipientType: buyer.recipientType,
+    customRecipient: buyer.recipientType === "custom" ? buyer.customRecipient : "",
+    recipientVariable: "",
+    cc: buyer.cc,
+    bcc: buyer.bcc
+  };
+}
+
+/**
  * Resolve the "variable" recipient source against the runtime variable set.
  * Only email-bearing variables are honored (currently customerEmail aliases).
  */

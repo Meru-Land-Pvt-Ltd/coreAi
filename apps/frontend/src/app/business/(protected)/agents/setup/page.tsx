@@ -354,6 +354,13 @@ function SetupWizard() {
 
   const [mailAlias, setMailAlias] = useState<BusinessEmailAliasData | null>(null);
 
+  // Buyer-owned Send Email recipients (To/CC/BCC). The architect's Email node
+  // only defines the template/content — who receives it is decided here.
+  const [emailRecipientType, setEmailRecipientType] = useState<"customer" | "team" | "custom">("customer");
+  const [emailCustomRecipient, setEmailCustomRecipient] = useState("");
+  const [emailCc, setEmailCc] = useState("");
+  const [emailBcc, setEmailBcc] = useState("");
+
   const [buyerSetupFields, setBuyerSetupFields] = useState<BuyerSetupFieldDef[]>([]);
   const [buyerSetupInstructions, setBuyerSetupInstructions] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<BuyerCustomFieldValue[]>([]);
@@ -475,6 +482,13 @@ function SetupWizard() {
 
       if (Array.isArray(data.customFields) && data.customFields.length > 0) {
         setCustomFieldValues(data.customFields);
+      }
+
+      if (data.emailRecipients) {
+        setEmailRecipientType(data.emailRecipients.recipientType ?? "customer");
+        setEmailCustomRecipient(data.emailRecipients.customRecipient ?? "");
+        setEmailCc((data.emailRecipients.cc ?? []).join(", "));
+        setEmailBcc((data.emailRecipients.bcc ?? []).join(", "));
       }
 
       // Schema snapshot saved with the installed agent — keeps the dynamic
@@ -661,6 +675,16 @@ function SetupWizard() {
         ),
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
+      ...(needsMail
+        ? {
+          emailRecipients: {
+            recipientType: emailRecipientType,
+            customRecipient: emailCustomRecipient.trim(),
+            cc: emailCc.trim(),
+            bcc: emailBcc.trim()
+          }
+        }
+        : {}),
       ...(listingId ? { listingId } : {})
     };
 
@@ -1271,6 +1295,19 @@ const connectorsKnown = requiredKeys.length > 0;
               onHoursEnd={setHoursEnd}
               onToggleDay={(day) => setHoursDays((current) => ({ ...current, [day]: !current[day] }))}
             />
+
+            {showMail ? (
+              <EmailRecipientsSection
+                recipientType={emailRecipientType}
+                customRecipient={emailCustomRecipient}
+                cc={emailCc}
+                bcc={emailBcc}
+                onRecipientType={setEmailRecipientType}
+                onCustomRecipient={setEmailCustomRecipient}
+                onCc={setEmailCc}
+                onBcc={setEmailBcc}
+              />
+            ) : null}
 
             <StepVoice
               title={voiceTitle}
@@ -2595,6 +2632,106 @@ function MailSetupSection({
           </p>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/* ----------------- Configure step: email recipients card ----------------- */
+
+function EmailRecipientsSection({
+  recipientType,
+  customRecipient,
+  cc,
+  bcc,
+  onRecipientType,
+  onCustomRecipient,
+  onCc,
+  onBcc
+}: {
+  recipientType: "customer" | "team" | "custom";
+  customRecipient: string;
+  cc: string;
+  bcc: string;
+  onRecipientType: (value: "customer" | "team" | "custom") => void;
+  onCustomRecipient: (value: string) => void;
+  onCc: (value: string) => void;
+  onBcc: (value: string) => void;
+}) {
+  return (
+    <div className={CARD} data-testid="business-setup-email-recipients">
+      <h2 className={H2}>Email recipients</h2>
+      <p className={SUB}>
+        Choose who receives the emails this agent sends — confirmations, follow-ups, and notifications. The email
+        content comes from the agent; you control the recipients.
+      </p>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className={LABEL} htmlFor="email-recipient-type">
+            Send To
+          </label>
+          <select
+            data-testid="business-setup-email-recipient-type"
+            id="email-recipient-type"
+            value={recipientType}
+            onChange={(e) => onRecipientType(e.target.value as "customer" | "team" | "custom")}
+            className={FIELD}
+          >
+            <option value="customer">Customer (email collected during the call)</option>
+            <option value="team">My team (Mail Setup forward-to address)</option>
+            <option value="custom">A specific email address</option>
+          </select>
+        </div>
+
+        {recipientType === "custom" ? (
+          <div>
+            <label className={LABEL} htmlFor="email-recipient-custom">
+              Recipient email
+            </label>
+            <input
+              data-testid="business-setup-email-recipient-custom"
+              id="email-recipient-custom"
+              type="email"
+              value={customRecipient}
+              onChange={(e) => onCustomRecipient(e.target.value)}
+              placeholder="frontdesk@yourbusiness.com"
+              className={FIELD}
+            />
+          </div>
+        ) : null}
+
+        <div>
+          <label className={LABEL} htmlFor="email-recipients-cc">
+            CC
+          </label>
+          <input
+            data-testid="business-setup-email-recipients-cc"
+            id="email-recipients-cc"
+            value={cc}
+            onChange={(e) => onCc(e.target.value)}
+            placeholder="comma-separated emails (optional)"
+            className={FIELD}
+          />
+        </div>
+
+        <div>
+          <label className={LABEL} htmlFor="email-recipients-bcc">
+            BCC
+          </label>
+          <input
+            data-testid="business-setup-email-recipients-bcc"
+            id="email-recipients-bcc"
+            value={bcc}
+            onChange={(e) => onBcc(e.target.value)}
+            placeholder="comma-separated emails (optional)"
+            className={FIELD}
+          />
+        </div>
+      </div>
+
+      <p className="mt-3 text-xs text-slate-400" data-testid="business-setup-email-recipients-note">
+        CC/BCC addresses are validated and deduplicated at send time. BCC recipients are never shown to others.
+      </p>
     </div>
   );
 }

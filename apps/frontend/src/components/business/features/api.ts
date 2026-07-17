@@ -65,6 +65,13 @@ export type BusinessSetupInput = {
   };
   /** Architect-defined setup answers (the listing's requiredBuyerSetup fields). */
   customFields?: BuyerCustomFieldValue[];
+  /** Buyer-owned Send Email recipients (To/CC/BCC) — CC/BCC comma-separated. */
+  emailRecipients?: {
+    recipientType: "customer" | "team" | "custom";
+    customRecipient?: string;
+    cc?: string;
+    bcc?: string;
+  };
   selectedPlatformPhoneNumberId?: string;
   selectedPhoneNumber?: string;
   /** true only on the final Deploy — incremental saves skip the Vapi assistant build. */
@@ -155,6 +162,13 @@ export type BusinessSetupData = {
   customFields?: BuyerCustomFieldValue[];
   /** Snapshot of the listing's buyer setup schema saved with the installed agent. */
   buyerSetupSchema?: BuyerSetupFieldDef[];
+  /** Buyer's persisted Send Email recipients; null until saved. */
+  emailRecipients?: {
+    recipientType: "customer" | "team" | "custom";
+    customRecipient: string;
+    cc: string[];
+    bcc: string[];
+  } | null;
   silence?: {
     repromptCount: number | null;
     reprompt1: string | null;

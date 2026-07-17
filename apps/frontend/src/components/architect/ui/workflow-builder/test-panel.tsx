@@ -24,6 +24,7 @@ function Markdown({ content, className = "" }: { content: string; className?: st
 
 export function TestPanel({
   hasGmailFlow,
+  hasEmailNode = false,
   isVoiceWorkflow,
   isDentalWorkflow,
   needsAnyTestConnection = false,
@@ -45,6 +46,7 @@ export function TestPanel({
   calendarId,
   timeZone,
   appointmentService,
+  testEmail = "",
   testDeployment,
   runLogs,
   runContext,
@@ -71,10 +73,12 @@ export function TestPanel({
   onCalendarIdChange,
   onTimeZoneChange,
   onAppointmentServiceChange,
+  onTestEmailChange,
   onTriggerMessageChange,
   onTriggerAttachmentsChange
 }: {
   hasGmailFlow: boolean;
+  hasEmailNode?: boolean;
   isVoiceWorkflow: boolean;
   isDentalWorkflow: boolean;
   needsAnyTestConnection?: boolean;
@@ -96,6 +100,7 @@ export function TestPanel({
   calendarId: string;
   timeZone: string;
   appointmentService: string;
+  testEmail?: string;
   testDeployment: ArchitectTestDeploymentStatus | null;
   runLogs: WorkflowRunLog[];
   runContext: Record<string, unknown>;
@@ -122,6 +127,7 @@ export function TestPanel({
   onCalendarIdChange: (value: string) => void;
   onTimeZoneChange: (value: string) => void;
   onAppointmentServiceChange: (value: string) => void;
+  onTestEmailChange?: (value: string) => void;
   onTriggerMessageChange: (value: string) => void;
   onTriggerAttachmentsChange: (value: AIAttachment[]) => void;
 }) {
@@ -423,6 +429,23 @@ export function TestPanel({
                 ) : null}
               </>
             )}
+            {hasEmailNode ? (
+              <label data-testid="builder-test-email-label">
+                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-testid="builder-test-email-title">
+                  Test Email
+                </span>
+                <input data-testid="builder-test-email-input"
+                  type="email"
+                  value={testEmail}
+                  onChange={(event) => onTestEmailChange?.(event.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                />
+                <span className="mt-1.5 block text-[11px] leading-4 text-slate-400" data-testid="builder-test-email-hint">
+                  The Email node sends the real confirmation email to this address during a test run.
+                </span>
+              </label>
+            ) : null}
           </div>
         </div>
 

@@ -4,6 +4,8 @@ import { prisma } from "../../lib/prisma";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { getSmsConsentStatusLabel } from "../notifications/sms-consent";
 import {
+  applyBuyerEmailRecipients,
+  extractBuyerEmailRecipients,
   extractSendEmailNodeConfig,
   fillEmailTemplate,
   resolveVariableRecipient,
@@ -11,7 +13,8 @@ import {
   type EmailTemplateVariables
 } from "../email/email-node-config";
 import { enqueueEmail } from "../email/email-queue";
-import { TEAM_RECIPIENT } from "../email/ses-mail-service";
+import { isValidEmailAddress, TEAM_RECIPIENT } from "../email/ses-mail-service";
+import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import {
   createGmailDraft,
   readGmailEmail,
@@ -75,6 +78,8 @@ export type WorkflowRunInput = {
   appointmentStartAt?: string;
   appointmentEndAt?: string;
   appointmentService?: string;
+  /** Test-mode only: the Send Email node delivers to this address for real. */
+  testEmail?: string;
   businessHours?: unknown;
   conversationId?: string;
   leadId?: string;
@@ -284,6 +289,7 @@ type RunnerContext = {
   installedAgentId?: string;
   listingId?: string;
   latestMessage?: string;
+  testEmail?: string;
   leadSaved?: boolean;
   conversationSaved?: boolean;
   handoff?: {
@@ -559,6 +565,7 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   if (optionalString(input?.installedAgentId)) context.installedAgentId = optionalString(input?.installedAgentId);
   if (optionalString(input?.listingId)) context.listingId = optionalString(input?.listingId);
   if (optionalString(input?.latestMessage)) context.latestMessage = optionalString(input?.latestMessage);
+  if (optionalString(input?.testEmail)) context.testEmail = optionalString(input?.testEmail);
 
   return context;
 }
@@ -1581,7 +1588,7 @@ async function runEmailConnectorNode({
   mode: WorkflowRunMode;
 }) {
   // Reuse the live path's validation by wrapping this one node as a graph.
-  const emailConfig = extractSendEmailNodeConfig({ nodes: [node] });
+  let emailConfig = extractSendEmailNodeConfig({ nodes: [node] });
   if (!emailConfig) {
     logs.push(createLog(node, "error", "Send Email node configuration could not be read."));
     return;
@@ -1610,6 +1617,59 @@ async function runEmailConnectorNode({
   const textBody = fillEmailTemplate(emailConfig.bodyTemplate, templateVars);
 
   if (mode !== "live") {
+    // A Test Email on the Test tab turns the dry preview into a real delivery
+    // so the architect can verify the confirmation flow before publishing.
+    const testRecipient = (context.testEmail ?? "").trim().toLowerCase();
+
+    if (testRecipient && isValidEmailAddress(testRecipient)) {
+      if (!isPlatformMailConfigured()) {
+        logs.push(
+          createLog(node, "waiting", `Email delivery is not configured on this server — the test email to ${testRecipient} was skipped.`)
+        );
+        return;
+      }
+
+      const testVars: EmailTemplateVariables = { ...templateVars, customerEmail: testRecipient };
+      const testSubject =
+        fillEmailTemplate(emailConfig.subjectTemplate, testVars) ||
+        `Message from ${business?.name ?? "your business"}`;
+      const testBody = fillEmailTemplate(emailConfig.bodyTemplate, testVars);
+      const testHtml = emailConfig.htmlTemplate
+        ? sanitizeOutboundHtml(fillEmailTemplate(emailConfig.htmlTemplate, testVars))
+        : undefined;
+
+      try {
+        // Platform sender: architect tests have no business Mail Setup/alias.
+        await sendPlatformEmail({
+          purpose: "confirmation",
+          to: testRecipient,
+          subject: `[Test] ${testSubject}`,
+          text: testBody || testSubject,
+          html: testHtml
+        });
+
+        context.sentEmail = { id: null, to: testRecipient, subject: testSubject, body: testBody || testSubject };
+
+        logs.push(
+          createLog(node, "success", `Test email sent to ${testRecipient} — check the inbox to verify it. Live sends use the buyer-configured recipients.`, {
+            to: testRecipient,
+            subject: testSubject,
+            bodyPreview: (testBody || testSubject).slice(0, 400),
+            purpose: emailConfig.purpose
+          })
+        );
+      } catch (error) {
+        logs.push(
+          createLog(
+            node,
+            "error",
+            `Test email to ${testRecipient} could not be sent: ${error instanceof Error ? error.message : "unknown error"}`
+          )
+        );
+      }
+      return;
+    }
+
     const recipientPreview =
       emailConfig.recipientType === "team"
         ? "Business team (Mail Setup forwarding address)"
@@ -1628,7 +1688,7 @@ async function runEmailConnectorNode({
     };
 
     logs.push(
-      createLog(node, "success", "Dry run passed. Email would be sent from the business's Triven proxy address — no email was sent.", {
+      createLog(node, "success", "Dry run passed — no email was sent. Enter a Test Email on the Test tab to receive this email for real.", {
         recipientType: emailConfig.recipientType,
         to: recipientPreview,
         ...(emailConfig.cc.length ? { cc: emailConfig.cc } : {}),
@@ -1647,6 +1707,15 @@ async function runEmailConnectorNode({
       createLog(node, "error", "Email failed because this run has no business context. Deploy the agent to a business with Mail Setup completed.")
     );
     return;
+  }
+
+  // Recipients are buyer-owned: the buyer setup page stores To/CC/BCC on the
+  // installed agent, overriding any legacy fields left on the architect node.
+  if (context.installedAgentId) {
+    const installed = await prisma.installedAgent
+      .findUnique({ where: { id: context.installedAgentId }, select: { configJson: true } })
+      .catch(() => null);
+    emailConfig = applyBuyerEmailRecipients(emailConfig, extractBuyerEmailRecipients(installed?.configJson ?? null));
   }
 
   const to =

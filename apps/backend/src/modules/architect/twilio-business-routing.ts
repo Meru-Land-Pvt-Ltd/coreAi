@@ -21,6 +21,8 @@ import {
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
 import { enqueueEmail } from "../email/email-queue";
 import {
+  applyBuyerEmailRecipients,
+  extractBuyerEmailRecipients,
   extractSendEmailNodeConfig,
   fillEmailTemplate,
   resolveVariableRecipient,
@@ -1695,7 +1697,12 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
     select: { configJson: true, workflow: { select: { workflowJson: true } } }
   });
   const configJson = (agent?.configJson as Record<string, unknown> | null) ?? {};
-  const emailNode = extractSendEmailNodeConfig(agent?.workflow?.workflowJson ?? null);
+  // Recipients are buyer-owned: buyer setup To/CC/BCC overrides any legacy
+  // recipient fields still stored on the architect's Send Email node.
+  const emailNode = applyBuyerEmailRecipients(
+    extractSendEmailNodeConfig(agent?.workflow?.workflowJson ?? null),
+    extractBuyerEmailRecipients(configJson)
+  );
   const legacy = (configJson.dentalConfig ?? {}) as Record<string, unknown>;
   const scheduling = (configJson.scheduling ?? {}) as Record<string, unknown>;
   const cfg = { ...legacy, ...scheduling };
