@@ -311,6 +311,8 @@ export type ArchitectPayoutSummary = {
     destinationType: "bank_account" | "card" | null;
     destinationLast4: string | null;
   };
+  /** The architect-selected payout schedule (Settings → Payouts). */
+  payoutSchedule?: ArchitectPayoutSchedule | null;
   payoutMethod: ArchitectPayoutMethod | null;
 };
 
