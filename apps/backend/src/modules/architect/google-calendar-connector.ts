@@ -210,3 +210,78 @@ export async function createGoogleCalendarAppointment({
     timeZone: safeTimeZone
   };
 }
+
+function googleApiStatus(error: unknown): number | null {
+  const candidate = error as { code?: unknown; response?: { status?: unknown } } | null;
+  const code = candidate?.code ?? candidate?.response?.status;
+  return typeof code === "number" ? code : Number.isFinite(Number(code)) ? Number(code) : null;
+}
+
+/**
+ * Move an existing event to a new start/end. 404/410 report the event as
+ * missing (deleted from the calendar) instead of throwing, so callers can
+ * recreate it rather than fail the reschedule.
+ */
+export async function rescheduleGoogleCalendarAppointment({
+  userId,
+  calendarId,
+  eventId,
+  startAt,
+  endAt,
+  timeZone
+}: {
+  userId: string;
+  calendarId?: string | null;
+  eventId: string;
+  startAt: Date;
+  endAt: Date;
+  timeZone?: string | null;
+}): Promise<{ updated: boolean; missing: boolean; htmlLink: string | null }> {
+  const auth = await createAuthorizedGoogleOAuthClient(userId);
+  const calendar = google.calendar({ version: "v3", auth });
+  const safeCalendarId = calendarId?.trim() || env.GOOGLE_CALENDAR_ID || "primary";
+  const safeTimeZone = timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+
+  try {
+    const response = await calendar.events.patch({
+      calendarId: safeCalendarId,
+      eventId,
+      requestBody: {
+        start: { dateTime: startAt.toISOString(), timeZone: safeTimeZone },
+        end: { dateTime: endAt.toISOString(), timeZone: safeTimeZone }
+      }
+    });
+    return { updated: true, missing: false, htmlLink: response.data.htmlLink ?? null };
+  } catch (error) {
+    const status = googleApiStatus(error);
+    if (status === 404 || status === 410) {
+      return { updated: false, missing: true, htmlLink: null };
+    }
+    throw error;
+  }
+}
+
+export async function cancelGoogleCalendarAppointment({
+  userId,
+  calendarId,
+  eventId
+}: {
+  userId: string;
+  calendarId?: string | null;
+  eventId: string;
+}): Promise<{ deleted: boolean; alreadyGone: boolean }> {
+  const auth = await createAuthorizedGoogleOAuthClient(userId);
+  const calendar = google.calendar({ version: "v3", auth });
+  const safeCalendarId = calendarId?.trim() || env.GOOGLE_CALENDAR_ID || "primary";
+
+  try {
+    await calendar.events.delete({ calendarId: safeCalendarId, eventId });
+    return { deleted: true, alreadyGone: false };
+  } catch (error) {
+    const status = googleApiStatus(error);
+    if (status === 404 || status === 410) {
+      return { deleted: false, alreadyGone: true };
+    }
+    throw error;
+  }
+}

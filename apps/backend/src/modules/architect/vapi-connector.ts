@@ -698,6 +698,94 @@ function genericAssistantTools() {
       messages: [
         {
           type: "request-start",
+          content: "Let me look that up for you."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.cancelAppointment,
+        description:
+          "Look up and cancel the caller's upcoming appointment. Identity is verified SERVER-SIDE from the number the caller is calling from — never pass a phone number, and never treat a phone number the caller says out loud as verification. Step 1: call with no arguments (optionally date or service_type to narrow) to find the caller's cancellable appointments. Step 2: ONLY after the caller clearly and unambiguously says yes to cancelling a specific appointment, call again with that appointment_id and confirmed=true. A no, hesitation, silence, or unclear answer means DO NOT set confirmed=true.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: {
+              type: "string",
+              description:
+                "Internal appointment id returned by a previous cancel_appointment lookup in THIS call. Never invent or guess this value."
+            },
+            date: {
+              type: "string",
+              description: "Optional YYYY-MM-DD filter when the caller mentions a specific day."
+            },
+            service_type: {
+              type: "string",
+              description: "Optional service filter when the caller mentions the service."
+            },
+            confirmed: {
+              type: "boolean",
+              description:
+                "true ONLY after the caller clearly agreed to cancel the selected appointment."
+            },
+            cancellation_reason: {
+              type: "string",
+              description: "Optional short reason the caller volunteers."
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Let me check that for you."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.rescheduleAppointment,
+        description:
+          "Look up and move the caller's upcoming appointment to a new date/time. Identity is verified SERVER-SIDE from the number the caller is calling from — never pass a phone number, and never treat a phone number the caller says out loud as verification. Step 1: call with no arguments (optionally date or service_type to narrow) to find the caller's appointments. Step 2: collect the new day and time the caller wants (use check_availability if they ask what's open). Step 3: ONLY after the caller clearly agrees to move a specific appointment to a specific new date/time, call again with that appointment_id, new_date, new_time and confirmed=true. A no, hesitation, silence, or unclear answer means DO NOT set confirmed=true.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: {
+              type: "string",
+              description:
+                "Internal appointment id returned by a previous reschedule_appointment lookup in THIS call. Never invent or guess this value."
+            },
+            date: {
+              type: "string",
+              description: "Optional YYYY-MM-DD filter when the caller mentions which day the EXISTING appointment is on."
+            },
+            service_type: {
+              type: "string",
+              description: "Optional service filter when the caller mentions the service."
+            },
+            new_date: {
+              type: "string",
+              description: "The NEW appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
+            },
+            new_time: {
+              type: "string",
+              description: "The NEW appointment time in 24-hour HH:mm format."
+            },
+            confirmed: {
+              type: "boolean",
+              description:
+                "true ONLY after the caller clearly agreed to move the selected appointment to the stated new date and time."
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
           content: "Let me note that down."
         }
       ],
@@ -862,6 +950,9 @@ export async function deployVapiAssistant({
           const name = tool.function.name;
           if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
           if (name === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
+          // Cancellation + rescheduling ship with the booking capability.
+          if (name === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
+          if (name === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
           if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
           // Consent capture only matters where SMS can be sent at all.
           if (name === VOICE_TOOL_NAMES.recordSmsConsent) return includeTools.sendNotification !== false;

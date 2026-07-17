@@ -22,6 +22,12 @@ export async function computeArchitectPayoutSummary(architectUserId: string) {
           routingLabel: payoutMethod.country === "IN" ? "IFSC" : "ABA routing number",
           routingLast4: payoutMethod.routingLast4,
           verificationStatus: payoutMethod.verificationStatus,
+          // Parity with the payouts-page serializer so Settings can show the
+          // same "Continue verification" affordance.
+          payoutsEnabled: payoutMethod.payoutsEnabled,
+          detailsSubmitted: payoutMethod.detailsSubmitted,
+          stripeConnected: Boolean(payoutMethod.stripeAccountId),
+          requiresAction: !(payoutMethod.verificationStatus === "VERIFIED" && payoutMethod.payoutsEnabled),
           verified: payoutMethod.verificationStatus === "VERIFIED" && payoutMethod.payoutsEnabled
         }
       : null,

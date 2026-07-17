@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   saveArchitectBackupPayoutMethod,
   saveArchitectPayoutMethod,
@@ -71,11 +71,36 @@ export function ArchitectPayoutMethodModal({
     }
   }
 
+  // Validate the routing number as the architect types (debounced) — the save
+  // button unlocks without requiring a blur first.
+  useEffect(() => {
+    if (!routingNumber.trim()) {
+      setRoutingStatus("idle");
+      setRoutingMessage("");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void validateRouting(routingNumber);
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- validateRouting reads current field state
+  }, [routingNumber, country]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    if (routingStatus === "checking") {
+      setError("Hold on — still verifying the routing details.");
+      return;
+    }
     if (routingStatus !== "valid") {
       setError(`Verify a valid ${country === "IN" ? "IFSC code" : "ABA routing number"} before saving.`);
+      return;
+    }
+    if (accountNumber.length < 4) {
+      setError("Enter a valid account number.");
       return;
     }
     if (accountNumber !== confirmAccountNumber) {
@@ -83,12 +108,19 @@ export function ArchitectPayoutMethodModal({
       return;
     }
     setSaving(true);
-    const body = { country, bankName, accountHolderName, accountNumber, confirmAccountNumber, routingNumber: routingNumber.trim().toUpperCase() };
+    const body = {
+      country,
+      bankName: bankName.trim(),
+      accountHolderName: accountHolderName.trim(),
+      accountNumber,
+      confirmAccountNumber,
+      routingNumber: routingNumber.trim().toUpperCase()
+    };
     const result = mode === "backup"
       ? await saveArchitectBackupPayoutMethod(body)
       : await saveArchitectPayoutMethod(body);
     if (result.success) await onSaved();
-    else setError(result.error ?? "Could not save payout method.");
+    else setError(result.error ?? "Could not save payout method. Please check the details and try again.");
     setSaving(false);
   }
 

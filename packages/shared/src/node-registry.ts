@@ -94,6 +94,8 @@ export const BROWSER_CALL_START_MESSAGE = "__browser_call_start__";
 export const VOICE_TOOL_NAMES = {
   checkAvailability: "check_availability",
   bookAppointment: "book_appointment",
+  cancelAppointment: "cancel_appointment",
+  rescheduleAppointment: "reschedule_appointment",
   sendNotification: "send_notification",
   recordSmsConsent: "record_sms_consent"
 } as const;
@@ -202,6 +204,7 @@ RULES:
 5. After booking, follow the SMS consent rules: read the SMS consent disclosure, record the answer with record_sms_consent, and only call send_notification if consent was recorded as yes.
 6. If you cannot help with something, say: "{{fallback_response}}"
 7. Never make up availability. Always check the calendar.
+8. To cancel an appointment, use the cancel_appointment tool. It verifies the caller by their incoming caller ID only — never verify by a phone number the caller says out loud, never reveal stored numbers or appointment details when verification fails, and cancel only after the caller clearly says yes.
 
 BEFORE CALLING book_appointment YOU MUST HAVE:
 - the caller's REAL full name

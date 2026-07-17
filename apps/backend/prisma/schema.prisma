@@ -393,23 +393,30 @@ model Lead {
 }
 
 model Appointment {
-  id                String   @id @default(cuid())
-  businessId        String
-  conversationId    String?
-  customerPhone     String
-  customerName      String?
-  service           String?
-  startAt           DateTime
-  endAt             DateTime
-  timeZone          String?
-  calendarEventId   String?
+  id                 String    @id @default(cuid())
+  businessId         String
+  conversationId     String?
+  customerPhone      String
+  customerName       String?
+  service            String?
+  startAt            DateTime
+  endAt              DateTime
+  timeZone           String?
+  calendarEventId    String?
   /// Google Calendar event htmlLink — lets the buyer open the booking on the calendar.
-  calendarEventLink String?
-  status            String   @default("BOOKED")
-  notes             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  calendarEventLink  String?
+  status             String    @default("BOOKED")
+  notes              String?
+  /// Cancellation audit trail (status CANCELLED).
+  cancelledAt        DateTime?
+  /// What triggered the cancellation, e.g. CUSTOMER_PHONE_CALL.
+  cancellationSource String?
+  cancellationReason String?
+  /// Vapi call id of the phone call that cancelled this appointment.
+  cancellationCallId String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([customerPhone])
@@ -1178,6 +1185,8 @@ enum SmsProvider {
 
 enum SmsMessageType {
   APPOINTMENT_CONFIRMATION
+  /// Customer-facing cancellation notice — consent-gated like all customer SMS.
+  APPOINTMENT_CANCELLATION
   TEST_SMS
   MISSED_CALL_TEXT_BACK
   WORKFLOW_SMS

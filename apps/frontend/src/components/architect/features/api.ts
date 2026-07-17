@@ -306,6 +306,8 @@ export type ArchitectPayoutSummary = {
     platformFeeCents: number;
     earningsCents: number;
   };
+  /** The architect-selected payout schedule (Settings → Payouts). */
+  payoutSchedule?: ArchitectPayoutSchedule | null;
   payoutMethod: ArchitectPayoutMethod | null;
 };
 

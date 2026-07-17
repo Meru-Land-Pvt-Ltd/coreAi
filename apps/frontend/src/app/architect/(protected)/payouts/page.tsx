@@ -61,26 +61,41 @@ function statusBadgeClass(status: string) {
   if (status === "Available") return "bg-blue-50 text-blue-700";
   if (status === "Completed" || status === "Paid" || status === "Paid out") return "bg-green-50 text-green-700";
   if (status === "Rejected" || status === "Failed") return "bg-red-50 text-red-700";
-  if (status === "Processed" || status === "Processing") return "bg-red-50 text-red-700";
+  // In-flight, not an error — must not look like a failure.
+  if (status === "Processed" || status === "Processing") return "bg-blue-50 text-blue-700";
   return "bg-gray-100 text-slate-600";
+}
+
+function formatScheduleLabel(schedule: ArchitectPayoutSummary["payoutSchedule"]) {
+  if (!schedule) return "Monthly (1st of the month)";
+  if (schedule.frequency === "Weekly") return `Weekly (every ${schedule.weeklyDay})`;
+  if (schedule.frequency === "Bi-weekly") return "Bi-weekly (every 14 days)";
+  if (schedule.monthlyDay === "last") return "Monthly (last day of the month)";
+  return `Monthly (day ${schedule.monthlyDay})`;
 }
 
 export default function ArchitectPayoutsPage() {
   const [summary, setSummary] = useState<ArchitectPayoutSummary | null>(null);
+  const [summaryError, setSummaryError] = useState("");
   const [pagination, setPagination] = useState({ page: 1, perPage: 10, total: 0, totalPages: 1 });
   const [typeFilter, setTypeFilter] = useState("all");
   const [rangeFilter, setRangeFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<ArchitectPayoutTransaction[]>([]);
+  const [transactionsError, setTransactionsError] = useState("");
   const [toast, setToast] = useState("");
   const [methodModalOpen, setMethodModalOpen] = useState(false);
   const [payoutModalOpen, setPayoutModalOpen] = useState(false);
   const [submittingPayout, setSubmittingPayout] = useState(false);
+  const [openingStripe, setOpeningStripe] = useState(false);
 
   const loadSummary = useCallback(async () => {
     const result = await getArchitectPayoutSummary();
     if (result.success && result.data) {
       setSummary(result.data);
+      setSummaryError("");
+    } else {
+      setSummaryError(result.error ?? "Could not load your payout summary. Please try again.");
     }
   }, []);
 
@@ -95,6 +110,9 @@ export default function ArchitectPayoutsPage() {
     if (result.success && result.data) {
       setTransactions(result.data.transactions);
       setPagination(result.data.pagination);
+      setTransactionsError("");
+    } else {
+      setTransactionsError(result.error ?? "Could not load transactions. Please try again.");
     }
   }, []);
 
@@ -140,9 +158,11 @@ export default function ArchitectPayoutsPage() {
         const synced = await syncArchitectStripePayoutMethod();
         await loadSummary();
         setToast(
-          synced.data?.payoutMethod?.verified
-            ? "Bank account verified by Stripe."
-            : "Details received. Stripe verification is still in progress."
+          !synced.success
+            ? synced.error ?? "Could not check the verification status yet — pull to refresh in a moment."
+            : synced.data?.payoutMethod?.verified
+              ? "Bank account verified by Stripe."
+              : "Details received. Stripe verification is still in progress."
         );
       }
 
@@ -171,12 +191,17 @@ export default function ArchitectPayoutsPage() {
   }
 
   async function handleContinueStripeVerification() {
+    if (openingStripe) return;
+    setOpeningStripe(true);
+
     const result = await refreshArchitectStripeOnboarding();
     if (result.success && result.data?.url) {
       window.location.assign(result.data.url);
       return;
     }
-    setToast(result.error ?? "Could not open Stripe verification.");
+
+    setOpeningStripe(false);
+    setToast(result.error ?? "Could not open Stripe verification. Please try again.");
   }
 
   const chartMax = useMemo(() => {
@@ -238,6 +263,27 @@ export default function ArchitectPayoutsPage() {
       </header>
 
       <main className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+        {summaryError ? (
+          <div
+            className="flex flex-col justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 sm:flex-row sm:items-center"
+            role="alert"
+            data-testid="architect-payouts-summary-error"
+          >
+            <p className="text-sm font-semibold text-red-700">{summaryError}</p>
+            <button
+              type="button"
+              data-testid="architect-payouts-summary-retry"
+              onClick={() => {
+                setSummaryError("");
+                void loadSummary();
+              }}
+              className="shrink-0 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+
         <section aria-label="Earnings overview" data-testid="architect-payouts-overview">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
@@ -301,7 +347,9 @@ export default function ArchitectPayoutsPage() {
                   <span className="font-mono font-bold text-slate-900">{formatUsd(data.nextPayout.earningsCents)}</span>
                 </div>
               </div>
-              <p className="mt-4 text-xs text-slate-500">Payout schedule: Bi-weekly (1st &amp; 15th)</p>
+              <p className="mt-4 text-xs text-slate-500" data-testid="architect-payouts-schedule-label">
+                Payout schedule: {formatScheduleLabel(data.payoutSchedule)}
+              </p>
               {data.payoutMethod?.verified && data.availableBalanceCents > 0 ? (
                 <button
                   type="button"
@@ -316,6 +364,7 @@ export default function ArchitectPayoutsPage() {
 
             <PayoutMethodCard
               payoutMethod={data.payoutMethod}
+              openingStripe={openingStripe}
               onAdd={() => setMethodModalOpen(true)}
               onChange={() => {
                 if (data.payoutMethod?.stripeConnected && !data.payoutMethod.verified) {
@@ -330,6 +379,8 @@ export default function ArchitectPayoutsPage() {
 
         <TransactionHistory
           transactions={transactions}
+          error={transactionsError}
+          onRetry={() => void loadTransactions(pagination.page, pagination.perPage, typeFilter, rangeFilter)}
           pagination={pagination}
           typeFilter={typeFilter}
           rangeFilter={rangeFilter}
@@ -355,9 +406,14 @@ export default function ArchitectPayoutsPage() {
         <AddPayoutMethodModal
           payoutMethod={data.payoutMethod}
           onClose={() => setMethodModalOpen(false)}
-          onSaved={async () => {
+          onVerify={handleContinueStripeVerification}
+          onSaved={async (saved) => {
             setMethodModalOpen(false);
-            setToast("Payout method saved. Stripe verification may still be required.");
+            setToast(
+              saved?.verified
+                ? "Payout method saved and verified."
+                : "Payout method saved. Complete Stripe verification to enable payouts."
+            );
             await loadSummary();
           }}
         />
@@ -538,10 +594,12 @@ function MetricCard({
 
 function PayoutMethodCard({
   payoutMethod,
+  openingStripe = false,
   onAdd,
   onChange
 }: {
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
+  openingStripe?: boolean;
   onAdd: () => void;
   onChange: () => void;
 }) {
@@ -590,9 +648,14 @@ function PayoutMethodCard({
               type="button"
               data-testid="architect-payouts-change-method-button"
               onClick={onChange}
-              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
+              disabled={openingStripe}
+              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {payoutMethod.verified ? "Change bank" : "Continue verification"}
+              {openingStripe
+                ? "Opening Stripe…"
+                : payoutMethod.verified
+                  ? "Change bank"
+                  : "Continue verification"}
             </button>
           </div>
         </>
@@ -615,6 +678,8 @@ function PayoutMethodCard({
 
 function TransactionHistory({
   transactions,
+  error = "",
+  onRetry,
   pagination,
   typeFilter,
   rangeFilter,
@@ -624,6 +689,8 @@ function TransactionHistory({
   onNext
 }: {
   transactions: ArchitectPayoutTransaction[];
+  error?: string;
+  onRetry?: () => void;
   pagination: { page: number; perPage: number; total: number; totalPages: number };
   typeFilter: string;
   rangeFilter: string;
@@ -706,6 +773,22 @@ function TransactionHistory({
                     </td>
                   </tr>
                 ))
+              ) : error ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center" data-testid="architect-payouts-transactions-error">
+                    <p className="text-sm font-semibold text-red-600">{error}</p>
+                    {onRetry ? (
+                      <button
+                        type="button"
+                        onClick={onRetry}
+                        data-testid="architect-payouts-transactions-retry"
+                        className="mt-3 rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
               ) : (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-400">
@@ -791,11 +874,13 @@ function TaxDocumentsSection({ totalEarningsCents }: { totalEarningsCents: numbe
 function AddPayoutMethodModal({
   payoutMethod,
   onClose,
-  onSaved
+  onSaved,
+  onVerify
 }: {
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
   onClose: () => void;
-  onSaved: () => void | Promise<void>;
+  onSaved: (saved: ArchitectPayoutSummary["payoutMethod"]) => void | Promise<void>;
+  onVerify: () => Promise<void>;
 }) {
   const [country, setCountry] = useState<"US" | "IN">(payoutMethod?.country ?? "US");
   const [accountHolderName, setAccountHolderName] = useState(payoutMethod?.accountHolderName ?? "");
@@ -807,6 +892,10 @@ function AddPayoutMethodModal({
   const [routingMessage, setRoutingMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Post-save step: the bank is stored but Stripe still needs identity
+  // verification — offer to jump straight into the hosted flow.
+  const [savedMethod, setSavedMethod] = useState<ArchitectPayoutSummary["payoutMethod"]>(null);
+  const [verifying, setVerifying] = useState(false);
 
   function isValidAba(value: string) {
     if (!/^\d{9}$/.test(value)) return false;
@@ -848,12 +937,37 @@ function AddPayoutMethodModal({
     }
   }
 
+  // Validate the routing number as the architect types (debounced) — the save
+  // button unlocks without requiring a blur first.
+  useEffect(() => {
+    if (!routingNumber.trim()) {
+      setRoutingStatus("idle");
+      setRoutingMessage("");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void validateRouting(routingNumber);
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- validateRouting reads current field state
+  }, [routingNumber, country]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
 
+    if (routingStatus === "checking") {
+      setError("Hold on — still verifying the routing details.");
+      return;
+    }
     if (routingStatus !== "valid") {
       setError(`Verify a valid ${country === "IN" ? "IFSC code" : "ABA routing number"} before saving.`);
+      return;
+    }
+    if (accountNumber.length < 4) {
+      setError("Enter a valid account number.");
       return;
     }
     if (accountNumber !== confirmAccountNumber) {
@@ -864,20 +978,79 @@ function AddPayoutMethodModal({
     setSaving(true);
     const result = await saveArchitectPayoutMethod({
       country,
-      bankName,
-      accountHolderName,
+      bankName: bankName.trim(),
+      accountHolderName: accountHolderName.trim(),
       accountNumber,
       confirmAccountNumber,
       routingNumber: routingNumber.trim().toUpperCase()
     });
 
     if (result.success) {
-      await onSaved();
+      const saved = result.data?.payoutMethod ?? null;
+      if (saved && !saved.verified) {
+        // Keep the dialog open and offer the Stripe identity step right away.
+        setSavedMethod(saved);
+      } else {
+        await onSaved(saved);
+      }
     } else {
-      setError(result.error ?? "Could not save payout method.");
+      setError(result.error ?? "Could not save payout method. Please check the details and try again.");
     }
 
     setSaving(false);
+  }
+
+  async function handleVerifyNow() {
+    setVerifying(true);
+    setError("");
+    await onVerify();
+    // onVerify redirects on success; reaching here means it failed.
+    setVerifying(false);
+    setError("Could not open Stripe verification. You can retry from the Payout Method card.");
+  }
+
+  if (savedMethod) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
+        <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" data-testid="architect-payouts-method-saved-step">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-green-50 text-green-600">
+            <CheckIcon className="h-7 w-7" />
+          </div>
+          <h3 className="mt-4 text-center text-lg font-bold text-slate-900">Bank account saved</h3>
+          <p className="mt-2 text-center text-sm leading-6 text-slate-600">
+            {savedMethod.bankName}
+            {savedMethod.accountLast4 ? ` •••• ${savedMethod.accountLast4}` : ""} is on file. Stripe now needs a quick
+            identity verification before payouts can be sent to it.
+          </p>
+
+          {error ? (
+            <p className="mt-3 text-center text-sm text-red-600" data-testid="architect-payouts-method-error">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              data-testid="architect-payouts-verify-later-button"
+              onClick={() => void onSaved(savedMethod)}
+              className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-gray-50"
+            >
+              I&apos;ll do this later
+            </button>
+            <button
+              type="button"
+              disabled={verifying}
+              data-testid="architect-payouts-verify-now-button"
+              onClick={() => void handleVerifyNow()}
+              className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {verifying ? "Opening Stripe…" : "Verify with Stripe"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

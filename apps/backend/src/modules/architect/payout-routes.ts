@@ -119,6 +119,21 @@ function legacyAccountLast4(accountNumber?: string | null) {
   return accountNumber?.replace(/\D/g, "").slice(-4) ?? "";
 }
 
+/**
+ * Best-effort IFSC existence check. Blocks saving only when Razorpay's
+ * directory explicitly reports the code as unknown — a directory outage must
+ * never prevent adding a payout method (Stripe validates the bank account
+ * details again on its side).
+ */
+async function ifscKnownToBeInvalid(routingNumber: string): Promise<boolean> {
+  try {
+    const response = await fetch(`https://ifsc.razorpay.com/${routingNumber}`);
+    return response.status === 404;
+  } catch {
+    return false;
+  }
+}
+
 function stripeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Stripe could not complete the request";
 }
@@ -396,6 +411,9 @@ async function computeArchitectPayoutSummary(
     architectSharePercent: Math.round(ARCHITECT_SHARE * 100),
     sales: sales.map(serializeArchitectSale),
     listingBreakdown,
+    // The architect-selected schedule, so the payouts page can label the
+    // schedule truthfully instead of hardcoding it.
+    payoutSchedule,
     chart: {
       period: "12M",
       points: chartPoints
@@ -449,7 +467,8 @@ architectPayoutRoutes.get("/summary", async (c) => {
     const listingIds = parseListingIds(c.req.query("listingIds"));
     const summary = await computeArchitectPayoutSummary(authUser.id, { listingIds });
     return successResponse(c, summary, "Payout summary loaded");
-  } catch {
+  } catch (error) {
+    console.error("[payouts] summary failed", error);
     return errorResponse(c, "Could not load payout summary", 500, "PAYOUT_SUMMARY_FAILED");
   }
 });
@@ -478,16 +497,21 @@ architectPayoutRoutes.get("/verify-ifsc/:code", async (c) => {
 });
 
 architectPayoutRoutes.get("/method", async (c) => {
-  const authUser = c.get("authUser");
-  const payoutMethod = await syncStripePayoutMethod(authUser.id);
+  try {
+    const authUser = c.get("authUser");
+    const payoutMethod = await syncStripePayoutMethod(authUser.id);
 
-  if (!payoutMethod) {
-    return successResponse(c, { payoutMethod: null }, "No payout method on file");
+    if (!payoutMethod) {
+      return successResponse(c, { payoutMethod: null }, "No payout method on file");
+    }
+
+    return successResponse(c, {
+      payoutMethod: serializePayoutMethod(payoutMethod)
+    });
+  } catch (error) {
+    console.error("[payouts] method load failed", error);
+    return errorResponse(c, "Could not load your payout method", 500, "PAYOUT_METHOD_LOAD_FAILED");
   }
-
-  return successResponse(c, {
-    payoutMethod: serializePayoutMethod(payoutMethod)
-  });
 });
 
 architectPayoutRoutes.post("/connect/onboarding", async (c) => {
@@ -615,12 +639,17 @@ architectPayoutRoutes.post("/connect/refresh", async (c) => {
 });
 
 architectPayoutRoutes.post("/method/sync", async (c) => {
-  const authUser = c.get("authUser");
-  const payoutMethod = await syncStripePayoutMethod(authUser.id);
+  try {
+    const authUser = c.get("authUser");
+    const payoutMethod = await syncStripePayoutMethod(authUser.id);
 
-  return successResponse(c, {
-    payoutMethod: payoutMethod ? serializePayoutMethod(payoutMethod) : null
-  }, "Payout method synced");
+    return successResponse(c, {
+      payoutMethod: payoutMethod ? serializePayoutMethod(payoutMethod) : null
+    }, "Payout method synced");
+  } catch (error) {
+    console.error("[payouts] method sync failed", error);
+    return errorResponse(c, "Could not sync your payout method", 500, "PAYOUT_METHOD_SYNC_FAILED");
+  }
 });
 
 architectPayoutRoutes.put("/method", async (c) => {
@@ -632,9 +661,8 @@ architectPayoutRoutes.put("/method", async (c) => {
       return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
     }
 
-    if (input.country === "IN") {
-      const response = await fetch(`https://ifsc.razorpay.com/${input.routingNumber}`);
-      if (!response.ok) return errorResponse(c, "IFSC code not found", 422, "IFSC_NOT_FOUND");
+    if (input.country === "IN" && (await ifscKnownToBeInvalid(input.routingNumber))) {
+      return errorResponse(c, "IFSC code not found. Please check the code and try again.", 422, "IFSC_NOT_FOUND");
     }
 
     const existing = await prisma.architectPayoutMethod.findUnique({
@@ -741,9 +769,8 @@ architectPayoutRoutes.put("/method/backup", async (c) => {
       );
     }
 
-    if (input.country === "IN") {
-      const response = await fetch(`https://ifsc.razorpay.com/${input.routingNumber}`);
-      if (!response.ok) return errorResponse(c, "IFSC code not found", 422, "IFSC_NOT_FOUND");
+    if (input.country === "IN" && (await ifscKnownToBeInvalid(input.routingNumber))) {
+      return errorResponse(c, "IFSC code not found. Please check the code and try again.", 422, "IFSC_NOT_FOUND");
     }
 
     const token = await stripe.tokens.create({
@@ -943,7 +970,8 @@ architectPayoutRoutes.get("/transactions", async (c) => {
         totalPages
       }
     });
-  } catch {
+  } catch (error) {
+    console.error("[payouts] transactions failed", error);
     return errorResponse(c, "Could not load payout transactions", 500, "PAYOUT_TRANSACTIONS_FAILED");
   }
 });

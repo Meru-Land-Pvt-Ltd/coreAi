@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
-import { escapeXml, normalizePhoneE164 } from "./twilio-connector";
+import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
   sendAppointmentConfirmationSms,
@@ -32,9 +32,11 @@ import {
 } from "../email/email-node-config";
 import { TEAM_RECIPIENT } from "../email/ses-mail-service";
 import {
+  cancelGoogleCalendarAppointment,
   createGoogleCalendarAppointment,
   getDefaultAppointmentWindow,
   listAvailableSlots,
+  rescheduleGoogleCalendarAppointment,
   zonedWallClockToUtc
 } from "./google-calendar-connector";
 import { parseRequestedAppointment } from "./appointment-parser";
@@ -1243,6 +1245,110 @@ export async function handleTwilioMissedCall(c: Context) {
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
 
+/* --------------------- SMS "Reply C to cancel" handling -------------------- */
+
+/**
+ * Bare "C" asks to cancel the upcoming appointment — the booking confirmation
+ * SMS promises exactly that ("Reply C to cancel"). Note "CANCEL" itself is a
+ * carrier-mandated STOP synonym (consent opt-out) and is never repurposed.
+ */
+function isSmsCancelRequest(body: string): boolean {
+  return /^c$/i.test((body ?? "").trim().replace(/[.!]+$/, ""));
+}
+
+/**
+ * Cancel a customer's upcoming appointment from an inbound SMS. Identity is
+ * the SMS sender number (same trust basis as voice caller-id). Only an
+ * unambiguous single match is cancelled automatically; anything else gets a
+ * safe redirect to the business. Returns the reply text for the TwiML.
+ */
+async function cancelAppointmentFromSms(
+  customerPhone: string,
+  businessId?: string | null
+): Promise<string> {
+  const validated = validateSmsRecipientE164(customerPhone);
+  if (!validated.ok) {
+    return "We couldn't verify this phone number, so nothing was cancelled. Please call the business for help.";
+  }
+
+  const upcoming = await prisma.appointment.findMany({
+    where: {
+      customerPhone: validated.e164,
+      status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
+      startAt: { gte: new Date() },
+      ...(businessId ? { businessId } : {})
+    },
+    orderBy: { startAt: "asc" },
+    take: 3,
+    include: { business: { select: { id: true, ownerId: true, name: true } } }
+  });
+
+  if (upcoming.length === 0) {
+    return "We couldn't find an upcoming appointment for this number, so nothing was cancelled. Please call the business if you need help.";
+  }
+
+  if (upcoming.length > 1) {
+    return "You have more than one upcoming appointment, so nothing was cancelled automatically. Please call the business to choose which one to cancel.";
+  }
+
+  const target = upcoming[0];
+  const timeZone = target.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const dateLabel = formatApptDate(target.startAt, timeZone);
+  const timeLabel = formatApptTime(target.startAt, timeZone);
+
+  // Google Calendar first: if the linked event cannot be removed, the
+  // appointment stays active and the customer must not hear that it worked.
+  if (target.calendarEventId && target.business.ownerId) {
+    try {
+      const profile = await prisma.businessProfile.findUnique({
+        where: { businessId: target.business.id },
+        select: { calendarId: true }
+      });
+      await cancelGoogleCalendarAppointment({
+        userId: target.business.ownerId,
+        calendarId: profile?.calendarId,
+        eventId: target.calendarEventId
+      });
+    } catch (error) {
+      console.error("[inbound-sms] cancel-by-SMS calendar delete failed (appointment NOT cancelled)", error);
+      return "We couldn't complete the cancellation just now. Please try again shortly or call the business and they'll take care of it.";
+    }
+  }
+
+  await prisma.appointment.update({
+    where: { id: target.id },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancellationSource: "CUSTOMER_SMS"
+    }
+  });
+
+  const emailKey = `appointment-cancellation:${target.id}:team-email`;
+  enqueueEmail(
+    {
+      kind: "internal_notification",
+      input: {
+        businessId: target.business.id,
+        businessName: target.business.name,
+        purpose: "INTERNAL_NOTIFICATION",
+        idempotencyKey: emailKey,
+        fields: {
+          caller: target.customerName || null,
+          phone: target.customerPhone,
+          email: null,
+          requestedService: target.service || null,
+          summary: `Appointment on ${dateLabel} at ${timeLabel} was cancelled by the customer by SMS ("C").`,
+          nextAction: "No action needed unless you want to follow up with the customer."
+        }
+      }
+    },
+    { idempotencyKey: emailKey }
+  ).catch((error) => console.error("[inbound-sms] cancellation email failed (non-fatal)", error));
+
+  return `Your ${target.service ? `${target.service} ` : ""}appointment on ${dateLabel} at ${timeLabel} has been cancelled. Reply HELP for assistance.`;
+}
+
 async function handleSharedSenderInboundSms(
   c: Context,
   customerPhone: string,
@@ -1278,6 +1384,16 @@ if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
       );
     }
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
+  // "Reply C to cancel" — the confirmation SMS promises this exact shortcut.
+  if (isSmsCancelRequest(incomingBody)) {
+    const reply = await cancelAppointmentFromSms(customerPhone);
+    return c.text(
+      `<Response><Message>${escapeXml(reply)}</Message></Response>`,
+      200,
+      { "Content-Type": "text/xml" }
+    );
   }
 
   console.log("[twilio.sms] unmatched shared-sender inbound message (not routed to any business)", {
@@ -1347,6 +1463,34 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
       );
     }
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
+  // "Reply C to cancel" — works even when the agent is paused, like the
+  // consent keywords: it's account service, not an agent conversation.
+  if (isSmsCancelRequest(incomingBody)) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "INBOUND",
+      body: incomingBody,
+      providerId: readBodyString(body, ["MessageSid", "SmsSid"])
+    }).catch(() => null);
+
+    const reply = await cancelAppointmentFromSms(customerPhone, agent.business?.businessId ?? null);
+
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "OUTBOUND",
+      body: reply,
+      providerId: null
+    }).catch(() => null);
+
+    return c.text(
+      `<Response><Message>${escapeXml(reply)}</Message></Response>`,
+      200,
+      { "Content-Type": "text/xml" }
+    );
   }
 
   if (agent.agentPaused) {
@@ -2422,6 +2566,653 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   return localFallback("not_connected");
 }
+
+/* ------------------------- appointment cancellation ------------------------ */
+
+/** Appointment statuses a customer may cancel by phone. */
+const CANCELLABLE_APPOINTMENT_STATUSES = ["BOOKED", "REQUESTED"];
+
+/** Twilio delivers suppressed caller ID as "anonymous"/"restricted"/+266696687. */
+const ANONYMOUS_CALLER_DIGITS = "266696687";
+
+const CANCEL_NO_MATCH_MESSAGE =
+  "I’m unable to verify an appointment associated with the number you’re calling from. For privacy and security, I can’t provide any appointment or phone-number details. Please call again from the phone number used when the appointment was booked, or contact the business team for assistance.";
+
+const CANCEL_CALLER_ID_UNAVAILABLE_MESSAGE =
+  "I’m unable to verify the phone number for this call, so I can’t cancel an appointment automatically. Please call from the phone number used when booking or contact the business team for assistance.";
+
+const CANCEL_FAILED_MESSAGE =
+  "I couldn’t complete the cancellation just now. Please try again in a moment, or contact the business team and they’ll take care of it.";
+
+function formatApptDate(startAt: Date, timeZone?: string | null): string {
+  try {
+    return startAt.toLocaleDateString("en-US", {
+      timeZone: timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+      weekday: "long",
+      month: "long",
+      day: "numeric"
+    });
+  } catch {
+    return startAt.toDateString();
+  }
+}
+
+function formatApptTime(startAt: Date, timeZone?: string | null): string {
+  try {
+    return startAt.toLocaleTimeString("en-US", {
+      timeZone: timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  } catch {
+    return startAt.toTimeString().slice(0, 5);
+  }
+}
+
+/**
+ * Resolve the TRUSTED caller number for cancellation identity checks.
+ * Verification uses ONLY the telephony-reported inbound caller id
+ * (ctx.customerPhone from the Vapi webhook) — never tool arguments and never
+ * a number spoken in the transcript (ctx.patientPhone is argument-tainted by
+ * the dispatcher and must not be used here).
+ */
+function trustedCallerE164(ctx: VapiToolContext): string | null {
+  const raw = (ctx.customerPhone ?? "").trim();
+  if (!raw) return null;
+  const validated = validateSmsRecipientE164(raw);
+  if (!validated.ok) return null;
+  if (validated.e164.replace("+", "") === ANONYMOUS_CALLER_DIGITS) return null;
+  return validated.e164;
+}
+
+/**
+ * cancel_appointment: securely cancel a caller's upcoming appointment.
+ *
+ * SECURITY / PRIVACY MODEL
+ * - Identity = exact match between the normalized inbound caller id and the
+ *   Appointment.customerPhone, scoped to the call's trusted businessId. A
+ *   spoken phone number, a partial/last-four match, or a model-supplied
+ *   number NEVER verifies identity.
+ * - When verification fails, the response reveals nothing: no stored or
+ *   masked numbers, no appointment details, no confirmation that any
+ *   appointment exists for any number.
+ * - Appointment details (service/date/time) are disclosed only AFTER the
+ *   caller-number match, and cancellation additionally requires the caller's
+ *   explicit confirmation (confirmed=true).
+ */
+async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  if (!ctx.business?.businessId) {
+    return { cancelled: false, code: "BUSINESS_NOT_RESOLVED", message: CANCEL_FAILED_MESSAGE };
+  }
+
+  // Architect browser tests have no real caller id — behave exactly like a
+  // hidden-caller call and never touch live data.
+  if (ctx.dental?.dryRun) {
+    return {
+      cancelled: false,
+      dry_run: true,
+      code: "CALLER_ID_UNAVAILABLE",
+      message: CANCEL_CALLER_ID_UNAVAILABLE_MESSAGE
+    };
+  }
+
+  const callerPhone = trustedCallerE164(ctx);
+  if (!callerPhone) {
+    return {
+      cancelled: false,
+      code: "CALLER_ID_UNAVAILABLE",
+      message: CANCEL_CALLER_ID_UNAVAILABLE_MESSAGE
+    };
+  }
+
+  const businessId = ctx.business.businessId;
+  const timeZone = ctx.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+
+  // Optional model-supplied REFINEMENTS (never identity): a specific day in
+  // the business timezone, or a service-name fragment.
+  const dateFilter = argStr(args, ["date", "appointment_date"]);
+  const serviceFilter = argStr(args, ["service_type", "service"]);
+  const now = new Date();
+  const dayRange =
+    dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)
+      ? {
+          gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
+          lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
+        }
+      : null;
+
+  const eligible = await prisma.appointment.findMany({
+    where: {
+      businessId,
+      customerPhone: callerPhone,
+      status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
+      startAt: dayRange
+        ? { gte: dayRange.gte > now ? dayRange.gte : now, lte: dayRange.lte }
+        : { gte: now },
+      ...(serviceFilter ? { service: { contains: serviceFilter, mode: "insensitive" as const } } : {})
+    },
+    orderBy: { startAt: "asc" },
+    take: 10,
+    select: { id: true, service: true, startAt: true, timeZone: true, status: true }
+  });
+
+  const describe = (appointment: (typeof eligible)[number]) => ({
+    appointment_id: appointment.id,
+    service: appointment.service || "appointment",
+    appointment_date: formatApptDate(appointment.startAt, appointment.timeZone || timeZone),
+    appointment_time: formatApptTime(appointment.startAt, appointment.timeZone || timeZone)
+  });
+
+  const confirmed = args["confirmed"] === true;
+  const requestedId = argStr(args, ["appointment_id", "appointmentId"]);
+  const reason = (argStr(args, ["cancellation_reason", "reason"]) ?? "").slice(0, 500);
+
+  /* ----------------------------- lookup phase ----------------------------- */
+
+  if (!confirmed) {
+    if (eligible.length === 0) {
+      return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+    }
+    if (eligible.length === 1) {
+      const found = describe(eligible[0]);
+      return {
+        cancelled: false,
+        code: "CONFIRMATION_REQUIRED",
+        appointment: found,
+        message: `I found an upcoming appointment for ${found.service} on ${found.appointment_date} at ${found.appointment_time}. Would you like me to cancel this appointment?`
+      };
+    }
+    return {
+      cancelled: false,
+      code: "MULTIPLE_APPOINTMENTS",
+      appointments: eligible.map((appointment, index) => ({ number: index + 1, ...describe(appointment) })),
+      message:
+        "The caller has several upcoming appointments. Read the numbered list (service, date, time only) and ask which one they would like to cancel."
+    };
+  }
+
+  /* ------------------------- confirmed cancellation ------------------------ */
+
+  // Resolve the target: an id from a prior lookup, or the single eligible
+  // appointment. Every path below re-verifies business + caller-number scope.
+  let targetId: string | null = null;
+  if (requestedId) {
+    targetId = requestedId;
+  } else if (eligible.length === 1) {
+    targetId = eligible[0].id;
+  } else if (eligible.length === 0) {
+    return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+  } else {
+    return {
+      cancelled: false,
+      code: "MULTIPLE_APPOINTMENTS",
+      appointments: eligible.map((appointment, index) => ({ number: index + 1, ...describe(appointment) })),
+      message: "Several appointments matched. Ask the caller which one to cancel, then confirm again."
+    };
+  }
+
+  // The id is honored ONLY when it belongs to this business AND this caller's
+  // number — a guessed/hallucinated id degrades to the generic no-match reply.
+  const target = await prisma.appointment.findFirst({
+    where: { id: targetId, businessId, customerPhone: callerPhone },
+    select: {
+      id: true,
+      service: true,
+      startAt: true,
+      timeZone: true,
+      status: true,
+      customerName: true,
+      customerPhone: true,
+      calendarEventId: true
+    }
+  });
+
+  if (!target) {
+    return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+  }
+
+  // Idempotent: repeating the confirmation on an already-cancelled
+  // appointment is a success, never an error.
+  if (target.status === "CANCELLED") {
+    return { cancelled: true, code: "ALREADY_CANCELLED", message: "Your appointment has been cancelled successfully." };
+  }
+
+  if (!CANCELLABLE_APPOINTMENT_STATUSES.includes(target.status) || target.startAt < new Date()) {
+    // Caller identity IS verified on this branch, so a non-leaky status
+    // message is safe.
+    return {
+      cancelled: false,
+      code: "NOT_CANCELLABLE",
+      message:
+        "That appointment can no longer be cancelled over the phone. Please contact the business team for assistance."
+    };
+  }
+
+  // Google Calendar first: if the linked event cannot be removed, the
+  // appointment stays active and the caller must NOT hear that it worked.
+  if (target.calendarEventId && ctx.business.ownerId) {
+    try {
+      await cancelGoogleCalendarAppointment({
+        userId: ctx.business.ownerId,
+        calendarId: ctx.business.calendarId,
+        eventId: target.calendarEventId
+      });
+    } catch (error) {
+      console.error("[vapi-webhook] cancel_appointment calendar delete failed (appointment NOT cancelled)", error);
+      await prisma.appointment
+        .update({
+          where: { id: target.id },
+          data: {
+            notes: `${new Date().toISOString()}: customer phone cancellation attempt — Google Calendar delete failed; appointment left active.`
+          }
+        })
+        .catch(() => null);
+      return { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE };
+    }
+  }
+
+  await prisma.appointment.update({
+    where: { id: target.id },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancellationSource: "CUSTOMER_PHONE_CALL",
+      cancellationCallId: ctx.callId ?? null,
+      ...(reason ? { cancellationReason: reason } : {})
+    }
+  });
+
+  const cancelledDate = formatApptDate(target.startAt, target.timeZone || timeZone);
+  const cancelledTime = formatApptTime(target.startAt, target.timeZone || timeZone);
+
+  // Notifications are best-effort and never affect the cancellation result.
+  // The customer SMS goes through the central consent gate (sendTrackedSms)
+  // and may be suppressed — cancellation still succeeds.
+  let smsSent = false;
+  try {
+    const smsOutcome = await sendTrackedSms({
+      to: callerPhone,
+      body: `${ctx.business.businessName} via Triven.ai: Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment on ${cancelledDate} at ${cancelledTime} has been cancelled. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      messageType: "APPOINTMENT_CANCELLATION",
+      businessId,
+      installedAgentId: ctx.business.installedAgentId ?? null,
+      appointmentId: target.id,
+      dedupeKey: `appointment-cancellation:${target.id}`
+    });
+    smsSent = smsOutcome.sent || smsOutcome.alreadySent;
+  } catch (error) {
+    console.error("[vapi-webhook] cancellation SMS failed (non-fatal)", error);
+  }
+
+  const emailIdempotencyKey = `appointment-cancellation:${target.id}:team-email`;
+  enqueueEmail(
+    {
+      kind: "internal_notification",
+      input: {
+        businessId,
+        businessName: ctx.business.businessName,
+        purpose: "INTERNAL_NOTIFICATION",
+        idempotencyKey: emailIdempotencyKey,
+        fields: {
+          caller: target.customerName || null,
+          phone: target.customerPhone,
+          email: null,
+          requestedService: target.service || null,
+          summary: `Appointment on ${cancelledDate} at ${cancelledTime} was cancelled by the customer during a phone call.${reason ? ` Reason: ${reason}` : ""}`,
+          nextAction: "No action needed unless you want to follow up with the customer."
+        }
+      }
+    },
+    { idempotencyKey: emailIdempotencyKey }
+  ).catch((error) => console.error("[vapi-webhook] cancellation email failed (non-fatal)", error));
+
+  return {
+    cancelled: true,
+    code: "CANCELLED",
+    appointment: {
+      service: target.service || "appointment",
+      appointment_date: cancelledDate,
+      appointment_time: cancelledTime
+    },
+    sms_sent: smsSent,
+    message: "Your appointment has been cancelled successfully."
+  };
+}
+
+/* ------------------------- appointment rescheduling ------------------------ */
+
+const RESCHEDULE_FAILED_MESSAGE =
+  "I couldn’t complete the reschedule just now. Your original appointment is unchanged. Please try again in a moment, or contact the business team and they’ll take care of it.";
+
+const RESCHEDULE_CALLER_ID_UNAVAILABLE_MESSAGE =
+  "I’m unable to verify the phone number for this call, so I can’t reschedule an appointment automatically. Please call from the phone number used when booking or contact the business team for assistance.";
+
+/**
+ * reschedule_appointment: securely move a caller's upcoming appointment to a
+ * new date/time. Shares cancel_appointment's SECURITY / PRIVACY MODEL —
+ * identity is ONLY the trusted inbound caller id, nothing is disclosed until
+ * that number matches, and the move requires explicit confirmation
+ * (confirmed=true) plus the new date and time.
+ */
+async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  if (!ctx.business?.businessId) {
+    return { rescheduled: false, code: "BUSINESS_NOT_RESOLVED", message: RESCHEDULE_FAILED_MESSAGE };
+  }
+
+  // Architect browser tests have no real caller id — behave exactly like a
+  // hidden-caller call and never touch live data.
+  if (ctx.dental?.dryRun) {
+    return {
+      rescheduled: false,
+      dry_run: true,
+      code: "CALLER_ID_UNAVAILABLE",
+      message: RESCHEDULE_CALLER_ID_UNAVAILABLE_MESSAGE
+    };
+  }
+
+  const callerPhone = trustedCallerE164(ctx);
+  if (!callerPhone) {
+    return {
+      rescheduled: false,
+      code: "CALLER_ID_UNAVAILABLE",
+      message: RESCHEDULE_CALLER_ID_UNAVAILABLE_MESSAGE
+    };
+  }
+
+  const businessId = ctx.business.businessId;
+  const timeZone = ctx.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+
+  // Optional model-supplied REFINEMENTS (never identity) — same as cancel.
+  const dateFilter = argStr(args, ["date", "appointment_date"]);
+  const serviceFilter = argStr(args, ["service_type", "service"]);
+  const now = new Date();
+  const dayRange =
+    dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)
+      ? {
+          gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
+          lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
+        }
+      : null;
+
+  const eligible = await prisma.appointment.findMany({
+    where: {
+      businessId,
+      customerPhone: callerPhone,
+      status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
+      startAt: dayRange
+        ? { gte: dayRange.gte > now ? dayRange.gte : now, lte: dayRange.lte }
+        : { gte: now },
+      ...(serviceFilter ? { service: { contains: serviceFilter, mode: "insensitive" as const } } : {})
+    },
+    orderBy: { startAt: "asc" },
+    take: 10,
+    select: { id: true, service: true, startAt: true, timeZone: true, status: true }
+  });
+
+  const describe = (appointment: (typeof eligible)[number]) => ({
+    appointment_id: appointment.id,
+    service: appointment.service || "appointment",
+    appointment_date: formatApptDate(appointment.startAt, appointment.timeZone || timeZone),
+    appointment_time: formatApptTime(appointment.startAt, appointment.timeZone || timeZone)
+  });
+
+  const confirmed = args["confirmed"] === true;
+  const requestedId = argStr(args, ["appointment_id", "appointmentId"]);
+
+  /* ----------------------------- lookup phase ----------------------------- */
+
+  if (!confirmed) {
+    if (eligible.length === 0) {
+      return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+    }
+    if (eligible.length === 1) {
+      const found = describe(eligible[0]);
+      return {
+        rescheduled: false,
+        code: "CONFIRMATION_REQUIRED",
+        appointment: found,
+        message: `I found an upcoming appointment for ${found.service} on ${found.appointment_date} at ${found.appointment_time}. What new day and time would work for you? Offer to check availability first if they are unsure.`
+      };
+    }
+    return {
+      rescheduled: false,
+      code: "MULTIPLE_APPOINTMENTS",
+      appointments: eligible.map((appointment, index) => ({ number: index + 1, ...describe(appointment) })),
+      message:
+        "The caller has several upcoming appointments. Read the numbered list (service, date, time only) and ask which one they would like to move, then ask for the new day and time."
+    };
+  }
+
+  /* -------------------------- confirmed reschedule ------------------------- */
+
+  let targetId: string | null = null;
+  if (requestedId) {
+    targetId = requestedId;
+  } else if (eligible.length === 1) {
+    targetId = eligible[0].id;
+  } else if (eligible.length === 0) {
+    return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+  } else {
+    return {
+      rescheduled: false,
+      code: "MULTIPLE_APPOINTMENTS",
+      appointments: eligible.map((appointment, index) => ({ number: index + 1, ...describe(appointment) })),
+      message: "Several appointments matched. Ask the caller which one to move, then confirm again."
+    };
+  }
+
+  // The id is honored ONLY when it belongs to this business AND this caller's
+  // number — a guessed/hallucinated id degrades to the generic no-match reply.
+  const target = await prisma.appointment.findFirst({
+    where: { id: targetId, businessId, customerPhone: callerPhone },
+    select: {
+      id: true,
+      service: true,
+      startAt: true,
+      endAt: true,
+      timeZone: true,
+      status: true,
+      customerName: true,
+      customerPhone: true,
+      calendarEventId: true,
+      notes: true
+    }
+  });
+
+  if (!target) {
+    return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+  }
+
+  if (!CANCELLABLE_APPOINTMENT_STATUSES.includes(target.status) || target.startAt < new Date()) {
+    // Caller identity IS verified on this branch — a non-leaky status message is safe.
+    return {
+      rescheduled: false,
+      code: "NOT_RESCHEDULABLE",
+      message:
+        "That appointment can no longer be rescheduled over the phone. Please contact the business team for assistance."
+    };
+  }
+
+  // The new slot: explicit new_date/new_time from the caller's confirmation.
+  const newDateRaw = argStr(args, ["new_date", "newDate"]);
+  const newTimeRaw = argStr(args, ["new_time", "newTime"]);
+  if (!newDateRaw || !newTimeRaw) {
+    return {
+      rescheduled: false,
+      code: "NEW_TIME_REQUIRED",
+      message: "Ask the caller for the new day and time before confirming the reschedule."
+    };
+  }
+
+  const relativeText = [newDateRaw, ctx.transcript, ctx.summary].filter(Boolean).join(" ");
+  const { date: newDate, isPast } = resolveRequestedDate({ rawDate: newDateRaw, relativeText, timeZone });
+  const newTime = parseClockTime(newTimeRaw);
+  if (isPast || !newTime) {
+    return {
+      rescheduled: false,
+      code: "INVALID_NEW_TIME",
+      message: "That new date or time didn’t come through clearly. Ask the caller for the day and time again."
+    };
+  }
+
+  const durationMs = Math.max(
+    5 * 60 * 1000,
+    target.endAt.getTime() - target.startAt.getTime() ||
+      (ctx.dental?.defaultDurationMinutes ?? 30) * 60 * 1000
+  );
+  const newStartAt = zonedWallClockToUtc(newDate, newTime.hour, newTime.minute, timeZone);
+  const newEndAt = new Date(newStartAt.getTime() + durationMs);
+
+  if (newStartAt.getTime() < Date.now() - 60_000) {
+    return {
+      rescheduled: false,
+      code: "INVALID_NEW_TIME",
+      message: "That new time is in the past. Ask the caller for an upcoming day and time."
+    };
+  }
+
+  const newDateLabel = formatApptDate(newStartAt, timeZone);
+  const newTimeLabel = formatApptTime(newStartAt, timeZone);
+  const previousDateLabel = formatApptDate(target.startAt, target.timeZone || timeZone);
+  const previousTimeLabel = formatApptTime(target.startAt, target.timeZone || timeZone);
+
+  // Idempotent: confirming the same target time again is a success.
+  if (Math.abs(target.startAt.getTime() - newStartAt.getTime()) < 60_000) {
+    return {
+      rescheduled: true,
+      code: "ALREADY_RESCHEDULED",
+      appointment: {
+        service: target.service || "appointment",
+        appointment_date: newDateLabel,
+        appointment_time: newTimeLabel
+      },
+      message: `Your appointment is already set for ${newDateLabel} at ${newTimeLabel}.`
+    };
+  }
+
+  // Google Calendar first: if the linked event cannot be moved, the
+  // appointment keeps its original time and the caller must NOT hear success.
+  let calendarEventId = target.calendarEventId;
+  let calendarEventLink: string | null = null;
+  if (target.calendarEventId && ctx.business.ownerId) {
+    try {
+      const moved = await rescheduleGoogleCalendarAppointment({
+        userId: ctx.business.ownerId,
+        calendarId: ctx.business.calendarId,
+        eventId: target.calendarEventId,
+        startAt: newStartAt,
+        endAt: newEndAt,
+        timeZone
+      });
+
+      if (moved.missing) {
+        // The event was deleted from the calendar out-of-band — recreate it at
+        // the new time so the business calendar stays the source of truth.
+        const recreated = await createGoogleCalendarAppointment({
+          userId: ctx.business.ownerId,
+          calendarId: ctx.business.calendarId,
+          timeZone,
+          businessName: ctx.business.businessName,
+          customerName: target.customerName ?? undefined,
+          customerPhone: target.customerPhone,
+          service: target.service ?? undefined,
+          startAt: newStartAt,
+          endAt: newEndAt
+        });
+        calendarEventId = recreated.id ?? calendarEventId;
+        calendarEventLink = recreated.htmlLink ?? null;
+      } else {
+        calendarEventLink = moved.htmlLink;
+      }
+    } catch (error) {
+      console.error("[vapi-webhook] reschedule_appointment calendar move failed (appointment NOT moved)", error);
+      await prisma.appointment
+        .update({
+          where: { id: target.id },
+          data: {
+            notes: `${new Date().toISOString()}: customer phone reschedule attempt to ${newDateLabel} ${newTimeLabel} — Google Calendar update failed; appointment left at the original time.`
+          }
+        })
+        .catch(() => null);
+      return { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE };
+    }
+  }
+
+  await prisma.appointment.update({
+    where: { id: target.id },
+    data: {
+      startAt: newStartAt,
+      endAt: newEndAt,
+      timeZone,
+      status: "BOOKED",
+      ...(calendarEventId !== target.calendarEventId ? { calendarEventId } : {}),
+      ...(calendarEventLink ? { calendarEventLink } : {}),
+      notes: [
+        target.notes,
+        `${new Date().toISOString()}: rescheduled by the customer during a phone call from ${previousDateLabel} ${previousTimeLabel} to ${newDateLabel} ${newTimeLabel}.${ctx.callId ? ` Call ID: ${ctx.callId}` : ""}`
+      ]
+        .filter(Boolean)
+        .join("\n")
+    }
+  });
+
+  // Notifications are best-effort and never affect the reschedule result. The
+  // customer SMS goes through the central consent gate and may be suppressed.
+  let smsSent = false;
+  try {
+    const smsOutcome = await sendTrackedSms({
+      to: callerPhone,
+      body: `${ctx.business.businessName} via Triven.ai: Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment has been moved to ${newDateLabel} at ${newTimeLabel}. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      messageType: "APPOINTMENT_CONFIRMATION",
+      businessId,
+      installedAgentId: ctx.business.installedAgentId ?? null,
+      appointmentId: target.id,
+      dedupeKey: `appointment-reschedule:${target.id}:${newStartAt.toISOString()}`
+    });
+    smsSent = smsOutcome.sent || smsOutcome.alreadySent;
+  } catch (error) {
+    console.error("[vapi-webhook] reschedule SMS failed (non-fatal)", error);
+  }
+
+  const rescheduleEmailKey = `appointment-reschedule:${target.id}:${newStartAt.toISOString()}:team-email`;
+  enqueueEmail(
+    {
+      kind: "internal_notification",
+      input: {
+        businessId,
+        businessName: ctx.business.businessName,
+        purpose: "INTERNAL_NOTIFICATION",
+        idempotencyKey: rescheduleEmailKey,
+        fields: {
+          caller: target.customerName || null,
+          phone: target.customerPhone,
+          email: null,
+          requestedService: target.service || null,
+          summary: `Appointment moved by the customer during a phone call: from ${previousDateLabel} at ${previousTimeLabel} to ${newDateLabel} at ${newTimeLabel}.`,
+          nextAction: "No action needed unless the new time conflicts with your schedule."
+        }
+      }
+    },
+    { idempotencyKey: rescheduleEmailKey }
+  ).catch((error) => console.error("[vapi-webhook] reschedule email failed (non-fatal)", error));
+
+  return {
+    rescheduled: true,
+    code: "RESCHEDULED",
+    appointment: {
+      service: target.service || "appointment",
+      appointment_date: newDateLabel,
+      appointment_time: newTimeLabel
+    },
+    previous: {
+      appointment_date: previousDateLabel,
+      appointment_time: previousTimeLabel
+    },
+    sms_sent: smsSent,
+    message: `You're all set — the appointment has been moved to ${newDateLabel} at ${newTimeLabel}.`
+  };
+}
+
 async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { success: false, error: "business_not_resolved", consent_recorded: false };
@@ -2981,12 +3772,15 @@ export async function handleVapiWebhook(c: Context) {
     const results: Array<{ name: string; toolCallId: string; result: string }> = [];
     for (const toolCall of toolCalls) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
-      // Consent first: "recordsmsconsent" must never fall through to the
-      // send/notify matcher.
+      // Consent/cancel/reschedule first: "recordsmsconsent", "cancelappointment"
+      // and "rescheduleappointment" must never fall through to the send/notify
+      // or book matchers.
       const isConsent = fnName.includes("consent");
-      const isCheck = !isConsent && (fnName.startsWith("check") || fnName.includes("availab"));
-      const isBook = !isConsent && fnName.startsWith("book");
-      const isNotify = !isConsent && (fnName.startsWith("send") || fnName.includes("notif"));
+      const isCancel = !isConsent && fnName.includes("cancel");
+      const isReschedule = !isConsent && !isCancel && fnName.includes("resched");
+      const isCheck = !isConsent && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
+      const isBook = !isConsent && !isCancel && !isReschedule && fnName.startsWith("book");
+      const isNotify = !isConsent && !isCancel && !isReschedule && (fnName.startsWith("send") || fnName.includes("notif"));
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -2995,6 +3789,8 @@ export async function handleVapiWebhook(c: Context) {
       let payload: unknown;
       try {
         if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
+        else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
+        else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
         else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
         else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
         else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
@@ -3007,7 +3803,11 @@ export async function handleVapiWebhook(c: Context) {
             ? { success: false, message: "Could not complete the booking right now. Please try again." }
             : isConsent
               ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
-              : { success: false };
+              : isCancel
+                ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
+                : isReschedule
+                  ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
+                  : { success: false };
       }
 
       results.push({
