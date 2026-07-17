@@ -4,6 +4,7 @@ import type { Route } from "next";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { apiGet } from "@/lib/api";
 import {
     businessSetupPath
 } from "@/lib/routes";
@@ -104,17 +105,54 @@ function BusinessPaymentSuccessContent() {
     const trialDaysParam = searchParams.get("trialDays");
     const trialDays = trialDaysParam ? Number(trialDaysParam) : 7;
     const email = searchParams.get("email") || "your email";
+    const paymentId = searchParams.get("paymentId");
     const paymentMode = resolvePaymentMode(searchParams, amount);
     const isTrial = paymentMode === "trial";
     const displayAmount = amount ?? 0;
 
+    // Real transaction reference when the checkout passed one; the random
+    // fallback only covers legacy links without a paymentId.
     const orderNumber = useMemo(() => {
+        if (paymentId) {
+            return `TRIVEN-${paymentId.slice(-8).toUpperCase()}`;
+        }
         const random = Math.floor(10000 + Math.random() * 89999);
         return `TRIVEN-${new Date().getFullYear()}-${random}`;
-    }, []);
+    }, [paymentId]);
 
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
     const [copied, setCopied] = useState(false);
+    // Backend verification: confirm this listing is actually owned now, so a
+    // stale/forged success URL can't show a false "payment successful".
+    const [verification, setVerification] = useState<"pending" | "verified" | "unverified">(
+        "pending"
+    );
+
+    useEffect(() => {
+        if (!listingId) {
+            setVerification("verified");
+            return;
+        }
+
+        let mounted = true;
+
+        void apiGet<{ hasActiveAccess: boolean; purchaseStatus: string | null }>(
+            `/payments/listing-access/${listingId}`
+        ).then((response) => {
+            if (!mounted) return;
+
+            if (response.success && response.data) {
+                setVerification(response.data.hasActiveAccess ? "verified" : "unverified");
+            } else {
+                // Network/auth hiccup — don't scare the buyer over a fetch issue.
+                setVerification("verified");
+            }
+        });
+
+        return () => {
+            mounted = false;
+        };
+    }, [listingId]);
 
     useEffect(() => {
         if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -232,6 +270,22 @@ function BusinessPaymentSuccessContent() {
                         </button>
                     </div>
                 </section>
+
+                {verification === "unverified" ? (
+                    <section
+                        className="rise mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left"
+                        data-testid="payment-success-unverified"
+                        role="alert"
+                    >
+                        <p className="text-sm font-semibold text-amber-800">
+                            We couldn&apos;t verify this payment yet.
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-amber-700">
+                            If you just paid, it can take a moment to appear. Check My Agents shortly — and if the
+                            agent doesn&apos;t show up, contact support@triven.ai before paying again.
+                        </p>
+                    </section>
+                ) : null}
 
                 <section className="rise mt-8" style={{ animationDelay: ".55s" }} aria-label="Order summary">
                     <div className="overflow-hidden rounded-2xl border-l-4 border-amber-500 bg-white shadow-lg ring-1 ring-slate-200/60">

@@ -4,6 +4,15 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+    CardCvcElement,
+    CardExpiryElement,
+    CardNumberElement,
+    Elements,
+    useElements,
+    useStripe
+} from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
 import { apiGet, apiPost } from "@/lib/api";
 import { getAuthToken, getAuthUser } from "@/lib/auth";
 import {
@@ -11,7 +20,6 @@ import {
     BUSINESS_MARKETPLACE_PATH,
     PRIVACY_PATH,
     TERM_PATH,
-    businessPaymentFailedPath,
     businessPaymentSuccessPath,
     businessSetupPath
 } from "@/lib/routes";
@@ -61,6 +69,15 @@ type StartTrialResponse = {
 type PurchaseResponse = {
     payment?: { id: string; status: string };
     alreadyActive?: boolean;
+    /** 3DS/SCA: the bank wants authentication before the charge completes. */
+    requiresAction?: boolean;
+    clientSecret?: string | null;
+    paymentIntentId?: string;
+};
+
+type PaymentsConfigResponse = {
+    publishableKey: string | null;
+    stripeEnabled: boolean;
 };
 
 type ListingAccess = {
@@ -202,6 +219,12 @@ const CHECKOUT_STYLES = `
 
 .field.with-brands {
   padding-right: 7.25rem;
+}
+
+/* Stripe Elements mount a wrapper div inside the .field container — make it
+   fill the field so the iframe input aligns with the native inputs. */
+.field .StripeElement {
+  width: 100%;
 }
 
 select.field {
@@ -599,9 +622,63 @@ function formatBillingAddress(addressLine: string, zip: string, countryName: str
     return [addressLine.trim(), zip.trim(), countryName.trim()].filter(Boolean).join(", ");
 }
 
+// Stripe element styling matched to the existing `.field` inputs.
+const STRIPE_ELEMENT_STYLE = {
+    base: {
+        fontSize: "16px",
+        color: "#0f172a",
+        fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
+        "::placeholder": { color: "#9ca3af" }
+    },
+    invalid: { color: "#ef4444" }
+};
+
+type CardElementFieldState = { complete: boolean; error: string };
+
 export default function BusinessCheckoutPage() {
+    const [paymentsConfig, setPaymentsConfig] = useState<{ loaded: boolean; publishableKey: string | null }>({
+        loaded: false,
+        publishableKey: null
+    });
+
+    useEffect(() => {
+        let mounted = true;
+
+        void apiGet<PaymentsConfigResponse>("/payments/config").then((response) => {
+            if (!mounted) return;
+
+            setPaymentsConfig({
+                loaded: true,
+                publishableKey: response.success ? response.data?.publishableKey ?? null : null
+            });
+        });
+
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    const stripePromise = useMemo(
+        () => (paymentsConfig.publishableKey ? loadStripe(paymentsConfig.publishableKey) : null),
+        [paymentsConfig.publishableKey]
+    );
+
+    if (!paymentsConfig.loaded) {
+        return <main className="min-h-screen bg-gray-50" />;
+    }
+
+    return (
+        <Elements stripe={stripePromise}>
+            <CheckoutContent stripeMode={Boolean(paymentsConfig.publishableKey)} />
+        </Elements>
+    );
+}
+
+function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const stripe = useStripe();
+    const elements = useElements();
     const listingId = searchParams.get("listingId");
     const usageMode = searchParams.get("mode") === "usage";
     const usageAgentId = searchParams.get("agentId") || null;
@@ -620,6 +697,18 @@ export default function BusinessCheckoutPage() {
     const [cardNumber, setCardNumber] = useState("");
     const [expiry, setExpiry] = useState("");
     const [cvc, setCvc] = useState("");
+    // Stripe Elements state (stripeMode): completeness + inline errors come
+    // from the elements themselves; the card never touches our own state.
+    const [cardElementFields, setCardElementFields] = useState<{
+        number: CardElementFieldState;
+        expiry: CardElementFieldState;
+        cvc: CardElementFieldState;
+    }>({
+        number: { complete: false, error: "" },
+        expiry: { complete: false, error: "" },
+        cvc: { complete: false, error: "" }
+    });
+    const [elementBrand, setElementBrand] = useState<CardBrand>(null);
     const [cardName, setCardName] = useState("");
     const [addressLine, setAddressLine] = useState("");
     const [zip, setZip] = useState("");
@@ -652,14 +741,16 @@ export default function BusinessCheckoutPage() {
         [countries, countryCode]
     );
     const cardDigits = cardNumber.replace(/\D/g, "");
-    const brand = detectBrand(cardDigits);
+    const brand = stripeMode ? elementBrand : detectBrand(cardDigits);
     const requiredCardLength = brand === "amex" ? 15 : 16;
     const requiredCvcLength = brand === "amex" ? 4 : 3;
 
     const validations = {
-        card: cardDigits.length === requiredCardLength && cardDigits.length > 0,
-        expiry: isExpiryValid(expiry),
-        cvc: new RegExp(`^\\d{${requiredCvcLength}}$`).test(cvc),
+        card: stripeMode
+            ? cardElementFields.number.complete
+            : cardDigits.length === requiredCardLength && cardDigits.length > 0,
+        expiry: stripeMode ? cardElementFields.expiry.complete : isExpiryValid(expiry),
+        cvc: stripeMode ? cardElementFields.cvc.complete : new RegExp(`^\\d{${requiredCvcLength}}$`).test(cvc),
         name: cardName.trim().length >= 2 && /[a-zA-Z]/.test(cardName),
         address: addressLine.trim().length >= 3,
         zip: isZipValid(countryCode, zip)
@@ -693,14 +784,14 @@ export default function BusinessCheckoutPage() {
     const formReady =
         authReady &&
         (isFree ||
-        (usageMode && usageSummaryReady) ||
-        (paymentTab !== "credit" ||
-            (validations.card &&
-                validations.expiry &&
-                validations.cvc &&
-                validations.name &&
-                validations.address &&
-                validations.zip)));
+            (usageMode && usageSummaryReady) ||
+            (paymentTab !== "credit" ||
+                (validations.card &&
+                    validations.expiry &&
+                    validations.cvc &&
+                    validations.name &&
+                    validations.address &&
+                    validations.zip)));
 
     useEffect(() => {
         const token = getAuthToken();
@@ -915,71 +1006,169 @@ export default function BusinessCheckoutPage() {
         }
     }
 
+    // Recoverable failure: show the real reason inline, keep the buyer on the
+    // page with their details intact, and re-enable the button for a retry.
+    function failCheckout(reason: string, options: { notify?: boolean } = {}) {
+        setCheckoutError(reason);
+        if (options.notify) void notifyPaymentFailed(reason);
+        requestAnimationFrame(() => {
+            document
+                .querySelector('[data-testid="checkout-error"]')
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+    }
+
     async function handleCheckout() {
         setAttemptedSubmit(true);
         setTrialError("");
+        setCheckoutError("");
 
         if (!formReady || processing) return;
 
         setProcessing(true);
 
-        if (usageMode) {
-            router.push(
-                usageAgentId
-                    ? `/business/billingandusage/billing?agentId=${encodeURIComponent(usageAgentId)}`
-                    : "/business/billingandusage/billing"
-            );
-            return;
-        }
-
-        if (!listingId) {
-            router.push(
-                businessPaymentSuccessPath({
-                    agent: listingName,
-                    amount: isPurchaseMode ? payTotal : basePrice,
-                    email,
-                    mode: isPurchaseMode ? "purchase" : "trial",
-                    trialDays: trialDays ?? undefined
-                })
-            );
-            return;
-        }
-
-        if (checkoutBlocked) {
-            router.push(businessSetupPath(listingId));
-            return;
-        }
-
-        const endpoint = isPurchaseMode ? "/payments/purchase" : "/payments/start-trial";
-
         try {
+            if (usageMode) {
+                router.push(
+                    usageAgentId
+                        ? `/business/billingandusage/billing?agentId=${encodeURIComponent(usageAgentId)}`
+                        : "/business/billingandusage/billing"
+                );
+                return;
+            }
+
+            if (!listingId) {
+                router.push(
+                    businessPaymentSuccessPath({
+                        agent: listingName,
+                        amount: isPurchaseMode ? payTotal : basePrice,
+                        email,
+                        mode: isPurchaseMode ? "purchase" : "trial",
+                        trialDays: trialDays ?? undefined
+                    })
+                );
+                return;
+            }
+
+            if (checkoutBlocked) {
+                router.push(businessSetupPath(listingId));
+                return;
+            }
+
+            // Resolve the payment method: tokenize the real card with Stripe
+            // Elements when configured; otherwise fall back to test tokens
+            // (bare local dev without a publishable key).
+            let paymentMethodId: string;
+
+            if (isFree) {
+                paymentMethodId = "free_installation";
+            } else if (stripeMode) {
+                if (!stripe || !elements) {
+                    failCheckout("Payments are still loading. Please try again in a moment.");
+                    return;
+                }
+
+                const cardElement = elements.getElement(CardNumberElement);
+
+                if (!cardElement) {
+                    failCheckout("Enter your card details to continue.");
+                    return;
+                }
+
+                const created = await stripe.createPaymentMethod({
+                    type: "card",
+                    card: cardElement,
+                    billing_details: {
+                        name: cardName.trim(),
+                        email: email.trim() || undefined,
+                        address: {
+                            line1: addressLine.trim(),
+                            postal_code: zip.trim(),
+                            country: countryCode
+                        }
+                    }
+                });
+
+                if (created.error || !created.paymentMethod) {
+                    failCheckout(
+                        created.error?.message ?? "We couldn't validate your card. Please check the details and try again.",
+                        { notify: true }
+                    );
+                    return;
+                }
+
+                paymentMethodId = created.paymentMethod.id;
+            } else {
+                paymentMethodId = testPaymentMethodForBrand(brand);
+            }
+
+            const endpoint = isPurchaseMode ? "/payments/purchase" : "/payments/start-trial";
+            // One id per attempt — the backend uses it as a Stripe idempotency
+            // key so an accidental double-submit can never charge twice.
+            const attemptId =
+                typeof crypto !== "undefined" && "randomUUID" in crypto
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
             const response = await apiPost<StartTrialResponse | PurchaseResponse>(endpoint, {
                 listingId,
-                paymentMethodId: isFree ? "free_installation" : testPaymentMethodForBrand(brand),
+                paymentMethodId,
                 billingName: isFree ? "Free Install" : cardName.trim(),
                 billingEmail: email.trim(),
                 billingAddress: isFree ? "Free Installation" : formatBillingAddress(
                     addressLine,
                     zip,
                     selectedCountry?.name ?? countryCode
-                )
+                ),
+                attemptId
             });
 
             if (!response.success) {
-                const reason = response.error ?? (isPurchaseMode
-                    ? "We couldn't complete your purchase. Please try again."
-                    : "We couldn't start your trial. Please try again.");
-                await notifyPaymentFailed(reason);
-                router.push(
-                    businessPaymentFailedPath({
-                        listingId,
-                        agent: listingName,
-                        amount: isPurchaseMode ? payTotal : basePrice,
-                        mode: isPurchaseMode ? "purchase" : "trial",
-                        trialDays: trialDays ?? undefined
-                    })
+                failCheckout(
+                    response.error ?? (isPurchaseMode
+                        ? "We couldn't complete your purchase. Please try again."
+                        : "We couldn't start your trial. Please try again."),
+                    { notify: true }
                 );
                 return;
+            }
+
+            let paymentId = response.data?.payment?.id;
+
+            // 3DS/SCA: complete the bank challenge, then let the backend verify
+            // the intent and record the purchase.
+            const purchaseData = response.data as PurchaseResponse | undefined;
+            if (purchaseData?.requiresAction && purchaseData.clientSecret) {
+                if (!stripe) {
+                    failCheckout("Your bank requires extra authentication, but the payment library isn't ready. Please try again.");
+                    return;
+                }
+
+                const nextAction = await stripe.handleNextAction({ clientSecret: purchaseData.clientSecret });
+
+                if (nextAction.error) {
+                    failCheckout(
+                        nextAction.error.message ?? "Card authentication failed. Please try again.",
+                        { notify: true }
+                    );
+                    return;
+                }
+
+                const confirmResponse = await apiPost<PurchaseResponse>("/payments/purchase/confirm", {
+                    listingId,
+                    paymentIntentId: purchaseData.paymentIntentId
+                });
+
+                if (!confirmResponse.success) {
+                    failCheckout(
+                        confirmResponse.error ??
+                            "We couldn't confirm your payment. If your card was charged, please contact support.",
+                        { notify: true }
+                    );
+                    return;
+                }
+
+                paymentId = confirmResponse.data?.payment?.id ?? paymentId;
             }
 
             router.push(
@@ -989,19 +1178,16 @@ export default function BusinessCheckoutPage() {
                     amount: isPurchaseMode ? payTotal : basePrice,
                     email,
                     mode: isPurchaseMode ? "purchase" : "trial",
-                    trialDays: trialDays ?? undefined
+                    trialDays: trialDays ?? undefined,
+                    paymentId
                 })
             );
         } catch {
-            await notifyPaymentFailed("We couldn't reach the payment service. Please try again.");
-            router.push(
-                businessPaymentFailedPath({
-                    listingId,
-                    agent: listingName,
-                    amount: isPurchaseMode ? payTotal : basePrice,
-                    mode: isPurchaseMode ? "purchase" : "trial"
-                })
-            );
+            failCheckout("We couldn't reach the payment service. Please check your connection and try again.", {
+                notify: true
+            });
+        } finally {
+            setProcessing(false);
         }
     }
 
@@ -1048,12 +1234,12 @@ export default function BusinessCheckoutPage() {
                                     </p>
 
                                     {!isFree ? (
-                                    <div className="flex overflow-x-auto" role="tablist" aria-label="Payment options">
-                                        <PaymentTabButton active={paymentTab === "credit"} onClick={() => setPaymentTab("credit")} testId="checkout-payment-tab-credit">
-                                            <CardIcon />
-                                            Credit card
-                                        </PaymentTabButton>
-                                    </div>
+                                        <div className="flex overflow-x-auto" role="tablist" aria-label="Payment options">
+                                            <PaymentTabButton active={paymentTab === "credit"} onClick={() => setPaymentTab("credit")} testId="checkout-payment-tab-credit">
+                                                <CardIcon />
+                                                Credit card
+                                            </PaymentTabButton>
+                                        </div>
                                     ) : null}
 
                                     {isFree ? (
@@ -1074,6 +1260,31 @@ export default function BusinessCheckoutPage() {
                                                 </label>
 
                                                 <div className="field-wrap">
+                                                    {stripeMode ? (
+                                                        <div
+                                                            data-testid="checkout-card-number-input"
+                                                            className={`field with-brands tnum ${fieldState(
+                                                                validations.card,
+                                                                showError("card") || Boolean(cardElementFields.number.error)
+                                                            )}`}
+                                                        >
+                                                            <CardNumberElement
+                                                                options={{ style: STRIPE_ELEMENT_STYLE, placeholder: "1234 5678 9012 3456" }}
+                                                                onChange={(event) => {
+                                                                    setElementBrand(
+                                                                        event.brand === "visa" || event.brand === "mastercard" || event.brand === "amex"
+                                                                            ? event.brand
+                                                                            : null
+                                                                    );
+                                                                    setCardElementFields((current) => ({
+                                                                        ...current,
+                                                                        number: { complete: event.complete, error: event.error?.message ?? "" }
+                                                                    }));
+                                                                }}
+                                                                onBlur={() => setTouched((current) => ({ ...current, card: true }))}
+                                                            />
+                                                        </div>
+                                                    ) : (
                                                     <input data-testid="checkout-card-number-input"
                                                         type="text"
                                                         inputMode="numeric"
@@ -1084,6 +1295,7 @@ export default function BusinessCheckoutPage() {
                                                         className={`field with-brands tnum ${fieldState(validations.card, showError("card"))}`}
                                                         placeholder="1234 5678 9012 3456"
                                                     />
+                                                    )}
 
                                                     <div className="brands" aria-hidden="true">
                                                         <VisaBrand active={brand === "visa"} hasBrand={!!brand} />
@@ -1092,8 +1304,10 @@ export default function BusinessCheckoutPage() {
                                                     </div>
                                                 </div>
 
-                                                {!validations.card && showError("card") ? (
-                                                    <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-card-number-text">Enter a valid card number</p>
+                                                {cardElementFields.number.error || (!validations.card && showError("card")) ? (
+                                                    <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-card-number-text">
+                                                        {cardElementFields.number.error || "Enter a valid card number"}
+                                                    </p>
                                                 ) : null}
                                             </div>
 
@@ -1104,6 +1318,26 @@ export default function BusinessCheckoutPage() {
                                                     </label>
 
                                                     <div className="field-wrap">
+                                                        {stripeMode ? (
+                                                            <div
+                                                                data-testid="checkout-card-expiry-input"
+                                                                className={`field with-adorn tnum ${fieldState(
+                                                                    validations.expiry,
+                                                                    showError("expiry") || Boolean(cardElementFields.expiry.error)
+                                                                )}`}
+                                                            >
+                                                                <CardExpiryElement
+                                                                    options={{ style: STRIPE_ELEMENT_STYLE, placeholder: "MM / YY" }}
+                                                                    onChange={(event) =>
+                                                                        setCardElementFields((current) => ({
+                                                                            ...current,
+                                                                            expiry: { complete: event.complete, error: event.error?.message ?? "" }
+                                                                        }))
+                                                                    }
+                                                                    onBlur={() => setTouched((current) => ({ ...current, expiry: true }))}
+                                                                />
+                                                            </div>
+                                                        ) : (
                                                         <input data-testid="checkout-card-expiry-input"
                                                             type="text"
                                                             inputMode="numeric"
@@ -1114,6 +1348,7 @@ export default function BusinessCheckoutPage() {
                                                             className={`field with-adorn tnum ${fieldState(validations.expiry, showError("expiry"))}`}
                                                             placeholder="MM / YY"
                                                         />
+                                                        )}
 
                                                         {validations.expiry ? (
                                                             <span className="adorn text-green-600" aria-hidden="true">
@@ -1122,8 +1357,10 @@ export default function BusinessCheckoutPage() {
                                                         ) : null}
                                                     </div>
 
-                                                    {!validations.expiry && showError("expiry") ? (
-                                                        <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-expiry-text">Enter a valid expiry</p>
+                                                    {cardElementFields.expiry.error || (!validations.expiry && showError("expiry")) ? (
+                                                        <p className="error-msg" data-testid="business-protected-checkout-enter-a-valid-expiry-text">
+                                                            {cardElementFields.expiry.error || "Enter a valid expiry"}
+                                                        </p>
                                                     ) : null}
                                                 </div>
 
@@ -1133,6 +1370,26 @@ export default function BusinessCheckoutPage() {
                                                     </label>
 
                                                     <div className="field-wrap">
+                                                        {stripeMode ? (
+                                                            <div
+                                                                data-testid="checkout-card-cvc-input"
+                                                                className={`field with-adorn tnum ${fieldState(
+                                                                    validations.cvc,
+                                                                    showError("cvc") || Boolean(cardElementFields.cvc.error)
+                                                                )}`}
+                                                            >
+                                                                <CardCvcElement
+                                                                    options={{ style: STRIPE_ELEMENT_STYLE, placeholder: "CVC" }}
+                                                                    onChange={(event) =>
+                                                                        setCardElementFields((current) => ({
+                                                                            ...current,
+                                                                            cvc: { complete: event.complete, error: event.error?.message ?? "" }
+                                                                        }))
+                                                                    }
+                                                                    onBlur={() => setTouched((current) => ({ ...current, cvc: true }))}
+                                                                />
+                                                            </div>
+                                                        ) : (
                                                         <input data-testid="checkout-card-cvc-input"
                                                             type="text"
                                                             inputMode="numeric"
@@ -1145,14 +1402,17 @@ export default function BusinessCheckoutPage() {
                                                             className={`field with-adorn tnum ${fieldState(validations.cvc, showError("cvc"))}`}
                                                             placeholder="CVC"
                                                         />
+                                                        )}
 
                                                         <span className="adorn text-slate-400" aria-hidden="true">
                                                             {validations.cvc ? <CheckIcon /> : <LockIcon />}
                                                         </span>
                                                     </div>
 
-                                                    {!validations.cvc && showError("cvc") ? (
-                                                        <p className="error-msg" data-testid="business-protected-checkout-enter-the-required-cvc-digit-code-text">Enter the {requiredCvcLength}-digit code</p>
+                                                    {cardElementFields.cvc.error || (!validations.cvc && showError("cvc")) ? (
+                                                        <p className="error-msg" data-testid="business-protected-checkout-enter-the-required-cvc-digit-code-text">
+                                                            {cardElementFields.cvc.error || `Enter the ${requiredCvcLength}-digit code`}
+                                                        </p>
                                                     ) : null}
                                                 </div>
                                             </div>
@@ -1257,6 +1517,7 @@ export default function BusinessCheckoutPage() {
                                     {checkoutError ? (
                                         <p
                                             data-testid="checkout-error"
+                                            role="alert"
                                             className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
                                         >
                                             {checkoutError}
@@ -1304,17 +1565,17 @@ export default function BusinessCheckoutPage() {
                                     ) : null}
 
                                     {!isPurchaseMode ? (
-                                    <p className="mt-3 text-center text-xs text-slate-400">
-                                        You&apos;ll be charged{" "}
-                                        <span className="font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-text">${futureAmount}</span> on{" "}
-                                        <span className="font-medium text-slate-500" data-testid="business-protected-checkout-trial-date-text">{trialDate}</span> unless you cancel.
-                                    </p>
+                                        <p className="mt-3 text-center text-xs text-slate-400">
+                                            You&apos;ll be charged{" "}
+                                            <span className="font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-text">${futureAmount}</span> on{" "}
+                                            <span className="font-medium text-slate-500" data-testid="business-protected-checkout-trial-date-text">{trialDate}</span> unless you cancel.
+                                        </p>
                                     ) : (
-                                    <p className="mt-3 text-center text-xs text-slate-400">
-                                        {isFree
-                                            ? "This agent is free. No charge today."
-                                            : `You'll be charged $${dueTodayAmount.toFixed(2)} today.`}
-                                    </p>
+                                        <p className="mt-3 text-center text-xs text-slate-400">
+                                            {isFree
+                                                ? "This agent is free. No charge today."
+                                                : `You'll be charged $${dueTodayAmount.toFixed(2)} today.`}
+                                        </p>
                                     )}
 
                                     <p className="mt-1.5 text-center text-xs text-slate-400" data-testid="business-protected-checkout-by-proceeding-you-agree-to-our-terms-text">
@@ -1363,9 +1624,19 @@ export default function BusinessCheckoutPage() {
                     </main>
 
                     <div
-                        className="fixed bottom-0 left-0 right-0 z-40 flex items-center gap-3 border-t border-gray-100 bg-white px-4 py-3 lg:hidden"
+                        className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-100 bg-white lg:hidden"
                         style={{ boxShadow: "0 -10px 28px -14px rgba(0,0,0,.18)" }}
                     >
+                        {checkoutError ? (
+                            <p
+                                data-testid="checkout-error-mobile"
+                                className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700"
+                                role="alert"
+                            >
+                                {checkoutError}
+                            </p>
+                        ) : null}
+                        <div className="flex items-center gap-3 px-4 py-3">
                         <div className="shrink-0 leading-tight">
                             <p className="text-[0.7rem] text-slate-400" data-testid="business-protected-checkout-due-today-text">Due today</p>
                             <p className="tnum text-lg font-bold text-slate-900" data-testid="business-protected-checkout-0-00-text">${dueTodayAmount.toFixed(2)}</p>
@@ -1392,6 +1663,7 @@ export default function BusinessCheckoutPage() {
                                 </>
                             )}
                         </button>
+                        </div>
                     </div>
                 </>
             ) : (
@@ -1488,9 +1760,8 @@ function CountrySelect({
                                 role="option"
                                 aria-selected={country.countryCode === value}
                                 data-testid={`checkout-country-option-${country.countryCode.toLowerCase()}`}
-                                className={`country-select-option${
-                                    country.countryCode === value ? " is-selected" : ""
-                                }`}
+                                className={`country-select-option${country.countryCode === value ? " is-selected" : ""
+                                    }`}
                                 onClick={() => {
                                     onChange(country.countryCode);
                                     setOpen(false);
@@ -1529,7 +1800,7 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                         <span
                             className={`ml-2 hidden text-sm sm:inline ${confirmation ? "font-semibold text-amber-600" : "font-bold text-amber-600"
                                 }`}
-                         data-testid="business-protected-checkout-payment-text">
+                            data-testid="business-protected-checkout-payment-text">
                             Payment
                         </span>
 
@@ -1540,7 +1811,7 @@ function CheckoutHeader({ confirmation }: { confirmation: boolean }) {
                         <span
                             className={`ml-2 hidden text-sm font-semibold sm:inline ${confirmation ? "text-amber-600" : "text-slate-400"
                                 }`}
-                         data-testid="business-protected-checkout-confirmation-text">
+                            data-testid="business-protected-checkout-confirmation-text">
                             Confirmation
                         </span>
                     </nav>
@@ -1685,29 +1956,29 @@ function OrderSummary({
                 </div>
 
                 {includedItems.length ? (
-                <div className="border-b border-gray-50 px-6 py-5">
-                    <p className="mb-3 text-sm font-semibold text-slate-700" data-testid="business-protected-checkout-what-apos-s-included-text">
-                        {isUsageMode ? "Billed services" : "What's included"}
-                    </p>
+                    <div className="border-b border-gray-50 px-6 py-5">
+                        <p className="mb-3 text-sm font-semibold text-slate-700" data-testid="business-protected-checkout-what-apos-s-included-text">
+                            {isUsageMode ? "Billed services" : "What's included"}
+                        </p>
 
-                    <ul className="space-y-2.5">
-                        {includedItems.map((item) => (
-                            <li key={item} data-testid={`checkout-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-start gap-2.5 text-sm text-slate-600">
-                                <span data-testid={`checkout-included-check-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
-                                    <CheckIcon className="h-3.5 w-3.5" />
-                                </span>
-                                {item}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
+                        <ul className="space-y-2.5">
+                            {includedItems.map((item) => (
+                                <li key={item} data-testid={`checkout-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-start gap-2.5 text-sm text-slate-600">
+                                    <span data-testid={`checkout-included-check-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
+                                        <CheckIcon className="h-3.5 w-3.5" />
+                                    </span>
+                                    {item}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 ) : null}
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">
-                        <PriceRow 
-                            label={isUsageMode ? "Usage amount" : pricingModel === "FREE" ? "Free" : pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"} 
-                            value={pricingModel === "FREE" ? "Free" : `$${priceLabel}${pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`} 
+                        <PriceRow
+                            label={isUsageMode ? "Usage amount" : pricingModel === "FREE" ? "Free" : pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                            value={pricingModel === "FREE" ? "Free" : `$${priceLabel}${pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
                         />
                         {pricingModel === "FREE" && (
                             <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Pay only for usage</p>
@@ -1755,36 +2026,36 @@ function OrderSummary({
                             <span className="tnum font-medium text-slate-500">${dueTodayLabel}</span>
                         </div>
                     ) : (
-                    <div className="mt-2 flex justify-between text-sm">
-                        <span className="text-slate-500">Due {trialDate}</span>
-                        <span className="tnum font-medium text-slate-500">${futureAmount.toFixed(2)}</span>
-                    </div>
+                        <div className="mt-2 flex justify-between text-sm">
+                            <span className="text-slate-500">Due {trialDate}</span>
+                            <span className="tnum font-medium text-slate-500">${futureAmount.toFixed(2)}</span>
+                        </div>
                     )}
                     <p className="mt-3 text-xs leading-5 text-slate-400">
                         {isUsageMode
                             ? "This invoice covers usage already consumed. Payment is due immediately."
                             : isPurchaseMode
-                            ? pricingModel === "ONE_TIME"
-                                ? "This is a one-time purchase. No future agent fees; usage charges apply separately."
-                                : "Your subscription begins today. Billed monthly on this date. Usage charges billed separately."
-                            : pricingModel === "ONE_TIME"
-                            ? `Your ${trialDays}-day free trial starts now. You won't be charged the one-time purchase fee until ${trialDate}. Usage charges apply separately.`
-                            : `Your ${trialDays}-day free trial starts now. You won't be charged the subscription fee until ${trialDate}. Usage charges billed separately.`}
+                                ? pricingModel === "ONE_TIME"
+                                    ? "This is a one-time purchase. No future agent fees; usage charges apply separately."
+                                    : "Your subscription begins today. Billed monthly on this date. Usage charges billed separately."
+                                : pricingModel === "ONE_TIME"
+                                    ? `Your ${trialDays}-day free trial starts now. You won't be charged the one-time purchase fee until ${trialDate}. Usage charges apply separately.`
+                                    : `Your ${trialDays}-day free trial starts now. You won't be charged the subscription fee until ${trialDate}. Usage charges billed separately.`}
                     </p>
                 </div>
 
                 {isPurchaseMode || pricingModel === "FREE" ? null : (
-                <div className="mx-6 mb-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
-                    <p className="flex items-center gap-2 text-sm font-semibold text-amber-800" data-testid="business-protected-checkout-your-7-day-trial-includes-text">
-                        ⏱ Your {trialDays}-day trial includes:
-                    </p>
+                    <div className="mx-6 mb-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
+                        <p className="flex items-center gap-2 text-sm font-semibold text-amber-800" data-testid="business-protected-checkout-your-7-day-trial-includes-text">
+                            ⏱ Your {trialDays}-day trial includes:
+                        </p>
 
-                    <ul className="mt-2 space-y-1 text-xs text-amber-700">
-                        <li data-testid="business-protected-checkout-full-agent-functionality-item">• Full agent functionality</li>
-                        <li data-testid="business-protected-checkout-up-to-50-free-executions-item">• Up to 50 free executions</li>
-                        <li data-testid="business-protected-checkout-cancel-anytime-no-charge-item">• Cancel anytime — no charge</li>
-                    </ul>
-                </div>
+                        <ul className="mt-2 space-y-1 text-xs text-amber-700">
+                            <li data-testid="business-protected-checkout-full-agent-functionality-item">• Full agent functionality</li>
+                            <li data-testid="business-protected-checkout-up-to-50-free-executions-item">• Up to 50 free executions</li>
+                            <li data-testid="business-protected-checkout-cancel-anytime-no-charge-item">• Cancel anytime — no charge</li>
+                        </ul>
+                    </div>
                 )}
 
                 <div className="mx-6 mb-6 flex items-start gap-3 rounded-xl border border-green-100 bg-green-50 p-4">

@@ -236,6 +236,24 @@ if (parsedEnv.NODE_ENV === "production") {
     );
   }
 
+  // Payments degrade to 503s without these — warn loudly instead of failing
+  // silently at the first buyer checkout.
+  if (!parsedEnv.STRIPE_SECRET_KEY || !parsedEnv.STRIPE_PUBLISHABLE_KEY) {
+    console.warn(
+      "[env] STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY are not both set — buyer checkout (paid agents) will be unavailable."
+    );
+  } else if (parsedEnv.STRIPE_SECRET_KEY.startsWith("sk_test_")) {
+    console.warn(
+      "[env] STRIPE_SECRET_KEY is a TEST key in production — real cards will be rejected."
+    );
+  }
+
+  if (parsedEnv.STRIPE_SECRET_KEY && !parsedEnv.STRIPE_WEBHOOK_SECRET) {
+    console.warn(
+      "[env] STRIPE_WEBHOOK_SECRET is not set — the payment webhook backstop is disabled; a purchase whose response is lost after the charge will not be recorded automatically."
+    );
+  }
+
   if (parsedEnv.TWILIO_TEST_MODE) {
     problems.push("TWILIO_TEST_MODE must be false in production (deprecated — use TWILIO_SMS_MODE=LIVE).");
   }

@@ -92,6 +92,10 @@ type PaymentResultParams = {
   email?: string;
   mode?: "trial" | "purchase";
   trialDays?: number;
+  /** Real Payment row id — shown as the order/transaction reference. */
+  paymentId?: string;
+  /** Buyer-facing failure reason to display on the failed page. */
+  reason?: string;
 };
 
 function buildPaymentResultPath(base: string, params?: PaymentResultParams): Route {
@@ -105,6 +109,8 @@ function buildPaymentResultPath(base: string, params?: PaymentResultParams): Rou
   if (params.email) query.set("email", params.email);
   if (params.mode) query.set("mode", params.mode);
   if (typeof params.trialDays === "number") query.set("trialDays", String(params.trialDays));
+  if (params.paymentId) query.set("paymentId", params.paymentId);
+  if (params.reason) query.set("reason", params.reason);
 
   const queryString = query.toString();
 

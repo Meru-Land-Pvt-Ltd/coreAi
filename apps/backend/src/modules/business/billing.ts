@@ -4,6 +4,8 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
+import { getStripeClient } from "../payments/stripe";
+import { recordAgentPurchaseFromIntent } from "../payments/purchase-finalize";
 import { canBusinessDeployAgent } from "./deployment-access";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
@@ -163,7 +165,11 @@ export async function getBillingStatus(c: Context) {
 
 // POST /business/billing/webhook — PUBLIC, raw body, signature-verified.
 export async function handleStripeWebhook(c: Context) {
-  if (!isBillingEnabled() || !env.STRIPE_WEBHOOK_SECRET) {
+  // Gate on the secret key + webhook secret only: the marketplace purchase
+  // flow needs payment_intent events even when the legacy subscription price
+  // id (required by isBillingEnabled) is not configured.
+  const stripe = getStripeClient() ?? (isBillingEnabled() ? getStripe() : null);
+  if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
     return errorResponse(c, "Billing webhook is not configured", 503, "BILLING_NOT_CONFIGURED");
   }
 
@@ -172,7 +178,6 @@ export async function handleStripeWebhook(c: Context) {
     return errorResponse(c, "Missing Stripe signature", 400, "MISSING_SIGNATURE");
   }
 
-  const stripe = getStripe();
   const rawBody = await c.req.text();
 
   let event: StripeNS.Event;
@@ -194,6 +199,12 @@ export async function handleStripeWebhook(c: Context) {
           businessId: session.metadata?.businessId,
           status: "active"
         });
+        break;
+      }
+      case "payment_intent.succeeded": {
+        // Backstop for marketplace agent purchases whose HTTP response was
+        // lost after the charge — records the missing Payment row (idempotent).
+        await recordAgentPurchaseFromIntent(event.data.object as StripeNS.PaymentIntent);
         break;
       }
       case "customer.subscription.created":

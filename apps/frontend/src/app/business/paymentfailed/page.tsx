@@ -70,6 +70,7 @@ function BusinessPaymentFailedContent() {
     const searchParams = useSearchParams();
 
     const listingId = searchParams.get("listingId");
+    const failureReason = searchParams.get("reason");
     const agentName = searchParams.get("agent") || "your agent";
     const amountParam = Number(searchParams.get("amount"));
     const amount = Number.isFinite(amountParam) && amountParam > 0 ? amountParam : null;
@@ -176,7 +177,16 @@ function BusinessPaymentFailedContent() {
                     className="pf-fade-up mt-6 rounded-xl border border-slate-200 border-l-4 border-l-amber-500 bg-white p-5 shadow-md"
                     style={{ animationDelay: ".12s" }}
                 >
-                    <h2 className="text-sm font-semibold">Possible reasons</h2>
+                    {failureReason ? (
+                        <>
+                            <h2 className="text-sm font-semibold">What happened</h2>
+                            <p className="mt-2 text-sm text-slate-700" data-testid="payment-failed-reason">
+                                {failureReason}
+                            </p>
+                            <hr className="my-4 border-slate-100" />
+                        </>
+                    ) : null}
+                    <h2 className="text-sm font-semibold">{failureReason ? "Other possible reasons" : "Possible reasons"}</h2>
                     <ul className="mt-3 space-y-2.5 text-sm text-slate-600">
                         {REASONS.map((reason) => (
                             <li key={reason} className="pf-reason">
