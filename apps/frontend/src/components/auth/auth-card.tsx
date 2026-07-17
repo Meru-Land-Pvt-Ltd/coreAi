@@ -7,6 +7,7 @@ import {
   ClipboardEvent,
   FormEvent,
   KeyboardEvent,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -109,7 +110,15 @@ function friendlyGoogleError(err: unknown): string | null {
   return "Google sign-in didn't complete. Please try again, or use email login below.";
 }
 
-export function CoreOtpAuth({ initialRole }: CoreOtpAuthProps) {
+export function CoreOtpAuth(props: CoreOtpAuthProps) {
+  return (
+    <Suspense fallback={null}>
+      <CoreOtpAuthInner {...props} />
+    </Suspense>
+  );
+}
+
+function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnPath = resolveBusinessLoginReturnPath(searchParams.get("next"));
