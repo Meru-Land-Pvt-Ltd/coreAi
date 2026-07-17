@@ -1,5 +1,6 @@
 "use client";
 
+import { Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   getArchitectPayoutSummary,
@@ -75,6 +76,7 @@ export default function ArchitectPayoutsPage() {
   const [toast, setToast] = useState("");
   const [methodModalOpen, setMethodModalOpen] = useState(false);
   const [payoutModalOpen, setPayoutModalOpen] = useState(false);
+  const [payoutDeliveryMethod, setPayoutDeliveryMethod] = useState<"standard" | "instant">("standard");
   const [submittingPayout, setSubmittingPayout] = useState(false);
 
   const loadSummary = useCallback(async () => {
@@ -156,12 +158,15 @@ export default function ArchitectPayoutsPage() {
     if (!summary || summary.availableBalanceCents <= 0) return;
 
     setSubmittingPayout(true);
-    const result = await requestArchitectPayout({ amountCents: summary.availableBalanceCents });
+    const result = await requestArchitectPayout({
+      amountCents: summary.availableBalanceCents,
+      deliveryMethod: payoutDeliveryMethod
+    });
 
     if (result.success && result.data) {
       setSummary(result.data.summary);
       setPayoutModalOpen(false);
-      setToast("Payout requested successfully.");
+      setToast(payoutDeliveryMethod === "instant" ? "Instant payout requested successfully." : "Payout requested successfully.");
       await loadTransactions(pagination.page, pagination.perPage, typeFilter, rangeFilter);
     } else {
       setToast(result.error ?? "Could not request payout.");
@@ -225,6 +230,11 @@ export default function ArchitectPayoutsPage() {
       grossSalesCents: 0,
       platformFeeCents: 0,
       earningsCents: 0
+    },
+    instantPayout: {
+      eligible: false,
+      destinationType: null,
+      destinationLast4: null
     },
     payoutMethod: null
   };
@@ -306,7 +316,10 @@ export default function ArchitectPayoutsPage() {
                 <button
                   type="button"
                   data-testid="architect-payouts-request-payout-button"
-                  onClick={() => setPayoutModalOpen(true)}
+                  onClick={() => {
+                    setPayoutDeliveryMethod("standard");
+                    setPayoutModalOpen(true);
+                  }}
                   className="mt-5 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
                 >
                   Request payout
@@ -316,6 +329,8 @@ export default function ArchitectPayoutsPage() {
 
             <PayoutMethodCard
               payoutMethod={data.payoutMethod}
+              instantPayout={data.instantPayout}
+              availableBalanceCents={data.availableBalanceCents}
               onAdd={() => setMethodModalOpen(true)}
               onChange={() => {
                 if (data.payoutMethod?.stripeConnected && !data.payoutMethod.verified) {
@@ -323,6 +338,10 @@ export default function ArchitectPayoutsPage() {
                 } else {
                   setMethodModalOpen(true);
                 }
+              }}
+              onInstantPayout={() => {
+                setPayoutDeliveryMethod("instant");
+                setPayoutModalOpen(true);
               }}
             />
           </div>
@@ -366,6 +385,7 @@ export default function ArchitectPayoutsPage() {
       {payoutModalOpen && data.payoutMethod ? (
         <RequestPayoutModal
           summary={data}
+          deliveryMethod={payoutDeliveryMethod}
           submitting={submittingPayout}
           onClose={() => setPayoutModalOpen(false)}
           onConfirm={handleRequestPayout}
@@ -538,13 +558,28 @@ function MetricCard({
 
 function PayoutMethodCard({
   payoutMethod,
+  instantPayout,
+  availableBalanceCents,
   onAdd,
-  onChange
+  onChange,
+  onInstantPayout
 }: {
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
+  instantPayout: ArchitectPayoutSummary["instantPayout"];
+  availableBalanceCents: number;
   onAdd: () => void;
   onChange: () => void;
+  onInstantPayout: () => void;
 }) {
+  const instantDisabled = !payoutMethod?.verified || !instantPayout.eligible || availableBalanceCents <= 0;
+  const instantTitle = !payoutMethod?.verified
+    ? "Complete Stripe verification first"
+    : !instantPayout.eligible
+      ? "Add an Instant Payouts-eligible account in Stripe"
+      : availableBalanceCents <= 0
+        ? "No available balance"
+        : "Send available funds by Instant Payout";
+
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-payouts-method-card">
       <p className="text-sm font-semibold text-slate-700">Payout Method</p>
@@ -585,7 +620,7 @@ function PayoutMethodCard({
                 ? "Verification needs attention"
                 : "Stripe verification pending"}
           </span>
-          <div className="mt-5">
+          <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
               data-testid="architect-payouts-change-method-button"
@@ -593,6 +628,17 @@ function PayoutMethodCard({
               className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-300 hover:text-amber-700"
             >
               {payoutMethod.verified ? "Change bank" : "Continue verification"}
+            </button>
+            <button
+              type="button"
+              title={instantTitle}
+              disabled={instantDisabled}
+              onClick={onInstantPayout}
+              data-testid="architect-payouts-instant-payout-button"
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <Zap className="h-4 w-4" aria-hidden="true" />
+              Instant payout
             </button>
           </div>
         </>
@@ -976,21 +1022,24 @@ function AddPayoutMethodModal({
 
 function RequestPayoutModal({
   summary,
+  deliveryMethod,
   submitting,
   onClose,
   onConfirm
 }: {
   summary: ArchitectPayoutSummary;
+  deliveryMethod: "standard" | "instant";
   submitting: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const method = summary.payoutMethod;
+  const instant = deliveryMethod === "instant";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" data-testid="architect-payouts-request-modal">
-        <h3 className="text-lg font-bold text-slate-900">Request payout</h3>
+        <h3 className="text-lg font-bold text-slate-900">{instant ? "Request instant payout" : "Request payout"}</h3>
         <p className="mt-2 text-sm text-slate-600">
           Transfer your available balance to{" "}
           <span className="font-semibold text-slate-800">
@@ -998,6 +1047,11 @@ function RequestPayoutModal({
           </span>
           .
         </p>
+        {instant ? (
+          <p className="mt-2 text-xs text-slate-500">
+            Stripe Instant Payout fees and platform limits may apply.
+          </p>
+        ) : null}
         <div className="mt-4 space-y-2.5 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm">
           <div className="flex justify-between">
             <span className="text-slate-500">Available balance</span>
@@ -1024,7 +1078,7 @@ function RequestPayoutModal({
             data-testid="architect-payouts-confirm-payout-button"
             className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
           >
-            {submitting ? "Processing…" : "Confirm payout"}
+            {submitting ? "Processing…" : instant ? "Confirm instant payout" : "Confirm payout"}
           </button>
         </div>
       </div>

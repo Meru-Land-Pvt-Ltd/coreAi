@@ -15,6 +15,7 @@ import {
   effectiveEarningStatus
 } from "./payout-earnings";
 import { computeNextPayoutDate, normalizePayoutSchedule } from "./payout-schedule";
+import { stripeConnectConfigurationError } from "./stripe-connect-error";
 
 export const architectPayoutRoutes = new Hono();
 
@@ -108,7 +109,8 @@ const directPayoutMethodSchema = z
   );
 
 const payoutRequestSchema = z.object({
-  amountCents: z.number().int().positive().optional()
+  amountCents: z.number().int().positive().optional(),
+  deliveryMethod: z.enum(["standard", "instant"]).default("standard")
 });
 
 const earningsQuerySchema = z.object({
@@ -127,6 +129,25 @@ function stripePayoutStatus(status: Stripe.Payout["status"]) {
   if (status === "paid") return "COMPLETED" as const;
   if (status === "failed" || status === "canceled") return "FAILED" as const;
   return "PROCESSING" as const;
+}
+
+async function getInstantPayoutDestination(stripeAccountId: string, currency: string) {
+  const stripe = getStripeClient();
+  if (!stripe) return null;
+
+  try {
+    const externalAccounts = await stripe.accounts.listExternalAccounts(stripeAccountId, { limit: 100 });
+    return externalAccounts.data.find((account) =>
+      account.currency === currency
+      && account.available_payout_methods?.includes("instant")
+    ) ?? null;
+  } catch (error) {
+    console.error("[stripe-connect] Could not check Instant Payout eligibility", {
+      stripeAccountId,
+      error: stripeErrorMessage(error)
+    });
+    return null;
+  }
 }
 
 function serializePayoutMethod(method: {
@@ -246,10 +267,19 @@ async function syncStripePayoutRecords(architectUserId: string) {
           stripeAccount: method.stripeAccountId
         });
       } else if (record.stripeTransferId) {
+        const instantDestination = record.deliveryMethod === "instant"
+          ? await getInstantPayoutDestination(method.stripeAccountId, record.currency)
+          : null;
+        if (record.deliveryMethod === "instant" && !instantDestination) {
+          throw new Error("No external account is eligible for Instant Payouts");
+        }
+
         stripePayout = await stripe.payouts.create(
           {
             amount: record.amountCents,
             currency: record.currency,
+            method: record.deliveryMethod === "instant" ? "instant" : "standard",
+            ...(instantDestination ? { destination: instantDestination.id } : {}),
             description: `CORE architect payout ${record.id}`,
             metadata: { architectUserId, appPayoutId: record.id }
           },
@@ -384,6 +414,10 @@ async function computeArchitectPayoutSummary(
     };
   });
 
+  const instantDestination = payoutMethod?.stripeAccountId
+    ? await getInstantPayoutDestination(payoutMethod.stripeAccountId, payoutMethod.currency)
+    : null;
+
   return {
     totalEarningsCents,
     availableBalanceCents,
@@ -406,6 +440,11 @@ async function computeArchitectPayoutSummary(
       grossSalesCents: grossAvailableCents,
       platformFeeCents,
       earningsCents: availableBalanceCents
+    },
+    instantPayout: {
+      eligible: Boolean(instantDestination),
+      destinationType: instantDestination?.object ?? null,
+      destinationLast4: instantDestination?.last4 ?? null
     },
     payoutMethod: payoutMethod ? serializePayoutMethod(payoutMethod) : null
   };
@@ -569,12 +608,11 @@ architectPayoutRoutes.post("/connect/onboarding", async (c) => {
     }
 
     console.error("[stripe-connect] Could not start onboarding", stripeErrorMessage(error));
-    return errorResponse(
-      c,
-      stripeErrorMessage(error),
-      503,
-      "STRIPE_CONNECT_ONBOARDING_FAILED"
-    );
+    const configurationError = stripeConnectConfigurationError(error);
+    if (configurationError) {
+      return errorResponse(c, configurationError.message, configurationError.status, configurationError.code);
+    }
+    return errorResponse(c, stripeErrorMessage(error), 503, "STRIPE_CONNECT_ONBOARDING_FAILED");
   }
 });
 
@@ -713,6 +751,10 @@ architectPayoutRoutes.put("/method", async (c) => {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid payout method", 422, "VALIDATION_ERROR");
     }
     console.error("[stripe-connect] Could not save payout method", stripeErrorMessage(error));
+    const configurationError = stripeConnectConfigurationError(error);
+    if (configurationError) {
+      return errorResponse(c, configurationError.message, configurationError.status, configurationError.code);
+    }
     return errorResponse(c, stripeErrorMessage(error), 422, "PAYOUT_METHOD_SAVE_FAILED");
   }
 });
@@ -794,6 +836,10 @@ architectPayoutRoutes.put("/method/backup", async (c) => {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid payout method", 422, "VALIDATION_ERROR");
     }
     console.error("[stripe-connect] Could not save backup payout method", stripeErrorMessage(error));
+    const configurationError = stripeConnectConfigurationError(error);
+    if (configurationError) {
+      return errorResponse(c, configurationError.message, configurationError.status, configurationError.code);
+    }
     return errorResponse(c, stripeErrorMessage(error), 422, "BACKUP_PAYOUT_METHOD_SAVE_FAILED");
   }
 });
@@ -968,6 +1014,7 @@ architectPayoutRoutes.post("/request", async (c) => {
     }
 
     const amountCents = input.amountCents ?? summary.availableBalanceCents;
+    const deliveryMethod = input.deliveryMethod;
 
     if (amountCents <= 0) {
       return errorResponse(c, "No available balance to payout", 422, "NO_AVAILABLE_BALANCE");
@@ -986,11 +1033,24 @@ architectPayoutRoutes.post("/request", async (c) => {
       return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
     }
 
+    const instantDestination = deliveryMethod === "instant"
+      ? await getInstantPayoutDestination(method.stripeAccountId, "usd")
+      : null;
+    if (deliveryMethod === "instant" && !instantDestination) {
+      return errorResponse(
+        c,
+        "Add an Instant Payouts-eligible bank account or debit card in Stripe before requesting an instant payout",
+        422,
+        "INSTANT_PAYOUT_METHOD_NOT_ELIGIBLE"
+      );
+    }
+
     let payout = await prisma.architectPayout.create({
       data: {
         architectUserId: authUser.id,
         amountCents,
         currency: "usd",
+        deliveryMethod,
         status: "PENDING"
       }
     });
@@ -1020,6 +1080,8 @@ architectPayoutRoutes.post("/request", async (c) => {
           {
             amount: amountCents,
             currency: "usd",
+            method: deliveryMethod === "instant" ? "instant" : "standard",
+            ...(instantDestination ? { destination: instantDestination.id } : {}),
             description: `CORE architect payout ${payout.id}`,
             metadata: { architectUserId: authUser.id, appPayoutId: payout.id }
           },
@@ -1063,6 +1125,7 @@ architectPayoutRoutes.post("/request", async (c) => {
         payout: {
           id: payout.id,
           amountCents: payout.amountCents,
+          deliveryMethod: payout.deliveryMethod,
           status: payout.status,
           createdAt: payout.createdAt.toISOString()
         },

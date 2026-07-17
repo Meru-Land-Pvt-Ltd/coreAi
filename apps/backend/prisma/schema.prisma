@@ -651,6 +651,7 @@ model ArchitectPayout {
   arrivalDate      DateTime?
   failureCode      String?
   failureMessage   String?
+  deliveryMethod   String                @default("standard")
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   architect        User                  @relation(fields: [architectUserId], references: [id], onDelete: Cascade)

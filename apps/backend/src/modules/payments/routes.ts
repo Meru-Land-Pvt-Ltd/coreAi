@@ -60,7 +60,8 @@ const startTrialSchema = z.object({
   paymentMethodId: z.string().trim().min(1),
   billingName: z.string().trim().min(2),
   billingEmail: z.string().trim().email(),
-  billingAddress: z.string().trim().min(3)
+  billingAddress: z.string().trim().min(3),
+  billingPostalCode: z.string().trim().min(3).max(20).optional()
 });
 
 const purchaseSchema = z.object({
@@ -68,7 +69,8 @@ const purchaseSchema = z.object({
   paymentMethodId: z.string().trim().min(1),
   billingName: z.string().trim().min(2),
   billingEmail: z.string().trim().email(),
-  billingAddress: z.string().trim().min(3)
+  billingAddress: z.string().trim().min(3),
+  billingPostalCode: z.string().trim().min(3).max(20).optional()
 });
 
 const billingPaymentMethodSchema = z.object({
@@ -79,6 +81,7 @@ type CheckoutBillingDetails = {
   billingName: string;
   billingEmail: string;
   billingAddress: string;
+  billingPostalCode?: string;
 };
 
 async function persistCheckoutBilling(ownerId: string, billing: CheckoutBillingDetails) {
@@ -88,7 +91,15 @@ async function persistCheckoutBilling(ownerId: string, billing: CheckoutBillingD
     select: { id: true }
   });
   if (!business) return null;
-  await prisma.business.update({ where: { id: business.id }, data: billing });
+  await prisma.business.update({
+    where: { id: business.id },
+    data: {
+      billingName: billing.billingName,
+      billingEmail: billing.billingEmail,
+      billingAddress: billing.billingAddress,
+      billingPostalCode: billing.billingPostalCode
+    }
+  });
   return business.id;
 }
 
@@ -138,6 +149,23 @@ function serializeBillingCard(method: { id: string; card?: { brand: string; last
     expMonth: method.card.exp_month,
     expYear: method.card.exp_year
   };
+}
+
+async function attachOrReusePaymentMethod(
+  stripe: NonNullable<ReturnType<typeof getStripeClient>>,
+  paymentMethodId: string,
+  customerId: string
+) {
+  const method = await stripe.paymentMethods.retrieve(paymentMethodId);
+  const attachedCustomerId =
+    typeof method.customer === "string" ? method.customer : method.customer?.id ?? null;
+
+  if (attachedCustomerId === customerId) return method;
+  if (attachedCustomerId) {
+    throw new Error("Payment method belongs to a different customer");
+  }
+
+  return stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
 }
 
 async function chargeAgentOnce({
@@ -960,8 +988,13 @@ paymentRoutes.post("/start-trial", async (c) => {
   }
 
   const authUser = c.get("authUser");
-  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress } = parsed.data;
-  const billingDetails: CheckoutBillingDetails = { billingName, billingEmail, billingAddress };
+  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode } = parsed.data;
+  const billingDetails: CheckoutBillingDetails = {
+    billingName,
+    billingEmail,
+    billingAddress,
+    billingPostalCode
+  };
 
   const businessId = await persistCheckoutBilling(authUser.id, billingDetails);
 
@@ -1014,10 +1047,18 @@ paymentRoutes.post("/start-trial", async (c) => {
     },
     orderBy: { createdAt: "desc" }
   });
+  const checkoutBusiness = businessId
+    ? await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { stripeCustomerId: true }
+      })
+    : null;
 
   let customerId: string;
 
-  if (previousPayment?.stripeCustomerId) {
+  if (checkoutBusiness?.stripeCustomerId) {
+    customerId = checkoutBusiness.stripeCustomerId;
+  } else if (previousPayment?.stripeCustomerId) {
     customerId = previousPayment.stripeCustomerId;
   } else {
     const customer = await stripe.customers.create({
@@ -1033,9 +1074,7 @@ paymentRoutes.post("/start-trial", async (c) => {
 
   // Attaching a test token (e.g. pm_card_visa) returns a concrete PaymentMethod
   // whose id differs from the token, so use the attached method's id afterwards.
-  const attachedPaymentMethod = await stripe.paymentMethods.attach(paymentMethodId, {
-    customer: customerId
-  });
+  const attachedPaymentMethod = await attachOrReusePaymentMethod(stripe, paymentMethodId, customerId);
 
   const attachedPaymentMethodId = attachedPaymentMethod.id;
 
@@ -1131,8 +1170,13 @@ paymentRoutes.post("/purchase", async (c) => {
   }
 
   const authUser = c.get("authUser");
-  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress } = parsed.data;
-  const billingDetails: CheckoutBillingDetails = { billingName, billingEmail, billingAddress };
+  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode } = parsed.data;
+  const billingDetails: CheckoutBillingDetails = {
+    billingName,
+    billingEmail,
+    billingAddress,
+    billingPostalCode
+  };
 
   const businessId = await persistCheckoutBilling(authUser.id, billingDetails);
 
@@ -1261,10 +1305,18 @@ paymentRoutes.post("/purchase", async (c) => {
     },
     orderBy: { createdAt: "desc" }
   });
+  const checkoutBusiness = businessId
+    ? await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { stripeCustomerId: true }
+      })
+    : null;
 
   let customerId: string;
 
-  if (activePayment?.stripeCustomerId) {
+  if (checkoutBusiness?.stripeCustomerId) {
+    customerId = checkoutBusiness.stripeCustomerId;
+  } else if (activePayment?.stripeCustomerId) {
     customerId = activePayment.stripeCustomerId;
   } else if (previousPayment?.stripeCustomerId) {
     customerId = previousPayment.stripeCustomerId;
@@ -1280,9 +1332,7 @@ paymentRoutes.post("/purchase", async (c) => {
     customerId = customer.id;
   }
 
-  const attachedPaymentMethod = await stripe.paymentMethods.attach(paymentMethodId, {
-    customer: customerId
-  });
+  const attachedPaymentMethod = await attachOrReusePaymentMethod(stripe, paymentMethodId, customerId);
 
   const attachedPaymentMethodId = attachedPaymentMethod.id;
 

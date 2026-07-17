@@ -1,11 +1,49 @@
-import type { ReactNode } from "react";
+"use client";
+
+import Image from "next/image";
+import { Menu } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { AdminSidebar } from "./admin-sidebar";
 
+const TRIVERN_MARK = encodeURI("/triven.ai word logo transparent bg.PNG");
+
 export function AdminShell({ children }: { children: ReactNode }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-    <div className="flex min-h-screen flex-col bg-[#fffaf3] md:flex-row">
-      <AdminSidebar />
-      <main className="flex-1 p-5 sm:p-8">{children}</main>
+    <div className="min-h-screen bg-gray-50 text-slate-900">
+      {sidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[1px] lg:hidden"
+        />
+      ) : null}
+
+      <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      <div className="min-h-screen lg:pl-64">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur lg:hidden">
+          <button
+            type="button"
+            aria-label="Open navigation"
+            onClick={() => setSidebarOpen(true)}
+            className="grid h-10 w-10 place-items-center rounded-lg text-slate-500 transition hover:bg-gray-100 hover:text-slate-900"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <Image src={TRIVERN_MARK} alt="Trivern" width={32} height={32} className="h-8 w-8 object-contain" />
+            <span className="text-sm font-bold text-slate-900">Trivern Admin</span>
+          </div>
+          <span className="h-10 w-10" aria-hidden="true" />
+        </header>
+
+        <main className="admin-workspace w-full max-w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

@@ -91,6 +91,21 @@ type CountriesResponse = {
     countries: CheckoutCountry[];
 };
 
+type CheckoutBillingResponse = {
+    billing: {
+        paymentMethod: {
+            id: string;
+            brand: string;
+            last4: string;
+            expMonth: number;
+            expYear: number;
+        } | null;
+        businessName: string | null;
+        billingAddress: string | null;
+        billingPostalCode: string | null;
+    };
+};
+
 type CheckoutUsageBill = {
     month: string;
     agentRollup: Array<{
@@ -599,6 +614,43 @@ function formatBillingAddress(addressLine: string, zip: string, countryName: str
     return [addressLine.trim(), zip.trim(), countryName.trim()].filter(Boolean).join(", ");
 }
 
+function unpackSavedBillingAddress(
+    savedAddress: string,
+    savedPostalCode: string,
+    countries: CheckoutCountry[]
+) {
+    let address = savedAddress.trim();
+    let postalCode = savedPostalCode.trim();
+    let matchedCountryCode: string | null = null;
+
+    const matchedCountry = countries.find((country) => {
+        const suffixes = [`, ${country.name}`, `, ${country.countryCode}`];
+        return suffixes.some((suffix) => address.toLowerCase().endsWith(suffix.toLowerCase()));
+    });
+
+    if (matchedCountry) {
+        const suffixLength = address.toLowerCase().endsWith(`, ${matchedCountry.name.toLowerCase()}`)
+            ? matchedCountry.name.length + 2
+            : matchedCountry.countryCode.length + 2;
+        address = address.slice(0, -suffixLength).trim();
+        matchedCountryCode = matchedCountry.countryCode;
+
+        if (!postalCode) {
+            const lastComma = address.lastIndexOf(",");
+            if (lastComma >= 0) {
+                postalCode = address.slice(lastComma + 1).trim();
+                address = address.slice(0, lastComma).trim();
+            }
+        }
+    }
+
+    if (postalCode && address.toLowerCase().endsWith(`, ${postalCode.toLowerCase()}`)) {
+        address = address.slice(0, -(postalCode.length + 2)).trim();
+    }
+
+    return { address, postalCode, countryCode: matchedCountryCode };
+}
+
 export default function BusinessCheckoutPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -620,10 +672,13 @@ export default function BusinessCheckoutPage() {
     const [cardNumber, setCardNumber] = useState("");
     const [expiry, setExpiry] = useState("");
     const [cvc, setCvc] = useState("");
+    const [primaryCard, setPrimaryCard] = useState<CheckoutBillingResponse["billing"]["paymentMethod"]>(null);
+    const [usePrimaryCard, setUsePrimaryCard] = useState(false);
     const [cardName, setCardName] = useState("");
     const [addressLine, setAddressLine] = useState("");
     const [zip, setZip] = useState("");
     const [countries, setCountries] = useState<CheckoutCountry[]>(FALLBACK_COUNTRIES);
+    const [countriesReady, setCountriesReady] = useState(false);
     const [countryCode, setCountryCode] = useState("US");
 
     const [touched, setTouched] = useState({
@@ -695,9 +750,8 @@ export default function BusinessCheckoutPage() {
         (isFree ||
         (usageMode && usageSummaryReady) ||
         (paymentTab !== "credit" ||
-            (validations.card &&
-                validations.expiry &&
-                validations.cvc &&
+            ((Boolean(usePrimaryCard && primaryCard) ||
+                (validations.card && validations.expiry && validations.cvc)) &&
                 validations.name &&
                 validations.address &&
                 validations.zip)));
@@ -756,6 +810,40 @@ export default function BusinessCheckoutPage() {
             mounted = false;
         };
     }, [authReady, usageAgentId, usageMode]);
+
+    useEffect(() => {
+        if (!authReady || !countriesReady) return;
+
+        let mounted = true;
+
+        async function loadSavedBillingDetails() {
+            const response = await apiGet<CheckoutBillingResponse>("/payments/billing");
+            const billing = response.data?.billing;
+            if (!mounted || !response.success || !billing) return;
+
+            setPrimaryCard(billing.paymentMethod);
+            setUsePrimaryCard(Boolean(billing.paymentMethod));
+
+            const saved = unpackSavedBillingAddress(
+                billing.billingAddress ?? "",
+                billing.billingPostalCode ?? "",
+                countries
+            );
+
+            setCardName((current) => current.trim() || billing.businessName?.trim() || "");
+            setAddressLine((current) => current.trim() || saved.address);
+            setZip((current) => current.trim() || saved.postalCode);
+            if (saved.countryCode) {
+                setCountryCode((current) => current === "US" ? saved.countryCode! : current);
+            }
+        }
+
+        void loadSavedBillingDetails();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady, countries, countriesReady]);
 
     useEffect(() => {
         if (!authReady || !listingId) return;
@@ -836,6 +924,7 @@ export default function BusinessCheckoutPage() {
                 : FALLBACK_COUNTRIES;
 
             setCountries(loadedCountries);
+            setCountriesReady(true);
             setCountryCode((current) => {
                 if (loadedCountries.some((country) => country.countryCode === current)) {
                     return current;
@@ -955,9 +1044,14 @@ export default function BusinessCheckoutPage() {
         try {
             const response = await apiPost<StartTrialResponse | PurchaseResponse>(endpoint, {
                 listingId,
-                paymentMethodId: isFree ? "free_installation" : testPaymentMethodForBrand(brand),
+                paymentMethodId: isFree
+                    ? "free_installation"
+                    : usePrimaryCard && primaryCard
+                        ? primaryCard.id
+                        : testPaymentMethodForBrand(brand),
                 billingName: isFree ? "Free Install" : cardName.trim(),
                 billingEmail: email.trim(),
+                billingPostalCode: isFree ? undefined : zip.trim(),
                 billingAddress: isFree ? "Free Installation" : formatBillingAddress(
                     addressLine,
                     zip,
@@ -1068,6 +1162,41 @@ export default function BusinessCheckoutPage() {
                                         </div>
                                     ) : paymentTab === "credit" ? (
                                         <div className="-mt-px rounded-b-xl rounded-tr-xl border border-gray-200 p-5 sm:p-6">
+                                            {primaryCard ? (
+                                                <div
+                                                    className={`mb-5 flex items-center justify-between gap-4 rounded-xl border p-4 ${
+                                                        usePrimaryCard
+                                                            ? "border-green-200 bg-green-50"
+                                                            : "border-slate-200 bg-slate-50"
+                                                    }`}
+                                                    data-testid="checkout-primary-card"
+                                                >
+                                                    <div className="flex min-w-0 items-center gap-3">
+                                                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white text-slate-600 shadow-sm">
+                                                            <CardIcon />
+                                                        </span>
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-semibold capitalize text-slate-900">
+                                                                {primaryCard.brand} •••• {primaryCard.last4}
+                                                            </p>
+                                                            <p className="text-xs text-slate-500">
+                                                                Primary card · expires {String(primaryCard.expMonth).padStart(2, "0")}/{String(primaryCard.expYear).slice(-2)}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="shrink-0 text-sm font-semibold text-amber-700 hover:text-amber-800"
+                                                        onClick={() => setUsePrimaryCard((current) => !current)}
+                                                        data-testid="checkout-toggle-primary-card"
+                                                    >
+                                                        {usePrimaryCard ? "Use a different card" : "Use primary card"}
+                                                    </button>
+                                                </div>
+                                            ) : null}
+
+                                            {!usePrimaryCard ? (
+                                            <>
                                             <div>
                                                 <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-card-number-label">
                                                     Card number
@@ -1156,6 +1285,8 @@ export default function BusinessCheckoutPage() {
                                                     ) : null}
                                                 </div>
                                             </div>
+                                            </>
+                                            ) : null}
 
                                             <div className="mt-4">
                                                 <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-on-card-label">
