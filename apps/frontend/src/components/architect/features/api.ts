@@ -306,8 +306,11 @@ export type ArchitectPayoutSummary = {
     platformFeeCents: number;
     earningsCents: number;
   };
-  /** The architect-selected payout schedule (Settings → Payouts). */
-  payoutSchedule?: ArchitectPayoutSchedule | null;
+  instantPayout: {
+    eligible: boolean;
+    destinationType: "bank_account" | "card" | null;
+    destinationLast4: string | null;
+  };
   payoutMethod: ArchitectPayoutMethod | null;
 };
 
@@ -573,11 +576,15 @@ export function getArchitectPayoutTransactions(params?: {
   }>(`/architect/payouts/transactions${query ? `?${query}` : ""}`);
 }
 
-export function requestArchitectPayout(body?: { amountCents?: number }) {
+export function requestArchitectPayout(body?: {
+  amountCents?: number;
+  deliveryMethod?: "standard" | "instant";
+}) {
   return apiPost<{
     payout: {
       id: string;
       amountCents: number;
+      deliveryMethod: "standard" | "instant";
       status: string;
       createdAt: string;
     };

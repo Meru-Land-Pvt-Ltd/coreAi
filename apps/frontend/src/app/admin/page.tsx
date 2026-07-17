@@ -13,5 +13,5 @@ export default function AdminIndexPage() {
     router.replace((authUser?.role === "ADMIN" ? "/admin/dashboard" : "/admin/login") as Route);
   }, [router]);
 
-  return <div data-testid="admin-index-redirecting" className="min-h-screen bg-[#fffaf3]" />;
+  return <div data-testid="admin-index-redirecting" className="min-h-screen bg-gray-50" />;
 }

@@ -2,6 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
+  BadgeDollarSign,
+  Boxes,
+  Check,
+  CircleDollarSign,
+  CloudCog,
+  Layers3,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  Save,
+  X,
+  type LucideIcon
+} from "lucide-react";
+import {
   createAdminPricingService,
   getAdminPricingServices,
   updateAdminPricingService,
@@ -97,6 +112,9 @@ export default function AdminPricingPage() {
   }, [load]);
 
   const rows = data?.services ?? [];
+  const activeServiceCount = rows.filter((service) => service.isActive).length;
+  const usageServices = rows.filter((service) => !PLATFORM_SERVICE_CODES.has(service.code));
+  const platformServices = rows.filter((service) => PLATFORM_SERVICE_CODES.has(service.code));
 
   const dirtyIds = useMemo(() => {
     return rows
@@ -235,74 +253,114 @@ export default function AdminPricingPage() {
   }
 
   return (
-    <div>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900" data-testid="admin-pricing-title">
-            Service Pricing
+    <div className="w-full max-w-full">
+      <header className="mb-6 flex flex-col gap-5 border-b border-gray-200 pb-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-amber-700">
+            <BadgeDollarSign aria-hidden="true" className="h-4 w-4" />
+            Billing operations
+          </div>
+          <h1 className="text-2xl font-bold tracking-normal text-slate-900" data-testid="admin-pricing-title">
+            Service pricing
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Infrastructure costs for AI Receptionist and agent execution. Updated cost is used everywhere in billing.
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+            Manage infrastructure cost rates for AI receptionists, agent execution, and shared platform services.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <button
             type="button"
             disabled={dirtyIds.length === 0 || saving}
             data-testid="admin-pricing-save-all"
             onClick={() => void saveChanges()}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
           >
+            {saving ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Save aria-hidden="true" className="h-4 w-4" />}
             {saving ? "Saving…" : `Save changes${dirtyIds.length ? ` (${dirtyIds.length})` : ""}`}
           </button>
           <button
             type="button"
             data-testid="admin-pricing-add-service"
             onClick={() => setShowAddModal(true)}
-            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-bold text-white transition hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-300"
           >
+            <Plus aria-hidden="true" className="h-4 w-4" />
             Add service
           </button>
         </div>
       </header>
 
       {data ? (
-        <section className="mb-6 grid gap-4 md:grid-cols-2" data-testid="admin-pricing-summary">
+        <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="admin-pricing-summary">
           <SummaryCard
-            label="Blended actual cost (per minute)"
+            label="Actual cost"
             value={formatUsd(data.totals.perMinuteActualUsd)}
-            hint="Sum of per-minute vendor rates from pricing board"
+            hint="Combined vendor cost per minute"
             testId="admin-pricing-actual-total"
+            icon={CircleDollarSign}
+            tone="slate"
           />
           <SummaryCard
-            label="Blended updated cost (per minute)"
+            label="Billing rate"
             value={formatUsd(data.totals.perMinuteUpdatedUsd)}
-            hint="Used for margin planning and customer billing"
+            hint="Combined customer rate per minute"
             testId="admin-pricing-updated-total"
+            icon={BadgeDollarSign}
+            tone="emerald"
+          />
+          <SummaryCard
+            label="Active services"
+            value={`${activeServiceCount}/${rows.length}`}
+            hint={`${rows.length - activeServiceCount} inactive service${rows.length - activeServiceCount === 1 ? "" : "s"}`}
+            testId="admin-pricing-active-services"
+            icon={Activity}
+            tone="sky"
+          />
+          <SummaryCard
+            label="Pending changes"
+            value={String(dirtyIds.length)}
+            hint={dirtyIds.length ? "Ready to review and save" : "All pricing is synchronized"}
+            testId="admin-pricing-pending-changes"
+            icon={Layers3}
+            tone="amber"
           />
         </section>
       ) : null}
 
       {message ? (
-        <p data-testid="admin-pricing-message" className="mb-3 text-sm font-semibold text-orange-700">
-          {message}
-        </p>
+        <div
+          role="status"
+          data-testid="admin-pricing-message"
+          className="mb-5 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"
+        >
+          <Activity aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <p>{message}</p>
+        </div>
       ) : null}
 
       {loading ? (
-        <p data-testid="admin-pricing-loading" className="text-sm font-semibold text-orange-700">
+        <div
+          data-testid="admin-pricing-loading"
+          className="flex min-h-48 items-center justify-center rounded-lg border border-gray-200 bg-white text-sm font-semibold text-slate-500"
+        >
+          <LoaderCircle aria-hidden="true" className="mr-2 h-5 w-5 animate-spin text-amber-500" />
           Loading service pricing…
-        </p>
+        </div>
       ) : rows.length === 0 ? (
-        <p data-testid="admin-pricing-empty" className="text-sm font-semibold text-slate-500">
-          No services configured yet.
-        </p>
+        <div
+          data-testid="admin-pricing-empty"
+          className="flex min-h-48 flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white px-6 text-center"
+        >
+          <Boxes aria-hidden="true" className="h-8 w-8 text-slate-300" />
+          <p className="mt-3 text-sm font-semibold text-slate-700">No services configured yet</p>
+          <p className="mt-1 text-sm text-slate-500">Add the first service to begin managing usage pricing.</p>
+        </div>
       ) : (
         <div className="space-y-6" data-testid="admin-pricing-table">
           <PricingServiceTable
             title="Usage services"
-            description="AI, telephony, messaging, and other metered services. The role is the customer-facing invoice label."
-            rows={rows.filter((service) => !PLATFORM_SERVICE_CODES.has(service.code))}
+            description="AI, telephony, messaging, and other metered services used during agent execution."
+            rows={usageServices}
             drafts={drafts}
             dirtyIds={dirtyIds}
             editingIds={editingIds}
@@ -314,8 +372,8 @@ export default function AdminPricingPage() {
           />
           <PricingServiceTable
             title="Platform services"
-            description="Shared platform infrastructure. Firebase / MongoDB and Google Calendar API are billed under one customer-facing Platform service label."
-            rows={rows.filter((service) => PLATFORM_SERVICE_CODES.has(service.code))}
+            description="Shared infrastructure and integrations billed under the customer-facing Platform service."
+            rows={platformServices}
             drafts={drafts}
             dirtyIds={dirtyIds}
             editingIds={editingIds}
@@ -330,55 +388,54 @@ export default function AdminPricingPage() {
 
       {showAddModal ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
           data-testid="admin-pricing-add-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-pricing-add-title"
         >
           <form
             onSubmit={(event) => void submitAddService(event)}
-            className="w-full max-w-lg rounded-2xl border border-orange-100 bg-white p-6 shadow-xl"
+            className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-2xl"
           >
-            <h2 className="text-lg font-bold text-slate-900">Add service</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Create a new infrastructure line item with actual and updated pricing.
-            </p>
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-5">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-700">
+                  <Plus aria-hidden="true" className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 id="admin-pricing-add-title" className="text-lg font-bold text-slate-900">Add service</h2>
+                  <p className="mt-1 text-sm text-slate-500">Create a new billable infrastructure line item.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close add service dialog"
+                title="Close"
+                onClick={() => {
+                  setShowAddModal(false);
+                  setAddForm(EMPTY_ADD_FORM);
+                }}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-700"
+              >
+                <X aria-hidden="true" className="h-5 w-5" />
+              </button>
+            </div>
 
-            <div className="mt-4 grid gap-3">
-              <label className="grid gap-1 text-sm">
-                <span className="font-semibold text-slate-700">Service ID (code)</span>
+            <div className="grid gap-4 p-6 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-semibold text-slate-700">Service ID</span>
                 <input
                   required
                   data-testid="admin-pricing-add-code"
                   value={addForm.code}
                   onChange={(event) => setAddForm((current) => ({ ...current, code: event.target.value }))}
                   placeholder="e.g. vapi_orchestration"
-                  className="rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-400"
+                  className="h-10 rounded-lg border border-gray-200 bg-white px-3 font-mono text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
                 />
               </label>
 
-              <label className="grid gap-1 text-sm">
-                <span className="font-semibold text-slate-700">Service name</span>
-                <input
-                  required
-                  data-testid="admin-pricing-add-name"
-                  value={addForm.name}
-                  onChange={(event) => setAddForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="e.g. Vapi Orchestration"
-                  className="rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-400"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                <span className="font-semibold text-slate-700">Role / description</span>
-                <input
-                  data-testid="admin-pricing-add-role"
-                  value={addForm.role}
-                  onChange={(event) => setAddForm((current) => ({ ...current, role: event.target.value }))}
-                  placeholder="What this service does"
-                  className="rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-400"
-                />
-              </label>
-
-              <label className="grid gap-1 text-sm">
+              <label className="grid gap-1.5 text-sm">
                 <span className="font-semibold text-slate-700">Billing unit</span>
                 <select
                   data-testid="admin-pricing-add-unit"
@@ -386,7 +443,7 @@ export default function AdminPricingPage() {
                   onChange={(event) =>
                     setAddForm((current) => ({ ...current, unit: event.target.value as UsageServiceUnit }))
                   }
-                  className="rounded-xl border border-orange-200 px-3 py-2 outline-none focus:border-orange-400"
+                  className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
                 >
                   <option value="PER_MINUTE">Per minute</option>
                   <option value="PER_SMS">Per SMS</option>
@@ -395,42 +452,65 @@ export default function AdminPricingPage() {
                 </select>
               </label>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm">
-                  <span className="font-semibold text-slate-700">Actual cost (USD)</span>
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    data-testid="admin-pricing-add-actual"
-                    value={addForm.actualCostUsd}
-                    onChange={(event) =>
-                      setAddForm((current) => ({ ...current, actualCostUsd: event.target.value }))
-                    }
-                    className="rounded-xl border border-orange-200 px-3 py-2 font-mono outline-none focus:border-orange-400"
-                  />
-                </label>
+              <label className="grid gap-1.5 text-sm sm:col-span-2">
+                <span className="font-semibold text-slate-700">Service name</span>
+                <input
+                  required
+                  data-testid="admin-pricing-add-name"
+                  value={addForm.name}
+                  onChange={(event) => setAddForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="e.g. Vapi Orchestration"
+                  className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                />
+              </label>
 
-                <label className="grid gap-1 text-sm">
-                  <span className="font-semibold text-slate-700">Updated cost (USD)</span>
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    data-testid="admin-pricing-add-updated"
-                    value={addForm.updatedCostUsd}
-                    onChange={(event) =>
-                      setAddForm((current) => ({ ...current, updatedCostUsd: event.target.value }))
-                    }
-                    className="rounded-xl border border-orange-200 px-3 py-2 font-mono outline-none focus:border-orange-400"
-                  />
-                </label>
-              </div>
+              <label className="grid gap-1.5 text-sm sm:col-span-2">
+                <span className="font-semibold text-slate-700">Customer-facing label</span>
+                <input
+                  data-testid="admin-pricing-add-role"
+                  value={addForm.role}
+                  onChange={(event) => setAddForm((current) => ({ ...current, role: event.target.value }))}
+                  placeholder="How this service appears on invoices"
+                  className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-semibold text-slate-700">Actual cost (USD)</span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  data-testid="admin-pricing-add-actual"
+                  value={addForm.actualCostUsd}
+                  onChange={(event) =>
+                    setAddForm((current) => ({ ...current, actualCostUsd: event.target.value }))
+                  }
+                  placeholder="0.0000"
+                  className="h-10 rounded-lg border border-gray-200 bg-white px-3 font-mono text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-semibold text-slate-700">Billing cost (USD)</span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  data-testid="admin-pricing-add-updated"
+                  value={addForm.updatedCostUsd}
+                  onChange={(event) =>
+                    setAddForm((current) => ({ ...current, updatedCostUsd: event.target.value }))
+                  }
+                  placeholder="0.0000"
+                  className="h-10 rounded-lg border border-gray-200 bg-white px-3 font-mono text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                />
+              </label>
             </div>
 
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-6 py-4">
               <button
                 type="button"
                 data-testid="admin-pricing-add-cancel"
@@ -438,7 +518,7 @@ export default function AdminPricingPage() {
                   setShowAddModal(false);
                   setAddForm(EMPTY_ADD_FORM);
                 }}
-                className="rounded-xl border border-orange-200 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-50"
+                className="h-10 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-gray-100"
               >
                 Cancel
               </button>
@@ -446,8 +526,9 @@ export default function AdminPricingPage() {
                 type="submit"
                 disabled={adding}
                 data-testid="admin-pricing-add-submit"
-                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-bold text-white transition hover:bg-amber-600 disabled:cursor-wait disabled:opacity-50"
               >
+                {adding ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Plus aria-hidden="true" className="h-4 w-4" />}
                 {adding ? "Adding…" : "Add service"}
               </button>
             </div>
@@ -483,28 +564,46 @@ function PricingServiceTable({
   onDraftChange: <K extends keyof DraftRow>(id: string, field: K, value: DraftRow[K]) => void;
   testId: string;
 }) {
+  const GroupIcon = title === "Platform services" ? CloudCog : Boxes;
+  const activeCount = rows.filter((service) => service.isActive).length;
+
   return (
-    <section>
-      <div className="mb-3">
-        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
+    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-gray-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
+            <GroupIcon aria-hidden="true" className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-slate-900">{title}</h2>
+            <p className="mt-1 max-w-4xl text-sm leading-5 text-slate-500">{description}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+            {rows.length} total
+          </span>
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+            {activeCount} active
+          </span>
+        </div>
       </div>
       {rows.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-orange-200 bg-white px-4 py-6 text-sm text-slate-500">
+        <div className="px-5 py-10 text-center text-sm text-slate-500">
           No services in this group.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-orange-100 bg-white">
+        <div className="overflow-x-auto">
           <table data-testid={testId} className="w-full min-w-[1040px] text-left text-sm">
-            <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
+            <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Service ID</th>
+                <th className="w-44 px-5 py-3">Service ID</th>
                 <th className="px-4 py-3">Service</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Unit</th>
-                <th className="px-4 py-3">Actual cost</th>
-                <th className="px-4 py-3">Updated cost</th>
-                <th className="px-4 py-3">Actions</th>
+                <th className="px-4 py-3">Invoice label</th>
+                <th className="w-28 px-4 py-3">Unit</th>
+                <th className="w-36 px-4 py-3">Actual cost</th>
+                <th className="w-36 px-4 py-3">Billing cost</th>
+                <th className="w-60 px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -515,38 +614,47 @@ function PricingServiceTable({
                 return (
                   <tr
                     key={service.id}
-                    className="border-b border-orange-50"
+                    className={`border-b border-gray-100 transition last:border-b-0 ${
+                      isEditing ? "bg-amber-50/40" : "hover:bg-slate-50/70"
+                    }`}
                     data-testid={`admin-pricing-row-${service.code}`}
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{service.code}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-5 py-4">
+                      <span className="inline-flex rounded-md bg-slate-100 px-2.5 py-1 font-mono text-xs font-semibold text-slate-600">
+                        {service.code}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
                       <input
                         disabled={!isEditing || saving}
                         value={draft?.name ?? ""}
                         onChange={(event) => onDraftChange(service.id, "name", event.target.value)}
-                        className="w-44 rounded-lg border border-orange-200 px-2 py-1 font-semibold text-slate-900 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                        aria-label={`Service name for ${service.code}`}
+                        className="h-9 w-44 rounded-lg border border-gray-200 bg-white px-3 font-semibold text-slate-900 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">
                       <input
                         disabled={!isEditing || saving}
                         value={draft?.role ?? ""}
                         placeholder="Customer-facing label"
                         onChange={(event) => onDraftChange(service.id, "role", event.target.value)}
-                        className="w-52 rounded-lg border border-orange-200 px-2 py-1 text-slate-600 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                        aria-label={`Invoice label for ${service.code}`}
+                        className="h-9 w-52 rounded-lg border border-gray-200 bg-white px-3 text-slate-600 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">
                       <select
                         disabled={!isEditing || saving}
                         value={draft?.unit ?? service.unit}
                         onChange={(event) => onDraftChange(service.id, "unit", event.target.value as UsageServiceUnit)}
-                        className="rounded-lg border border-orange-200 px-2 py-1 text-slate-600 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                        aria-label={`Billing unit for ${service.code}`}
+                        className="h-9 w-24 rounded-lg border border-gray-200 bg-white px-2 text-slate-600 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       >
                         {Object.entries(UNIT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">
                       <input
                         type="number"
                         min="0"
@@ -555,10 +663,11 @@ function PricingServiceTable({
                         value={draft?.actualCostUsd ?? ""}
                         disabled={!isEditing || saving}
                         onChange={(event) => onDraftChange(service.id, "actualCostUsd", event.target.value)}
-                        className="w-28 rounded-lg border border-orange-200 px-2 py-1 font-mono text-slate-700 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                        aria-label={`Actual cost for ${service.code}`}
+                        className="h-9 w-28 rounded-lg border border-gray-200 bg-white px-3 font-mono text-slate-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">
                       <input
                         type="number"
                         min="0"
@@ -567,38 +676,64 @@ function PricingServiceTable({
                         value={draft?.updatedCostUsd ?? ""}
                         disabled={!isEditing || saving}
                         onChange={(event) => onDraftChange(service.id, "updatedCostUsd", event.target.value)}
-                        className="w-28 rounded-lg border border-orange-200 px-2 py-1 font-mono font-semibold text-green-700 outline-none focus:border-orange-400 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                        aria-label={`Billing cost for ${service.code}`}
+                        className="h-9 w-28 rounded-lg border border-gray-200 bg-white px-3 font-mono font-semibold text-emerald-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       />
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-5 py-4">
+                      <div className="flex min-h-9 items-center justify-end gap-2">
                         {isEditing ? (
                           <>
-                            <label className="flex items-center gap-1 text-xs font-semibold text-slate-600">
+                            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
                               <input
                                 type="checkbox"
                                 checked={draft?.isActive ?? false}
                                 disabled={saving}
                                 onChange={(event) => onDraftChange(service.id, "isActive", event.target.checked)}
+                                className="peer sr-only"
                               />
+                              <span className="relative h-5 w-9 rounded-full bg-gray-300 transition after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-emerald-500 peer-checked:after:translate-x-4 peer-disabled:opacity-50" />
                               Active
                             </label>
-                            <button type="button" disabled={saving} onClick={() => onCancel(service)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => onCancel(service)}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-slate-600 transition hover:bg-gray-100 disabled:opacity-50"
+                            >
+                              <X aria-hidden="true" className="h-3.5 w-3.5" />
                               Cancel
                             </button>
                           </>
                         ) : (
-                          <button
-                            type="button"
-                            disabled={saving}
-                            data-testid={`admin-pricing-edit-${service.code}`}
-                            onClick={() => onEdit(service)}
-                            className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600 disabled:opacity-50"
-                          >
-                            Edit
-                          </button>
+                          <>
+                            <span
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                service.isActive
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-gray-100 text-slate-500"
+                              }`}
+                            >
+                              {service.isActive ? <Check aria-hidden="true" className="h-3 w-3" /> : null}
+                              {service.isActive ? "Active" : "Inactive"}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={saving}
+                              data-testid={`admin-pricing-edit-${service.code}`}
+                              onClick={() => onEdit(service)}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800 disabled:opacity-50"
+                            >
+                              <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+                              Edit
+                            </button>
+                          </>
                         )}
-                        {isDirty ? <span className="text-xs font-semibold text-orange-600">Unsaved</span> : null}
+                        {isDirty ? (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                            Unsaved
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -616,21 +751,37 @@ function SummaryCard({
   label,
   value,
   hint,
-  testId
+  testId,
+  icon: Icon,
+  tone
 }: {
   label: string;
   value: string;
   hint: string;
   testId: string;
+  icon: LucideIcon;
+  tone: "slate" | "emerald" | "sky" | "amber";
 }) {
+  const toneStyles = {
+    slate: "bg-slate-100 text-slate-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    sky: "bg-sky-50 text-sky-700",
+    amber: "bg-amber-50 text-amber-700"
+  };
+
   return (
     <div
       data-testid={testId}
-      className="rounded-2xl border border-orange-100 bg-white px-5 py-4 shadow-sm"
+      className="flex min-h-36 flex-col rounded-lg border border-gray-200 bg-white p-5 shadow-sm"
     >
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-sm text-slate-500">{hint}</p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${toneStyles[tone]}`}>
+          <Icon aria-hidden="true" className="h-4 w-4" />
+        </span>
+      </div>
+      <p className="mt-3 text-2xl font-bold text-slate-900">{value}</p>
+      <p className="mt-auto pt-2 text-xs leading-5 text-slate-500">{hint}</p>
     </div>
   );
 }

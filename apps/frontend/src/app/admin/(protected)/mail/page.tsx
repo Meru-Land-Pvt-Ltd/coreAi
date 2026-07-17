@@ -150,7 +150,7 @@ export default function AdminMailPage() {
   return (
     <div>
       <header className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Mail</h1>
+        <h1 className="text-2xl font-bold tracking-normal text-slate-900">Mail</h1>
         <p className="mt-1 text-sm text-slate-500">
           Business email aliases, delivery health, and suppressed recipients.
         </p>
@@ -169,21 +169,21 @@ export default function AdminMailPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search by business name or alias"
-          className="w-full max-w-md rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm outline-none focus:border-orange-400"
+          className="w-full max-w-md rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-amber-400"
         />
-        <button type="submit" className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white">Search</button>
+        <button type="submit" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white">Search</button>
       </form>
 
       {aliasState === "loading" ? (
-        <p data-testid="admin-mail-aliases-loading" className="text-sm font-semibold text-orange-700">Loading…</p>
+        <p data-testid="admin-mail-aliases-loading" className="text-sm font-semibold text-amber-700">Loading…</p>
       ) : aliasState === "error" ? (
         <p data-testid="admin-mail-aliases-error" className="text-sm font-semibold text-red-600">Could not load email aliases.</p>
       ) : aliases.length === 0 ? (
         <p data-testid="admin-mail-aliases-empty" className="text-sm font-semibold text-slate-500">No email aliases found.</p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-orange-100 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table data-testid="admin-mail-aliases-table" className="w-full text-left text-sm">
-            <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
+            <thead className="border-b border-gray-200 text-xs uppercase tracking-normal text-slate-400">
               <tr>
                 <th className="px-4 py-3">Business</th>
                 <th className="px-4 py-3">Alias</th>
@@ -204,7 +204,7 @@ export default function AdminMailPage() {
             </thead>
             <tbody>
               {aliases.map((alias) => (
-                <tr key={alias.id} className="border-b border-orange-50 align-top" data-testid="admin-mail-alias-row">
+                <tr key={alias.id} className="border-b border-gray-100 align-top" data-testid="admin-mail-alias-row">
                   <td className="px-4 py-3 font-semibold text-slate-900">{alias.business?.name ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{alias.emailAddress}</td>
                   <td className="px-4 py-3 text-slate-600">{alias.displayName || "—"}</td>
@@ -242,7 +242,7 @@ export default function AdminMailPage() {
                           data-testid="admin-mail-alias-disable"
                           onClick={() => void disableAlias(alias)}
                           disabled={Boolean(busy)}
-                          className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+                          className="rounded-lg border border-gray-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
                         >
                           {busy === `disable-${alias.id}` ? "Disabling…" : "Disable"}
                         </button>
@@ -285,15 +285,15 @@ export default function AdminMailPage() {
         </p>
 
         {suppressionState === "loading" ? (
-          <p data-testid="admin-mail-suppressions-loading" className="mt-4 text-sm font-semibold text-orange-700">Loading…</p>
+          <p data-testid="admin-mail-suppressions-loading" className="mt-4 text-sm font-semibold text-amber-700">Loading…</p>
         ) : suppressionState === "error" ? (
           <p data-testid="admin-mail-suppressions-error" className="mt-4 text-sm font-semibold text-red-600">Could not load suppressed recipients.</p>
         ) : suppressions.length === 0 ? (
           <p data-testid="admin-mail-suppressions-empty" className="mt-4 text-sm font-semibold text-slate-500">No suppressed recipients.</p>
         ) : (
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-orange-100 bg-white">
+          <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
             <table data-testid="admin-mail-suppressions-table" className="w-full text-left text-sm">
-              <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
+              <thead className="border-b border-gray-200 text-xs uppercase tracking-normal text-slate-400">
                 <tr>
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">Reason</th>
@@ -305,7 +305,7 @@ export default function AdminMailPage() {
               </thead>
               <tbody>
                 {suppressions.map((suppression) => (
-                  <tr key={suppression.id} className="border-b border-orange-50 align-top" data-testid="admin-mail-suppression-row">
+                  <tr key={suppression.id} className="border-b border-gray-100 align-top" data-testid="admin-mail-suppression-row">
                     <td className="px-4 py-3 font-semibold text-slate-900">{suppression.emailAddress}</td>
                     <td className="px-4 py-3 text-slate-600">{suppression.reason}</td>
                     <td className="px-4 py-3 text-slate-600">{suppression.source}</td>
@@ -351,7 +351,7 @@ export default function AdminMailPage() {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-lg ${
+            className={`pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-semibold shadow-lg ${
               toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
             }`}
           >

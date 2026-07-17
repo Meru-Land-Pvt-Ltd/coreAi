@@ -64,6 +64,56 @@ button:disabled {
   border-radius: 999px;
 }
 
+.admin-workspace > div > header h1 {
+  letter-spacing: 0;
+}
+
+.admin-workspace input,
+.admin-workspace select,
+.admin-workspace textarea {
+  min-height: 40px;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.admin-workspace input::placeholder,
+.admin-workspace textarea::placeholder {
+  color: #94a3b8;
+}
+
+.admin-workspace table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.admin-workspace thead {
+  background: #f8fafc;
+}
+
+.admin-workspace thead th {
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #64748b;
+}
+
+.admin-workspace tbody tr {
+  transition: background-color 150ms ease;
+}
+
+.admin-workspace tbody tr:hover {
+  background: #fffbeb;
+}
+
+.admin-workspace tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-workspace .overflow-x-auto {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
 .brand-gradient {
   background: linear-gradient(135deg, #f97316, #f59e0b);
 }
@@ -97,6 +147,17 @@ button:disabled {
   background: #fff7ed;
   color: #7c2d12;
   font-weight: 700;
+}
+
+@keyframes admin-card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

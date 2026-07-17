@@ -32,7 +32,7 @@ export default function AdminProtectedLayout({ children }: { children: ReactNode
 
   // Backend still enforces ADMIN on every /admin API — this guard is UX only.
   if (!allowed) {
-    return <div data-testid="admin-protected-checking" className="min-h-screen bg-[#fffaf3]" />;
+    return <div data-testid="admin-protected-checking" className="min-h-screen bg-gray-50" />;
   }
 
   return <AdminShell>{children}</AdminShell>;

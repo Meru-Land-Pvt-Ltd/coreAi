@@ -287,7 +287,7 @@ export default function AdminPhoneNumbersPage() {
     <div>
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Phone Numbers</h1>
+          <h1 className="text-2xl font-bold tracking-normal text-slate-900">Phone Numbers</h1>
           <p className="mt-1 text-sm text-slate-500">
             Search, purchase, assign, and manage platform Twilio numbers — no Twilio dashboard needed.
           </p>
@@ -297,7 +297,7 @@ export default function AdminPhoneNumbersPage() {
           data-testid="admin-phone-sync-open"
           onClick={() => void openSync()}
           disabled={syncOpen}
-          className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-800 transition hover:border-orange-400 hover:bg-orange-50 disabled:opacity-50"
+          className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 disabled:opacity-50"
         >
           Sync from Twilio
         </button>
@@ -313,8 +313,8 @@ export default function AdminPhoneNumbersPage() {
           { label: "Webhook issues", value: stats.webhookIssues, testId: "webhook-issues" },
           { label: "Compliance unknown", value: stats.complianceUnknown, testId: "compliance-unknown" }
         ].map((card) => (
-          <div key={card.testId} className="rounded-2xl border border-orange-100 bg-white px-4 py-3" data-testid={`admin-phone-stat-${card.testId}`}>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{card.label}</p>
+          <div key={card.testId} className="rounded-lg border border-gray-200 bg-white px-4 py-3" data-testid={`admin-phone-stat-${card.testId}`}>
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-400">{card.label}</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{card.value}</p>
           </div>
         ))}
@@ -328,13 +328,13 @@ export default function AdminPhoneNumbersPage() {
             data-testid="admin-phone-show-archived"
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
-            className="h-4 w-4 accent-orange-500"
+            className="h-4 w-4 accent-amber-500"
           />
           Show archived ({archivedCount})
         </label>
       ) : null}
       {state === "loading" ? (
-        <p data-testid="admin-phone-loading" className="text-sm font-semibold text-orange-700">Loading…</p>
+        <p data-testid="admin-phone-loading" className="text-sm font-semibold text-amber-700">Loading…</p>
       ) : state === "error" ? (
         <p data-testid="admin-phone-error" className="text-sm font-semibold text-red-600">Could not load phone numbers.</p>
       ) : visibleRows.length === 0 ? (
@@ -344,9 +344,9 @@ export default function AdminPhoneNumbersPage() {
             : "No platform numbers yet. Search below to purchase your first number, or sync existing numbers from Twilio."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-orange-100 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table data-testid="admin-phone-table" className="w-full text-left text-sm">
-            <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
+            <thead className="border-b border-gray-200 text-xs uppercase tracking-normal text-slate-400">
               <tr>
                 <th className="px-4 py-3">Number</th>
                 <th className="px-4 py-3">Location</th>
@@ -364,7 +364,7 @@ export default function AdminPhoneNumbersPage() {
             </thead>
             <tbody>
               {visibleRows.map((row) => (
-                <tr key={row.id} className="border-b border-orange-50 align-top" data-testid={`admin-phone-row-${row.phoneNumber}`}>
+                <tr key={row.id} className="border-b border-gray-100 align-top" data-testid={`admin-phone-row-${row.phoneNumber}`}>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{row.phoneNumber}</p>
                     <p className="text-xs text-slate-400">{row.provider}</p>
@@ -411,7 +411,7 @@ export default function AdminPhoneNumbersPage() {
                           data-testid={`admin-phone-unassign-${row.phoneNumber}`}
                           onClick={() => setUnassignTarget(row)}
                           disabled={Boolean(busy)}
-                          className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+                          className="rounded-lg border border-gray-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
                         >
                           Unassign
                         </button>
@@ -455,7 +455,7 @@ export default function AdminPhoneNumbersPage() {
       )}
 
       {/* Search available numbers */}
-      <section className="mt-8 rounded-2xl border border-orange-100 bg-white p-5" data-testid="admin-phone-search-section">
+      <section className="mt-8 rounded-lg border border-gray-200 bg-white p-5" data-testid="admin-phone-search-section">
         <h2 className="text-lg font-bold text-slate-900">Search available numbers</h2>
         <p className="mt-1 text-sm text-slate-500">Find purchasable Twilio numbers. Purchasing charges the platform Twilio account.</p>
 
@@ -472,7 +472,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-search-country"
               value={searchForm.country}
               onChange={(e) => setSearchForm((f) => ({ ...f, country: e.target.value }))}
-              className="mt-1 block rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-orange-400"
+              className="mt-1 block rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-400"
             >
               {COUNTRIES.map((c) => (
                 <option key={c.code} value={c.code}>{c.label}</option>
@@ -486,7 +486,7 @@ export default function AdminPhoneNumbersPage() {
               value={searchForm.areaCode}
               onChange={(e) => setSearchForm((f) => ({ ...f, areaCode: e.target.value }))}
               placeholder="415"
-              className="mt-1 block w-24 rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"
+              className="mt-1 block w-24 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
             />
           </label>
           <label className="text-xs font-semibold text-slate-500">
@@ -496,7 +496,7 @@ export default function AdminPhoneNumbersPage() {
               value={searchForm.contains}
               onChange={(e) => setSearchForm((f) => ({ ...f, contains: e.target.value }))}
               placeholder="e.g. 777"
-              className="mt-1 block w-28 rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"
+              className="mt-1 block w-28 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
             />
           </label>
           {(["voice", "sms", "mms"] as const).map((cap) => (
@@ -506,7 +506,7 @@ export default function AdminPhoneNumbersPage() {
                 data-testid={`admin-phone-search-${cap}`}
                 checked={searchForm[cap]}
                 onChange={(e) => setSearchForm((f) => ({ ...f, [cap]: e.target.checked }))}
-                className="h-4 w-4 accent-orange-500"
+                className="h-4 w-4 accent-amber-500"
               />
               {cap.toUpperCase()}
             </label>
@@ -520,14 +520,14 @@ export default function AdminPhoneNumbersPage() {
               max={30}
               value={searchForm.limit}
               onChange={(e) => setSearchForm((f) => ({ ...f, limit: Math.min(30, Math.max(1, Number(e.target.value) || 10)) }))}
-              className="mt-1 block w-20 rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"
+              className="mt-1 block w-20 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
             />
           </label>
           <button
             type="submit"
             data-testid="admin-phone-search-submit"
             disabled={searching}
-            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-orange-600 disabled:opacity-50"
+            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50"
           >
             {searching ? "Searching…" : "Search"}
           </button>
@@ -539,9 +539,9 @@ export default function AdminPhoneNumbersPage() {
               No numbers matched. Try a different area code or fewer filters.
             </p>
           ) : (
-            <div className="mt-4 overflow-x-auto rounded-xl border border-orange-100">
+            <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200">
               <table data-testid="admin-phone-search-results" className="w-full text-left text-sm">
-                <thead className="border-b border-orange-100 text-xs uppercase tracking-wider text-slate-400">
+                <thead className="border-b border-gray-200 text-xs uppercase tracking-normal text-slate-400">
                   <tr>
                     <th className="px-4 py-2.5">Number</th>
                     <th className="px-4 py-2.5">Country</th>
@@ -552,7 +552,7 @@ export default function AdminPhoneNumbersPage() {
                 </thead>
                 <tbody>
                   {searchResults.map((item) => (
-                    <tr key={item.phoneNumber} className="border-b border-orange-50">
+                    <tr key={item.phoneNumber} className="border-b border-gray-100">
                       <td className="px-4 py-2.5 font-semibold text-slate-900">{item.phoneNumber}</td>
                       <td className="px-4 py-2.5 text-slate-600">{item.country}</td>
                       <td className="px-4 py-2.5 text-slate-600">{[item.region, item.locality].filter(Boolean).join(" · ") || "—"}</td>
@@ -566,7 +566,7 @@ export default function AdminPhoneNumbersPage() {
                           type="button"
                           data-testid={`admin-phone-buy-${item.phoneNumber}`}
                           onClick={() => setPurchaseTarget(item)}
-                          className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600"
+                          className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600"
                         >
                           Buy
                         </button>
@@ -593,7 +593,7 @@ export default function AdminPhoneNumbersPage() {
                 .join(", ") || "—"}
             </span>
           </p>
-          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
             Twilio may charge immediately when this number is purchased. Voice and SMS webhooks are configured automatically.
           </p>
           <div className="mt-4 flex justify-end gap-2">
@@ -602,7 +602,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-purchase-cancel"
               onClick={() => setPurchaseTarget(null)}
               disabled={purchasing}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -611,7 +611,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-purchase-confirm"
               onClick={() => void confirmPurchase()}
               disabled={purchasing}
-              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
             >
               {purchasing ? "Purchasing…" : "Confirm purchase"}
             </button>
@@ -623,7 +623,7 @@ export default function AdminPhoneNumbersPage() {
       {assignTarget ? (
         <Modal onClose={() => (assignSubmitting ? null : setAssignTarget(null))} testId="admin-phone-assign-modal">
           <h3 className="text-lg font-bold text-slate-900">Assign {assignTarget.phoneNumber}</h3>
-          <p className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">
+          <p className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">
             This number will become active for inbound calls/SMS for the selected business/agent.
           </p>
 
@@ -633,7 +633,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-assign-business"
               value={assignBusinessId}
               onChange={(e) => void onAssignBusinessChange(e.target.value)}
-              className="mt-1 block w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400"
+              className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
             >
               <option value="">Select a business…</option>
               {businesses.map((b) => (
@@ -651,7 +651,7 @@ export default function AdminPhoneNumbersPage() {
               value={assignAgentId}
               onChange={(e) => setAssignAgentId(e.target.value)}
               disabled={!assignBusinessId}
-              className="mt-1 block w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 disabled:opacity-50"
+              className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400 disabled:opacity-50"
             >
               <option value="">No specific agent</option>
               {agents.map((a) => (
@@ -674,7 +674,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-assign-cancel"
               onClick={() => setAssignTarget(null)}
               disabled={assignSubmitting}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -683,7 +683,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-assign-confirm"
               onClick={() => void confirmAssign()}
               disabled={!assignBusinessId || assignSubmitting}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {assignSubmitting ? "Assigning…" : "Assign number"}
             </button>
@@ -695,7 +695,7 @@ export default function AdminPhoneNumbersPage() {
       {unassignTarget ? (
         <Modal onClose={() => (busy ? null : setUnassignTarget(null))} testId="admin-phone-unassign-modal">
           <h3 className="text-lg font-bold text-slate-900">Unassign {unassignTarget.phoneNumber}?</h3>
-          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
             Unassigning this number will stop inbound calls/SMS from routing to{" "}
             {unassignTarget.business?.name ?? "this business"} until another number is assigned.
           </p>
@@ -705,7 +705,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-unassign-cancel"
               onClick={() => setUnassignTarget(null)}
               disabled={Boolean(busy)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -721,7 +721,7 @@ export default function AdminPhoneNumbersPage() {
                 ).then((ok) => (ok ? setUnassignTarget(null) : null))
               }
               disabled={Boolean(busy)}
-              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
             >
               {busy === `unassign-${unassignTarget.id}` ? "Unassigning…" : "Unassign"}
             </button>
@@ -733,7 +733,7 @@ export default function AdminPhoneNumbersPage() {
       {releaseTarget ? (
         <Modal onClose={() => (busy ? null : setReleaseTarget(null))} testId="admin-phone-release-modal">
           <h3 className="text-lg font-bold text-slate-900">Release {releaseTarget.phoneNumber}?</h3>
-          <p className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
             This will release the number from Twilio. It may not be recoverable. The inventory record is kept for history.
           </p>
           <div className="mt-4 flex justify-end gap-2">
@@ -742,7 +742,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-release-cancel"
               onClick={() => setReleaseTarget(null)}
               disabled={Boolean(busy)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -758,7 +758,7 @@ export default function AdminPhoneNumbersPage() {
                 ).then((ok) => (ok ? setReleaseTarget(null) : null))
               }
               disabled={Boolean(busy)}
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
             >
               {busy === `release-${releaseTarget.id}` ? "Releasing…" : "Release number"}
             </button>
@@ -771,7 +771,7 @@ export default function AdminPhoneNumbersPage() {
         <Modal onClose={() => (syncRunning ? null : setSyncOpen(false))} testId="admin-phone-sync-modal">
           <h3 className="text-lg font-bold text-slate-900">Sync numbers from Twilio</h3>
           {syncRunning && !syncDryRun ? (
-            <p className="mt-3 text-sm font-semibold text-orange-700">Reading numbers from Twilio…</p>
+            <p className="mt-3 text-sm font-semibold text-amber-700">Reading numbers from Twilio…</p>
           ) : syncDryRun ? (
             <div className="mt-3 space-y-1.5 text-sm text-slate-700" data-testid="admin-phone-sync-summary">
               <p>Numbers on Twilio: <span className="font-bold">{syncDryRun.totalOnTwilio}</span></p>
@@ -795,7 +795,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-sync-cancel"
               onClick={() => setSyncOpen(false)}
               disabled={syncRunning}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               Close
             </button>
@@ -804,7 +804,7 @@ export default function AdminPhoneNumbersPage() {
               data-testid="admin-phone-sync-confirm"
               onClick={() => void confirmSync()}
               disabled={syncRunning || !syncDryRun}
-              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
             >
               {syncRunning && syncDryRun ? "Syncing…" : "Confirm real sync"}
             </button>
@@ -817,7 +817,7 @@ export default function AdminPhoneNumbersPage() {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-xl px-4 py-2.5 text-sm font-semibold shadow-lg ${
+            className={`pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-semibold shadow-lg ${
               toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
             }`}
           >
@@ -833,7 +833,7 @@ function Modal({ children, onClose, testId }: { children: React.ReactNode; onClo
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose} data-testid={testId}>
       <div
-        className="w-full max-w-md rounded-2xl border border-orange-100 bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-5 shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         {children}

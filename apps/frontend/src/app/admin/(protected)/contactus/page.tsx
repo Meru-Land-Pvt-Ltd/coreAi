@@ -24,7 +24,7 @@ function MessageBlock({ text, submissionId }: { text: string; submissionId: stri
 
   return (
     <div className="mt-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Message</div>
+      <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Message</div>
       <p
         data-testid={`admin-contact-submissions-message-${submissionId}`}
         className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600 [overflow-wrap:anywhere]"
@@ -36,7 +36,7 @@ function MessageBlock({ text, submissionId }: { text: string; submissionId: stri
           type="button"
           onClick={() => setExpanded((value) => !value)}
           data-testid={`admin-contact-submissions-toggle-${submissionId}`}
-          className="mt-2 text-xs font-semibold text-orange-600 transition hover:text-orange-700"
+          className="mt-2 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
         >
           {expanded ? "Show less" : "Show full message"}
         </button>
@@ -49,10 +49,10 @@ function SubmissionCard({ row }: { row: AdminContactSubmission }) {
   return (
     <article
       data-testid={`admin-contact-submissions-item-${row.id}`}
-      className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm"
+      className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700">
+        <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
           {subjectLabel(row.subject)}
         </span>
         <time
@@ -66,16 +66,16 @@ function SubmissionCard({ row }: { row: AdminContactSubmission }) {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Name</div>
+          <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Name</div>
           <div className="mt-1 text-sm font-medium text-slate-800" data-testid={`admin-contact-submissions-name-${row.id}`}>
             {row.name}
           </div>
         </div>
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Email</div>
+          <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Email</div>
           <a
             href={`mailto:${row.email}`}
-            className="mt-1 block break-all text-sm font-medium text-orange-700 hover:text-orange-800"
+            className="mt-1 block break-all text-sm font-medium text-amber-700 hover:text-slate-700"
             data-testid={`admin-contact-submissions-email-${row.id}`}
           >
             {row.email}
@@ -126,7 +126,7 @@ export default function AdminContactUsPage() {
     <div className="min-w-0">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Contact us</h1>
+          <h1 className="text-2xl font-bold tracking-normal text-slate-900">Contact us</h1>
           <p className="mt-1 text-sm text-slate-500">Review messages submitted from the public contact form.</p>
         </div>
         {state === "ready" ? (
@@ -148,13 +148,13 @@ export default function AdminContactUsPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search by name, email, subject, or message"
-          className="min-w-[220px] flex-1 rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm outline-none focus:border-orange-400 sm:max-w-md"
+          className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-amber-400 sm:max-w-md"
         />
         <select
           data-testid="admin-contact-submissions-subject"
           value={subject}
           onChange={(event) => setSubject(event.target.value)}
-          className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm outline-none focus:border-orange-400"
+          className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm outline-none focus:border-amber-400"
         >
           <option value="">All subjects</option>
           {subjects.map((item) => (
@@ -163,13 +163,13 @@ export default function AdminContactUsPage() {
             </option>
           ))}
         </select>
-        <button type="submit" className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white">
+        <button type="submit" className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white">
           Search
         </button>
       </form>
 
       {message ? (
-        <p data-testid="admin-contact-submissions-message-banner" className="mb-3 text-sm font-semibold text-orange-700">
+        <p data-testid="admin-contact-submissions-message-banner" className="mb-3 text-sm font-semibold text-amber-700">
           {message}
         </p>
       ) : null}
@@ -177,7 +177,7 @@ export default function AdminContactUsPage() {
       {state === "loading" ? (
         <div className="space-y-4" data-testid="admin-contact-submissions-loading">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="h-40 animate-pulse rounded-2xl border border-orange-100 bg-white" />
+            <div key={index} className="h-40 animate-pulse rounded-lg border border-gray-200 bg-white" />
           ))}
         </div>
       ) : state === "error" ? (
@@ -186,7 +186,7 @@ export default function AdminContactUsPage() {
         </p>
       ) : rows.length === 0 ? (
         <div
-          className="rounded-2xl border border-dashed border-orange-200 bg-white px-6 py-16 text-center"
+          className="rounded-lg border border-dashed border-gray-200 bg-white px-6 py-16 text-center"
           data-testid="admin-contact-submissions-empty"
         >
           <p className="text-sm font-semibold text-slate-700">No contact messages found</p>

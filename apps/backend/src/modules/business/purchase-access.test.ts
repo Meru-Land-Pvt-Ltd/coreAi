@@ -465,7 +465,8 @@ describe("POST /payments/purchase duplicate protection (DB)", () => {
         paymentMethodId: "free_installation",
         billingName: "Test Buyer",
         billingEmail: "buyer@test.local",
-        billingAddress: "1 Test Street"
+        billingAddress: "1 Test Street",
+        billingPostalCode: "90210"
       })
     });
 
@@ -477,5 +478,15 @@ describe("POST /payments/purchase duplicate protection (DB)", () => {
       where: { userId: buyerA.userId, listingId: freeListingId }
     });
     expect(count).toBe(1);
+
+    const business = await prisma.business.findUnique({
+      where: { id: buyerA.businessId },
+      select: { billingName: true, billingAddress: true, billingPostalCode: true }
+    });
+    expect(business).toMatchObject({
+      billingName: "Test Buyer",
+      billingAddress: "1 Test Street",
+      billingPostalCode: "90210"
+    });
   });
 });
