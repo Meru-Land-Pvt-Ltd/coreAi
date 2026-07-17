@@ -1076,19 +1076,6 @@ paymentRoutes.post("/start-trial", async (c) => {
   // node only). The fee is billed with the agent price after the trial; a
   // provisioning failure must never break the purchase — setup retries later.
   let assignedPhoneNumber: string | null = null;
-  try {
-    const provisioned = await autoProvisionPhoneNumberForPurchase({
-      buyerUserId: authUser.id,
-      businessId,
-      listingId: listing.id
-    });
-    assignedPhoneNumber = provisioned?.phoneNumber ?? null;
-  } catch (error) {
-    console.error("[phone-provision] trial-start provisioning failed (non-fatal)", {
-      listingId: listing.id,
-      error
-    });
-  }
 
   // Send a purchase-confirmation email with the invoice attached. Best-effort:
   // a mail failure must never break the purchase.
@@ -1191,19 +1178,6 @@ paymentRoutes.post("/purchase", async (c) => {
     });
 
     let assignedPhoneNumber: string | null = null;
-    try {
-      const provisioned = await autoProvisionPhoneNumberForPurchase({
-        buyerUserId: authUser.id,
-        businessId,
-        listingId: listing.id
-      });
-      assignedPhoneNumber = provisioned?.phoneNumber ?? null;
-    } catch (error) {
-      console.error("[phone-provision] free-purchase provisioning failed (non-fatal)", {
-        listingId: listing.id,
-        error
-      });
-    }
 
     try {
       const invoice = await buildInvoiceData(payment, authUser);
@@ -1298,18 +1272,6 @@ paymentRoutes.post("/purchase", async (c) => {
     // The number was allotted at trial start; ensure it exists (idempotent)
     // and bill its fee together with the agent price, as an invoice line —
     // but only if this number's fee was never billed before.
-    try {
-      await autoProvisionPhoneNumberForPurchase({
-        buyerUserId: authUser.id,
-        businessId,
-        listingId: listing.id
-      });
-    } catch (error) {
-      console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
-        listingId: listing.id,
-        error
-      });
-    }
 
     const unbilledPhoneFee = await resolveUnbilledPhoneFee({
       buyerUserId: authUser.id,
@@ -1399,18 +1361,6 @@ paymentRoutes.post("/purchase", async (c) => {
   // Direct purchase (no trial): allot the number first, then charge the agent
   // price plus the number fee (only if never billed for this number) in one
   // payment with an itemized breakdown.
-  try {
-    await autoProvisionPhoneNumberForPurchase({
-      buyerUserId: authUser.id,
-      businessId,
-      listingId: listing.id
-    });
-  } catch (error) {
-    console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
-      listingId: listing.id,
-      error
-    });
-  }
 
   const unbilledPhoneFee = await resolveUnbilledPhoneFee({
     buyerUserId: authUser.id,

@@ -222,6 +222,21 @@ export function getMarketplaceListing(listingId: string) {
   return apiGet<{ listing: MarketplaceListing }>(`/architect/listings/public/${listingId}`);
 }
 
+export function sendPhoneOtp(listingId: string, phone: string) {
+  return apiPost<{ sent: boolean; devCode?: string }>("/setup/send-otp", { listingId, phone });
+}
+
+export function verifyPhoneOtp(listingId: string, phone: string, code: string) {
+  return apiPost<{
+    verified: boolean;
+    verifiedPhone: string;
+    platformNumber: string;
+    platformPhoneNumberId: string;
+    businessId: string;
+    installedAgentId: string;
+  }>("/setup/verify-otp", { listingId, phone, code });
+}
+
 /** Available CoreAI/platform phone numbers the buyer can select (Step 2). */
 export function getBusinessPhoneNumbers() {
   return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");

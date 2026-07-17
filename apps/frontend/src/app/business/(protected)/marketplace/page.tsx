@@ -15,7 +15,7 @@ import {
 } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
 import Image from "next/image";
-import { X, Check, Dot } from "lucide-react";
+import { X, Check, Dot, Download } from "lucide-react";
 
 type Agent = {
     id: string;
@@ -102,6 +102,7 @@ type ApiListing = {
     freeTrialEnabled?: boolean | null;
     trialDays?: number | null;
     iconUrl?: string | null;
+    includedFeatures?: string[];
 };
 
 type ListingsApiResponse = {
@@ -130,6 +131,8 @@ type Industry = {
 };
 
 const LISTINGS_API_PATH = "/architect/listings/public";
+const PAGE_SIZE = 6;
+const PRICE_MAX_DEFAULT = 10000;
 
 const sortOptions = [
     { value: "popular", label: "Most popular" },
@@ -398,24 +401,22 @@ function isRecentlyCreated(createdAt?: string) {
 }
 
 function getWhatYouGetItems(listing: ApiListing): string[] {
+    const fromFeatures = (listing.includedFeatures ?? [])
+        .map((feature) => feature.trim())
+        .filter(Boolean);
+    if (fromFeatures.length) return fromFeatures;
+
     const nodes = listing.workflow?.workflowJson?.nodes ?? [];
 
     const fromNodes = nodes
         .map((node) => node.data?.label || node.data?.title)
         .filter((value): value is string => Boolean(value?.trim()));
 
-    const fromConnectors = (listing.requiredConnectors ?? []).map(
-        (connector) => getConnectorIncludedItem(connector)
-    );
-    const fromLlms = (listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm));
-
-    const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
-
-    if (items.length) return items;
+    if (fromNodes.length) return fromNodes;
 
     const connectors = listing.requiredConnectors ?? [];
     if (connectors.length) {
-        return connectors.map((connector) => `Includes ${getConnectorIncludedItem(connector)}`);
+        return connectors.map((connector) => getConnectorIncludedItem(connector));
     }
 
     return [
@@ -527,11 +528,12 @@ export default function MarketplacePage() {
     const [newOnly, setNewOnly] = useState(false);
     const [openFilter, setOpenFilter] = useState<OpenFilter>(null);
     const [priceMin, setPriceMin] = useState(0);
-    const [priceMax, setPriceMax] = useState(200);
+    const [priceMax, setPriceMax] = useState(PRICE_MAX_DEFAULT);
     const [minRating, setMinRating] = useState(0);
     const [detailsAgent, setDetailsAgent] = useState<Agent | null>(null);
     const [ownedListingIds, setOwnedListingIds] = useState<Set<string>>(() => new Set());
     const [setupPendingListingIds, setSetupPendingListingIds] = useState<Set<string>>(() => new Set());
+    const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
     useEffect(() => {
         const token =
@@ -698,7 +700,7 @@ export default function MarketplacePage() {
     const sortLabel =
         sortOptions.find((item) => item.value === sort)?.label ?? "Most popular";
 
-    const priceActive = priceMin !== 0 || priceMax !== 200;
+    const priceActive = priceMin !== 0 || priceMax !== PRICE_MAX_DEFAULT;
     const ratingActive = minRating > 0;
 
     const activeFilters = [
@@ -730,7 +732,7 @@ export default function MarketplacePage() {
         if (key === "industry") setIndustry("all");
         if (key === "price") {
             setPriceMin(0);
-            setPriceMax(200);
+            setPriceMax(PRICE_MAX_DEFAULT);
         }
         if (key === "rating") setMinRating(0);
         if (key === "free") setFreeTrialOnly(false);
@@ -741,7 +743,7 @@ export default function MarketplacePage() {
         setQuery("");
         setIndustry("all");
         setPriceMin(0);
-        setPriceMax(200);
+        setPriceMax(PRICE_MAX_DEFAULT);
         setMinRating(0);
         setFreeTrialOnly(false);
         setNewOnly(false);
@@ -761,7 +763,7 @@ export default function MarketplacePage() {
             const matchesIndustry =
                 industry === "all" || agentMatchesIndustry(agent, industry);
 
-            const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
+            const matchesPrice = agent.price >= priceMin && (priceMax >= PRICE_MAX_DEFAULT || agent.price <= priceMax);
             const matchesRating = agent.rating >= minRating;
             const matchesTrial = !freeTrialOnly || agent.freeTrial;
             const matchesNew = !newOnly || agent.isNew;
@@ -789,6 +791,11 @@ export default function MarketplacePage() {
             return b.installs - a.installs;
         });
     }, [agents, query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+
+    // Reset visible count whenever the filtered list changes (filter/sort/search applied)
+    useEffect(() => {
+        setVisibleCount(PAGE_SIZE);
+    }, [query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
 
     if (!authReady) {
         return <main className="min-h-screen bg-white" />;
@@ -1098,7 +1105,7 @@ export default function MarketplacePage() {
                                 >
                                     <span>
                                         {priceActive
-                                            ? priceMax >= 200
+                                            ? priceMax >= PRICE_MAX_DEFAULT
                                                 ? `$${priceMin}+`
                                                 : `$${priceMin}–$${priceMax}`
                                             : "Price range"}
@@ -1117,7 +1124,7 @@ export default function MarketplacePage() {
                                                 type="button"
                                                 onClick={() => {
                                                     setPriceMin(0);
-                                                    setPriceMax(200);
+                                                    setPriceMax(PRICE_MAX_DEFAULT);
                                                 }}
                                                 data-testid="marketplace-price-reset"
                                                 className="text-xs font-medium text-amber-600 transition hover:text-amber-700"
@@ -1128,7 +1135,7 @@ export default function MarketplacePage() {
 
                                         <div className="mb-2 flex items-center justify-between px-1 text-sm text-slate-600">
                                             <span>${priceMin}</span>
-                                            <span>{priceMax >= 200 ? "Any" : `$${priceMax}`}</span>
+                                            <span>{priceMax >= PRICE_MAX_DEFAULT ? "Any" : `$${priceMax}`}</span>
                                         </div>
 
                                         <div className="relative h-9 px-1">
@@ -1136,20 +1143,20 @@ export default function MarketplacePage() {
                                             <div
                                                 className="absolute top-4 h-1 rounded-full bg-amber-500"
                                                 style={{
-                                                    left: `${(priceMin / 200) * 100}%`,
-                                                    width: `${((priceMax - priceMin) / 200) * 100}%`
+                                                    left: `${Math.min((priceMin / 500) * 100, 100)}%`,
+                                                    width: `${Math.min(((Math.min(priceMax, 500) - priceMin) / 500) * 100, 100)}%`
                                                 }}
                                             />
 
                                             <input
                                                 type="range"
                                                 min={0}
-                                                max={200}
+                                                max={500}
                                                 step={10}
-                                                value={priceMin}
+                                                value={Math.min(priceMin, 500)}
                                                 onChange={(event) => {
                                                     const value = Number(event.target.value);
-                                                    setPriceMin(Math.min(value, priceMax));
+                                                    setPriceMin(Math.min(value, Math.min(priceMax, 500)));
                                                 }}
                                                 className="pointer-events-none absolute left-0 top-2 h-5 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
                                                 aria-label="Minimum price"
@@ -1158,12 +1165,13 @@ export default function MarketplacePage() {
                                             <input
                                                 type="range"
                                                 min={0}
-                                                max={200}
+                                                max={500}
                                                 step={10}
-                                                value={priceMax}
+                                                value={Math.min(priceMax, 500)}
                                                 onChange={(event) => {
                                                     const value = Number(event.target.value);
-                                                    setPriceMax(Math.max(value, priceMin));
+                                                    // At slider max (500) treat as "Any" (PRICE_MAX_DEFAULT)
+                                                    setPriceMax(value >= 500 ? PRICE_MAX_DEFAULT : Math.max(value, priceMin));
                                                 }}
                                                 className="pointer-events-none absolute left-0 top-2 h-5 w-full appearance-none bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
                                                 aria-label="Maximum price"
@@ -1173,8 +1181,8 @@ export default function MarketplacePage() {
                                         <div className="mt-2 grid grid-cols-3 gap-1.5">
                                             {[
                                                 { label: "Under $80", min: 0, max: 80 },
-                                                { label: "$80–120", min: 80, max: 120 },
-                                                { label: "$120+", min: 120, max: 200 }
+                                                { label: "$80–200", min: 80, max: 200 },
+                                                { label: "$200+", min: 200, max: PRICE_MAX_DEFAULT }
                                             ].map((preset) => (
                                                 <button
                                                     key={preset.label}
@@ -1333,31 +1341,55 @@ export default function MarketplacePage() {
                             </p>
                         </div>
                     ) : filteredAgents.length ? (
-                        <div
-                            className={
-                                view === "grid"
-                                    ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-                                    : "flex flex-col gap-4"
-                            }
-                        >
-                            {filteredAgents.map((agent) =>
-                                view === "grid" ? (
-                                    <AgentGridCard
-                                        key={agent.id}
-                                        agent={agent}
-                                        onOpen={() => openAgentPage(agent)}
-                                        onViewDetails={() => openDetailsModal(agent)}
-                                    />
-                                ) : (
-                                    <AgentListCard
-                                        key={agent.id}
-                                        agent={agent}
-                                        onOpen={() => openAgentPage(agent)}
-                                        onViewDetails={() => openDetailsModal(agent)}
-                                    />
-                                )
-                            )}
-                        </div>
+                        <>
+                            <div
+                                className={
+                                    view === "grid"
+                                        ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+                                        : "flex flex-col gap-4"
+                                }
+                            >
+                                {filteredAgents.slice(0, visibleCount).map((agent) =>
+                                    view === "grid" ? (
+                                        <AgentGridCard
+                                            key={agent.id}
+                                            agent={agent}
+                                            onOpen={() => openAgentPage(agent)}
+                                            onViewDetails={() => openDetailsModal(agent)}
+                                        />
+                                    ) : (
+                                        <AgentListCard
+                                            key={agent.id}
+                                            agent={agent}
+                                            onOpen={() => openAgentPage(agent)}
+                                            onViewDetails={() => openDetailsModal(agent)}
+                                        />
+                                    )
+                                )}
+                            </div>
+
+                            {/* Load more + counter */}
+                            <div className="mt-10 flex flex-col items-center gap-3">
+                                {visibleCount < filteredAgents.length && (
+                                    <button
+                                        type="button"
+                                        data-testid="marketplace-load-more"
+                                        onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                                        className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600 disabled:cursor-default disabled:border-gray-100 disabled:text-slate-300 disabled:hover:border-gray-100 disabled:hover:text-slate-300"
+                                    >
+                                        Load more agents
+                                    </button>
+
+
+                                )}
+                                <p
+                                    className="text-sm text-slate-400"
+                                    data-testid="business-protected-marketplace-showing-filtered-agents-of-agents-text"
+                                >
+                                    Showing {Math.min(visibleCount, filteredAgents.length)} of {filteredAgents.length} agents
+                                </p>
+                            </div>
+                        </>
                     ) : (
                         <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
                             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
@@ -1369,9 +1401,9 @@ export default function MarketplacePage() {
                         </div>
                     )}
 
-                    {!isLoading && !apiError ? (
-                        <p className="mt-8 text-center text-sm text-slate-400" data-testid="business-protected-marketplace-showing-filtered-agents-of-agents-text">
-                            Showing {filteredAgents.length} of {agents.length} agents
+                    {!isLoading && !apiError && !filteredAgents.length ? (
+                        <p className="mt-8 text-center text-sm text-slate-400" data-testid="business-protected-marketplace-showing-filtered-agents-of-agents-text-empty">
+                            Showing 0 of {agents.length} agents
                         </p>
                     ) : null}
                 </div>
@@ -1518,7 +1550,10 @@ function AgentDetailsModal({
                                 className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500"
                                 data-testid="business-marketplace-agent-details-modal-meta"
                             >
-                                <span>{agent.installs} installs</span>
+                                <span className="flex items-center justify-center gap-2">
+                                    <Download className="h-4 w-4" />
+                                    {agent.installs} installs
+                                </span>
                                 <span className="text-slate-300">·</span>
                                 <span>By {agent.author}</span>
                             </div>
@@ -1726,7 +1761,10 @@ function AgentGridCard({
             </div>
 
             <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
-                <span className="text-xs text-slate-500">{agent.installs} installs</span>
+                <span className="text-xs text-slate-500 flex items-center gap-1">
+                    <Download className="h-3 w-3" />
+                    {agent.installs} installs
+                </span>
                 <span className="truncate text-xs text-slate-500">{agent.author}</span>
             </div>
 

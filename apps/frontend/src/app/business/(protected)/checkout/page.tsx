@@ -26,6 +26,7 @@ type CheckoutWorkflowNode = {
 };
 
 type CheckoutWorkflow = {
+    description?: string | null;
     workflowJson?: {
         nodes?: CheckoutWorkflowNode[];
     } | null;
@@ -38,6 +39,9 @@ type CheckoutListing = {
     requiredConnectors?: string[];
     supportedLlms?: string[];
     workflow?: CheckoutWorkflow | null;
+    shortDescription?: string;
+    description?: string | null;
+    includedFeatures?: string[];
     architect?: {
         fullName?: string | null;
         email?: string | null;
@@ -506,20 +510,30 @@ select.field {
 // nodes describe the actual steps; connectors/LLMs and requiredConnectors are
 // used as a fallback when the workflow has no usable step labels.
 function getIncludedItems(listing: CheckoutListing) {
+    const fromFeatures = (listing.includedFeatures ?? [])
+        .map((feature) => feature.trim())
+        .filter(Boolean);
+    if (fromFeatures.length) return fromFeatures;
+
     const nodes = listing.workflow?.workflowJson?.nodes ?? [];
 
     const fromNodes = nodes
         .map((node) => node.data?.label || node.data?.title)
         .filter((value): value is string => Boolean(value?.trim()));
 
-    const fromConnectors = (listing.requiredConnectors ?? []).map(
-        (connector) => getConnectorIncludedItem(connector)
-    );
-    const fromLlms = (listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm));
+    if (fromNodes.length) return fromNodes;
 
-    const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
+    const connectors = listing.requiredConnectors ?? [];
+    if (connectors.length) {
+        return connectors.map((connector) => getConnectorIncludedItem(connector));
+    }
 
-    return items;
+    return [
+        listing.shortDescription ||
+        listing.description ||
+        listing.workflow?.description ||
+        "Automates business workflows with AI."
+    ];
 }
 
 const nextSteps = [

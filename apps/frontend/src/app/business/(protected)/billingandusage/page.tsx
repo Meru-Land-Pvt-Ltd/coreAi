@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { CallRecordingPlayer } from "@/components/common/call-recording-player";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
+import { businessCheckoutPath } from "@/lib/routes";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -24,6 +25,7 @@ type BillingInvoice = {
     billingName?: string | null;
     billingEmail?: string | null;
     billingAddress?: string | null;
+    listingId?: string | null;
 };
 
 function invoiceNumberFor(id: string) {
@@ -354,6 +356,9 @@ export default function BusinessBillingUsagePage() {
     const invoices = billing?.invoices ?? [];
     const trialPurchaseInvoices = invoices.filter((invoice) => isTrialPurchaseInvoice(invoice.status));
     const paidPurchaseInvoices = invoices.filter((invoice) => isPaidPurchaseInvoice(invoice.status));
+    const failedPurchaseInvoices = invoices.filter(
+        (invoice) => invoice.status.toUpperCase() === "FAILED" || invoice.status.toUpperCase() === "CANCELED"
+    );
     const paidUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "PAID");
     const currentUsageStatement: UsageInvoice | null = usage && usage.totalCalls > 0
         ? {
@@ -590,7 +595,7 @@ export default function BusinessBillingUsagePage() {
                                 Paid ({paidPurchaseInvoices.length + paidUsageInvoices.length})
                             </button>
                             <button type="button" role="tab" aria-selected={invoiceTab === "overdue"} onClick={() => setInvoiceTab("overdue")} className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${invoiceTab === "overdue" ? "bg-white text-red-700 shadow-sm" : "text-slate-500"}`}>
-                                Overdue ({overdueUsageInvoices.length})
+                                Overdue ({overdueUsageInvoices.length + failedPurchaseInvoices.length})
                             </button>
                         </div>
                     </div>
@@ -599,7 +604,7 @@ export default function BusinessBillingUsagePage() {
                         <p className="px-6 py-8 text-center text-sm text-slate-400">No trial invoices yet.</p>
                     ) : invoiceTab === "paid" && paidPurchaseInvoices.length + paidUsageInvoices.length === 0 ? (
                         <p className="px-6 py-8 text-center text-sm text-slate-400">No paid invoices yet.</p>
-                    ) : invoiceTab === "overdue" && overdueUsageInvoices.length === 0 ? (
+                    ) : invoiceTab === "overdue" && overdueUsageInvoices.length === 0 && failedPurchaseInvoices.length === 0 ? (
                         <p className="px-6 py-8 text-center text-sm text-slate-400">No overdue invoices.</p>
                     ) : (
                         <div className="overflow-x-auto">
@@ -715,6 +720,42 @@ export default function BusinessBillingUsagePage() {
                                                         {payingInvoiceId === invoice.id ? "Paying…" : "Pay now"}
                                                     </button>
                                                 )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {invoiceTab === "overdue" && failedPurchaseInvoices.map((invoice) => (
+                                        <tr
+                                            key={invoice.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => openInvoice(invoice.id)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    openInvoice(invoice.id);
+                                                }
+                                            }}
+                                            className="cursor-pointer border-b border-red-50 bg-red-50/20 transition last:border-0 hover:bg-red-50/50 focus-visible:bg-red-50/40 focus-visible:outline-none"
+                                        >
+                                            <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-700">{formatDate(invoice.createdAt)}</td>
+                                            <td className="px-6 py-4 text-sm text-slate-700">{invoice.description || NA}</td>
+                                            <td className="px-6 py-4 font-mono text-sm font-semibold tabular-nums text-slate-800">{formatCurrencyCents(invoice.amountCents)}</td>
+                                            <td className="px-6 py-4">
+                                                <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700">
+                                                    Suspended
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        router.push(businessCheckoutPath(invoice.listingId ?? undefined));
+                                                    }}
+                                                    className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600"
+                                                >
+                                                    Pay now
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}

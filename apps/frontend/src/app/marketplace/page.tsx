@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
 import { apiGet } from "@/lib/api";
 import { ASSIGNMENT_PATH } from "@/lib/routes";
+import { Download } from "lucide-react";
 
 type Agent = {
   id: string;
@@ -1378,8 +1379,8 @@ function AgentGridCard({
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">
-        <span className="text-xs text-slate-500" data-testid="marketplace-agent-installs-text">
-          {agent.installs} installs
+        <span className="flex gap-1 items-center text-xs text-slate-500" data-testid="marketplace-agent-installs-text">
+          <Download className="h-3 w-3" />{agent.installs} installs
         </span>
         <span data-testid="app-marketplace-page-span-29" className="truncate text-xs text-slate-500">
           {agent.author}

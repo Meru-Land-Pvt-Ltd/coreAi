@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
+import { ExpandableText } from "@/components/common/expandable-text";
 import { BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 
@@ -384,7 +385,7 @@ function SimilarAgentCard({ agent }: { agent: SimilarListing }) {
           <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600 line-clamp-2">{agent.shortDescription}</p>
         ) : null}
 
-        <a href={`/business/${agent.id}` as Route } className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">View agent <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
+        <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">View agent <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></span>
       </div>
       
     </Link>
@@ -659,9 +660,23 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               {/* Short Description */}
-              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription ? (heroDescription) : agentDescription}</p>
+              {heroDescription ? (
+                <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription}</p>
+              ) : (
+                agentDescription && (
+                  <ExpandableText
+                    text={agentDescription}
+                    className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600"
+                  />
+                )
+              )}
 
-              <p className="mt-4 text-sm leading-relaxed text-slate-600">{heroDescription ? (agentDescription) : null}</p>
+              {heroDescription && agentDescription ? (
+                <ExpandableText
+                  text={agentDescription}
+                  className="mt-4 text-sm leading-relaxed text-slate-600"
+                />
+              ) : null}
 
               {/* Industry Tags */}
               <div className="mt-5 flex flex-wrap items-center gap-2">
