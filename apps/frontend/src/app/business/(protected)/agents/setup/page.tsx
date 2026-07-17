@@ -12,7 +12,6 @@ import {
   validateBuyerSetupAnswers,
   VOICE_PRESETS
 } from "@coreai/shared";
-import { VoicePicker } from "@/components/common/voice-picker";
 import {
   checkMailAliasAvailability,
   disconnectBusinessCalendar,
@@ -1627,6 +1626,7 @@ const connectorsKnown = requiredKeys.length > 0;
           ) : null}
 
           {step === 2 ? (
+            <div className="space-y-6">
             <StepBusiness
               businessName={businessName}
               businessType={businessType}
@@ -1657,9 +1657,12 @@ const connectorsKnown = requiredKeys.length > 0;
               onHoursStart={setHoursStart}
               onHoursEnd={setHoursEnd}
               onToggleDay={(day) => setHoursDays((current) => ({ ...current, [day]: !current[day] }))}
+              onAssistantName={setAssistantName}
+              onVoiceChoice={setVoiceChoice}
+              onCustomVoiceId={setCustomVoiceId}
             />
 
-            {showMail ? (
+            {/* {showMail ? (
               <EmailRecipientsSection
                 recipientType={emailRecipientType}
                 customRecipient={emailCustomRecipient}
@@ -1670,23 +1673,23 @@ const connectorsKnown = requiredKeys.length > 0;
                 onCc={setEmailCc}
                 onBcc={setEmailBcc}
               />
-            ) : null}
+            ) : null} */}
 
             <StepVoice
               title={voiceTitle}
               showVoice={showVoice}
-              assistantName={assistantName}
-              voiceChoice={voiceChoice}
-              customVoiceId={customVoiceId}
               customInstructions={customInstructions}
               silenceRepromptCount={silenceRepromptCount}
               silenceMessage1={silenceMessage1}
               silenceMessage2={silenceMessage2}
               goodbyeMessage={goodbyeMessage}
-              onAssistantName={setAssistantName}
-              onVoiceChoice={setVoiceChoice}
-              onCustomVoiceId={setCustomVoiceId}
+              onCustomInstructions={setCustomInstructions}
+              onSilenceCount={setSilenceRepromptCount}
+              onSilence1={setSilenceMessage1}
+              onSilence2={setSilenceMessage2}
+              onGoodbye={setGoodbyeMessage}
             />
+            </div>
           ) : null}
 
           {step === 3 ? (
@@ -3425,17 +3428,11 @@ function EmailRecipientsSection({
 function StepVoice({
   title,
   showVoice,
-  assistantName,
-  voiceChoice,
-  customVoiceId,
   customInstructions,
   silenceRepromptCount,
   silenceMessage1,
   silenceMessage2,
   goodbyeMessage,
-  onAssistantName,
-  onVoiceChoice,
-  onCustomVoiceId,
   onCustomInstructions,
   onSilenceCount,
   onSilence1,
@@ -3444,17 +3441,11 @@ function StepVoice({
 }: {
   title: string;
   showVoice: boolean;
-  assistantName: string;
-  voiceChoice: string;
-  customVoiceId: string;
   customInstructions: string;
   silenceRepromptCount: number;
   silenceMessage1: string;
   silenceMessage2: string;
   goodbyeMessage: string;
-  onAssistantName: (v: string) => void;
-  onVoiceChoice: (v: string) => void;
-  onCustomVoiceId: (v: string) => void;
   onCustomInstructions: (v: string) => void;
   onSilenceCount: (v: number) => void;
   onSilence1: (v: string) => void;
@@ -3469,68 +3460,6 @@ function StepVoice({
           ? "Choose the AI name, voice, and call behavior your customers will hear."
           : "Tell the AI how to handle conversations for your business."}
       </p>
-
-      {showVoice ? (
-      <div className="mt-6" data-testid="business-setup-assistant-name">
-        <h3 className={SECTION_TITLE}>AI assistant name</h3>
-        <p className="mt-0.5 text-sm text-slate-500">
-          This is the name your AI uses on calls.
-        </p>
-
-        <div className="mt-3">
-          <label className={LABEL} htmlFor="assistant-name">
-            AI assistant name
-          </label>
-
-          <input
-            data-testid="business-setup-input-assistant-name"
-            id="assistant-name"
-            value={assistantName}
-            onChange={(e) => onAssistantName(e.target.value)}
-            placeholder={DEFAULT_ASSISTANT_NAME}
-            className={FIELD}
-          />
-
-          <p className="mt-1 text-xs text-slate-400">
-            Example: “Hello, this is {assistantName.trim() || DEFAULT_ASSISTANT_NAME} from {"{{business name}}"}. How can I help you today?”
-          </p>
-        </div>
-      </div>
-      ) : null}
-
-      {showVoice ? (
-      <div className={SECTION} data-testid="business-setup-voice">
-        <h3 className={SECTION_TITLE}>Voice</h3>
-
-        <div className="mt-3">
-          <VoicePicker
-            accent="orange"
-            testIdPrefix="business-voice-picker"
-            selectedVoice={voiceChoice || PLATFORM_DEFAULT_VOICE_ID}
-            customVoiceId={customVoiceId}
-            subtitle="Architect suggested this voice. Your business can use it or choose another voice before deployment."
-            onSelectDefault={() => {
-              onVoiceChoice(PLATFORM_DEFAULT_VOICE_ID);
-              onCustomVoiceId("");
-            }}
-            onSelectPreset={(preset) => {
-              onVoiceChoice(normalizeVoiceChoice(preset.id));
-              onCustomVoiceId("");
-            }}
-            onCustomVoiceIdChange={(value) => {
-              const nextValue = value.trim();
-
-              onCustomVoiceId(value);
-              onVoiceChoice(nextValue ? "custom" : PLATFORM_DEFAULT_VOICE_ID);
-            }}
-          />
-        </div>
-
-        <p className="mt-2 text-xs text-slate-400">
-          If you do not enter a custom ID, Triven uses {TRIVEN_VOICE_NAME} from ELEVENLABS_DEFAULT_VOICE_ID.
-        </p>
-      </div>
-      ) : null}
 
       <div className={SECTION} data-testid="business-setup-instructions">
         <h3 className={SECTION_TITLE}>Custom instructions</h3>
