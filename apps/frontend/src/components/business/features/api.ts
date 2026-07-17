@@ -204,8 +204,9 @@ export type BusinessCalendarStatus = {
   scopes?: string[];
 };
 
-export function getBusinessSetup() {
-  return apiGet<BusinessSetupData>("/business/setup");
+export function getBusinessSetup(listingId?: string | null) {
+  const url = listingId ? `/business/setup?listingId=${encodeURIComponent(listingId)}` : "/business/setup";
+  return apiGet<BusinessSetupData>(url);
 }
 
 export function saveBusinessSetup(body: BusinessSetupInput) {
@@ -245,9 +246,50 @@ export type TestSmsResult = {
   executionId: string | null;
 };
 
-/** Send one appointment-style test SMS to a consented E.164 number (Step 4). */
-export function sendBusinessTestSms(body: { to: string }) {
+/** Send one real test SMS to a consented E.164 number (optionally with the buyer's own text-back message). */
+export function sendBusinessTestSms(body: { to: string; message?: string }) {
   return apiPost<TestSmsResult>("/business/setup/test-sms", body);
+}
+
+/** Browser preview call session for the setup wizard's Test step. */
+export type BusinessPreviewCallSession = {
+  publicKey: string;
+  assistantId: string;
+  assistantName: string;
+  businessName: string;
+  maxDurationSeconds: number;
+  preview: true;
+};
+
+/** Start a browser preview call against the buyer's configured agent. */
+export function startBusinessSetupPreviewCall() {
+  return apiPost<{ session: BusinessPreviewCallSession }>("/business/setup/preview-call", {});
+}
+
+/* ---- Chat simulation (setup Test step) ---- */
+
+export type BusinessChatTestMessage = {
+  role: "user" | "assistant";
+  content: string;
+  createdAt?: string;
+};
+
+export type BusinessChatTestToolCall = {
+  name: string;
+  status: "simulated" | "skipped" | "error";
+  message: string;
+};
+
+export type BusinessChatTestResult = {
+  reply: string;
+  transcript: BusinessChatTestMessage[];
+  toolCalls: BusinessChatTestToolCall[];
+  simulated: true;
+};
+
+/** One turn of the setup chat simulation — real agent logic, dry-run tools. */
+export function runBusinessSetupChatTest(body: { message: string; history?: BusinessChatTestMessage[] }) {
+  return apiPost<BusinessChatTestResult>("/business/setup/test-conversation", body);
 }
 
 /* ---- Mail Setup (proxy email alias on reply.triven.ai) ---- */

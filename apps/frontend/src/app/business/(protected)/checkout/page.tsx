@@ -15,6 +15,7 @@ import {
     businessPaymentSuccessPath,
     businessSetupPath
 } from "@/lib/routes";
+import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
 
 type CheckoutWorkflowNode = {
     data?: {
@@ -512,9 +513,9 @@ function getIncludedItems(listing: CheckoutListing) {
         .filter((value): value is string => Boolean(value?.trim()));
 
     const fromConnectors = (listing.requiredConnectors ?? []).map(
-        (connector) => `${connector} integration`
+        (connector) => getConnectorIncludedItem(connector)
     );
-    const fromLlms = (listing.supportedLlms ?? []).map((llm) => `${llm} support`);
+    const fromLlms = (listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm));
 
     const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
 
@@ -644,6 +645,7 @@ export default function BusinessCheckoutPage() {
 
     const isFree = listingAccess?.pricingModel === "FREE";
     const trialDays = listingAccess?.trialDays ?? 7;
+    const freeTrialEnabled = listingAccess?.freeTrialEnabled ?? true;
     const trialDate = useMemo(() => formatTrialDate(trialDays), [trialDays]);
     const selectedCountry = useMemo(
         () => countries.find((country) => country.countryCode === countryCode) ?? countries[0],
@@ -671,9 +673,9 @@ export default function BusinessCheckoutPage() {
 
     const futureAmount = payTotal;
     const canPayNow = listingAccess?.canPayNow ?? (
-        listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false
+        listingAccess ? (listingAccess.trialUsed || !freeTrialEnabled || trialDays <= 0) && !listingAccess.hasActiveAccess : false
     );
-    const isPurchaseMode = usageMode || canPayNow || isFree;
+    const isPurchaseMode = usageMode || canPayNow || isFree || !freeTrialEnabled || trialDays <= 0;
     const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
     const checkoutBlocked = !usageMode && hasActiveAccess && !canPayNow;
     const dueTodayAmount = isFree ? 0 : (isPurchaseMode ? payTotal : 0);
@@ -686,7 +688,7 @@ export default function BusinessCheckoutPage() {
         ? "Install Agent"
         : isPurchaseMode
             ? `Pay $${payTotal.toFixed(2)}`
-            : "Start free trial";
+            : `Start ${trialDays}-day free trial`;
 
     const formReady =
         authReady &&
@@ -936,7 +938,8 @@ export default function BusinessCheckoutPage() {
                     agent: listingName,
                     amount: isPurchaseMode ? payTotal : basePrice,
                     email,
-                    mode: isPurchaseMode ? "purchase" : "trial"
+                    mode: isPurchaseMode ? "purchase" : "trial",
+                    trialDays: trialDays ?? undefined
                 })
             );
             return;
@@ -972,7 +975,8 @@ export default function BusinessCheckoutPage() {
                         listingId,
                         agent: listingName,
                         amount: isPurchaseMode ? payTotal : basePrice,
-                        mode: isPurchaseMode ? "purchase" : "trial"
+                        mode: isPurchaseMode ? "purchase" : "trial",
+                        trialDays: trialDays ?? undefined
                     })
                 );
                 return;
@@ -984,7 +988,8 @@ export default function BusinessCheckoutPage() {
                     agent: listingName,
                     amount: isPurchaseMode ? payTotal : basePrice,
                     email,
-                    mode: isPurchaseMode ? "purchase" : "trial"
+                    mode: isPurchaseMode ? "purchase" : "trial",
+                    trialDays: trialDays ?? undefined
                 })
             );
         } catch {
@@ -1397,6 +1402,7 @@ export default function BusinessCheckoutPage() {
                     onDashboard={() => router.push(BUSINESS_MARKETPLACE_PATH)}
                     pricingModel={listingAccess?.pricingModel}
                     trialDays={listingAccess?.trialDays}
+                    freeTrialEnabled={listingAccess?.freeTrialEnabled}
                 />
             )}
 
@@ -1699,7 +1705,19 @@ function OrderSummary({
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">
-                        <PriceRow label={isUsageMode ? "Usage amount" : "Agent price"} value={pricingModel === "FREE" ? "Free" : `$${priceLabel}`} />
+                        <PriceRow 
+                            label={isUsageMode ? "Usage amount" : pricingModel === "FREE" ? "Free" : pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"} 
+                            value={pricingModel === "FREE" ? "Free" : `$${priceLabel}${pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`} 
+                        />
+                        {pricingModel === "FREE" && (
+                            <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Pay only for usage</p>
+                        )}
+                        {pricingModel === "ONE_TIME" && (
+                            <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Usage charges apply separately</p>
+                        )}
+                        {pricingModel === "SUBSCRIPTION" && (
+                            <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Usage charges billed separately</p>
+                        )}
                         {phoneFeeAmount > 0 ? (
                             <PriceRow
                                 label={phoneFeeLabel ?? "AI Receptionist No."}
@@ -1747,9 +1765,11 @@ function OrderSummary({
                             ? "This invoice covers usage already consumed. Payment is due immediately."
                             : isPurchaseMode
                             ? pricingModel === "ONE_TIME"
-                                ? "This is a one-time purchase. No future charges or renewals."
-                                : "Your subscription begins today. You'll be billed monthly on this date."
-                            : `Your ${trialDays}-day free trial starts now. You won't be charged until ${trialDate}.`}
+                                ? "This is a one-time purchase. No future agent fees; usage charges apply separately."
+                                : "Your subscription begins today. Billed monthly on this date. Usage charges billed separately."
+                            : pricingModel === "ONE_TIME"
+                            ? `Your ${trialDays}-day free trial starts now. You won't be charged the one-time purchase fee until ${trialDate}. Usage charges apply separately.`
+                            : `Your ${trialDays}-day free trial starts now. You won't be charged the subscription fee until ${trialDate}. Usage charges billed separately.`}
                     </p>
                 </div>
 
@@ -1788,7 +1808,8 @@ function ConfirmationView({
     onSetup,
     onDashboard,
     pricingModel = "subscription",
-    trialDays = 7
+    trialDays = 7,
+    freeTrialEnabled = true
 }: {
     email: string;
     agentName: string;
@@ -1796,6 +1817,7 @@ function ConfirmationView({
     onDashboard: () => void;
     pricingModel?: string | null;
     trialDays?: number | null;
+    freeTrialEnabled?: boolean | null;
 }) {
     return (
         <main className="fade-up mx-auto max-w-2xl px-5 py-14 text-center sm:py-16">
@@ -1811,17 +1833,22 @@ function ConfirmationView({
 
             {pricingModel === "FREE" ? (
                 <p className="mt-4 text-sm text-slate-500">
-                    Your free agent is installed. We&apos;ll send setup instructions to{" "}
+                    Your free agent is installed. Pay only for usage as you go. We&apos;ll send setup instructions to{" "}
                     <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
                 </p>
             ) : pricingModel === "ONE_TIME" ? (
                 <p className="mt-4 text-sm text-slate-500">
-                    Your one-time purchase is complete. We&apos;ll send setup instructions to{" "}
+                    Your one-time purchase is complete. Ongoing usage charges apply separately. We&apos;ll send setup instructions to{" "}
+                    <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
+                </p>
+            ) : freeTrialEnabled && (trialDays ?? 7) > 0 ? (
+                <p className="mt-4 text-sm text-slate-500" data-testid="business-protected-checkout-your-7-day-free-trial-has-started-text">
+                    Your {trialDays}-day free trial has started. Ongoing usage charges are billed separately. We&apos;ll send setup instructions to{" "}
                     <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
                 </p>
             ) : (
-                <p className="mt-4 text-sm text-slate-500" data-testid="business-protected-checkout-your-7-day-free-trial-has-started-text">
-                    Your {trialDays}-day free trial has started. We&apos;ll send setup instructions to{" "}
+                <p className="mt-4 text-sm text-slate-500">
+                    Your monthly subscription is active. Ongoing usage charges are billed separately. We&apos;ll send setup instructions to{" "}
                     <span className="font-medium text-slate-600" data-testid="business-protected-checkout-email-text-2">{email}</span>.
                 </p>
             )}

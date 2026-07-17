@@ -33,6 +33,7 @@ import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } f
 import { readProfilePhotoFile } from "@/lib/profile-photo";
 import { BUSINESS_BILLING_PATH } from "@/lib/routes";
 import { requestSignedDpa } from "@/lib/dpa";
+import { BusinessPageHeader } from "@/components/business/business-page-header";
 
 type SettingsTab =
   | "profile"
@@ -1071,12 +1072,11 @@ export function BusinessSettingsView() {
   return (
     <div className="min-h-screen bg-gray-50 text-slate-900">
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
-        <div className="mb-6 lg:mb-8">
-          <h1 className="text-xl font-extrabold tracking-tight text-slate-900" data-testid="business-settings-title">
-            Settings
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">Manage your account, security, and preferences.</p>
-        </div>
+        <BusinessPageHeader
+          eyebrow="Configure"
+          title="Settings"
+          description="Manage your account, security, and preferences."
+        />
 
         <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start lg:gap-8">
           <nav

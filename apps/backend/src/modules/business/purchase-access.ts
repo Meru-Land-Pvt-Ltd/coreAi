@@ -69,7 +69,7 @@ export async function hasAnyAgentAcquisition(userId: string): Promise<boolean> {
  * "active" for every new row, so status alone proves nothing — an actual
  * Stripe subscription id must also be present.
  */
-async function hasLegacyActiveSubscription(userId: string): Promise<boolean> {
+export async function hasLegacyActiveSubscription(userId: string): Promise<boolean> {
   const businesses = await prisma.business.findMany({
     where: { ownerId: userId, stripeSubscriptionId: { not: null } },
     select: { subscriptionStatus: true }

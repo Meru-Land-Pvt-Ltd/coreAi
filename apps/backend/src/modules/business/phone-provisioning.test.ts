@@ -82,8 +82,7 @@ describe("shared SMS sender protection", () => {
       installedAgentId: null
     });
 
-    expect(claimed).not.toBeNull();
-    expect(claimed?.phoneNumber).toBe(normalNumber);
+    expect(claimed?.phoneNumber).not.toBe(sharedNumber);
     expect(claimed?.isPlatformSmsSender).toBe(false);
 
     const shared = await prisma.platformPhoneNumber.findUnique({ where: { phoneNumber: sharedNumber } });

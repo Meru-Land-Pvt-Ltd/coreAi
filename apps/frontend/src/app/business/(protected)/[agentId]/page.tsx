@@ -3,10 +3,12 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
-import { BUSINESS_MARKETPLACE_PATH, BUSINESS_AGENTS_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
+import { BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
+import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -111,6 +113,7 @@ type ApiListing = {
   name: string;
   shortDescription?: string;
   description?: string | null;
+  fullDescription?: string | null;
   tagline?: string | null;
   priceCents?: number | null;
   pricingModel?: string | null;
@@ -143,6 +146,26 @@ type ListingAccess = {
 
 type ListingApiResponse = {
   listing?: ApiListing;
+};
+
+type SimilarListing = {
+  id: string;
+  name: string;
+  shortDescription?: string;
+  priceCents?: number | null;
+  pricingModel?: string | null;
+  category?: string | null;
+  tags?: string[];
+  industryTags?: string[];
+  iconUrl?: string | null;
+  freeTrialEnabled?: boolean;
+  trialDays?: number;
+  installCount?: number;
+  architect?: ApiArchitect | null;
+};
+
+type SimilarListingsApiResponse = {
+  listings?: SimilarListing[];
 };
 
 function formatLabel(value: string) {
@@ -200,6 +223,10 @@ function getListingTags(listing: ApiListing): string[] {
   );
 }
 
+/**
+ * "Everything this agent does" — the agent's capabilities/features as defined by the architect.
+ * Uses includedFeatures first, then workflow nodes, then connectors, then description fallback.
+ */
 function getWorkflowFeatures(listing: ApiListing) {
   const fromFeatures = (listing.includedFeatures ?? [])
     .map((feature) => feature.trim())
@@ -216,31 +243,57 @@ function getWorkflowFeatures(listing: ApiListing) {
 
   const connectors = listing.requiredConnectors ?? [];
   if (connectors.length) {
-    return connectors.map((connector) => `Integrates with ${connector}`);
+    return connectors.map((connector) => getConnectorIncludedItem(connector));
   }
 
   return [
     listing.shortDescription ||
-      listing.description ||
-      listing.workflow?.description ||
-      "Automates business workflows with AI."
+    listing.description ||
+    listing.workflow?.description ||
+    "Automates business workflows with AI."
   ];
 }
 
+/**
+ * "What's included" — the actual deliverables bundled with the agent.
+ * Deliberately uses DIFFERENT source than getWorkflowFeatures to avoid duplication.
+ * Priority: connectors + LLMs (integrations) + static included items.
+ * Does NOT use includedFeatures (those go into "Everything this agent does").
+ */
 function getIncludedItems(listing: ApiListing) {
-  const fromFeatures = (listing.includedFeatures ?? [])
-    .map((feature) => feature.trim())
-    .filter(Boolean);
-  if (fromFeatures.length) return fromFeatures;
+  const items: string[] = [];
 
-  const items = [
-    ...(listing.requiredConnectors ?? []).map((connector) => `${connector} integration`),
-    ...(listing.supportedLlms ?? []).map((llm) => `${llm} support`),
-    "Real-time workflow automation",
-    "Business-specific configuration"
-  ];
+  // Connector integrations
+  for (const connector of listing.requiredConnectors ?? []) {
+    items.push(getConnectorIncludedItem(connector));
+  }
+
+  // LLM support
+  for (const llm of listing.supportedLlms ?? []) {
+    items.push(getLlmIncludedItem(llm));
+  }
+
+  // Always-included items
+  items.push("Real-time workflow automation");
+  items.push("Business-specific configuration");
+  items.push("Dedicated AI agent instance");
+  items.push("Ongoing feature updates");
 
   return Array.from(new Set(items));
+}
+
+/**
+ * The long-form agent description shown in the "About this agent" section.
+ * Uses fullDescription first (architect's detailed write-up), then description, then shortDescription.
+ */
+function getAgentDescription(listing: ApiListing): string {
+  return (
+    listing.fullDescription?.trim() ||
+    listing.description?.trim() ||
+    listing.shortDescription?.trim() ||
+    listing.workflow?.description?.trim() ||
+    ""
+  );
 }
 
 function ArrowIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -285,86 +338,56 @@ function StarIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-function PhoneIcon({ className = "h-5 w-5" }: { className?: string }) {
+function BotIcon({ className = "h-8 w-8" }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 5a2 2 0 0 1 2-2h2l2 5-2 1a11 11 0 0 0 5 5l1-2 5 2v2a2 2 0 0 1-2 2A16 16 0 0 1 3 5z" />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="10" rx="2" />
+      <path d="M12 11V7" />
+      <circle cx="12" cy="5" r="2" />
+      <path d="M8 15h0M16 15h0" strokeWidth="2.5" />
     </svg>
   );
 }
 
-function PhoneMockup({ agentName }: { agentName: string }) {
+/** Card for a similar agent in the recommendations section. */
+function SimilarAgentCard({ agent }: { agent: SimilarListing }) {
+  const price = Math.round((agent.priceCents ?? 0) / 100);
+  const pricingModel = agent.pricingModel ?? "SUBSCRIPTION";
+  const category = agent.category ? formatLabel(agent.category) : (agent.industryTags?.[0] ? formatLabel(agent.industryTags[0]) : "AI Agent");
+  const iconUrl = agent.iconUrl?.trim() || null;
+
   return (
-    <div className="relative">
-      <div className="pointer-events-none absolute -inset-6 -z-10 rounded-[3rem] bg-[radial-gradient(60%_60%_at_50%_40%,rgba(245,158,11,0.12),transparent_70%)]" />
+    
+    <Link
+      href={`/business/${agent.id}` as Route}
+      data-testid={`similar-agent-card-${agent.id}`}
+    >
 
-      <div className="mx-auto w-full max-w-[320px] animate-float">
-        <div className="rounded-[2.5rem] border border-gray-200 bg-white p-2.5 shadow-2xl">
-          <div className="overflow-hidden rounded-[2rem] bg-gray-50">
-            <div className="flex items-center justify-between px-5 pb-1 pt-3 text-[10px] font-semibold text-slate-500">
-              <span data-testid="business-protected-agents-9-41-text">9:41</span>
-              <span className="inline-flex items-center gap-1" aria-hidden="true">
-                5G
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 border-b border-gray-100 bg-white px-4 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700">
-                AI
-              </span>
-              <div className="min-w-0">
-                <div className="truncate text-xs font-semibold text-slate-900">{agentName}</div>
-                <div className="text-[10px] text-slate-500">Text Message · SMS</div>
-              </div>
-            </div>
-
-            <div className="space-y-3 px-4 py-4">
-              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-500">
-                  <PhoneIcon className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-900">Missed call</div>
-                  <div className="truncate text-[11px] text-slate-500">{agentName} · just now</div>
-                </div>
-              </div>
-
-              <div className="flex">
-                <div className="max-w-[82%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm">
-                  Hi! Sorry we missed your call. How can we help you today?
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <div className="max-w-[82%] rounded-2xl rounded-br-md bg-amber-500 px-3 py-2 text-[12px] font-medium leading-snug text-slate-950 shadow-sm">
-                  I need to book an appointment
-                </div>
-              </div>
-
-              <div className="flex">
-                <div className="max-w-[86%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm">
-                  I&apos;d be happy to help! Here are our available slots this week.
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Automated by CORE · replied in 5s
-              </div>
-            </div>
-          </div>
+      <div className="flex w-[280px] shrink-0 snap-start flex-col rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition duration-200 hover:shadow-md md:w-auto">
+        <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
+          {agent.iconUrl ? <img src={agent.iconUrl} alt="" className="h-full w-full object-fill" /> : "🤖"}
+        </span>
+        <h3 className="mt-4 text-lg font-semibold text-slate-900">{agent.name}</h3>
+        <div>
+          {pricingModel === "FREE" ? (
+            <span className="font-medium text-slate-500">Free</span>
+          ) : (
+            <span className="mt-1 text-sm font-bold text-amber-600">
+              ${price}
+              {pricingModel === "SUBSCRIPTION" ? (
+                <span className="font-medium text-slate-500">/month</span>
+              ) : null}
+            </span>
+          )}
         </div>
+        {agent.shortDescription ? (
+          <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600 line-clamp-2">{agent.shortDescription}</p>
+        ) : null}
+
+        <a href={`/business/${agent.id}` as Route } className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">View agent <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg></a>
       </div>
-    </div>
+      
+    </Link>
   );
 }
 
@@ -374,14 +397,9 @@ export default function BusinessAgentDetailPage() {
 
   const [listing, setListing] = useState<ApiListing | null>(null);
   const [listingAccess, setListingAccess] = useState<ListingAccess | null>(null);
+  const [similarListings, setSimilarListings] = useState<SimilarListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
-  const [techOpen, setTechOpen] = useState(false);
-  const [demoOpen, setDemoOpen] = useState(false);
-  const [stickyShown, setStickyShown] = useState(false);
-
-  const heroCtaRef = useRef<HTMLAnchorElement | null>(null);
-  const demoRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!agentId) return;
@@ -451,46 +469,38 @@ export default function BusinessAgentDetailPage() {
   }, [agentId, listing]);
 
   useEffect(() => {
-    const cta = heroCtaRef.current;
+    if (!agentId || !listing) return;
 
-    if (!cta || !("IntersectionObserver" in window)) {
-      const onScroll = () => setStickyShown(window.scrollY > 700);
-      window.addEventListener("scroll", onScroll, { passive: true });
-      onScroll();
-      return () => window.removeEventListener("scroll", onScroll);
+    let mounted = true;
+
+    async function loadSimilarListings() {
+      try {
+        const response = await apiGet<SimilarListingsApiResponse>(`/architect/listings/public/${agentId}/similar?limit=3`);
+
+        if (!mounted) return;
+
+        if (response.success && response.data?.listings) {
+          setSimilarListings(response.data.listings);
+        }
+      } catch {
+        // Similar agents failing silently is acceptable
+      }
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          setStickyShown(!entry.isIntersecting && entry.boundingClientRect.top < 0);
-        });
-      },
-      { threshold: 0 }
-    );
+    loadSimilarListings();
 
-    observer.observe(cta);
-
-    return () => observer.disconnect();
-  }, [listing]);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setDemoOpen(false);
-    }
-
-    document.addEventListener("keydown", onKeyDown);
-
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+    return () => {
+      mounted = false;
+    };
+  }, [agentId, listing]);
 
   const category = useMemo(() => (listing ? getListingCategory(listing) : ""), [listing]);
   const tags = useMemo(() => (listing ? getListingTags(listing) : []), [listing]);
   const features = useMemo(() => (listing ? getWorkflowFeatures(listing) : []), [listing]);
   const includedItems = useMemo(() => (listing ? getIncludedItems(listing) : []), [listing]);
+  const agentDescription = useMemo(() => (listing ? getAgentDescription(listing) : ""), [listing]);
 
   const price = listing ? Math.round((listing.priceCents ?? 0) / 100) : 0;
-  const rating = listing?.architect?.architectProfile?.rating ?? 0;
   const installs = listing?.installCount ?? 0;
   const author =
     listing?.architect?.fullName ||
@@ -498,47 +508,70 @@ export default function BusinessAgentDetailPage() {
     listing?.architect?.email ||
     "Core AI Architect";
 
-  const pricingModel = listingAccess?.pricingModel ?? "subscription";
-  const freeTrialEnabled = listingAccess?.freeTrialEnabled ?? true;
-  const trialDays = listingAccess?.trialDays ?? 7;
+  // Only apply pricing model / trial info AFTER listingAccess has loaded.
+  // Do NOT default freeTrialEnabled=true or trialDays=7 to avoid showing
+  // "Start 0-Day Free Trial" or wrong trial text before data arrives.
+  const pricingModel = listingAccess?.pricingModel ?? listing?.pricingModel ?? "SUBSCRIPTION";
+  const freeTrialEnabled = listingAccess ? (listingAccess.freeTrialEnabled ?? false) : false;
+  const trialDays = listingAccess ? (listingAccess.trialDays ?? 0) : 0;
 
-  const canStartTrial = pricingModel !== "FREE" && freeTrialEnabled && (listingAccess?.canStartTrial ?? true);
+  // Trial is only available when: listingAccess is loaded AND freeTrialEnabled AND trialDays > 0 AND canStartTrial
+  const canStartTrial =
+    listingAccess !== null &&
+    pricingModel !== "FREE" &&
+    freeTrialEnabled &&
+    trialDays > 0 &&
+    listingAccess.canStartTrial;
+
   const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
-  const shouldPayNow = listingAccess ? listingAccess.trialUsed && !listingAccess.hasActiveAccess : false;
+
+  // shouldPayNow: user has no active access AND can't start a trial
+  const shouldPayNow = listingAccess
+    ? !hasActiveAccess && !canStartTrial
+    : false;
 
   const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
-  const managePath = listing ? businessSetupPath(listing.id) : BUSINESS_AGENTS_PATH;
+  const managePath = listing ? businessSetupPath(listing.id) : "/business/agents";
 
+  // CTA label logic per spec:
+  // - hasActiveAccess → "Manage agent"
+  // - FREE → "Start Using This Agent"
+  // - canStartTrial → "Start Free Trial"
+  // - no trial, paid → "Buy This Agent"
   const primaryCtaLabel = hasActiveAccess
     ? "Manage agent"
-    : shouldPayNow
-      ? `Pay $${price}`
-      : pricingModel === "FREE"
-        ? "Install Agent"
-        : `Start ${trialDays}-Day Free Trial`;
+    : pricingModel === "FREE"
+      ? "Start Using This Agent"
+      : canStartTrial
+        ? `Start ${trialDays}-Day Free Trial`
+        : "Buy This Agent";
 
   const primaryCtaHref = hasActiveAccess ? managePath : checkoutPath;
   const primaryCtaTestId = hasActiveAccess
     ? "agent-detail-manage-agent"
-    : shouldPayNow
-      ? "agent-detail-pay-now"
-      : "agent-detail-start-trial";
+    : canStartTrial
+      ? "agent-detail-start-trial"
+      : "agent-detail-pay-now";
 
-  const description =
+  // Pricing subtext per spec
+  const pricingSubtext = (() => {
+    if (pricingModel === "FREE") return "Free to install · Pay only for usage";
+    if (hasActiveAccess) return pricingModel === "ONE_TIME"
+      ? "One-time purchase · active on your account · Usage charges apply"
+      : "Monthly subscription · active on your account · Usage charges billed separately";
+    if (pricingModel === "ONE_TIME") return "One-time purchase · Usage charges apply";
+    return "Monthly subscription · Usage charges billed separately";
+  })();
+
+  // Short description for hero
+  const heroDescription =
     listing?.shortDescription ||
     listing?.tagline ||
     listing?.description ||
     listing?.workflow?.description ||
     "";
-  const iconUrl = listing?.iconUrl?.trim() || null;
 
-  function scrollToDemo() {
-    setDemoOpen(false);
-    demoRef.current?.scrollIntoView({
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      block: "center"
-    });
-  }
+  const iconUrl = listing?.iconUrl?.trim() || null;
 
   if (isLoading) {
     return (
@@ -575,6 +608,7 @@ export default function BusinessAgentDetailPage() {
     <div className="agent-detail-root min-h-screen bg-white text-slate-600">
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
+      {/* Breadcrumb */}
       <div className="border-b border-gray-100 bg-white">
         <nav className="mx-auto max-w-6xl px-6 py-3 text-sm" aria-label="Breadcrumb">
           <ol className="flex flex-wrap items-center gap-2 text-slate-500">
@@ -594,23 +628,27 @@ export default function BusinessAgentDetailPage() {
       </div>
 
       <main>
+        {/* Hero Section */}
         <section className="relative px-6 pb-16 pt-12">
           <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(245,158,11,0.08),rgba(255,255,255,0)_72%)]" />
 
           <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-5 lg:items-start">
+            {/* Left: Agent Info + CTA */}
             <div className="order-2 lg:order-1 lg:col-span-3">
+              {/* Agent Icon */}
               <div className="relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-amber-500 shadow-glow">
                 {iconUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- icons may be data URLs
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img src={iconUrl} alt="" className="h-full w-full object-cover" />
                 ) : (
-                  <PhoneIcon className="h-8 w-8 text-slate-950" />
+                  <BotIcon className="h-8 w-8 text-slate-950" />
                 )}
                 <span className="absolute -right-1.5 -top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-amber-400 ring-2 ring-white">
                   ⚡
                 </span>
               </div>
 
+              {/* Agent Title + Category */}
               <div className="mt-5 flex flex-wrap items-center gap-3">
                 <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
                   {listing.name}
@@ -620,8 +658,12 @@ export default function BusinessAgentDetailPage() {
                 </span>
               </div>
 
-              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{description}</p>
+              {/* Short Description */}
+              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription ? (heroDescription) : agentDescription}</p>
 
+              <p className="mt-4 text-sm leading-relaxed text-slate-600">{heroDescription ? (agentDescription) : null}</p>
+
+              {/* Industry Tags */}
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 {tags.length > 0 ? (
                   tags.map((tag) => (
@@ -637,20 +679,31 @@ export default function BusinessAgentDetailPage() {
                 ) : null}
               </div>
 
-              <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-slate-600">
-                Built by{" "}
-                <span className="inline-flex items-center gap-1 font-semibold text-slate-900">
-                  {author} <span className="text-amber-500">✓</span>
+              {/* Author + Install Count */}
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-slate-600">
+                <span className="inline-flex items-center gap-1.5">
+                  Built by{" "}
+                  <span className="inline-flex items-center gap-1 font-semibold text-slate-900">
+                    {author} <span className="text-amber-500">✓</span>
+                  </span>
                 </span>
+                {installs > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-slate-500">
+                    <span className="font-semibold text-slate-700">{installs}</span> installs
+                  </span>
+                ) : null}
               </div>
 
+              {/* Pricing Card */}
               <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                {canStartTrial ? (
+                {/* Trial badge — only show when trial is actually available */}
+                {canStartTrial && trialDays > 0 ? (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
                     ⚡ $0 for the first {trialDays} days
                   </span>
                 ) : null}
 
+                {/* Price Display */}
                 <div className="mt-3 flex items-baseline gap-2">
                   {pricingModel === "FREE" ? (
                     <span className="text-4xl font-extrabold tracking-tight text-slate-900">Free</span>
@@ -661,26 +714,23 @@ export default function BusinessAgentDetailPage() {
                         <span className="text-lg font-medium text-slate-500">
                           /month
                         </span>
+                      ) : pricingModel === "ONE_TIME" ? (
+                        <span className="text-lg font-medium text-slate-500">
+                          one-time
+                        </span>
                       ) : null}
                     </>
                   )}
                 </div>
 
+                {/* Pricing Subtext */}
                 <p className="mt-0.5 text-xs text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
-                  {pricingModel === "FREE" ? (
-                    hasActiveAccess ? "free agent · active on your account" : "free agent · get access instantly"
-                  ) : (
-                    canStartTrial
-                      ? "per business location · billed after your free trial"
-                      : shouldPayNow
-                        ? "per business location · one-time purchase"
-                        : "per business location · active on your account"
-                  )}
+                  {pricingSubtext}
                 </p>
 
+                {/* CTA Button */}
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <Link
-                    ref={heroCtaRef}
                     id="hero-cta"
                     href={primaryCtaHref}
                     data-testid={primaryCtaTestId}
@@ -691,43 +741,91 @@ export default function BusinessAgentDetailPage() {
                   </Link>
                 </div>
 
-                {canStartTrial ? (
+                {/* After-trial price note — only when trial is available */}
+                {canStartTrial && trialDays > 0 ? (
                   <p className="mt-3 text-xs text-slate-500">
-                    No credit card required to start. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
+                    No credit card required to start.{" "}
+                    ${price}{pricingModel === "ONE_TIME" ? " one-time purchase (Usage charges apply separately)" : "/month subscription (Usage charges billed separately)"} after trial.
                   </p>
                 ) : null}
 
+                {/* Demo Call Widget */}
                 {!hasActiveAccess && listing ? (
                   <AgentDemoCall listingId={listing.id} listingName={listing.name} />
                 ) : null}
               </div>
 
-              {canStartTrial ? (
-              <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
-                {[`${trialDays}-day free trial`, "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
-                  <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
-                    <CheckIcon className="h-4 w-4 text-emerald-500" />
-                    {item}
-                  </span>
-                ))}
-              </div>
+              {/* Trial Benefits — only when trial is available */}
+              {canStartTrial && trialDays > 0 ? (
+                <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
+                  {[`${trialDays}-day free trial`, "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
+                    <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                      <CheckIcon className="h-4 w-4 text-emerald-500" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
               ) : null}
             </div>
 
-            <div ref={demoRef} id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
-              <PhoneMockup agentName={listing.name} />
+            {/* Right: Agent Preview */}
+            <div id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
+              <AgentWorkflowPreview listing={listing} />
             </div>
           </div>
         </section>
 
+        {/* How It Works Section */}
+        <section className="bg-gray-50 px-6 py-16 sm:py-20">
+          <div className="mx-auto max-w-6xl">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">How It Works</h2>
+              <p className="mt-3 text-lg text-slate-600">
+                {getHowItWorksSubtitle(listing.requiredConnectors, listing.workflow?.workflowJson)}
+              </p>
+            </div>
+
+            <div className="relative mt-14">
+              <div className="absolute top-7 hidden border-t-2 border-dashed border-amber-300 md:block" style={{ left: "16.66%", right: "16.66%" }}></div>
+              <div className="relative grid gap-10 md:grid-cols-3">
+                {getHowItWorksSteps(listing.requiredConnectors, listing.workflow?.workflowJson).map((step) => (
+                  <div key={step.step} className="text-center">
+                    <div className="relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-lg font-bold text-slate-950 shadow-glow-sm ring-4 ring-gray-50">
+                      {step.step}
+                    </div>
+                    <h3 className="mt-5 text-lg font-semibold text-slate-900">{step.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{step.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Key Metrics Section */}
+        <section className="px-6 py-16 sm:py-20">
+          <div id="metrics" className="mx-auto grid max-w-2xl gap-5 sm:grid-cols-2">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+              <div className="text-4xl font-extrabold tracking-tight text-amber-600">5 sec</div>
+              <div className="mt-2 text-sm text-slate-600">Average response time</div>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+              <div className="text-4xl font-extrabold tracking-tight text-amber-600">24/7</div>
+              <div className="mt-2 text-sm text-slate-600">Always active, never sleeps</div>
+            </div>
+          </div>
+        </section>
+
+        {/* What this agent does (Architect Description) */}
         <section className="bg-gray-50 px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-6xl">
             <SectionHeader
-              title="Everything this agent does"
-              description="Built to automate your workflow and keep customer conversations moving."
+              title="What this agent does"
+              description={heroDescription}
             />
 
-            <div className="mt-12 grid gap-4 sm:grid-cols-2">
+            {/* Features Grid */}
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
               {features.map((feature) => (
                 <div
                   key={feature}
@@ -743,9 +841,10 @@ export default function BusinessAgentDetailPage() {
           </div>
         </section>
 
+        {/* What's included */}
         <section className="px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-3xl">
-            <SectionHeader title="What's included" description="One flat price. No usage caps on anything that matters." />
+            <SectionHeader title="What&apos;s included" description="Everything bundled with your agent subscription." />
 
             <div className="mt-10 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
               <ul className="divide-y divide-gray-100">
@@ -760,63 +859,25 @@ export default function BusinessAgentDetailPage() {
           </div>
         </section>
 
-        <section className="px-6 py-16 sm:py-20">
-          <div className="mx-auto max-w-3xl">
-            <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
-              <button
-                type="button"
-                onClick={() => setTechOpen((current) => !current)}
-                aria-expanded={techOpen}
-                data-testid="agent-detail-tech-toggle"
-                className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
-              >
-                <span className="text-lg font-semibold text-slate-900" data-testid="business-protected-agents-technical-details-text">Technical Details</span>
-                <svg
-                  className={`h-5 w-5 text-slate-400 transition ${techOpen ? "rotate-180" : ""}`}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </button>
+        {/* Similar Agents */}
+        {similarListings.length > 0 ? (
+          <section className="bg-gray-50 px-6 py-16 sm:py-20">
+            <div className="mx-auto max-w-6xl">
+              <SectionHeader
+                title="Similar agents"
+                description="Other agents you might find useful for your business."
+              />
 
-              <div className={`overflow-hidden px-6 transition-all duration-300 ${techOpen ? "max-h-[600px]" : "max-h-0"}`}>
-                <dl className="grid gap-x-8 gap-y-5 border-t border-gray-100 py-6 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Connectors used</dt>
-                    <dd className="mt-1 text-slate-700">
-                      {(listing.requiredConnectors ?? []).length
-                        ? listing.requiredConnectors?.join(", ")
-                        : "Configured during setup"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Supported LLMs</dt>
-                    <dd className="mt-1 text-slate-700">
-                      {(listing.supportedLlms ?? []).length
-                        ? listing.supportedLlms?.join(", ")
-                        : "Configured during setup"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow</dt>
-                    <dd className="mt-1 text-slate-700">{listing.workflow?.name ?? "Custom workflow"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</dt>
-                    <dd className="mt-1 text-slate-700">{listing.status?.replace(/_/g, " ") ?? "Available"}</dd>
-                  </div>
-                </dl>
+              <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {similarListings.map((agent) => (
+                  <SimilarAgentCard key={agent.id} agent={agent} />
+                ))}
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
 
+        {/* Bottom CTA */}
         <section id="bottom-cta" className="scroll-mt-24 px-6 py-16 sm:py-20">
           <div className="relative mx-auto max-w-4xl overflow-hidden rounded-3xl border border-amber-200 bg-amber-50 px-6 py-14 text-center shadow-glow sm:px-12">
             <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(50%_70%_at_50%_0%,rgba(245,158,11,0.12),transparent_70%)]" />
@@ -829,95 +890,21 @@ export default function BusinessAgentDetailPage() {
             <div className="mt-8">
               <Link
                 href={primaryCtaHref}
-                data-testid={hasActiveAccess ? "agent-detail-bottom-manage-agent" : shouldPayNow ? "agent-detail-bottom-pay-now" : "agent-detail-bottom-start-trial"}
+                data-testid={hasActiveAccess ? "agent-detail-bottom-manage-agent" : canStartTrial ? "agent-detail-bottom-start-trial" : "agent-detail-bottom-pay-now"}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-9 py-4 text-lg font-semibold text-slate-950 shadow-glow-lg transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
               >
                 {primaryCtaLabel}
                 <ArrowIcon className="h-5 w-5" />
               </Link>
             </div>
-            {canStartTrial ? (
-            <p className="mt-5 text-sm text-slate-500">
-              No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
-            </p>
+            {canStartTrial && trialDays > 0 ? (
+              <p className="mt-5 text-sm text-slate-500">
+                No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
+              </p>
             ) : null}
           </div>
         </section>
       </main>
-
-      {/* <div
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 px-6 py-3 shadow-lg backdrop-blur-md transition-all duration-300"
-        style={{
-          opacity: stickyShown ? 1 : 0,
-          transform: stickyShown ? "translateY(0)" : "translateY(0.5rem)",
-          pointerEvents: stickyShown ? "auto" : "none"
-        }}
-      >
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{listing.name}</p>
-            <p className="truncate text-xs text-slate-500">
-              Start free — $0 for 7 days, then ${price}/mo
-            </p>
-          </div>
-
-          <Link
-            href={checkoutPath}
-            data-testid="agent-detail-sticky-start-trial"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-glow-sm transition duration-200 hover:scale-[1.03] hover:bg-amber-400"
-          >
-            Start Free Trial
-            <ArrowIcon className="hidden h-4 w-4 sm:block" />
-          </Link>
-        </div>
-      </div> */}
-
-      {demoOpen ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setDemoOpen(false);
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="demo-title"
-            className="relative w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl"
-          >
-            <button
-              type="button"
-              onClick={() => setDemoOpen(false)}
-              data-testid="agent-detail-demo-close"
-              className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-gray-100 hover:text-slate-900"
-              aria-label="Close"
-            >
-              ✕
-            </button>
-
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-500 text-slate-950 shadow-glow">
-              ▶
-            </div>
-
-            <h2 id="demo-title" className="mt-5 text-2xl font-bold tracking-tight text-slate-900" data-testid="business-protected-agents-see-the-agent-in-action-heading">
-              See the agent in action
-            </h2>
-
-            <p className="mx-auto mt-2 max-w-sm text-slate-600">
-              Scroll up to watch the live preview on the phone mockup.
-            </p>
-
-            <button
-              type="button"
-              onClick={scrollToDemo}
-              data-testid="agent-detail-view-preview"
-              className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-slate-950 transition duration-200 hover:bg-amber-400"
-            >
-              View the live preview
-            </button>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -930,3 +917,6 @@ function SectionHeader({ title, description }: { title: string; description?: st
     </div>
   );
 }
+
+
+

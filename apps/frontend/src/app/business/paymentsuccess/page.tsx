@@ -101,6 +101,8 @@ function BusinessPaymentSuccessContent() {
     const agentName = searchParams.get("agent") || "Your AI Agent";
     const amountParam = Number(searchParams.get("amount"));
     const amount = Number.isFinite(amountParam) && amountParam >= 0 ? amountParam : null;
+    const trialDaysParam = searchParams.get("trialDays");
+    const trialDays = trialDaysParam ? Number(trialDaysParam) : 7;
     const email = searchParams.get("email") || "your email";
     const paymentMode = resolvePaymentMode(searchParams, amount);
     const isTrial = paymentMode === "trial";
@@ -209,7 +211,7 @@ function BusinessPaymentSuccessContent() {
                         </h1>
                         <p className="rise mx-auto mt-2 max-w-md text-base text-slate-600 sm:text-lg" style={{ animationDelay: ".28s" }} data-testid="payment-success-subtitle">
                             {isTrial
-                                ? "Thank you. Your 7-day free trial has started and your agent is ready to be set up."
+                                ? `Thank you. Your ${trialDays}-day free trial has started and your agent is ready to be set up.`
                                 : `Thank you. Your payment of $${displayAmount.toFixed(2)} was processed and your agent is ready to be set up.`}
                         </p>
                     </div>
@@ -273,7 +275,7 @@ function BusinessPaymentSuccessContent() {
                                         <div className="flex items-center justify-between gap-4">
                                             <dt className="text-slate-500">Due today</dt>
                                             <dd className="font-medium text-emerald-700" data-testid="payment-success-due-today">
-                                                $0.00 — free for 7 days
+                                                $0.00 — free for {trialDays} days
                                             </dd>
                                         </div>
                                     </>
@@ -325,18 +327,16 @@ function BusinessPaymentSuccessContent() {
                         <li className="rise grid grid-cols-[16px_1fr] gap-x-4" style={{ animationDelay: ".75s" }}>
                             <div className="flex flex-col items-center">
                                 <span
-                                    className={`mt-1 block h-3.5 w-3.5 rounded-full ${isTrial ? "dot-current bg-amber-500 ring-4 ring-amber-100" : "bg-white ring-2 ring-slate-300"}`}
+                                    className="mt-1 block h-3.5 w-3.5 rounded-full dot-current bg-amber-500 ring-4 ring-amber-100"
                                 />
                                 <span className="mt-1.5 w-px flex-1 bg-slate-200" aria-hidden="true" />
                             </div>
                             <div className="pb-7">
                                 <div className="flex items-center gap-2">
-                                    <h3 className={`font-semibold ${isTrial ? "text-slate-900" : "text-slate-500"}`}>Set up your agent</h3>
-                                    {isTrial ? (
-                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Current</span>
-                                    ) : null}
+                                    <h3 className="font-semibold text-slate-900">Set up your agent</h3>
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Current</span>
                                 </div>
-                                <p className={`mt-1 text-sm ${isTrial ? "text-slate-600" : "text-slate-500"}`}>
+                                <p className="mt-1 text-sm text-slate-600">
                                     Configure your agent with your business details. Takes about 5 minutes.
                                 </p>
                             </div>
@@ -345,18 +345,15 @@ function BusinessPaymentSuccessContent() {
                         <li className="rise grid grid-cols-[16px_1fr] gap-x-4" style={{ animationDelay: ".85s" }}>
                             <div className="flex flex-col items-center">
                                 <span
-                                    className={`mt-1 block h-3.5 w-3.5 rounded-full ${!isTrial ? "dot-current bg-amber-500 ring-4 ring-amber-100" : "bg-white ring-2 ring-slate-300"}`}
+                                    className="mt-1 block h-3.5 w-3.5 rounded-full bg-white ring-2 ring-slate-300"
                                 />
                                 <span className="mt-1.5 w-px flex-1 bg-slate-200" aria-hidden="true" />
                             </div>
                             <div className="pb-7">
                                 <div className="flex items-center gap-2">
-                                    <h3 className={`font-semibold ${!isTrial ? "text-slate-900" : "text-slate-500"}`}>Agent goes live</h3>
-                                    {!isTrial ? (
-                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Current</span>
-                                    ) : null}
+                                    <h3 className="font-semibold text-slate-500">Agent goes live</h3>
                                 </div>
-                                <p className={`mt-1 text-sm ${!isTrial ? "text-slate-600" : "text-slate-500"}`}>
+                                <p className="mt-1 text-sm text-slate-500">
                                     Your agent starts handling tasks automatically.
                                 </p>
                             </div>
@@ -375,47 +372,29 @@ function BusinessPaymentSuccessContent() {
                 </section>
 
                 <section className="mt-9">
-                    {isTrial ? (
-                        <>
-                            <div className="rise" style={{ animationDelay: "1s" }}>
-                                <button
-                                    type="button"
-                                    onClick={() => router.push(businessSetupPath(listingId ?? undefined))}
-                                    data-testid="payment-success-setup-agent"
-                                    className="cta cta-pulse btn-glow group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-4 text-base font-semibold text-slate-900 transition-colors hover:bg-amber-600"
-                                >
-                                    Set up your agent
-                                    <svg className="cta-arrow h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                        <path d="M5 12h14m0 0-5-5m5 5-5 5" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="rise mt-3 text-center" style={{ animationDelay: "1.1s" }}>
-                                <button
-                                    type="button"
-                                    onClick={() => router.push(BUSINESS_DASHBOARD_PATH)}
-                                    data-testid="payment-success-skip"
-                                    className="rounded text-sm text-slate-500 underline decoration-slate-300 underline-offset-2 transition-colors hover:text-slate-700 hover:decoration-slate-500"
-                                >
-                                    Skip for now — set up later from your dashboard
-                                </button>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="rise" style={{ animationDelay: "1s" }}>
-                            <button
-                                type="button"
-                                onClick={() => router.push(BUSINESS_DASHBOARD_PATH)}
-                                data-testid="payment-success-go-dashboard"
-                                className="cta cta-pulse btn-glow group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-4 text-base font-semibold text-slate-900 transition-colors hover:bg-amber-600"
-                            >
-                                Go to dashboard
-                                <svg className="cta-arrow h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M5 12h14m0 0-5-5m5 5-5 5" />
-                                </svg>
-                            </button>
-                        </div>
-                    )}
+                    <div className="rise" style={{ animationDelay: "1s" }}>
+                        <button
+                            type="button"
+                            onClick={() => router.push(businessSetupPath(listingId ?? undefined))}
+                            data-testid="payment-success-setup-agent"
+                            className="cta cta-pulse btn-glow group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-4 text-base font-semibold text-slate-900 transition-colors hover:bg-amber-600"
+                        >
+                            Set up your agent
+                            <svg className="cta-arrow h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M5 12h14m0 0-5-5m5 5-5 5" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div className="rise mt-3 text-center" style={{ animationDelay: "1.1s" }}>
+                        <button
+                            type="button"
+                            onClick={() => router.push(BUSINESS_DASHBOARD_PATH)}
+                            data-testid="payment-success-skip"
+                            className="rounded text-sm text-slate-500 underline decoration-slate-300 underline-offset-2 transition-colors hover:text-slate-700 hover:decoration-slate-500"
+                        >
+                            Skip for now — set up later from your dashboard
+                        </button>
+                    </div>
                 </section>
 
                 <section className="rise mt-9" style={{ animationDelay: "1.2s" }} aria-label="Receipt">

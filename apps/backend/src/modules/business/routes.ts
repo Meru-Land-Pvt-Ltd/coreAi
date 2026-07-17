@@ -32,11 +32,17 @@ import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
-import { Prisma } from "@prisma/client";
+import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
 import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
-import { deployInstalledAgentVoiceAssistant } from "./deploy";
+import {
+  buildInstalledAgentChatTestSetup,
+  deployInstalledAgentVoiceAssistant,
+  SetupPreviewCallError,
+  startInstalledAgentPreviewCall
+} from "./deploy";
+import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
 import {
   autoProvisionPhoneNumber,
   findBuyerPlatformNumber,
@@ -798,6 +804,101 @@ businessRoutes.post("/marketplace/listings/:listingId/demo-call", async (c) => {
   }
 });
 
+const chatTestMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(4000),
+  createdAt: z.string().optional()
+});
+
+const chatTestSchema = z.object({
+  message: z.string().min(1).max(2000),
+  history: z.array(chatTestMessageSchema).max(30).optional()
+});
+
+// Chat simulation for the setup wizard's Test step — runs the buyer's real
+// workflow + business config through the shared agent runtime with dry-run
+// providers (booking/SMS simulated, nothing real is sent).
+businessRoutes.post("/setup/test-conversation", async (c) => {
+  const authUser = c.get("authUser");
+
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = chatTestSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return errorResponse(c, "Invalid test message payload", 422, "VALIDATION_ERROR");
+  }
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+
+  if (!business) {
+    return errorResponse(c, "Create your business profile first (Configure step of setup).", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const chatSetup = await buildInstalledAgentChatTestSetup(business.id);
+
+  if (!chatSetup) {
+    return errorResponse(c, "Save your setup with an installed agent before testing.", 422, "TEST_NOT_AVAILABLE");
+  }
+
+  try {
+    const result = await runArchitectConversationTest({
+      userId: authUser.id,
+      workflowId: chatSetup.workflowId,
+      workflowJson: chatSetup.workflowJson,
+      message: parsed.data.message,
+      history: parsed.data.history,
+      testContext: chatSetup.context
+    });
+
+    return successResponse(c, {
+      reply: result.reply,
+      transcript: result.transcript,
+      toolCalls: result.toolCalls,
+      simulated: true
+    });
+  } catch (error) {
+    console.error("[setup-chat-test] failed", error);
+    return errorResponse(c, "Could not run the test conversation.", 500, "TEST_FAILED");
+  }
+});
+
+businessRoutes.post("/setup/preview-call", async (c) => {
+  const authUser = c.get("authUser");
+
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+
+  if (!business) {
+    return errorResponse(c, "Create your business profile first (Configure step of setup).", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  try {
+    const session = await startInstalledAgentPreviewCall(business.id);
+    return successResponse(c, { session }, "Preview call ready");
+  } catch (error) {
+    if (error instanceof SetupPreviewCallError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    console.error("[setup-preview] failed", error);
+    return errorResponse(c, "Could not start the preview call.", 500, "PREVIEW_FAILED");
+  }
+});
+
 businessRoutes.post("/setup/test-call-routing", async (c) => {
   const authUser = c.get("authUser");
 
@@ -817,32 +918,52 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       include: {
         profile: true,
         phoneNumbers: includeActivePhoneNumbers(),
-        installedAgents: { orderBy: { createdAt: "desc" }, take: 1 }
+        installedAgents: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: { workflow: { select: { workflowJson: true } } }
+        }
       }
     }),
     getGmailConnectionStatus(authUser.id)
   ]);
+
+  // Calendar checks apply only when the agent's workflow actually uses a
+  // calendar node — mirrors the dynamic gating in the setup wizard. Unknown
+  // workflow keeps the checks (safe fallback).
+  const testWorkflowJson = business?.installedAgents?.[0]?.workflow?.workflowJson ?? null;
+  const testConnectorKeys = new Set(
+    testWorkflowJson ? requiredConnectorsForWorkflow(testWorkflowJson).map((req) => req.connector) : []
+  );
+  const calendarRequired =
+    testConnectorKeys.size === 0 || testConnectorKeys.has("google_calendar") || testConnectorKeys.has("gmail");
 
   const environmentChecks = [
     {
       key: "business_found",
       label: "Business profile complete",
       ok: Boolean(business && business.name && business.type),
-      message: business ? undefined : "Save your business name and type in Step 1."
+      message: business ? undefined : "Save your business name and type in the Configure step."
     },
-    {
-      key: "calendar_connected",
-      label: "Google Calendar connected",
-      ok: calendar.connected,
-      message: calendar.connected ? undefined : "Connect Google Calendar in Step 2 so the agent can book appointments."
-    },
+    ...(calendarRequired
+      ? [
+        {
+          key: "calendar_connected",
+          label: "Google Calendar connected",
+          ok: calendar.connected,
+          message: calendar.connected
+            ? undefined
+            : "Connect Google Calendar in the Connect step so the agent can book appointments."
+        }
+      ]
+      : []),
     {
       key: "timezone_set",
       label: "Calendar timezone selected",
       ok: Boolean(business?.profile?.timeZone),
       message: business?.profile?.timeZone
         ? `Timezone: ${normalizeTimeZone(business.profile.timeZone)}`
-        : "Pick a calendar timezone in Step 2."
+        : "Pick a calendar timezone in the Connect step."
     },
     {
       key: "backend_url_public",
@@ -922,7 +1043,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
           key: "number_selected",
           label: "A Triven number is selected",
           ok: false,
-          message: "Select a Triven number in Step 2."
+          message: "Select a Triven number in the Connect step."
         }
       ]
     });
@@ -960,12 +1081,19 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       label: "Installed agent exists and is ACTIVE",
       ok: Boolean(installedAgent && installedAgent.status === "ACTIVE")
     },
-    { key: "vapi_assistant", label: "Vapi assistant id exists", ok: diagnostics.hasVapiAssistantId },
+    {
+      key: "vapi_assistant",
+      label: "Vapi assistant id exists",
+      ok: diagnostics.hasVapiAssistantId,
+      message: diagnostics.hasVapiAssistantId
+        ? undefined
+        : "Created when you deploy in the Go live step — deploy, then re-test."
+    },
     {
       key: "answering_mode_set",
       label: "Answering mode is set",
       ok: Boolean(diagnostics.routingMode),
-      message: diagnostics.routingMode ? `Mode: ${diagnostics.routingMode}` : "Choose an answering mode in Step 2."
+      message: diagnostics.routingMode ? `Mode: ${diagnostics.routingMode}` : "Choose an answering mode in the Connect step."
     },
     { key: "answering_mode", label: "Answering mode allows answering", ok: diagnostics.aiWouldAnswer },
     { key: "resolver", label: "Twilio resolver can resolve this number", ok: diagnostics.resolved }
@@ -1021,14 +1149,22 @@ businessRoutes.post("/setup/test-sms", async (c) => {
 
   const businessName = business?.name || "your business";
   const businessPhone = business?.phoneNumbers?.[0]?.phoneNumber ?? "";
-  const message = [
-    `Hi there,`,
-    ``,
-    `This is a test of your ${businessName} appointment confirmations from Triven.`,
-    ``,
-    ...(businessPhone ? [`For assistance call ${businessPhone}.`, ``] : []),
-    `Reply STOP to opt out.`
-  ].join("\n");
+
+  // Optional custom text — the wizard's missed-call simulation sends the
+  // buyer's configured text-back message. Capped, and always suffixed with
+  // the opt-out line for compliance.
+  const customMessage = typeof body.message === "string" ? body.message.trim().slice(0, 320) : "";
+
+  const message = customMessage
+    ? `${customMessage}\n\nSent by Triven (test). Reply STOP to opt out.`
+    : [
+      `Hi there,`,
+      ``,
+      `This is a test of your ${businessName} appointment confirmations from Triven.`,
+      ``,
+      ...(businessPhone ? [`For assistance call ${businessPhone}.`, ``] : []),
+      `Reply STOP to opt out.`
+    ].join("\n");
 
   const outcome = await sendTrackedSms({
     to,
@@ -1075,10 +1211,16 @@ type SetupChecklistItem = {
   blocker?: string;
 };
 
-function buildSetupReadiness(business: LoadedBusiness | null, calendarConnected: boolean) {
+function buildSetupReadiness(
+  business: LoadedBusiness | null,
+  calendarConnected: boolean,
+  listingId?: string | null
+) {
   const profile = business?.profile ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
-  const installedAgent = business?.installedAgents?.[0] ?? null;
+  const installedAgent = listingId
+    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
+    : business?.installedAgents?.[0] ?? null;
   const workflowJson = installedAgent?.workflow?.workflowJson ?? null;
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
@@ -1162,11 +1304,17 @@ function buildSetupReadiness(business: LoadedBusiness | null, calendarConnected:
   return { requiredConnectors, checklist, readyToDeploy, blockers };
 }
 
-function serializeSetup(business: LoadedBusiness | null, calendar: { connected: boolean; email: string | null }) {
+function serializeSetup(
+  business: LoadedBusiness | null,
+  calendar: { connected: boolean; email: string | null },
+  listingId?: string | null
+) {
   const profile = business?.profile ?? null;
   const phone = business?.phoneNumbers?.[0] ?? null;
-  const installedAgent = business?.installedAgents?.[0] ?? null;
-  const readiness = buildSetupReadiness(business, calendar.connected);
+  const installedAgent = listingId
+    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
+    : business?.installedAgents?.[0] ?? null;
+  const readiness = buildSetupReadiness(business, calendar.connected, listingId);
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
 
@@ -1340,7 +1488,7 @@ businessRoutes.post("/mail-setup", async (c) => {
       include: { installedAgents: { orderBy: { createdAt: "desc" }, take: 1 } }
     });
     if (!business) {
-      return errorResponse(c, "Create your business profile first (Step 1 of setup).", 404, "BUSINESS_NOT_FOUND");
+      return errorResponse(c, "Create your business profile first (Configure step of setup).", 404, "BUSINESS_NOT_FOUND");
     }
 
     const result = await createOrUpdateBusinessEmailAlias({
@@ -1400,6 +1548,7 @@ businessRoutes.post("/mail-setup/test-email", async (c) => {
 
 businessRoutes.get("/setup", async (c) => {
   const authUser = c.get("authUser");
+  const listingId = c.req.query("listingId")?.trim() || null;
 
   const [business, calendar] = await Promise.all([
     loadBusinessForOwner(authUser.id),
@@ -1409,7 +1558,7 @@ businessRoutes.get("/setup", async (c) => {
   const phoneOptions = await loadPhoneOptions(business?.id ?? null);
 
   return successResponse(c, {
-    ...serializeSetup(business, calendar),
+    ...serializeSetup(business, calendar, listingId),
     ...phoneOptions
   });
 });
@@ -1488,12 +1637,9 @@ businessRoutes.post("/setup", async (c) => {
       listingId: input.listingId || undefined
     });
 
-    const agentForAccessCheck =
-      existing?.installedAgents?.find(
-        (agent) => input.listingId && agent.listingId === input.listingId
-      ) ??
-      existing?.installedAgents?.[0] ??
-      null;
+    const agentForAccessCheck = input.listingId
+      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
+      : existing?.installedAgents?.[0] ?? null;
 
     const setupAccess = await canBusinessRunSetup({
       userId: authUser.id,
@@ -1630,14 +1776,11 @@ businessRoutes.post("/setup", async (c) => {
       }
     };
 
-    const existingAgent =
-      existing?.installedAgents?.find(
-        (agent) => resolved.listingId && agent.listingId === resolved.listingId
-      ) ??
-      existing?.installedAgents?.[0] ??
-      null;
+    const existingAgent = resolved.listingId
+      ? existing?.installedAgents?.find((agent) => agent.listingId === resolved.listingId) ?? null
+      : existing?.installedAgents?.[0] ?? null;
 
-    let installedAgent;
+    let installedAgent: InstalledAgent;
     if (existingAgent) {
       installedAgent = await prisma.installedAgent.update({
         where: { id: existingAgent.id },
@@ -1645,7 +1788,6 @@ businessRoutes.post("/setup", async (c) => {
           workflowId: resolved.workflow.id,
           listingId: resolved.listingId ?? undefined,
           name: resolved.workflow.name,
-          status: "ACTIVE",
           configJson: configJson as never
         }
       });
@@ -1657,7 +1799,7 @@ businessRoutes.post("/setup", async (c) => {
             workflowId: resolved.workflow.id,
             listingId: resolved.listingId ?? undefined,
             name: resolved.workflow.name,
-            status: "ACTIVE",
+            status: "PROVISIONING",
             configJson: configJson as never
           }
         });
@@ -1678,7 +1820,6 @@ businessRoutes.post("/setup", async (c) => {
           data: {
             workflowId: resolved.workflow.id,
             name: resolved.workflow.name,
-            status: "ACTIVE",
             configJson: configJson as never
           }
         });
@@ -1857,9 +1998,10 @@ businessRoutes.post("/setup", async (c) => {
 
       const prevConfig = (installedAgent.configJson as Record<string, unknown> | null) ?? {};
 
-      await prisma.installedAgent.update({
+      installedAgent = await prisma.installedAgent.update({
         where: { id: installedAgent.id },
         data: {
+          status: "ACTIVE",
           configJson: {
             ...prevConfig,
             vapiAssistantId: deployedVapiAssistantId
@@ -1875,7 +2017,9 @@ businessRoutes.post("/setup", async (c) => {
 
     const phoneOptions = await loadPhoneOptions(refreshed?.id ?? null);
 
-    const refreshedAgent = refreshed?.installedAgents?.[0] ?? null;
+    const refreshedAgent = input.listingId
+      ? refreshed?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
+      : refreshed?.installedAgents?.[0] ?? null;
     const refreshedConfig = (refreshedAgent?.configJson ?? null) as Record<string, unknown> | null;
 
     const responseVapiAssistantId =
@@ -1889,7 +2033,7 @@ businessRoutes.post("/setup", async (c) => {
     return successResponse(
       c,
       {
-        ...serializeSetup(refreshed, calendar),
+        ...serializeSetup(refreshed, calendar, input.listingId),
         installedAgentId: refreshedAgent?.id ?? installedAgent.id,
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
         vapiAssistantId: responseVapiAssistantId,
