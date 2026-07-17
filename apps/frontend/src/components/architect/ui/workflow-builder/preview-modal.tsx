@@ -8,14 +8,15 @@ export function PreviewModal({
   greeting = "",
   agentPurpose = "",
   canBook = true,
-  canText = true
+  canText = true,
+  bookingSlots = []
 }: {
   open: boolean;
   onClose: () => void;
   businessName?: string;
   /** Assistant name from the workflow's voice node. */
   assistantName?: string;
-  /** First message from the workflow's voice node (template tokens stripped). */
+  /** First message from the workflow's voice node (template tokens resolved). */
   greeting?: string;
   /** Listing tagline/short description — shapes the sample answer. */
   agentPurpose?: string;
@@ -23,6 +24,8 @@ export function PreviewModal({
   canBook?: boolean;
   /** Whether the workflow actually has an SMS node/trigger. */
   canText?: boolean;
+  /** Real availability slots from the latest calendar test run, when present. */
+  bookingSlots?: string[];
 }) {
   if (!open) return null;
 
@@ -40,6 +43,9 @@ export function PreviewModal({
     `Hi! ${assistantName ? `This is ${assistantName} from ` : "Thanks for reaching out to "}${businessName}. How can I help you today?`;
 
   const userMessage = canBook ? "Hi! Can I book an appointment?" : "Hi! Can you tell me more about your services?";
+
+  const resolvedSlots =
+    bookingSlots.length > 0 ? bookingSlots : ["Tomorrow - 10:30 AM", "Tomorrow - 3:00 PM"];
 
   const botReply = canBook
     ? "Of course! Here are our next openings - tap one to confirm:"
@@ -99,12 +105,23 @@ export function PreviewModal({
               <div className="flex">
                 <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm" data-testid="preview-modal-reply">
                   {botReply}
-                  {canBook ? (
-                    <>
-                      <span className="mt-2 block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600" data-testid="architect-ui-workflow-builder-preview-modal-tomorrow-10-30-am-text">Tomorrow - 10:30 AM</span>
-                      <span className="mt-1.5 block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600" data-testid="architect-ui-workflow-builder-preview-modal-tomorrow-3-00-pm-text">Tomorrow - 3:00 PM</span>
-                    </>
-                  ) : null}
+                  {canBook
+                    ? resolvedSlots.map((slot, index) => (
+                        <span
+                          key={`${slot}-${index}`}
+                          className={`${index === 0 ? "mt-2" : "mt-1.5"} block rounded-lg border border-amber-100 bg-white px-3 py-1.5 font-medium text-amber-600`}
+                          data-testid={
+                            index === 0
+                              ? "architect-ui-workflow-builder-preview-modal-tomorrow-10-30-am-text"
+                              : index === 1
+                                ? "architect-ui-workflow-builder-preview-modal-tomorrow-3-00-pm-text"
+                                : `preview-modal-booking-slot-${index}`
+                          }
+                        >
+                          {slot}
+                        </span>
+                      ))
+                    : null}
                 </div>
               </div>
             </div>
