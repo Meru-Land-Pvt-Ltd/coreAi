@@ -4,6 +4,7 @@ import { app } from "./app";
 import { prisma } from "./lib/prisma";
 import { initProviderEngine } from "./modules/ai-provider-engine/provider-engine";
 import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
+import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
 
 const server = serve(
   {
@@ -14,11 +15,15 @@ const server = serve(
     console.log(`CoreAI backend running on http://localhost:${info.port}`);
     await initProviderEngine();
     startBillingScheduler();
+    startEarningReleaseWorker();
   }
 );
 
 async function shutdown(signal: string) {
   console.log(`${signal} received. Shutting down gracefully...`);
+
+  stopBillingScheduler();
+  stopEarningReleaseWorker();
 
   await prisma.$disconnect();
 
@@ -35,4 +40,3 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   void shutdown("SIGTERM");
 });
-  stopBillingScheduler();

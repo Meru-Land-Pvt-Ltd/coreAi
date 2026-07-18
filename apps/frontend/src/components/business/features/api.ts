@@ -179,6 +179,7 @@ export type BusinessSetupData = {
   selectedPlatformPhoneNumberId?: string | null;
   installedAgentId?: string | null;
   vapiAssistantId?: string | null;
+  triggerKind?: any;
 };
 
 export type CallRoutingCheck = {
@@ -204,6 +205,9 @@ export type MarketplaceListing = {
   shortDescription: string;
   requiredConnectors: string[];
   workflowId: string | null;
+  /** The workflow graph — used to derive trigger kind for setup page UX. */
+  workflowJson?: unknown;
+  workflow?: any;
   /** Architect-defined setup fields the buyer fills in during install. */
   requiredBuyerSetup?: BuyerSetupFieldDef[] | null;
   /** Architect's setup notes shown to the buyer above the agent-specific fields. */
@@ -234,6 +238,92 @@ export function saveBusinessSetup(body: BusinessSetupInput) {
  */
 export function getMarketplaceListing(listingId: string) {
   return apiGet<{ listing: MarketplaceListing }>(`/architect/listings/public/${listingId}`);
+}
+
+export function sendPhoneOtp(listingId: string, phone: string) {
+  return apiPost<{ sent: boolean; devCode?: string }>("/setup/send-otp", { listingId, phone });
+}
+
+export function verifyPhoneOtp(listingId: string, phone: string, code: string) {
+  return apiPost<{
+    verified: boolean;
+    verifiedPhone: string;
+    platformNumber: string | null;
+    platformPhoneNumberId: string | null;
+    /** true → the buyer must pick a location and confirm a number next. */
+    numberSelectionRequired?: boolean;
+    businessId: string;
+    installedAgentId: string;
+  }>("/setup/verify-otp", { listingId, phone, code });
+}
+
+/* ---- Location-based phone number provisioning ---- */
+
+export type PhoneLocationCountry = {
+  code: string;
+  name: string;
+  supportsRegionSearch: boolean;
+  regions: Array<{ code: string; name: string; cities: string[] }>;
+};
+
+export function getPhoneLocations() {
+  return apiGet<{ countries: PhoneLocationCountry[]; note: string }>("/business/phone-numbers/locations");
+}
+
+export type AvailablePhoneNumber = {
+  phoneNumber: string;
+  friendlyName: string;
+  country: string;
+  region: string | null;
+  locality: string | null;
+  capabilities: { voice: boolean; sms: boolean; mms: boolean };
+  numberType: "LOCAL";
+  feeCents: number;
+  feeLabel: string;
+  regulatoryNote: string | null;
+  checkedAt: string;
+};
+
+export type PhoneNumberSearchResult = {
+  numbers: AvailablePhoneNumber[];
+  exactMatchAvailable: boolean;
+  matchLevel: "EXACT_CITY" | "SAME_STATE" | "NATIONAL";
+  fallbackOptions: Array<"NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE">;
+  smsRequired: boolean;
+};
+
+export function searchBusinessPhoneNumbers(body: {
+  installedAgentId?: string;
+  country: string;
+  state?: string;
+  city?: string;
+}) {
+  return apiPost<PhoneNumberSearchResult>("/business/phone-numbers/search", body);
+}
+
+export type PhonePurchaseOutcome = {
+  status: string;
+  requestId: string;
+  phoneNumber: string | null;
+  alreadyCompleted: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+export function purchaseBusinessPhoneNumber(body: {
+  installedAgentId?: string;
+  clientRequestId: string;
+  phoneNumber: string;
+  country: string;
+  state?: string;
+  city?: string;
+  fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE";
+}) {
+  return apiPost<PhonePurchaseOutcome>("/business/phone-numbers/purchase", body);
+}
+
+export function getPhoneProvisioningStatus(clientRequestId: string) {
+  return apiGet<PhonePurchaseOutcome>(`/business/phone-numbers/provisioning/${encodeURIComponent(clientRequestId)}`);
 }
 
 /** Available CoreAI/platform phone numbers the buyer can select (Step 2). */
@@ -294,16 +384,45 @@ export type BusinessChatTestToolCall = {
   message: string;
 };
 
+export type BusinessTestCalendarEvent = {
+  testEventId?: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  timeZone: string;
+  htmlLink: string | null;
+  status: "SIMULATED" | "CREATED";
+  description?: string;
+};
+
 export type BusinessChatTestResult = {
   reply: string;
   transcript: BusinessChatTestMessage[];
   toolCalls: BusinessChatTestToolCall[];
   simulated: true;
+  executionMode?: "BUSINESS_TEST";
+  timeZone?: string | null;
+  testSessionId?: string | null;
+  /** Real, clearly-marked test event created on the connected calendar. */
+  calendarEvent?: BusinessTestCalendarEvent | null;
+  /** This turn's booking failure (e.g. CALENDAR_NOT_CONNECTED) — actionable. */
+  calendarError?: { code: string; message: string; remediation: string } | null;
+  configError?: { code: string; message: string; remediation: string } | null;
 };
 
-/** One turn of the setup chat simulation — real agent logic, dry-run tools. */
-export function runBusinessSetupChatTest(body: { message: string; history?: BusinessChatTestMessage[] }) {
+/** One turn of the setup chat test — real agent logic; bookings create marked
+ * [TRIVEN BUSINESS TEST] events on the connected business calendar. */
+export function runBusinessSetupChatTest(body: {
+  message: string;
+  history?: BusinessChatTestMessage[];
+  testSessionId?: string;
+}) {
   return apiPost<BusinessChatTestResult>("/business/setup/test-conversation", body);
+}
+
+/** Delete a business test calendar event (ownership-validated, idempotent). */
+export function deleteBusinessTestEvent(testEventId: string) {
+  return apiPost<{ outcome: string }>(`/business/setup/test-events/${encodeURIComponent(testEventId)}/delete`, {});
 }
 
 /* ---- Mail Setup (proxy email alias on reply.triven.ai) ---- */

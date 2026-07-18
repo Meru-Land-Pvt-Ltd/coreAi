@@ -11,6 +11,8 @@ export type CreateWorkflowRunInput = {
   businessId?: string;
   installedAgentId?: string;
   mode: "test" | "live";
+  /** Explicit execution mode; when set it wins over the legacy `mode` mapping. */
+  executionMode?: "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" | "LIVE";
   threadId?: string;
   inputJson?: Record<string, unknown>;
   metadataJson?: Record<string, unknown>;
@@ -29,7 +31,7 @@ export async function createWorkflowRun(input: CreateWorkflowRunInput): Promise<
       triggeredByUserId: input.triggeredByUserId,
       businessId: input.businessId,
       installedAgentId: input.installedAgentId,
-      mode: input.mode === "live" ? "LIVE" : "TEST",
+      mode: input.executionMode ?? (input.mode === "live" ? "LIVE" : "ARCHITECT_DRY_RUN"),
       status: "RUNNING",
       threadId,
       inputJson: input.inputJson as Prisma.InputJsonValue | undefined,

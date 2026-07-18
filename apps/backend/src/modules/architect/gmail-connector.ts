@@ -4,11 +4,9 @@ import { env } from "../../config/env";
 import { encryptSecret, decryptSecret } from "../../lib/crypto";
 import { prisma } from "../../lib/prisma";
 
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/calendar.events"
+const GOOGLE_CONNECT_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/userinfo.email"
 ];
 
 export type GmailEmail = {
@@ -162,8 +160,7 @@ export function createGmailOAuthUrl(userId: string, redirectPath?: string) {
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
-    include_granted_scopes: true,
-    scope: GMAIL_SCOPES,
+    scope: GOOGLE_CONNECT_SCOPES,
     state
   });
 }
@@ -183,14 +180,12 @@ export async function handleGmailOAuthCallback({
 
   oauth2Client.setCredentials(tokens);
 
-  const gmail = google.gmail({
-    version: "v1",
+  const oauth2 = google.oauth2({
+    version: "v2",
     auth: oauth2Client
   });
 
-  const profile = await gmail.users.getProfile({
-    userId: "me"
-  });
+  const profile = await oauth2.userinfo.get();
 
   const existingCredential = await prisma.connectorCredential.findUnique({
     where: {
@@ -217,7 +212,7 @@ export async function handleGmailOAuthCallback({
       }
     },
     update: {
-      externalAccountEmail: profile.data.emailAddress ?? null,
+      externalAccountEmail: profile.data.email ?? null,
       accessTokenEnc,
       refreshTokenEnc,
       scope: tokens.scope ?? existingCredential?.scope ?? null,
@@ -229,7 +224,7 @@ export async function handleGmailOAuthCallback({
     create: {
       userId,
       provider: "GMAIL",
-      externalAccountEmail: profile.data.emailAddress ?? null,
+      externalAccountEmail: profile.data.email ?? null,
       accessTokenEnc,
       refreshTokenEnc,
       scope: tokens.scope ?? null,
@@ -240,7 +235,7 @@ export async function handleGmailOAuthCallback({
 
   return {
     userId,
-    email: profile.data.emailAddress ?? null,
+    email: profile.data.email ?? null,
     redirectPath
   };
 }
@@ -266,8 +261,6 @@ export async function getGmailConnectionStatus(userId: string) {
     provider: "GMAIL",
     expiresAt: credential?.expiresAt?.toISOString() ?? null,
     scopes,
-    // One Google connect powers Gmail + Calendar; calendar works only when the
-    // granted scopes include calendar.events (older connects may lack it).
     calendarConnected: connected && scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE)
   };
 }

@@ -151,9 +151,20 @@ export async function recordVapiCallUsage({
   const installedAgent = installedAgentId
     ? await prisma.installedAgent.findFirst({
         where: { id: installedAgentId, businessId },
-        select: { id: true, listingId: true }
+        select: { id: true, listingId: true, configJson: true }
       })
     : null;
+
+  // Explicit test exclusion: sandbox/test installed agents are never billable,
+  // regardless of whether the owner also has a purchased agent.
+  const agentConfig =
+    installedAgent?.configJson && typeof installedAgent.configJson === "object" && !Array.isArray(installedAgent.configJson)
+      ? (installedAgent.configJson as Record<string, unknown>)
+      : {};
+  if (agentConfig.testMode === true || agentConfig.executionMode === "ARCHITECT_DRY_RUN" || agentConfig.executionMode === "BUSINESS_TEST") {
+    console.log("[usage-billing] skipped: test-mode installed agent", { businessId, installedAgentId });
+    return;
+  }
   const webhookMetadata =
     typeof webhookBody.message === "object" && webhookBody.message !== null
       ? ((webhookBody.message as Record<string, unknown>).call as Record<string, unknown> | undefined)?.metadata

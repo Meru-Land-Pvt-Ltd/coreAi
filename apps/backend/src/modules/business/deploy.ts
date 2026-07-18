@@ -510,16 +510,18 @@ export async function deployInstalledAgentVoiceAssistant(
 
 export type InstalledAgentChatTestSetup = {
   workflowId: string;
-  workflowJson: unknown;
+  installedAgentId: string;
   context: {
     businessName?: string;
     businessType?: string;
     assistantName?: string;
     calendarId?: string;
     timeZone?: string;
+    appointmentService?: string;
     services?: string[];
     faqs?: string[];
   };
+  workflowJson: unknown;
 };
 
 /**
@@ -552,6 +554,7 @@ export async function buildInstalledAgentChatTestSetup(
 
   return {
     workflowId: installedAgent.workflowId,
+    installedAgentId: installedAgent.id,
     workflowJson: installedAgent.workflow.workflowJson,
     context: {
       businessName: resolveBusinessName(buyer.businessName, business.name),
@@ -559,6 +562,7 @@ export async function buildInstalledAgentChatTestSetup(
       assistantName: resolveAssistantName(buyer.assistantName),
       calendarId: cleanString(business.profile?.calendarId) || "primary",
       timeZone: cleanString(business.profile?.timeZone),
+      appointmentService: readBookingLabel(installedAgent.configJson),
       services,
       faqs
     }

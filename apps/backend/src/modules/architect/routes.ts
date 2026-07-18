@@ -57,6 +57,7 @@ import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoiceP
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
+import { deleteTestCalendarEvent } from "./test-calendar-events";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
@@ -696,6 +697,8 @@ const workflowRunInputSchema = z.object({
   appointmentEndAt: z.string().trim().optional(),
   appointmentService: z.string().trim().optional(),
   testEmail: z.string().trim().email("Enter a valid test email address").optional(),
+  useTestCalendar: z.boolean().optional(),
+  testSessionId: z.string().trim().max(64).optional(),
   attachments: z
     .array(
       z.object({
@@ -737,6 +740,10 @@ const vapiBrowserTestSchema = z.object({
 const architectConversationTestSchema = z.object({
   message: z.string().trim().min(1, "Message is required").max(4000),
   history: z.array(architectConversationMessageSchema).max(30).default([]),
+  /** Groups this dry run's records (test calendar events). */
+  testSessionId: z.string().trim().max(64).optional(),
+  /** Create real events in the architect's OWN connected test calendar. */
+  useTestCalendar: z.boolean().optional(),
   testContext: z
     .object({
       businessName: z.string().trim().optional(),
@@ -747,6 +754,8 @@ const architectConversationTestSchema = z.object({
       calendarId: z.string().trim().optional(),
       timeZone: z.string().trim().optional(),
       appointmentService: z.string().trim().optional(),
+      requestedDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
+      requestedTime: z.string().trim().regex(/^\d{1,2}:\d{2}$/).optional().or(z.literal("")),
       services: z.array(z.string().trim()).optional(),
       faqs: z.array(z.string().trim()).optional()
     })
@@ -1728,7 +1737,10 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       workflowJson: workflow.workflowJson,
       message: input.message,
       history: input.history,
-      testContext: input.testContext
+      testContext: input.testContext,
+      executionMode: "ARCHITECT_DRY_RUN",
+      testSessionId: input.testSessionId,
+      useTestCalendar: input.useTestCalendar
     });
 
     return successResponse(
@@ -1755,6 +1767,36 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       "ARCHITECT_CONVERSATION_TEST_FAILED"
     );
   }
+});
+
+// Delete an Architect test calendar event — ownership-validated and idempotent.
+architectRoutes.post("/test-events/:id/delete", async (c) => {
+  const authUser = c.get("authUser");
+  const testEventId = c.req.param("id");
+
+  const result = await deleteTestCalendarEvent({
+    testEventId,
+    requesterUserId: authUser.id,
+    scope: "ARCHITECT"
+  });
+
+  if (result.outcome === "not_found") {
+    return errorResponse(c, "Test event not found.", 404, "TEST_EVENT_NOT_FOUND");
+  }
+  if (result.outcome === "ownership_denied") {
+    return errorResponse(c, "This test event does not belong to you.", 403, "TEST_EVENT_OWNERSHIP_DENIED");
+  }
+  if (result.outcome === "calendar_disconnected" || result.outcome === "provider_failure") {
+    const deleteError = result.error;
+    return errorResponse(
+      c,
+      deleteError?.message ?? "The test event could not be deleted.",
+      result.outcome === "calendar_disconnected" ? 409 : 503,
+      deleteError?.code ?? "CALENDAR_EVENT_DELETE_FAILED"
+    );
+  }
+
+  return successResponse(c, { outcome: result.outcome });
 });
 
 architectRoutes.post("/workflows/:workflowId/run-test", async (c) => {

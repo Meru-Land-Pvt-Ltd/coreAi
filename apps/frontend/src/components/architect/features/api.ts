@@ -312,6 +312,8 @@ export type ArchitectPayoutSummary = {
     destinationType: "bank_account" | "card" | null;
     destinationLast4: string | null;
   };
+  /** The architect-selected payout schedule (Settings → Payouts). */
+  payoutSchedule?: ArchitectPayoutSchedule | null;
   payoutMethod: ArchitectPayoutMethod | null;
 };
 
@@ -577,9 +579,11 @@ export function getArchitectPayoutTransactions(params?: {
   }>(`/architect/payouts/transactions${query ? `?${query}` : ""}`);
 }
 
-export function requestArchitectPayout(body?: {
+export function requestArchitectPayout(body: {
   amountCents?: number;
   deliveryMethod?: "standard" | "instant";
+  /** Per-request UUID — the backend deduplicates retries/double-clicks on it. */
+  clientRequestId: string;
 }) {
   return apiPost<{
     payout: {
@@ -587,10 +591,16 @@ export function requestArchitectPayout(body?: {
       amountCents: number;
       deliveryMethod: "standard" | "instant";
       status: string;
+      expectedArrival?: string | null;
+      duplicate?: boolean;
       createdAt: string;
-    };
+    } | null;
     summary: ArchitectPayoutSummary;
-  }>("/architect/payouts/request", body ?? {});
+  }>("/architect/payouts/request", body);
+}
+
+export function getArchitectStripeDashboardLink() {
+  return apiPost<{ url: string }>("/architect/payouts/connect/dashboard-link", {});
 }
 
 export function getArchitectProjects() {
@@ -634,6 +644,10 @@ export function runArchitectConversationTest(
   body: {
     message: string;
     history?: ArchitectConversationMessage[];
+    /** Groups this dry run's records (test calendar events). */
+    testSessionId?: string;
+    /** Create real events in the architect's OWN connected test calendar. */
+    useTestCalendar?: boolean;
     testContext?: {
       businessName?: string;
       businessType?: string;
@@ -643,6 +657,10 @@ export function runArchitectConversationTest(
       calendarId?: string;
       timeZone?: string;
       appointmentService?: string;
+      /** Test-form pre-selected date ("YYYY-MM-DD") — seeds the conversation. */
+      requestedDate?: string;
+      /** Test-form pre-selected time ("HH:mm", 24h). */
+      requestedTime?: string;
       services?: string[];
       faqs?: string[];
     };
@@ -651,6 +669,11 @@ export function runArchitectConversationTest(
   return apiPost<{
     conversation: ArchitectConversationTestResult;
   }>(`/architect/workflows/${workflowId}/conversation-test`, body);
+}
+
+/** Delete an architect test calendar event (ownership-validated, idempotent). */
+export function deleteArchitectTestEvent(testEventId: string) {
+  return apiPost<{ outcome: string }>(`/architect/test-events/${encodeURIComponent(testEventId)}/delete`, {});
 }
 
 export type { ArchitectConversationMessage, ArchitectConversationToolCall };
@@ -685,6 +708,10 @@ export function runArchitectWorkflowTest(
       appointmentEndAt?: string;
       appointmentService?: string;
       testEmail?: string;
+      /** Create a REAL [TRIVEN ARCHITECT TEST] event in the architect's own calendar. */
+      useTestCalendar?: boolean;
+      /** Groups this test run's records (test calendar events). */
+      testSessionId?: string;
     };
   } = {}
 ) {

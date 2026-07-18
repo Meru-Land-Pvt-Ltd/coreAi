@@ -154,13 +154,16 @@ const envSchema = z.object({
   STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY: z.string().optional(),
 
-  /**
-   * Platform access policy: when false (current default), every authenticated
-   * BUSINESS owner may deploy/activate their agents regardless of Stripe
-   * subscription state. Stripe billing data keeps updating normally either
-   * way — deployment access and billing state are separate concepts.
-   * Accepts true/false/1/0.
-   */
+  STRIPE_CONNECT_RETURN_URL: z.string().url().optional(),
+  STRIPE_CONNECT_REFRESH_URL: z.string().url().optional(),
+  ARCHITECT_EARNING_HOLD_DAYS: z.coerce.number().int().min(0).max(365).default(7),
+  ARCHITECT_MINIMUM_TRANSFER_AMOUNT_MINOR: z.coerce.number().int().min(1).default(100),
+  ARCHITECT_MINIMUM_PAYOUT_AMOUNT_MINOR: z.coerce.number().int().min(1).default(500),
+  ARCHITECT_DEFAULT_PAYOUT_CURRENCY: z.string().default("usd"),
+  ARCHITECT_PAYOUT_MAX_ACTIVE_REQUESTS: z.coerce.number().int().min(1).max(20).default(3),
+  ARCHITECT_PAYOUT_RESERVATION_TIMEOUT_MINUTES: z.coerce.number().int().min(5).default(60),
+  ARCHITECT_AUTO_TRANSFER_ENABLED: booleanFromEnv.default(false),
+
   ENFORCE_AGENT_SUBSCRIPTION: booleanFromEnv.default(false)
 });
 
@@ -252,6 +255,21 @@ if (parsedEnv.NODE_ENV === "production") {
     console.warn(
       "[env] STRIPE_WEBHOOK_SECRET is not set — the payment webhook backstop is disabled; a purchase whose response is lost after the charge will not be recorded automatically."
     );
+  }
+
+  if (parsedEnv.STRIPE_SECRET_KEY && !parsedEnv.STRIPE_CONNECT_WEBHOOK_SECRET) {
+    console.warn(
+      "[env] STRIPE_CONNECT_WEBHOOK_SECRET is not set — Connect payout/account events are dropped; payout statuses rely on polling only."
+    );
+  }
+
+  for (const [name, url] of [
+    ["STRIPE_CONNECT_RETURN_URL", parsedEnv.STRIPE_CONNECT_RETURN_URL],
+    ["STRIPE_CONNECT_REFRESH_URL", parsedEnv.STRIPE_CONNECT_REFRESH_URL]
+  ] as const) {
+    if (url && isDevOnlyUrl(url)) {
+      problems.push(`${name} (${url}) must be a public https URL in production, e.g. https://triven.ai/architect/payouts.`);
+    }
   }
 
   if (parsedEnv.TWILIO_TEST_MODE) {

@@ -1,10 +1,18 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import Stripe from "stripe";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
+import { getArchitectBalances } from "../payouts/balance-service";
+import { syncConnectedAccount } from "../payouts/connect-account";
+import { payoutConfig, stripeLivemode } from "../payouts/config";
+import { checkRateLimit } from "../payouts/rate-limit";
+import { releaseEligibleEarnings } from "../payouts/settlements";
+import { isLegalPayoutTransition, PAYOUT_TERMINAL, payoutStatusFromStripe } from "../payouts/state-machine";
+import { logStripeError, normalizeStripeError } from "../payouts/stripe-errors";
+import { findInstantPayoutDestination, requestArchitectPayout } from "../payouts/payout-service";
 import {
   ARCHITECT_SHARE,
   loadArchitectEarnings,
@@ -15,161 +23,48 @@ import {
   effectiveEarningStatus
 } from "./payout-earnings";
 import { computeNextPayoutDate, normalizePayoutSchedule } from "./payout-schedule";
-import { stripeConnectConfigurationError } from "./stripe-connect-error";
+
+// Public Connect webhook (registered before auth in ./routes.ts) — the
+// implementation lives with the other payout services.
+export { handleStripeConnectWebhook } from "../payouts/connect-webhook";
 
 export const architectPayoutRoutes = new Hono();
 
-export async function handleStripeConnectWebhook(c: Context) {
-  const stripe = getStripeClient();
-  const signature = c.req.header("stripe-signature");
-
-  if (!stripe || !env.STRIPE_CONNECT_WEBHOOK_SECRET) {
-    return errorResponse(c, "Stripe Connect webhook is not configured", 503, "STRIPE_WEBHOOK_NOT_CONFIGURED");
-  }
-
-  if (!signature) {
-    return errorResponse(c, "Missing Stripe signature", 400, "STRIPE_SIGNATURE_MISSING");
-  }
-
-  try {
-    const rawBody = await c.req.text();
-    const event = await stripe.webhooks.constructEventAsync(
-      rawBody,
-      signature,
-      env.STRIPE_CONNECT_WEBHOOK_SECRET
-    );
-
-    if (event.type === "account.updated") {
-      const account = event.data.object as Stripe.Account;
-      const method = await prisma.architectPayoutMethod.findUnique({
-        where: { stripeAccountId: account.id }
-      });
-      if (method) await syncStripePayoutMethod(method.architectUserId);
-    }
-
-    if (event.type === "account.external_account.updated" && event.account) {
-      const method = await prisma.architectPayoutMethod.findUnique({
-        where: { stripeAccountId: event.account }
-      });
-      if (method) await syncStripePayoutMethod(method.architectUserId);
-    }
-
-    if (["payout.created", "payout.updated", "payout.paid", "payout.failed"].includes(event.type)) {
-      const stripePayout = event.data.object as Stripe.Payout;
-      const appPayoutId = stripePayout.metadata?.appPayoutId;
-      const record = appPayoutId
-        ? await prisma.architectPayout.findUnique({ where: { id: appPayoutId } })
-        : await prisma.architectPayout.findUnique({ where: { stripePayoutId: stripePayout.id } });
-
-      if (record) {
-        await prisma.architectPayout.update({
-          where: { id: record.id },
-          data: {
-            stripePayoutId: stripePayout.id,
-            status: stripePayoutStatus(stripePayout.status),
-            arrivalDate: stripePayout.arrival_date
-              ? new Date(stripePayout.arrival_date * 1000)
-              : null,
-            failureCode: stripePayout.failure_code ?? null,
-            failureMessage: stripePayout.failure_message ?? null
-          }
-        });
-      }
-    }
-
-    return successResponse(c, { received: true });
-  } catch (error) {
-    return errorResponse(c, stripeErrorMessage(error), 400, "STRIPE_WEBHOOK_INVALID");
-  }
-}
+const payoutRequestSchema = z.object({
+  amountCents: z.number().int().positive().optional(),
+  deliveryMethod: z.enum(["standard", "instant"]).default("standard"),
+  /** Client-generated UUID; makes retries and double-clicks idempotent. */
+  clientRequestId: z.string().trim().min(8).max(64)
+});
 
 const connectOnboardingSchema = z.object({
   country: z.enum(["US", "IN"]),
   accountHolderName: z.string().trim().min(2, "Account holder name is required")
 });
 
-const directPayoutMethodSchema = z
-  .object({
-    country: z.enum(["US", "IN"]),
-    bankName: z.string().trim().min(2, "Bank name is required"),
-    accountHolderName: z.string().trim().min(2, "Account holder name is required"),
-    accountNumber: z.string().trim().min(4).max(34).regex(/^\d+$/, "Account number must contain digits only"),
-    confirmAccountNumber: z.string().trim(),
-    routingNumber: z.string().trim().toUpperCase()
-  })
-  .refine((input) => input.accountNumber === input.confirmAccountNumber, {
-    message: "Account numbers do not match",
-    path: ["confirmAccountNumber"]
-  })
-  .refine(
-    (input) => input.country === "IN"
-      ? /^[A-Z]{4}0[A-Z0-9]{6}$/.test(input.routingNumber)
-      : /^\d{9}$/.test(input.routingNumber),
-    { message: "Invalid bank routing number", path: ["routingNumber"] }
-  );
-
-const payoutRequestSchema = z.object({
-  amountCents: z.number().int().positive().optional(),
-  deliveryMethod: z.enum(["standard", "instant"]).default("standard")
+const stripeScheduleSchema = z.object({
+  interval: z.enum(["daily", "weekly", "monthly", "manual"]),
+  weeklyAnchor: z
+    .enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])
+    .optional(),
+  monthlyAnchor: z.number().int().min(1).max(31).optional()
 });
 
 const earningsQuerySchema = z.object({
   listingIds: z.string().trim().optional()
 });
 
-function legacyAccountLast4(accountNumber?: string | null) {
-  return accountNumber?.replace(/\D/g, "").slice(-4) ?? "";
-}
-
-/**
- * Best-effort IFSC existence check. Blocks saving only when Razorpay's
- * directory explicitly reports the code as unknown — a directory outage must
- * never prevent adding a payout method (Stripe validates the bank account
- * details again on its side).
- */
-async function ifscKnownToBeInvalid(routingNumber: string): Promise<boolean> {
-  try {
-    const response = await fetch(`https://ifsc.razorpay.com/${routingNumber}`);
-    return response.status === 404;
-  } catch {
-    return false;
-  }
-}
-
-function stripeErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Stripe could not complete the request";
-}
-
-function stripePayoutStatus(status: Stripe.Payout["status"]) {
-  if (status === "paid") return "COMPLETED" as const;
-  if (status === "failed" || status === "canceled") return "FAILED" as const;
-  return "PROCESSING" as const;
-}
-
-async function getInstantPayoutDestination(stripeAccountId: string, currency: string) {
-  const stripe = getStripeClient();
-  if (!stripe) return null;
-
-  try {
-    const externalAccounts = await stripe.accounts.listExternalAccounts(stripeAccountId, { limit: 100 });
-    return externalAccounts.data.find((account) =>
-      account.currency === currency
-      && account.available_payout_methods?.includes("instant")
-    ) ?? null;
-  } catch (error) {
-    console.error("[stripe-connect] Could not check Instant Payout eligibility", {
-      stripeAccountId,
-      error: stripeErrorMessage(error)
-    });
-    return null;
-  }
+function connectUrls() {
+  const payoutsUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/architect/payouts`;
+  return {
+    returnUrl: env.STRIPE_CONNECT_RETURN_URL ?? `${payoutsUrl}?stripe_onboarding=complete`,
+    refreshUrl: env.STRIPE_CONNECT_REFRESH_URL ?? `${payoutsUrl}?stripe_onboarding=refresh`
+  };
 }
 
 function serializePayoutMethod(method: {
   bankName: string | null;
   accountHolderName: string | null;
-  accountNumber: string | null;
-  ifscCode: string | null;
   country: string;
   currency: string;
   accountLast4: string | null;
@@ -178,154 +73,83 @@ function serializePayoutMethod(method: {
   verificationStatus: string;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
+  disabledReason?: string | null;
+  requirementsJson?: unknown;
+  lastSyncedAt?: Date | null;
   createdAt: Date;
 }) {
   const isIndia = method.country === "IN";
-  const accountLast4 = method.accountLast4 ?? legacyAccountLast4(method.accountNumber);
-  const routingLast4 = method.routingLast4 ?? (method.ifscCode ? method.ifscCode.slice(-4) : null);
   const verified = method.verificationStatus === "VERIFIED" && method.payoutsEnabled;
+  const requirements =
+    method.requirementsJson && typeof method.requirementsJson === "object"
+      ? (method.requirementsJson as { currentlyDue?: string[] })
+      : null;
 
   return {
     bankName: method.bankName ?? "Stripe bank account",
     accountHolderName: method.accountHolderName ?? "",
-    accountLast4,
+    accountLast4: method.accountLast4 ?? "",
     country: method.country,
     currency: method.currency,
     routingLabel: isIndia ? "IFSC" : "ABA routing number",
-    routingLast4,
+    routingLast4: method.routingLast4,
     verificationStatus: method.verificationStatus,
     payoutsEnabled: method.payoutsEnabled,
     detailsSubmitted: method.detailsSubmitted,
     requiresAction: !verified,
     stripeConnected: Boolean(method.stripeAccountId),
+    disabledReason: method.disabledReason ?? null,
+    requirementsCurrentlyDue: requirements?.currentlyDue?.length ?? 0,
+    lastSyncedAt: method.lastSyncedAt?.toISOString() ?? null,
     createdAt: method.createdAt.toISOString(),
     verified
   };
 }
 
-async function syncStripePayoutMethod(architectUserId: string) {
-  const method = await prisma.architectPayoutMethod.findUnique({ where: { architectUserId } });
-  if (!method?.stripeAccountId) return method;
-
-  const stripe = getStripeClient();
-  if (!stripe) return method;
-
-  try {
-    const account = await stripe.accounts.retrieve(method.stripeAccountId);
-    const externalAccounts = await stripe.accounts.listExternalAccounts(method.stripeAccountId, {
-      object: "bank_account",
-      limit: 100
-    });
-    const banks = externalAccounts.data.filter(
-      (item): item is Stripe.BankAccount => item.object === "bank_account"
-    );
-    const bank = banks.find((item) => item.id === method.stripeExternalAccountId)
-      ?? banks.find((item) => item.default_for_currency)
-      ?? banks[0];
-    const bankFailed = bank?.status === "errored" || bank?.status === "verification_failed";
-    const requirementsDue = (account.requirements?.currently_due?.length ?? 0) > 0;
-    const transfersActive = account.capabilities?.transfers === "active";
-    const verified = Boolean(
-      account.payouts_enabled && transfersActive && bank && !bankFailed && !requirementsDue
-    );
-    const verificationStatus = bankFailed
-      ? "FAILED"
-      : verified
-        ? "VERIFIED"
-        : account.details_submitted
-          ? "PENDING"
-          : "REQUIRES_ACTION";
-
-    return await prisma.architectPayoutMethod.update({
-      where: { architectUserId },
-      data: {
-        bankName: bank?.bank_name ?? method.bankName,
-        accountLast4: bank?.last4 ?? method.accountLast4,
-        routingLast4: bank?.routing_number?.slice(-4) ?? method.routingLast4,
-        stripeExternalAccountId: bank?.id ?? method.stripeExternalAccountId,
-        country: account.country ?? method.country,
-        currency: bank?.currency ?? account.default_currency ?? method.currency,
-        verificationStatus,
-        payoutsEnabled: Boolean(account.payouts_enabled),
-        detailsSubmitted: Boolean(account.details_submitted),
-        // Remove legacy credentials as soon as Stripe Connect owns this method.
-        accountNumber: null,
-        ifscCode: null
-      }
-    });
-  } catch (error) {
-    console.error("[stripe-connect] Could not sync connected account", {
-      architectUserId,
-      error: stripeErrorMessage(error)
-    });
-    return method;
-  }
-}
-
-async function syncStripePayoutRecords(architectUserId: string) {
+/**
+ * Read-only refresh of non-terminal payouts that already have a Stripe payout
+ * id. Never creates Stripe objects — money movement only happens in the payout
+ * service and webhooks.
+ */
+async function refreshPendingPayoutStatuses(architectUserId: string) {
   const stripe = getStripeClient();
   if (!stripe) return;
 
   const method = await prisma.architectPayoutMethod.findUnique({ where: { architectUserId } });
   if (!method?.stripeAccountId) return;
 
-  const payouts = await prisma.architectPayout.findMany({
-    where: { architectUserId, status: { in: ["PENDING", "PROCESSING"] } }
+  const pending = await prisma.architectPayout.findMany({
+    where: {
+      architectUserId,
+      status: { notIn: PAYOUT_TERMINAL },
+      stripePayoutId: { not: null }
+    },
+    take: 20
   });
 
-  for (const record of payouts) {
+  for (const record of pending) {
     try {
-      let stripePayout: Stripe.Payout;
-
-      if (record.stripePayoutId) {
-        stripePayout = await stripe.payouts.retrieve(record.stripePayoutId, {}, {
-          stripeAccount: method.stripeAccountId
-        });
-      } else if (record.stripeTransferId) {
-        const instantDestination = record.deliveryMethod === "instant"
-          ? await getInstantPayoutDestination(method.stripeAccountId, record.currency)
-          : null;
-        if (record.deliveryMethod === "instant" && !instantDestination) {
-          throw new Error("No external account is eligible for Instant Payouts");
-        }
-
-        stripePayout = await stripe.payouts.create(
-          {
-            amount: record.amountCents,
-            currency: record.currency,
-            method: record.deliveryMethod === "instant" ? "instant" : "standard",
-            ...(instantDestination ? { destination: instantDestination.id } : {}),
-            description: `CORE architect payout ${record.id}`,
-            metadata: { architectUserId, appPayoutId: record.id }
-          },
-          {
-            stripeAccount: method.stripeAccountId,
-            idempotencyKey: `architect-payout-${record.id}`
-          }
-        );
-      } else {
-        continue;
-      }
+      const stripePayout = await stripe.payouts.retrieve(record.stripePayoutId as string, {}, {
+        stripeAccount: record.stripeConnectedAccountId ?? method.stripeAccountId
+      });
+      const nextStatus = payoutStatusFromStripe(stripePayout.status);
+      if (!isLegalPayoutTransition(record.status, nextStatus)) continue;
 
       await prisma.architectPayout.update({
         where: { id: record.id },
         data: {
-          stripePayoutId: stripePayout.id,
-          status: stripePayoutStatus(stripePayout.status),
+          status: nextStatus,
           arrivalDate: stripePayout.arrival_date
             ? new Date(stripePayout.arrival_date * 1000)
-            : null,
-          failureCode: stripePayout.failure_code ?? null,
-          failureMessage: stripePayout.failure_message ?? null
+            : record.arrivalDate,
+          paidAt: nextStatus === "PAID" && !record.paidAt ? new Date() : record.paidAt,
+          failedAt: nextStatus === "FAILED" && !record.failedAt ? new Date() : record.failedAt,
+          failureCode: stripePayout.failure_code ?? record.failureCode
         }
       });
     } catch (error) {
-      // A transfer can be pending before it becomes available for the connected
-      // account payout. Keep it processing; the next summary/transaction load retries.
-      await prisma.architectPayout.update({
-        where: { id: record.id },
-        data: { status: "PROCESSING", failureMessage: stripeErrorMessage(error) }
-      });
+      const normalized = normalizeStripeError(error, "payout.refresh");
+      logStripeError(normalized, { architectUserId, payoutId: record.id });
     }
   }
 }
@@ -349,15 +173,16 @@ async function computeArchitectPayoutSummary(
 ) {
   const listingIds = options?.listingIds;
 
-  await syncStripePayoutMethod(architectUserId);
-  await syncStripePayoutRecords(architectUserId);
+  await syncConnectedAccount(architectUserId);
+  await releaseEligibleEarnings(architectUserId);
+  await refreshPendingPayoutStatuses(architectUserId);
 
   const [sales, payouts, listings, payoutMethod, profile] = await Promise.all([
     loadArchitectEarnings(architectUserId, { listingIds }),
     prisma.architectPayout.findMany({
       where: {
         architectUserId,
-        status: { not: "FAILED" }
+        status: { notIn: ["FAILED", "CANCELED"] }
       },
       orderBy: { createdAt: "desc" }
     }),
@@ -378,12 +203,27 @@ async function computeArchitectPayoutSummary(
     })
   ]);
 
+  const balances = await getArchitectBalances(architectUserId, payoutMethod?.stripeAccountId ?? null);
+  const payoutCurrency = (payoutMethod?.currency ?? payoutConfig.defaultPayoutCurrency).toLowerCase();
+  const stripeBucket = balances.stripe[payoutCurrency] ?? {
+    availableCents: 0,
+    pendingCents: 0,
+    instantAvailableCents: 0
+  };
+
   const totalEarningsCents = sumApprovedEarningsCents(sales);
   const pendingCents = sumPendingEarningsCents(sales);
-  // Reserve processing Stripe payouts as well as paid payouts, preventing a
-  // double request while Stripe is moving the same earnings to the bank.
-  const committedPayoutCents = payouts.reduce((sum, payout) => sum + payout.amountCents, 0);
-  const availableBalanceCents = Math.max(0, totalEarningsCents - committedPayoutCents);
+
+  // Withdrawable = released-but-untransferred ledger earnings plus the fresh
+  // Stripe available balance, minus reservations that have not reached Stripe
+  // yet. Payouts already created at Stripe have deducted their funds there.
+  const reservedNotAtStripe = payouts
+    .filter((payout) => !payout.stripePayoutId && ["PENDING", "RESERVED", "PROCESSING"].includes(payout.status))
+    .reduce((sum, payout) => sum + payout.amountCents, 0);
+  const availableBalanceCents = Math.max(
+    0,
+    balances.internal.availableEarningsCents + stripeBucket.availableCents - reservedNotAtStripe
+  );
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -392,10 +232,6 @@ async function computeArchitectPayoutSummary(
   );
   const thisMonthEarningsCents = sumApprovedEarningsCents(thisMonthSales);
 
-  const grossAvailableCents = Math.round(availableBalanceCents / ARCHITECT_SHARE);
-  const platformFeeCents = Math.max(0, grossAvailableCents - availableBalanceCents);
-  // Next payout date reflects the architect-selected schedule (Settings →
-  // Payouts). Falls back to the default 1st-of-month schedule when unset.
   const payoutSchedule = normalizePayoutSchedule(profile?.payoutSchedule);
   const scheduledFor = computeNextPayoutDate(payoutSchedule, now);
 
@@ -406,13 +242,10 @@ async function computeArchitectPayoutSummary(
     const monthSales = sales.filter(
       (sale) => sale.createdAt >= pointDate && sale.createdAt < nextMonth
     );
-    const confirmedCents = sumApprovedEarningsCents(monthSales);
-    const pendingMonthCents = sumPendingEarningsCents(monthSales);
-
     return {
       label: pointDate.toLocaleDateString("en-US", { month: "short" }),
-      confirmedCents,
-      pendingCents: pendingMonthCents
+      confirmedCents: sumApprovedEarningsCents(monthSales),
+      pendingCents: sumPendingEarningsCents(monthSales)
     };
   });
 
@@ -430,7 +263,7 @@ async function computeArchitectPayoutSummary(
   });
 
   const instantDestination = payoutMethod?.stripeAccountId
-    ? await getInstantPayoutDestination(payoutMethod.stripeAccountId, payoutMethod.currency)
+    ? await findInstantPayoutDestination(payoutMethod.stripeAccountId, payoutCurrency)
     : null;
 
   return {
@@ -445,9 +278,20 @@ async function computeArchitectPayoutSummary(
     architectSharePercent: Math.round(ARCHITECT_SHARE * 100),
     sales: sales.map(serializeArchitectSale),
     listingBreakdown,
-    // The architect-selected schedule, so the payouts page can label the
-    // schedule truthfully instead of hardcoding it.
     payoutSchedule,
+    // Ledger + Stripe accounting so the UI can explain the difference between
+    // internal earnings and the actually withdrawable Stripe balance.
+    balances: {
+      unreleasedEarningsCents: balances.internal.unreleasedEarningsCents,
+      availableEarningsCents: balances.internal.availableEarningsCents,
+      transferredEarningsCents: balances.internal.transferredEarningsCents,
+      payoutsInTransitCents: balances.internal.payoutsInTransitCents,
+      paidOutCents: balances.internal.paidOutCents,
+      stripeAvailableCents: stripeBucket.availableCents,
+      stripePendingCents: stripeBucket.pendingCents,
+      stripeInstantAvailableCents: stripeBucket.instantAvailableCents,
+      currency: payoutCurrency
+    },
     chart: {
       period: "12M",
       points: chartPoints
@@ -455,8 +299,8 @@ async function computeArchitectPayoutSummary(
     nextPayout: {
       amountCents: availableBalanceCents,
       scheduledFor: scheduledFor.toISOString(),
-      grossSalesCents: grossAvailableCents,
-      platformFeeCents,
+      grossSalesCents: totalEarningsCents,
+      platformFeeCents: 0,
       earningsCents: availableBalanceCents
     },
     instantPayout: {
@@ -512,6 +356,22 @@ architectPayoutRoutes.get("/summary", async (c) => {
   }
 });
 
+architectPayoutRoutes.get("/balance", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const method = await prisma.architectPayoutMethod.findUnique({
+      where: { architectUserId: authUser.id }
+    });
+    const balances = await getArchitectBalances(authUser.id, method?.stripeAccountId ?? null);
+    return successResponse(c, balances);
+  } catch (error) {
+    console.error("[payouts] balance failed", error);
+    return errorResponse(c, "Could not load payout balance", 500, "PAYOUT_BALANCE_FAILED");
+  }
+});
+
+// Legacy IFSC directory check — still used by the settings UI for display
+// validation. Read-only; carries no account numbers.
 architectPayoutRoutes.get("/verify-ifsc/:code", async (c) => {
   try {
     const code = c.req.param("code").trim().toUpperCase();
@@ -538,7 +398,7 @@ architectPayoutRoutes.get("/verify-ifsc/:code", async (c) => {
 architectPayoutRoutes.get("/method", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const payoutMethod = await syncStripePayoutMethod(authUser.id);
+    const payoutMethod = await syncConnectedAccount(authUser.id);
 
     if (!payoutMethod) {
       return successResponse(c, { payoutMethod: null }, "No payout method on file");
@@ -553,9 +413,30 @@ architectPayoutRoutes.get("/method", async (c) => {
   }
 });
 
+architectPayoutRoutes.get("/connect/status", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const method = await syncConnectedAccount(authUser.id);
+
+    return successResponse(c, {
+      connected: Boolean(method?.stripeAccountId),
+      livemode: stripeLivemode(),
+      modeMismatch: Boolean(method?.stripeAccountId && method.livemode !== stripeLivemode()),
+      payoutMethod: method ? serializePayoutMethod(method) : null
+    });
+  } catch (error) {
+    console.error("[payouts] connect status failed", error);
+    return errorResponse(c, "Could not load Stripe Connect status", 500, "CONNECT_STATUS_FAILED");
+  }
+});
+
 architectPayoutRoutes.post("/connect/onboarding", async (c) => {
   try {
     const authUser = c.get("authUser");
+    if (!checkRateLimit(`connect-link:${authUser.id}`, 5, 60_000)) {
+      return errorResponse(c, "Too many onboarding attempts. Try again in a minute.", 429, "RATE_LIMITED");
+    }
+
     const input = connectOnboardingSchema.parse(await c.req.json());
     const stripe = getStripeClient();
 
@@ -567,20 +448,41 @@ architectPayoutRoutes.post("/connect/onboarding", async (c) => {
       where: { architectUserId: authUser.id }
     });
 
+    // Wrong-mode accounts require an explicit repair path — never silently
+    // create a second account for the same architect.
+    if (existing?.stripeAccountId && existing.livemode !== stripeLivemode()) {
+      console.error("[payouts] onboarding blocked by mode mismatch", {
+        architectUserId: authUser.id,
+        storedLivemode: existing.livemode
+      });
+      return errorResponse(
+        c,
+        "Your payout account belongs to a different Stripe mode. Contact support to reconnect it.",
+        409,
+        "STRIPE_MODE_MISMATCH"
+      );
+    }
+
     let stripeAccountId =
       existing?.stripeAccountId && existing.country === input.country
         ? existing.stripeAccountId
         : null;
 
     if (!stripeAccountId) {
-      const account = await stripe.accounts.create({
-        type: "express",
-        country: input.country,
-        email: authUser.email,
-        business_type: "individual",
-        capabilities: { transfers: { requested: true } },
-        metadata: { architectUserId: authUser.id, product: "core_architect_payouts" }
-      });
+      const account = await stripe.accounts.create(
+        {
+          type: "express",
+          country: input.country,
+          email: authUser.email,
+          business_type: "individual",
+          capabilities: { transfers: { requested: true } },
+          // Manual payout schedule: the architect withdraws through Triven
+          // (standard or instant); automatic sweeps would race manual payouts.
+          settings: { payouts: { schedule: { interval: "manual" } } },
+          metadata: { architectUserId: authUser.id, product: "core_architect_payouts" }
+        },
+        { idempotencyKey: `connect-account:${authUser.id}:${input.country}:${stripeLivemode() ? "live" : "test"}` }
+      );
       stripeAccountId = account.id;
     }
 
@@ -594,6 +496,7 @@ architectPayoutRoutes.post("/connect/onboarding", async (c) => {
         verificationStatus: "REQUIRES_ACTION",
         payoutsEnabled: false,
         detailsSubmitted: false,
+        livemode: stripeLivemode(),
         accountNumber: null,
         ifscCode: null
       },
@@ -603,15 +506,16 @@ architectPayoutRoutes.post("/connect/onboarding", async (c) => {
         country: input.country,
         currency: input.country === "IN" ? "inr" : "usd",
         stripeAccountId,
+        livemode: stripeLivemode(),
         verificationStatus: "REQUIRES_ACTION"
       }
     });
 
-    const payoutsUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/architect/payouts`;
+    const { returnUrl, refreshUrl } = connectUrls();
     const accountLink = await stripe.accountLinks.create({
       account: stripeAccountId,
-      refresh_url: `${payoutsUrl}?stripe_onboarding=refresh`,
-      return_url: `${payoutsUrl}?stripe_onboarding=complete`,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
       type: "account_onboarding",
       collection_options: { fields: "eventually_due" }
     });
@@ -631,24 +535,25 @@ architectPayoutRoutes.post("/connect/onboarding", async (c) => {
       );
     }
 
-    console.error("[stripe-connect] Could not start onboarding", stripeErrorMessage(error));
-    const configurationError = stripeConnectConfigurationError(error);
-    if (configurationError) {
-      return errorResponse(c, configurationError.message, configurationError.status, configurationError.code);
-    }
-    return errorResponse(c, stripeErrorMessage(error), 503, "STRIPE_CONNECT_ONBOARDING_FAILED");
+    const normalized = normalizeStripeError(error, "connect.onboarding");
+    logStripeError(normalized, { route: "connect/onboarding" });
+    return errorResponse(c, normalized.userMessage, normalized.httpStatus, normalized.code);
   }
 });
 
 architectPayoutRoutes.post("/connect/refresh", async (c) => {
   try {
     const authUser = c.get("authUser");
+    if (!checkRateLimit(`connect-link:${authUser.id}`, 5, 60_000)) {
+      return errorResponse(c, "Too many onboarding attempts. Try again in a minute.", 429, "RATE_LIMITED");
+    }
+
     const method = await prisma.architectPayoutMethod.findUnique({
       where: { architectUserId: authUser.id }
     });
 
     if (!method?.stripeAccountId) {
-      return errorResponse(c, "Start Stripe onboarding first", 404, "STRIPE_ACCOUNT_NOT_FOUND");
+      return errorResponse(c, "Start Stripe onboarding first", 404, "CONNECT_ACCOUNT_NOT_FOUND");
     }
 
     const stripe = getStripeClient();
@@ -656,30 +561,57 @@ architectPayoutRoutes.post("/connect/refresh", async (c) => {
       return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
     }
 
-    const payoutsUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/architect/payouts`;
+    const { returnUrl, refreshUrl } = connectUrls();
     const accountLink = await stripe.accountLinks.create({
       account: method.stripeAccountId,
-      refresh_url: `${payoutsUrl}?stripe_onboarding=refresh`,
-      return_url: `${payoutsUrl}?stripe_onboarding=complete`,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
       type: "account_onboarding",
       collection_options: { fields: "eventually_due" }
     });
 
     return successResponse(c, { url: accountLink.url }, "Stripe onboarding link refreshed");
   } catch (error) {
-    return errorResponse(
-      c,
-      stripeErrorMessage(error),
-      503,
-      "STRIPE_CONNECT_ONBOARDING_FAILED"
-    );
+    const normalized = normalizeStripeError(error, "connect.refresh");
+    logStripeError(normalized, { route: "connect/refresh" });
+    return errorResponse(c, normalized.userMessage, normalized.httpStatus, normalized.code);
+  }
+});
+
+// Stripe Express dashboard link — the safe way to manage bank accounts and
+// debit cards. Stripe collects the details; Triven never sees them.
+architectPayoutRoutes.post("/connect/dashboard-link", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    if (!checkRateLimit(`connect-link:${authUser.id}`, 5, 60_000)) {
+      return errorResponse(c, "Too many attempts. Try again in a minute.", 429, "RATE_LIMITED");
+    }
+
+    const method = await prisma.architectPayoutMethod.findUnique({
+      where: { architectUserId: authUser.id }
+    });
+    if (!method?.stripeAccountId) {
+      return errorResponse(c, "Connect your payout account with Stripe first", 404, "CONNECT_ACCOUNT_NOT_FOUND");
+    }
+
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
+    }
+
+    const loginLink = await stripe.accounts.createLoginLink(method.stripeAccountId);
+    return successResponse(c, { url: loginLink.url }, "Stripe dashboard link created");
+  } catch (error) {
+    const normalized = normalizeStripeError(error, "connect.dashboard-link");
+    logStripeError(normalized, { route: "connect/dashboard-link" });
+    return errorResponse(c, normalized.userMessage, normalized.httpStatus, normalized.code);
   }
 });
 
 architectPayoutRoutes.post("/method/sync", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const payoutMethod = await syncStripePayoutMethod(authUser.id);
+    const payoutMethod = await syncConnectedAccount(authUser.id);
 
     return successResponse(c, {
       payoutMethod: payoutMethod ? serializePayoutMethod(payoutMethod) : null
@@ -690,185 +622,25 @@ architectPayoutRoutes.post("/method/sync", async (c) => {
   }
 });
 
+// Raw bank-detail entry is retired: Stripe collects account numbers through
+// hosted onboarding / the Express dashboard. Triven's backend never accepts
+// full bank account or routing numbers anymore.
 architectPayoutRoutes.put("/method", async (c) => {
-  try {
-    const authUser = c.get("authUser");
-    const input = directPayoutMethodSchema.parse(await c.req.json());
-    const stripe = getStripeClient();
-    if (!stripe || !isStripeConfigured()) {
-      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
-    }
-
-    if (input.country === "IN" && (await ifscKnownToBeInvalid(input.routingNumber))) {
-      return errorResponse(c, "IFSC code not found. Please check the code and try again.", 422, "IFSC_NOT_FOUND");
-    }
-
-    const existing = await prisma.architectPayoutMethod.findUnique({
-      where: { architectUserId: authUser.id }
-    });
-    const token = await stripe.tokens.create({
-      bank_account: {
-        country: input.country,
-        currency: input.country === "IN" ? "inr" : "usd",
-        account_holder_name: input.accountHolderName,
-        account_holder_type: "individual",
-        routing_number: input.routingNumber,
-        account_number: input.accountNumber
-      }
-    });
-
-    let stripeAccountId = existing?.country === input.country ? existing.stripeAccountId : null;
-    let stripeExternalAccountId = token.bank_account?.id ?? null;
-
-    if (stripeAccountId) {
-      const external = await stripe.accounts.createExternalAccount(stripeAccountId, {
-        external_account: token.id,
-        default_for_currency: true
-      });
-      stripeExternalAccountId = external.id;
-    } else {
-      const account = await stripe.accounts.create({
-        type: "express",
-        country: input.country,
-        email: authUser.email,
-        business_type: "individual",
-        external_account: token.id,
-        capabilities: { transfers: { requested: true } },
-        metadata: { architectUserId: authUser.id, product: "core_architect_payouts" }
-      });
-      stripeAccountId = account.id;
-    }
-
-    await prisma.architectPayoutMethod.upsert({
-      where: { architectUserId: authUser.id },
-      update: {
-        bankName: input.bankName,
-        accountHolderName: input.accountHolderName,
-        country: input.country,
-        currency: input.country === "IN" ? "inr" : "usd",
-        accountLast4: input.accountNumber.slice(-4),
-        routingLast4: input.routingNumber.slice(-4),
-        stripeAccountId,
-        stripeExternalAccountId,
-        verificationStatus: "REQUIRES_ACTION",
-        payoutsEnabled: false,
-        detailsSubmitted: false,
-        accountNumber: null,
-        ifscCode: null
-      },
-      create: {
-        architectUserId: authUser.id,
-        bankName: input.bankName,
-        accountHolderName: input.accountHolderName,
-        country: input.country,
-        currency: input.country === "IN" ? "inr" : "usd",
-        accountLast4: input.accountNumber.slice(-4),
-        routingLast4: input.routingNumber.slice(-4),
-        stripeAccountId,
-        stripeExternalAccountId,
-        verificationStatus: "REQUIRES_ACTION"
-      }
-    });
-
-    const payoutMethod = await syncStripePayoutMethod(authUser.id);
-    return successResponse(c, {
-      payoutMethod: payoutMethod ? serializePayoutMethod(payoutMethod) : null
-    }, "Payout method saved with Stripe");
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return errorResponse(c, error.issues[0]?.message ?? "Invalid payout method", 422, "VALIDATION_ERROR");
-    }
-    console.error("[stripe-connect] Could not save payout method", stripeErrorMessage(error));
-    const configurationError = stripeConnectConfigurationError(error);
-    if (configurationError) {
-      return errorResponse(c, configurationError.message, configurationError.status, configurationError.code);
-    }
-    return errorResponse(c, stripeErrorMessage(error), 422, "PAYOUT_METHOD_SAVE_FAILED");
-  }
+  return errorResponse(
+    c,
+    "Bank details are now added securely through Stripe. Use “Connect with Stripe” instead.",
+    410,
+    "PAYOUT_METHOD_DIRECT_ENTRY_DISABLED"
+  );
 });
 
 architectPayoutRoutes.put("/method/backup", async (c) => {
-  try {
-    const authUser = c.get("authUser");
-    const input = directPayoutMethodSchema.parse(await c.req.json());
-    const stripe = getStripeClient();
-    if (!stripe || !isStripeConfigured()) {
-      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
-    }
-
-    const primary = await prisma.architectPayoutMethod.findUnique({
-      where: { architectUserId: authUser.id }
-    });
-    if (!primary?.stripeAccountId) {
-      return errorResponse(c, "Add a primary payout method first", 422, "PRIMARY_PAYOUT_METHOD_REQUIRED");
-    }
-    if (primary.country !== input.country) {
-      return errorResponse(
-        c,
-        `The backup account must be in ${primary.country === "IN" ? "India" : "the United States"}`,
-        422,
-        "PAYOUT_METHOD_COUNTRY_MISMATCH"
-      );
-    }
-
-    if (input.country === "IN" && (await ifscKnownToBeInvalid(input.routingNumber))) {
-      return errorResponse(c, "IFSC code not found. Please check the code and try again.", 422, "IFSC_NOT_FOUND");
-    }
-
-    const token = await stripe.tokens.create({
-      bank_account: {
-        country: input.country,
-        currency: input.country === "IN" ? "inr" : "usd",
-        account_holder_name: input.accountHolderName,
-        account_holder_type: "individual",
-        routing_number: input.routingNumber,
-        account_number: input.accountNumber
-      }
-    });
-    const external = await stripe.accounts.createExternalAccount(primary.stripeAccountId, {
-      external_account: token.id,
-      default_for_currency: false
-    });
-
-    const backup = await prisma.architectBackupPayoutMethod.upsert({
-      where: { architectUserId: authUser.id },
-      update: {
-        bankName: input.bankName,
-        accountHolderName: input.accountHolderName,
-        country: input.country,
-        currency: input.country === "IN" ? "inr" : "usd",
-        accountLast4: input.accountNumber.slice(-4),
-        routingLast4: input.routingNumber.slice(-4),
-        stripeAccountId: primary.stripeAccountId,
-        stripeExternalAccountId: external.id,
-        verificationStatus: "PENDING"
-      },
-      create: {
-        architectUserId: authUser.id,
-        bankName: input.bankName,
-        accountHolderName: input.accountHolderName,
-        country: input.country,
-        currency: input.country === "IN" ? "inr" : "usd",
-        accountLast4: input.accountNumber.slice(-4),
-        routingLast4: input.routingNumber.slice(-4),
-        stripeAccountId: primary.stripeAccountId,
-        stripeExternalAccountId: external.id,
-        verificationStatus: "PENDING"
-      }
-    });
-
-    return successResponse(c, { backupPayoutMethod: backup }, "Backup payout method saved with Stripe");
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return errorResponse(c, error.issues[0]?.message ?? "Invalid payout method", 422, "VALIDATION_ERROR");
-    }
-    console.error("[stripe-connect] Could not save backup payout method", stripeErrorMessage(error));
-    const configurationError = stripeConnectConfigurationError(error);
-    if (configurationError) {
-      return errorResponse(c, configurationError.message, configurationError.status, configurationError.code);
-    }
-    return errorResponse(c, stripeErrorMessage(error), 422, "BACKUP_PAYOUT_METHOD_SAVE_FAILED");
-  }
+  return errorResponse(
+    c,
+    "Backup bank accounts are managed in your Stripe payout dashboard now.",
+    410,
+    "PAYOUT_METHOD_DIRECT_ENTRY_DISABLED"
+  );
 });
 
 architectPayoutRoutes.post("/method/backup/primary", async (c) => {
@@ -887,6 +659,8 @@ architectPayoutRoutes.post("/method/backup/primary", async (c) => {
       return errorResponse(c, "Stripe payout method is not ready", 422, "STRIPE_PAYOUT_METHOD_NOT_READY");
     }
 
+    // Both rows reference the same connected account — this only switches the
+    // default external account; no bank details transit Triven.
     await stripe.accounts.updateExternalAccount(
       primary.stripeAccountId,
       backup.stripeExternalAccountId,
@@ -914,8 +688,8 @@ architectPayoutRoutes.post("/method/backup/primary", async (c) => {
           accountHolderName: primary.accountHolderName,
           country: primary.country,
           currency: primary.currency,
-          accountLast4: primary.accountLast4 ?? legacyAccountLast4(primary.accountNumber),
-          routingLast4: primary.routingLast4 ?? primary.ifscCode?.slice(-4),
+          accountLast4: primary.accountLast4,
+          routingLast4: primary.routingLast4,
           stripeAccountId: primary.stripeAccountId,
           stripeExternalAccountId: primary.stripeExternalAccountId,
           verificationStatus: primary.verificationStatus
@@ -928,15 +702,97 @@ architectPayoutRoutes.post("/method/backup/primary", async (c) => {
       backupPayoutMethod: nextBackup
     }, "Primary payout method updated");
   } catch (error) {
-    console.error("[stripe-connect] Could not change primary payout method", stripeErrorMessage(error));
-    return errorResponse(c, stripeErrorMessage(error), 422, "PRIMARY_PAYOUT_METHOD_UPDATE_FAILED");
+    const normalized = normalizeStripeError(error, "method.backup-primary");
+    logStripeError(normalized, { route: "method/backup/primary" });
+    return errorResponse(c, normalized.userMessage, normalized.httpStatus, normalized.code);
+  }
+});
+
+architectPayoutRoutes.get("/schedule", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const method = await prisma.architectPayoutMethod.findUnique({
+      where: { architectUserId: authUser.id }
+    });
+    if (!method?.stripeAccountId) {
+      return errorResponse(c, "Connect your payout account with Stripe first", 404, "CONNECT_ACCOUNT_NOT_FOUND");
+    }
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
+    }
+
+    const account = await stripe.accounts.retrieve(method.stripeAccountId);
+    const schedule = account.settings?.payouts?.schedule;
+    return successResponse(c, {
+      interval: schedule?.interval ?? "manual",
+      weeklyAnchor: schedule?.weekly_anchor ?? null,
+      monthlyAnchor: schedule?.monthly_anchor ?? null,
+      delayDays: schedule?.delay_days ?? null
+    });
+  } catch (error) {
+    const normalized = normalizeStripeError(error, "schedule.get");
+    logStripeError(normalized, { route: "schedule" });
+    return errorResponse(c, normalized.userMessage, normalized.httpStatus, normalized.code);
+  }
+});
+
+architectPayoutRoutes.patch("/schedule", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = stripeScheduleSchema.parse(await c.req.json());
+
+    const method = await prisma.architectPayoutMethod.findUnique({
+      where: { architectUserId: authUser.id }
+    });
+    if (!method?.stripeAccountId) {
+      return errorResponse(c, "Connect your payout account with Stripe first", 404, "CONNECT_ACCOUNT_NOT_FOUND");
+    }
+    if (method.livemode !== stripeLivemode()) {
+      return errorResponse(c, "Your payout account belongs to a different Stripe mode.", 409, "STRIPE_MODE_MISMATCH");
+    }
+    if (!method.payoutsEnabled) {
+      return errorResponse(c, "Complete Stripe verification before changing the payout schedule.", 422, "CONNECT_PAYOUTS_DISABLED");
+    }
+
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
+    }
+
+    const account = await stripe.accounts.update(method.stripeAccountId, {
+      settings: {
+        payouts: {
+          schedule: {
+            interval: input.interval,
+            ...(input.interval === "weekly" && input.weeklyAnchor ? { weekly_anchor: input.weeklyAnchor } : {}),
+            ...(input.interval === "monthly" && input.monthlyAnchor ? { monthly_anchor: input.monthlyAnchor } : {})
+          }
+        }
+      }
+    });
+
+    const schedule = account.settings?.payouts?.schedule;
+    return successResponse(c, {
+      interval: schedule?.interval ?? input.interval,
+      weeklyAnchor: schedule?.weekly_anchor ?? null,
+      monthlyAnchor: schedule?.monthly_anchor ?? null,
+      delayDays: schedule?.delay_days ?? null
+    }, "Payout schedule updated");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid schedule", 422, "VALIDATION_ERROR");
+    }
+    const normalized = normalizeStripeError(error, "schedule.patch");
+    logStripeError(normalized, { route: "schedule" });
+    return errorResponse(c, normalized.userMessage, normalized.httpStatus, normalized.code);
   }
 });
 
 architectPayoutRoutes.get("/transactions", async (c) => {
   try {
     const authUser = c.get("authUser");
-    await syncStripePayoutRecords(authUser.id);
+    await refreshPendingPayoutStatuses(authUser.id);
     const type = c.req.query("type") ?? "all";
     const range = c.req.query("range") ?? "all";
     const page = Math.max(1, Number(c.req.query("page") ?? "1") || 1);
@@ -954,8 +810,8 @@ architectPayoutRoutes.get("/transactions", async (c) => {
       })
     ]);
 
-    const accountMask = payoutMethod
-      ? `•••• ${payoutMethod.accountLast4 ?? legacyAccountLast4(payoutMethod.accountNumber)}`
+    const accountMask = payoutMethod?.accountLast4
+      ? `•••• ${payoutMethod.accountLast4}`
       : "bank account";
 
     const saleTransactions = sales.map((sale) => ({
@@ -976,13 +832,13 @@ architectPayoutRoutes.get("/transactions", async (c) => {
       listingId: null,
       installId: null,
       date: payout.createdAt.toISOString(),
-      description: `Payout → ${accountMask}`,
+      description: `Payout → ${payout.destinationLast4 ? `•••• ${payout.destinationLast4}` : accountMask}`,
       type: "Payout" as const,
       amountCents: -payout.amountCents,
       status:
-        payout.status === "COMPLETED"
+        payout.status === "COMPLETED" || payout.status === "PAID"
           ? ("Completed" as const)
-          : payout.status === "FAILED"
+          : payout.status === "FAILED" || payout.status === "CANCELED" || payout.status === "REVERSED"
             ? ("Failed" as const)
             : ("Processing" as const)
     }));
@@ -1025,141 +881,43 @@ architectPayoutRoutes.get("/transactions", async (c) => {
 architectPayoutRoutes.post("/request", async (c) => {
   try {
     const authUser = c.get("authUser");
+    if (!checkRateLimit(`payout-request:${authUser.id}`, 5, 60_000)) {
+      return errorResponse(c, "Too many payout requests. Try again in a minute.", 429, "RATE_LIMITED");
+    }
+
     const input = payoutRequestSchema.parse(await c.req.json());
+
+    const result = await requestArchitectPayout({
+      architectUserId: authUser.id,
+      amountCents: input.amountCents,
+      deliveryMethod: input.deliveryMethod,
+      clientRequestId: input.clientRequestId
+    });
+
+    if (!result.ok) {
+      return errorResponse(c, result.userMessage, result.httpStatus as never, result.code);
+    }
+
+    const payout = await prisma.architectPayout.findUnique({ where: { id: result.payoutId } });
     const summary = await computeArchitectPayoutSummary(authUser.id);
-
-    if (!summary.payoutMethod) {
-      return errorResponse(c, "Add a payout method before requesting a payout", 422, "PAYOUT_METHOD_REQUIRED");
-    }
-
-    if (!summary.payoutMethod.verified || !summary.payoutMethod.payoutsEnabled) {
-      return errorResponse(
-        c,
-        "Complete Stripe verification before requesting a payout",
-        422,
-        "PAYOUT_METHOD_NOT_VERIFIED"
-      );
-    }
-
-    const amountCents = input.amountCents ?? summary.availableBalanceCents;
-    const deliveryMethod = input.deliveryMethod;
-
-    if (amountCents <= 0) {
-      return errorResponse(c, "No available balance to payout", 422, "NO_AVAILABLE_BALANCE");
-    }
-
-    if (amountCents > summary.availableBalanceCents) {
-      return errorResponse(c, "Requested amount exceeds available balance", 422, "INSUFFICIENT_BALANCE");
-    }
-
-    const method = await prisma.architectPayoutMethod.findUnique({
-      where: { architectUserId: authUser.id }
-    });
-    const stripe = getStripeClient();
-
-    if (!stripe || !method?.stripeAccountId) {
-      return errorResponse(c, "Stripe Connect is not configured", 503, "STRIPE_NOT_CONFIGURED");
-    }
-
-    const instantDestination = deliveryMethod === "instant"
-      ? await getInstantPayoutDestination(method.stripeAccountId, "usd")
-      : null;
-    if (deliveryMethod === "instant" && !instantDestination) {
-      return errorResponse(
-        c,
-        "Add an Instant Payouts-eligible bank account or debit card in Stripe before requesting an instant payout",
-        422,
-        "INSTANT_PAYOUT_METHOD_NOT_ELIGIBLE"
-      );
-    }
-
-    let payout = await prisma.architectPayout.create({
-      data: {
-        architectUserId: authUser.id,
-        amountCents,
-        currency: "usd",
-        deliveryMethod,
-        status: "PENDING"
-      }
-    });
-
-    try {
-      const transfer = await stripe.transfers.create(
-        {
-          amount: amountCents,
-          currency: "usd",
-          destination: method.stripeAccountId,
-          description: `CORE architect earnings ${payout.id}`,
-          transfer_group: `architect_payout_${payout.id}`,
-          metadata: { architectUserId: authUser.id, appPayoutId: payout.id }
-        },
-        { idempotencyKey: `architect-transfer-${payout.id}` }
-      );
-
-      payout = await prisma.architectPayout.update({
-        where: { id: payout.id },
-        data: { stripeTransferId: transfer.id, status: "PROCESSING" }
-      });
-
-      // The connected balance can briefly remain pending. The sync path retries
-      // this idempotently when it becomes available.
-      try {
-        const stripePayout = await stripe.payouts.create(
-          {
-            amount: amountCents,
-            currency: "usd",
-            method: deliveryMethod === "instant" ? "instant" : "standard",
-            ...(instantDestination ? { destination: instantDestination.id } : {}),
-            description: `CORE architect payout ${payout.id}`,
-            metadata: { architectUserId: authUser.id, appPayoutId: payout.id }
-          },
-          {
-            stripeAccount: method.stripeAccountId,
-            idempotencyKey: `architect-payout-${payout.id}`
-          }
-        );
-
-        payout = await prisma.architectPayout.update({
-          where: { id: payout.id },
-          data: {
-            stripePayoutId: stripePayout.id,
-            status: stripePayoutStatus(stripePayout.status),
-            arrivalDate: stripePayout.arrival_date
-              ? new Date(stripePayout.arrival_date * 1000)
-              : null,
-            failureCode: stripePayout.failure_code ?? null,
-            failureMessage: stripePayout.failure_message ?? null
-          }
-        });
-      } catch (error) {
-        payout = await prisma.architectPayout.update({
-          where: { id: payout.id },
-          data: { status: "PROCESSING", failureMessage: stripeErrorMessage(error) }
-        });
-      }
-    } catch (error) {
-      payout = await prisma.architectPayout.update({
-        where: { id: payout.id },
-        data: { status: "FAILED", failureMessage: stripeErrorMessage(error) }
-      });
-      return errorResponse(c, stripeErrorMessage(error), 422, "STRIPE_PAYOUT_FAILED");
-    }
-
-    const updatedSummary = await computeArchitectPayoutSummary(authUser.id);
 
     return successResponse(
       c,
       {
-        payout: {
-          id: payout.id,
-          amountCents: payout.amountCents,
-          deliveryMethod: payout.deliveryMethod,
-          status: payout.status,
-          createdAt: payout.createdAt.toISOString()
-        },
-        summary: updatedSummary
+        payout: payout
+          ? {
+              id: payout.id,
+              amountCents: payout.amountCents,
+              deliveryMethod: payout.deliveryMethod,
+              status: payout.status,
+              expectedArrival: payout.arrivalDate?.toISOString() ?? null,
+              duplicate: result.duplicate,
+              createdAt: payout.createdAt.toISOString()
+            }
+          : null,
+        summary
       },
-      "Stripe payout requested"
+      result.duplicate ? "Payout request already received" : "Stripe payout requested"
     );
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -1171,6 +929,7 @@ architectPayoutRoutes.post("/request", async (c) => {
       );
     }
 
+    console.error("[payouts] request failed", error);
     return errorResponse(c, "Could not request payout", 500, "PAYOUT_REQUEST_FAILED");
   }
 });

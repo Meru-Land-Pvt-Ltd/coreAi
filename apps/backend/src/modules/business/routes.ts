@@ -6,11 +6,20 @@ import {
   normalizeTimeZone,
   requiredConnectorsForWorkflow,
   validateBuyerSetupAnswers,
+  workflowUsesVoice,
+  getWorkflowTriggerKind,
   type ConnectorRequirement
 } from "@coreai/shared";
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
-import { errorMessage, isRecord } from "../../lib/error-utils";
+import { apiErrorStatus, errorMessage, isRecord } from "../../lib/error-utils";
+import { PhoneNumberServiceError } from "../admin/twilio-number-service";
+import {
+  getProvisioningRequestStatus,
+  listPhoneLocations,
+  purchaseNumberForBusiness,
+  searchNumbersForBusiness
+} from "./phone-provisioning-flow";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
@@ -43,8 +52,8 @@ import {
   startInstalledAgentPreviewCall
 } from "./deploy";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
+import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import {
-  autoProvisionPhoneNumber,
   findBuyerPlatformNumber,
   workflowNeedsPhoneNumber
 } from "./phone-provisioning";
@@ -172,6 +181,7 @@ function buildAgentEventActivities(params: {
     customerPhone: string;
     service: string | null;
     startAt: Date;
+    timeZone: string | null;
     createdAt: Date;
   }>;
   missedCallLeads: Array<{ id: string; phoneNumber: string; name: string | null; createdAt: Date }>;
@@ -198,6 +208,7 @@ function buildAgentEventActivities(params: {
   for (const appointment of params.appointments) {
     const who = appointment.customerName?.trim() || appointment.customerPhone;
     const when = appointment.startAt.toLocaleString("en-US", {
+      timeZone: normalizeTimeZone(appointment.timeZone),
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -340,7 +351,7 @@ businessRoutes.get("/dashboard", async (c) => {
     }),
     // Bookings created this month by the agent (Google Calendar-backed appointments).
     prisma.appointment.findMany({
-      where: { businessId: business.id, createdAt: { gte: monthStart } },
+      where: { businessId: business.id, createdAt: { gte: monthStart }, executionMode: "LIVE" },
       orderBy: { startAt: "desc" },
       take: 50,
       select: {
@@ -359,8 +370,9 @@ businessRoutes.get("/dashboard", async (c) => {
       }
     }),
     // Last 30 days of raw agent events for the activity chart + agent activity feed.
+    // Test-mode rows never appear as live customer activity.
     prisma.appointment.findMany({
-      where: { businessId: business.id, createdAt: { gte: chartStart } },
+      where: { businessId: business.id, createdAt: { gte: chartStart }, executionMode: "LIVE" },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -368,6 +380,7 @@ businessRoutes.get("/dashboard", async (c) => {
         customerPhone: true,
         service: true,
         startAt: true,
+        timeZone: true,
         createdAt: true
       }
     }),
@@ -735,6 +748,153 @@ async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string
   return agent;
 }
 
+/* --------------- Phone number location, search & purchase --------------- */
+
+// The businessId is ALWAYS derived from the authenticated owner — a
+// browser-supplied businessId is never accepted for phone provisioning.
+async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
+  const business = await prisma.business.findFirst({
+    where: { ownerId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  return business?.id ?? null;
+}
+
+/** Ownership guard: an installedAgentId from the client must belong to the caller. */
+async function resolveOwnedInstalledAgentId(
+  ownerId: string,
+  businessId: string,
+  installedAgentId: string | undefined
+): Promise<string | null | undefined> {
+  if (!installedAgentId) return undefined;
+  const agent = await prisma.installedAgent.findFirst({
+    where: { id: installedAgentId, businessId, business: { ownerId } },
+    select: { id: true }
+  });
+  return agent ? agent.id : null;
+}
+
+businessRoutes.get("/phone-numbers/locations", async (c) => {
+  return successResponse(c, {
+    countries: listPhoneLocations(),
+    note: "Number availability depends on Twilio inventory and local regulatory requirements."
+  });
+});
+
+const phoneSearchSchema = z.object({
+  installedAgentId: z.string().trim().min(1).optional(),
+  country: z.string().trim().min(2).max(2),
+  state: z.string().trim().max(8).optional(),
+  city: z.string().trim().max(80).optional()
+});
+
+businessRoutes.post("/phone-numbers/search", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = phoneSearchSchema.safeParse(await c.req.json().catch(() => null));
+
+  if (!parsed.success) {
+    return errorResponse(c, "Invalid phone search payload", 422, "VALIDATION_ERROR");
+  }
+
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) {
+    return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, businessId, parsed.data.installedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  try {
+    const outcome = await searchNumbersForBusiness({
+      businessId,
+      installedAgentId,
+      country: parsed.data.country,
+      state: parsed.data.state,
+      city: parsed.data.city
+    });
+    return successResponse(c, outcome);
+  } catch (error) {
+    if (error instanceof PhoneNumberServiceError) {
+      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.code ?? "PHONE_SEARCH_FAILED");
+    }
+    console.error("[phone-search] failed", error);
+    return errorResponse(c, "Could not search available numbers.", 503, "PHONE_SEARCH_FAILED");
+  }
+});
+
+const phonePurchaseSchema = z.object({
+  installedAgentId: z.string().trim().min(1).optional(),
+  clientRequestId: z.string().trim().min(8).max(64),
+  phoneNumber: z.string().trim().min(8).max(20),
+  country: z.string().trim().min(2).max(2),
+  state: z.string().trim().max(8).optional(),
+  city: z.string().trim().max(80).optional(),
+  fallbackType: z.enum(["NEARBY_CITY", "SAME_STATE", "NATIONAL", "TOLL_FREE"]).optional()
+});
+
+businessRoutes.post("/phone-numbers/purchase", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = phonePurchaseSchema.safeParse(await c.req.json().catch(() => null));
+
+  if (!parsed.success) {
+    return errorResponse(c, "Invalid phone purchase payload", 422, "VALIDATION_ERROR");
+  }
+
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) {
+    return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, businessId, parsed.data.installedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  try {
+    const outcome = await purchaseNumberForBusiness({
+      businessId,
+      requestedByUserId: authUser.id,
+      installedAgentId,
+      clientRequestId: parsed.data.clientRequestId,
+      phoneNumber: parsed.data.phoneNumber,
+      country: parsed.data.country,
+      state: parsed.data.state,
+      city: parsed.data.city,
+      fallbackType: parsed.data.fallbackType ?? null
+    });
+    return successResponse(c, outcome);
+  } catch (error) {
+    if (error instanceof PhoneNumberServiceError) {
+      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.code ?? "PHONE_PURCHASE_FAILED");
+    }
+    console.error("[phone-purchase] failed", error);
+    return errorResponse(c, "Could not complete the number purchase.", 503, "PHONE_PURCHASE_FAILED");
+  }
+});
+
+businessRoutes.get("/phone-numbers/provisioning/:clientRequestId", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+
+  if (!businessId) {
+    return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const outcome = await getProvisioningRequestStatus({
+    businessId,
+    clientRequestId: c.req.param("clientRequestId")
+  });
+
+  if (!outcome) {
+    return errorResponse(c, "Provisioning request not found.", 404, "PROVISIONING_NOT_FOUND");
+  }
+
+  return successResponse(c, outcome);
+});
+
 businessRoutes.post("/agents/:installedAgentId/pause", async (c) => {
   const authUser = c.get("authUser");
   const agent = await loadOwnedInstalledAgent(authUser.id, c.req.param("installedAgentId"));
@@ -824,7 +984,9 @@ const chatTestMessageSchema = z.object({
 
 const chatTestSchema = z.object({
   message: z.string().min(1).max(2000),
-  history: z.array(chatTestMessageSchema).max(30).optional()
+  history: z.array(chatTestMessageSchema).max(30).optional(),
+  /** Groups this test run's records (calendar events, appointments). */
+  testSessionId: z.string().trim().max(64).optional()
 });
 
 // Chat simulation for the setup wizard's Test step — runs the buyer's real
@@ -867,19 +1029,67 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
       workflowJson: chatSetup.workflowJson,
       message: parsed.data.message,
       history: parsed.data.history,
-      testContext: chatSetup.context
+      testContext: chatSetup.context,
+      executionMode: "BUSINESS_TEST",
+      testSessionId: parsed.data.testSessionId,
+      businessIdentity: {
+        businessId: business.id,
+        installedAgentId: chatSetup.installedAgentId
+      }
     });
 
     return successResponse(c, {
       reply: result.reply,
       transcript: result.transcript,
       toolCalls: result.toolCalls,
-      simulated: true
+      simulated: true,
+      executionMode: result.executionMode,
+      timeZone: result.timeZone,
+      testSessionId: result.testSessionId,
+      calendarEvent: result.calendarEvent,
+      calendarError: result.calendarError,
+      configError: result.configError
     });
   } catch (error) {
     console.error("[setup-chat-test] failed", error);
     return errorResponse(c, "Could not run the test conversation.", 500, "TEST_FAILED");
   }
+});
+
+// Delete a Business test calendar event — ownership-validated and idempotent.
+businessRoutes.post("/setup/test-events/:id/delete", async (c) => {
+  const authUser = c.get("authUser");
+  const testEventId = c.req.param("id");
+
+  const ownedBusinesses = await prisma.business.findMany({
+    where: { ownerId: authUser.id },
+    select: { id: true }
+  });
+
+  const result = await deleteTestCalendarEvent({
+    testEventId,
+    requesterUserId: authUser.id,
+    allowedBusinessIds: ownedBusinesses.map((row) => row.id),
+    scope: "BUSINESS"
+  });
+
+  if (result.outcome === "not_found") {
+    return errorResponse(c, "Test event not found.", 404, "TEST_EVENT_NOT_FOUND");
+  }
+  if (result.outcome === "ownership_denied") {
+    return errorResponse(c, "This test event does not belong to your business.", 403, "TEST_EVENT_OWNERSHIP_DENIED");
+  }
+  if (result.outcome === "calendar_disconnected" || result.outcome === "provider_failure") {
+    const error = result.error;
+    return errorResponse(
+      c,
+      error?.message ?? "The test event could not be deleted.",
+      error && result.outcome === "calendar_disconnected" ? 409 : 503,
+      error?.code ?? "CALENDAR_EVENT_DELETE_FAILED"
+    );
+  }
+
+  return successResponse(c, { outcome: result.outcome });
 });
 
 businessRoutes.post("/setup/preview-call", async (c) => {
@@ -1424,6 +1634,9 @@ function serializeSetup(
     buyerSetupSchema: normalizeBuyerSetupFields(config?.buyerSetupSchema),
     // Buyer-owned Send Email recipients; null until the buyer saves them.
     emailRecipients: extractBuyerEmailRecipients(config),
+    triggerKind: (installedAgent as any)?.workflow?.workflowJson
+      ? getWorkflowTriggerKind((installedAgent as any).workflow.workflowJson)
+      : null,
     silence: silenceConfig
       ? {
         repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
@@ -1881,9 +2094,11 @@ businessRoutes.post("/setup", async (c) => {
     const forward = normalizePhoneNumber(input.forwardToPhone || "");
     let businessPhone: Awaited<ReturnType<typeof prisma.businessPhoneNumber.findFirst>> = null;
 
-    // Automatic number allotment: when the buyer didn't (and no longer needs
-    // to) pick a number, adopt the one reserved/assigned at purchase time; if
-    // none exists and the workflow needs a phone, provision one now.
+    // Number adoption only: a number already reserved/assigned to this buyer
+    // is attached, but numbers are never silently purchased here anymore — the
+    // buyer selects a location and confirms a specific number through
+    // /business/phone-numbers/search + /purchase. The deploy checklist reports
+    // a missing number with that remediation.
     if (!targetPlatform && !existingPhone) {
       const adopted = await findBuyerPlatformNumber({
         buyerUserId: authUser.id,
@@ -1893,25 +2108,9 @@ businessRoutes.post("/setup", async (c) => {
       if (adopted) {
         targetPlatform = adopted;
       } else if (workflowNeedsPhoneNumber(resolved.workflow.workflowJson)) {
-        try {
-          const provisioned = await autoProvisionPhoneNumber({
-            buyerUserId: authUser.id,
-            businessId: business.id,
-            installedAgentId: installedAgent.id,
-            forwardToPhone: forward || null
-          });
-          if (provisioned) {
-            targetPlatform = await prisma.platformPhoneNumber.findUnique({
-              where: { id: provisioned.platformPhoneNumberId }
-            });
-          }
-        } catch (error) {
-          // Setup must still save; the deploy checklist reports the missing number.
-          console.error("[phone-provision] setup-time provisioning failed (non-fatal)", {
-            businessId: business.id,
-            error
-          });
-        }
+        console.log("[phone-provision] no number yet — buyer must select one via phone-numbers/search+purchase", {
+          businessId: business.id
+        });
       }
     }
 
@@ -2036,16 +2235,20 @@ businessRoutes.post("/setup", async (c) => {
     let deployedVapiAssistantId: string | null = null;
 
     if (input.deploy !== false) {
-      const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
-      deployedVapiAssistantId = voiceDeploy?.assistantId ?? null;
+      const usesVoice = workflowUsesVoice(resolved.workflow.workflowJson);
 
-      if (!deployedVapiAssistantId) {
-        return errorResponse(
-          c,
-          "Live voice assistant was not created. Make sure the workflow has an AI Voice Conversation node and Vapi is configured.",
-          500,
-          "VAPI_ASSISTANT_DEPLOY_FAILED"
-        );
+      if (usesVoice) {
+        const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
+        deployedVapiAssistantId = voiceDeploy?.assistantId ?? null;
+
+        if (!deployedVapiAssistantId) {
+          return errorResponse(
+            c,
+            "Live voice assistant was not created. Make sure the workflow has an AI Voice Conversation node and Vapi is configured.",
+            500,
+            "VAPI_ASSISTANT_DEPLOY_FAILED"
+          );
+        }
       }
 
       const prevConfig = (installedAgent.configJson as Record<string, unknown> | null) ?? {};

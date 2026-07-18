@@ -70,7 +70,10 @@ const purchaseSchema = z.object({
   billingName: z.string().trim().min(2),
   billingEmail: z.string().trim().email(),
   billingAddress: z.string().trim().min(3),
-  billingPostalCode: z.string().trim().min(3).max(20).optional()
+  billingPostalCode: z.string().trim().min(3).max(20).optional(),
+  /// Per-attempt UUID from checkout — Stripe idempotency key so a retried
+  /// submit can never double-charge the buyer.
+  attemptId: z.string().trim().min(8).max(64).optional()
 });
 
 const billingPaymentMethodSchema = z.object({
@@ -175,7 +178,8 @@ async function chargeAgentOnce({
   listing,
   userId,
   amountCents,
-  phoneFeeCents
+  phoneFeeCents,
+  attemptId
 }: {
   stripe: NonNullable<ReturnType<typeof getStripeClient>>;
   customerId: string;
@@ -185,22 +189,29 @@ async function chargeAgentOnce({
   /** Total to charge — agent price plus any number fee. Defaults to the agent price. */
   amountCents?: number;
   phoneFeeCents?: number;
+  /** Checkout attempt UUID — deduplicates retried submits at Stripe. */
+  attemptId?: string;
 }) {
-  return stripe.paymentIntents.create({
-    amount: amountCents ?? listing.priceCents,
-    currency: "usd",
-    customer: customerId,
-    payment_method: paymentMethodId,
-    confirm: true,
-    off_session: true,
-    description: `One-time purchase of ${listing.name}`,
-    metadata: {
-      userId,
-      listingId: listing.id,
-      chargeType: "agent_purchase",
-      ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
-    }
-  });
+  return stripe.paymentIntents.create(
+    {
+      amount: amountCents ?? listing.priceCents,
+      currency: "usd",
+      customer: customerId,
+      payment_method: paymentMethodId,
+      confirm: true,
+      off_session: true,
+      description: `One-time purchase of ${listing.name}`,
+      metadata: {
+        userId,
+        listingId: listing.id,
+        chargeType: "agent_purchase",
+        ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
+      }
+    },
+    attemptId
+      ? { idempotencyKey: `agent-purchase:${userId}:${listing.id}:${attemptId}` }
+      : undefined
+  );
 }
 
 function paymentBillingData(billing: CheckoutBillingDetails) {
@@ -1122,19 +1133,6 @@ paymentRoutes.post("/start-trial", async (c) => {
   // node only). The fee is billed with the agent price after the trial; a
   // provisioning failure must never break the purchase — setup retries later.
   let assignedPhoneNumber: string | null = null;
-  try {
-    const provisioned = await autoProvisionPhoneNumberForPurchase({
-      buyerUserId: authUser.id,
-      businessId,
-      listingId: listing.id
-    });
-    assignedPhoneNumber = provisioned?.phoneNumber ?? null;
-  } catch (error) {
-    console.error("[phone-provision] trial-start provisioning failed (non-fatal)", {
-      listingId: listing.id,
-      error
-    });
-  }
 
   // Send a purchase-confirmation email with the invoice attached. Best-effort:
   // a mail failure must never break the purchase.
@@ -1177,7 +1175,7 @@ paymentRoutes.post("/purchase", async (c) => {
   }
 
   const authUser = c.get("authUser");
-  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode } = parsed.data;
+  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode, attemptId } = parsed.data;
   const billingDetails: CheckoutBillingDetails = {
     billingName,
     billingEmail,
@@ -1242,19 +1240,6 @@ paymentRoutes.post("/purchase", async (c) => {
     });
 
     let assignedPhoneNumber: string | null = null;
-    try {
-      const provisioned = await autoProvisionPhoneNumberForPurchase({
-        buyerUserId: authUser.id,
-        businessId,
-        listingId: listing.id
-      });
-      assignedPhoneNumber = provisioned?.phoneNumber ?? null;
-    } catch (error) {
-      console.error("[phone-provision] free-purchase provisioning failed (non-fatal)", {
-        listingId: listing.id,
-        error
-      });
-    }
 
     try {
       const invoice = await buildInvoiceData(payment, authUser);
@@ -1355,18 +1340,6 @@ paymentRoutes.post("/purchase", async (c) => {
     // The number was allotted at trial start; ensure it exists (idempotent)
     // and bill its fee together with the agent price, as an invoice line —
     // but only if this number's fee was never billed before.
-    try {
-      await autoProvisionPhoneNumberForPurchase({
-        buyerUserId: authUser.id,
-        businessId,
-        listingId: listing.id
-      });
-    } catch (error) {
-      console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
-        listingId: listing.id,
-        error
-      });
-    }
 
     const unbilledPhoneFee = await resolveUnbilledPhoneFee({
       buyerUserId: authUser.id,
@@ -1386,7 +1359,8 @@ paymentRoutes.post("/purchase", async (c) => {
       listing,
       userId: authUser.id,
       amountCents: totalCents,
-      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
+      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
+      attemptId
     });
     if (intent.status !== "succeeded") {
       return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
@@ -1456,18 +1430,6 @@ paymentRoutes.post("/purchase", async (c) => {
   // Direct purchase (no trial): allot the number first, then charge the agent
   // price plus the number fee (only if never billed for this number) in one
   // payment with an itemized breakdown.
-  try {
-    await autoProvisionPhoneNumberForPurchase({
-      buyerUserId: authUser.id,
-      businessId,
-      listingId: listing.id
-    });
-  } catch (error) {
-    console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
-      listingId: listing.id,
-      error
-    });
-  }
 
   const unbilledPhoneFee = await resolveUnbilledPhoneFee({
     buyerUserId: authUser.id,
@@ -1487,7 +1449,8 @@ paymentRoutes.post("/purchase", async (c) => {
     listing,
     userId: authUser.id,
     amountCents: totalCents,
-    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
+    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
+    attemptId
   });
   if (intent.status !== "succeeded") {
     return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");

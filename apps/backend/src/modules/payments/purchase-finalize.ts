@@ -16,6 +16,7 @@ import {
 } from "../business/phone-provisioning";
 import { resolveActivePayment } from "../business/purchase-access";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
+import { createSettlementForPayment } from "../payouts/settlements";
 import { getStripeClient, isStripeConfigured } from "./stripe";
 
 
@@ -291,24 +292,55 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
     };
   }
 
-  const payment = await prisma.payment.create({
-    data: {
-      userId: authUser.id,
-      businessId,
-      listingId: listing.id,
-      amountCents: params.amountCents,
-      currency: "usd",
-      status: "SUCCEEDED",
-      stripeCustomerId: params.customerId,
-      stripePaymentId: params.paymentMethodId,
-      // PaymentIntent id — the dedupe key between response path and webhook.
-      stripeSessionId: params.paymentIntentId,
-      description: `Purchase of ${listing.name}`,
-      lineItemsJson: lineItems as never,
-      ...paymentBillingData(billing)
-    },
-    include: { listing: { select: { id: true, name: true } } }
+  // Advisory-locked create: the response path and the webhook backstop can
+  // race on the same PaymentIntent, and stripeSessionId has no unique index —
+  // the xact lock serializes them so only one Payment row is recorded.
+  const createResult = await prisma.$transaction(async (tx) => {
+    if (params.paymentIntentId) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-intent:${params.paymentIntentId}`}))`;
+      const existing = await tx.payment.findFirst({
+        where: { stripeSessionId: params.paymentIntentId },
+        include: { listing: { select: { id: true, name: true } } }
+      });
+      if (existing) return { payment: existing, alreadyRecorded: true as const };
+    }
+
+    const created = await tx.payment.create({
+      data: {
+        userId: authUser.id,
+        businessId,
+        listingId: listing.id,
+        amountCents: params.amountCents,
+        currency: "usd",
+        status: "SUCCEEDED",
+        stripeCustomerId: params.customerId,
+        stripePaymentId: params.paymentMethodId,
+        // PaymentIntent id — the dedupe key between response path and webhook.
+        stripeSessionId: params.paymentIntentId,
+        description: `Purchase of ${listing.name}`,
+        lineItemsJson: lineItems as never,
+        ...paymentBillingData(billing)
+      },
+      include: { listing: { select: { id: true, name: true } } }
+    });
+    return { payment: created, alreadyRecorded: false as const };
   });
+
+  if (createResult.alreadyRecorded) {
+    return { payment: createResult.payment, alreadyRecorded: true };
+  }
+
+  const payment = createResult.payment;
+
+  // Immutable architect settlement for this purchase (idempotent per payment).
+  try {
+    await createSettlementForPayment(payment.id);
+  } catch (error) {
+    console.error("Architect settlement creation failed (reconciliation will backfill)", {
+      paymentId: payment.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   // A completed purchase supersedes every trial row for this listing, so the
   // hourly trial-conversion job can never charge this buyer a second time.

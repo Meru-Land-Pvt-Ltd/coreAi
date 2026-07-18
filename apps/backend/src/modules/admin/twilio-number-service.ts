@@ -212,6 +212,10 @@ export type SearchAvailableNumbersInput = {
   country?: string;
   areaCode?: string;
   contains?: string;
+  /** Twilio InRegion filter (US state / CA province code). */
+  inRegion?: string;
+  /** Twilio InLocality filter (city name; US/CA local search). */
+  inLocality?: string;
   voiceEnabled?: boolean;
   smsEnabled?: boolean;
   mmsEnabled?: boolean;
@@ -240,6 +244,15 @@ export async function searchAvailableNumbers(input: SearchAvailableNumbersInput)
   }
   const contains = (input.contains ?? "").replace(/[^A-Za-z0-9*]/g, "");
   if (contains) params.set("Contains", contains.slice(0, 12));
+  const inRegion = (input.inRegion ?? "").trim().toUpperCase();
+  if (inRegion) {
+    if (!/^[A-Z]{2}$/.test(inRegion)) {
+      throw new PhoneNumberServiceError("Region must be a 2-letter state/province code.", 422, "INVALID_REGION");
+    }
+    params.set("InRegion", inRegion);
+  }
+  const inLocality = (input.inLocality ?? "").trim();
+  if (inLocality) params.set("InLocality", inLocality.slice(0, 80));
   if (input.voiceEnabled) params.set("VoiceEnabled", "true");
   if (input.smsEnabled) params.set("SmsEnabled", "true");
   if (input.mmsEnabled) params.set("MmsEnabled", "true");

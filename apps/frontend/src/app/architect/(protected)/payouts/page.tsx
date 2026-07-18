@@ -7,9 +7,8 @@ import {
   getArchitectPayoutTransactions,
   refreshArchitectStripeOnboarding,
   requestArchitectPayout,
-  saveArchitectPayoutMethod,
+  startArchitectStripeOnboarding,
   syncArchitectStripePayoutMethod,
-  verifyArchitectIfsc,
   type ArchitectPayoutSummary,
   type ArchitectPayoutTransaction
 } from "@/components/architect/features/api";
@@ -176,11 +175,17 @@ export default function ArchitectPayoutsPage() {
 
   async function handleRequestPayout() {
     if (!summary || summary.availableBalanceCents <= 0) return;
+    // Re-entrancy guard: the disabled button alone cannot stop a double
+    // invocation racing before React re-renders.
+    if (submittingPayout) return;
 
     setSubmittingPayout(true);
+    // One UUID per confirmed request — the backend and Stripe deduplicate
+    // retries of the same request on it.
     const result = await requestArchitectPayout({
       amountCents: summary.availableBalanceCents,
-      deliveryMethod: payoutDeliveryMethod
+      deliveryMethod: payoutDeliveryMethod,
+      clientRequestId: crypto.randomUUID()
     });
 
     if (result.success && result.data) {
@@ -399,6 +404,7 @@ export default function ArchitectPayoutsPage() {
                 setPayoutDeliveryMethod("instant");
                 setPayoutModalOpen(true);
               }}
+              openingStripe={openingStripe}
             />
           </div>
         </section>
@@ -432,16 +438,6 @@ export default function ArchitectPayoutsPage() {
         <AddPayoutMethodModal
           payoutMethod={data.payoutMethod}
           onClose={() => setMethodModalOpen(false)}
-          onVerify={handleContinueStripeVerification}
-          onSaved={async (saved) => {
-            setMethodModalOpen(false);
-            setToast(
-              saved?.verified
-                ? "Payout method saved and verified."
-                : "Payout method saved. Complete Stripe verification to enable payouts."
-            );
-            await loadSummary();
-          }}
         />
       ) : null}
 
@@ -626,7 +622,8 @@ function PayoutMethodCard({
   openingStripe,
   onAdd,
   onChange,
-  onInstantPayout
+  onInstantPayout,
+  openingStripe = false
 }: {
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
   instantPayout: ArchitectPayoutSummary["instantPayout"];
@@ -635,6 +632,7 @@ function PayoutMethodCard({
   onAdd: () => void;
   onChange: () => void;
   onInstantPayout: () => void;
+  openingStripe?: boolean;
 }) {
   const instantDisabled = !payoutMethod?.verified || !instantPayout.eligible || availableBalanceCents <= 0;
   const instantTitle = !payoutMethod?.verified
@@ -922,184 +920,41 @@ function TaxDocumentsSection({ totalEarningsCents }: { totalEarningsCents: numbe
 
 function AddPayoutMethodModal({
   payoutMethod,
-  onClose,
-  onSaved,
-  onVerify
+  onClose
 }: {
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
   onClose: () => void;
-  onSaved: (saved: ArchitectPayoutSummary["payoutMethod"]) => void | Promise<void>;
-  onVerify: () => Promise<void>;
 }) {
   const [country, setCountry] = useState<"US" | "IN">(payoutMethod?.country ?? "US");
   const [accountHolderName, setAccountHolderName] = useState(payoutMethod?.accountHolderName ?? "");
-  const [bankName, setBankName] = useState("");
-  const [routingNumber, setRoutingNumber] = useState("");
-  const [accountNumber, setAccountNumber] = useState("");
-  const [confirmAccountNumber, setConfirmAccountNumber] = useState("");
-  const [routingStatus, setRoutingStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
-  const [routingMessage, setRoutingMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  // Post-save step: the bank is stored but Stripe still needs identity
-  // verification — offer to jump straight into the hosted flow.
-  const [savedMethod, setSavedMethod] = useState<ArchitectPayoutSummary["payoutMethod"]>(null);
-  const [verifying, setVerifying] = useState(false);
 
-  function isValidAba(value: string) {
-    if (!/^\d{9}$/.test(value)) return false;
-    const digits = value.split("").map(Number);
-    return (3 * (digits[0] + digits[3] + digits[6]) + 7 * (digits[1] + digits[4] + digits[7]) + digits[2] + digits[5] + digits[8]) % 10 === 0;
-  }
-
-  async function validateRouting(value: string) {
-    const normalized = value.trim().toUpperCase();
-    if (!normalized) {
-      setRoutingStatus("idle");
-      setRoutingMessage("");
-      return;
-    }
-
-    if (country === "US") {
-      const valid = isValidAba(normalized);
-      setRoutingStatus(valid ? "valid" : "invalid");
-      setRoutingMessage(valid ? "Valid ABA routing number format." : "Enter a valid 9-digit ABA routing number.");
-      return;
-    }
-
-    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalized)) {
-      setRoutingStatus("invalid");
-      setRoutingMessage("Enter a valid IFSC code (e.g. HDFC0001234).");
-      return;
-    }
-
-    setRoutingStatus("checking");
-    setRoutingMessage("Verifying IFSC code…");
-    const result = await verifyArchitectIfsc(normalized);
-    if (result.success && result.data?.valid) {
-      setRoutingStatus("valid");
-      setRoutingMessage(`${result.data.bankName}${result.data.branch ? ` · ${result.data.branch}` : ""}`);
-      if (!bankName.trim() && result.data.bankName) setBankName(result.data.bankName);
-    } else {
-      setRoutingStatus("invalid");
-      setRoutingMessage(result.error ?? "IFSC code not found.");
-    }
-  }
-
-  // Validate the routing number as the architect types (debounced) — the save
-  // button unlocks without requiring a blur first.
-  useEffect(() => {
-    if (!routingNumber.trim()) {
-      setRoutingStatus("idle");
-      setRoutingMessage("");
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void validateRouting(routingNumber);
-    }, 600);
-
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- validateRouting reads current field state
-  }, [routingNumber, country]);
-
+  // Bank details are collected by Stripe's hosted onboarding — account and
+  // routing numbers never pass through Triven's servers.
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     setError("");
 
-    if (routingStatus === "checking") {
-      setError("Hold on — still verifying the routing details.");
-      return;
-    }
-    if (routingStatus !== "valid") {
-      setError(`Verify a valid ${country === "IN" ? "IFSC code" : "ABA routing number"} before saving.`);
-      return;
-    }
-    if (accountNumber.length < 4) {
-      setError("Enter a valid account number.");
-      return;
-    }
-    if (accountNumber !== confirmAccountNumber) {
-      setError("Account numbers do not match.");
+    if (accountHolderName.trim().length < 2) {
+      setError("Enter the account holder name.");
       return;
     }
 
     setSaving(true);
-    const result = await saveArchitectPayoutMethod({
+    const result = await startArchitectStripeOnboarding({
       country,
-      bankName: bankName.trim(),
-      accountHolderName: accountHolderName.trim(),
-      accountNumber,
-      confirmAccountNumber,
-      routingNumber: routingNumber.trim().toUpperCase()
+      accountHolderName: accountHolderName.trim()
     });
 
-    if (result.success) {
-      const saved = result.data?.payoutMethod ?? null;
-      if (saved && !saved.verified) {
-        // Keep the dialog open and offer the Stripe identity step right away.
-        setSavedMethod(saved);
-      } else {
-        await onSaved(saved);
-      }
-    } else {
-      setError(result.error ?? "Could not save payout method. Please check the details and try again.");
+    if (result.success && result.data?.url) {
+      window.location.assign(result.data.url);
+      return;
     }
 
     setSaving(false);
-  }
-
-  async function handleVerifyNow() {
-    setVerifying(true);
-    setError("");
-    await onVerify();
-    // onVerify redirects on success; reaching here means it failed.
-    setVerifying(false);
-    setError("Could not open Stripe verification. You can retry from the Payout Method card.");
-  }
-
-  if (savedMethod) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true">
-        <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" data-testid="architect-payouts-method-saved-step">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-green-50 text-green-600">
-            <CheckIcon className="h-7 w-7" />
-          </div>
-          <h3 className="mt-4 text-center text-lg font-bold text-slate-900">Bank account saved</h3>
-          <p className="mt-2 text-center text-sm leading-6 text-slate-600">
-            {savedMethod.bankName}
-            {savedMethod.accountLast4 ? ` •••• ${savedMethod.accountLast4}` : ""} is on file. Stripe now needs a quick
-            identity verification before payouts can be sent to it.
-          </p>
-
-          {error ? (
-            <p className="mt-3 text-center text-sm text-red-600" data-testid="architect-payouts-method-error">
-              {error}
-            </p>
-          ) : null}
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              data-testid="architect-payouts-verify-later-button"
-              onClick={() => void onSaved(savedMethod)}
-              className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-gray-50"
-            >
-              I&apos;ll do this later
-            </button>
-            <button
-              type="button"
-              disabled={verifying}
-              data-testid="architect-payouts-verify-now-button"
-              onClick={() => void handleVerifyNow()}
-              className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {verifying ? "Opening Stripe…" : "Verify with Stripe"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    setError(result.error ?? "Could not open Stripe onboarding. Please try again.");
   }
 
   return (
@@ -1108,7 +963,9 @@ function AddPayoutMethodModal({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-bold text-slate-900">Add payout method</h3>
-            <p className="mt-1 text-sm text-slate-500">Bank transfers are used for architect payouts.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Bank details are added securely on Stripe — Triven never sees your account number.
+            </p>
           </div>
           <button
             type="button"
@@ -1124,12 +981,7 @@ function AddPayoutMethodModal({
           <Field label="Bank country">
             <select
               value={country}
-              onChange={(event) => {
-                setCountry(event.target.value as "US" | "IN");
-                setRoutingNumber("");
-                setRoutingStatus("idle");
-                setRoutingMessage("");
-              }}
+              onChange={(event) => setCountry(event.target.value as "US" | "IN")}
               className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
             >
               <option value="US">United States</option>
@@ -1146,30 +998,10 @@ function AddPayoutMethodModal({
             />
           </Field>
 
-          <Field label="Bank name" testId="architect-payouts-bank-name">
-            <input value={bankName} onChange={(event) => setBankName(event.target.value)} className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20" required />
-          </Field>
-
-          <Field label={country === "IN" ? "IFSC code" : "ABA routing number"} testId="architect-payouts-routing-number">
-            <input
-              value={routingNumber}
-              onChange={(event) => setRoutingNumber(country === "IN" ? event.target.value.toUpperCase() : event.target.value.replace(/\D/g, ""))}
-              onBlur={() => void validateRouting(routingNumber)}
-              maxLength={country === "IN" ? 11 : 9}
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm uppercase text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-              placeholder={country === "IN" ? "HDFC0001234" : "110000000"}
-              required
-            />
-            {routingMessage ? <p className={`mt-1 text-xs ${routingStatus === "valid" ? "text-green-600" : routingStatus === "invalid" ? "text-red-600" : "text-slate-500"}`}>{routingMessage}</p> : null}
-          </Field>
-
-          <Field label="Account number" testId="architect-payouts-account-number">
-            <input value={accountNumber} onChange={(event) => setAccountNumber(event.target.value.replace(/\D/g, ""))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20" inputMode="numeric" required />
-          </Field>
-
-          <Field label="Confirm account number" testId="architect-payouts-confirm-account-number">
-            <input value={confirmAccountNumber} onChange={(event) => setConfirmAccountNumber(event.target.value.replace(/\D/g, ""))} className="w-full rounded-xl border border-gray-200 px-4 py-3 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20" inputMode="numeric" required />
-          </Field>
+          <p className="text-xs leading-5 text-slate-500">
+            You&apos;ll be redirected to Stripe to add your bank account and complete identity verification, then
+            returned here.
+          </p>
 
           {error ? <p className="text-sm text-red-600" data-testid="architect-payouts-method-error">{error}</p> : null}
 
@@ -1183,11 +1015,11 @@ function AddPayoutMethodModal({
             </button>
             <button
               type="submit"
-              disabled={saving || routingStatus !== "valid"}
+              disabled={saving}
               data-testid="architect-payouts-save-method-button"
               className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save payout method"}
+              {saving ? "Opening Stripe…" : "Continue with Stripe"}
             </button>
           </div>
         </form>

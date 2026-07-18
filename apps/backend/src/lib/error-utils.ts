@@ -1,8 +1,8 @@
 export type UnknownErrorRecord = Record<string, unknown>;
 
-export type ApiErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 422 | 429 | 500 | 503;
+export type ApiErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 410 | 422 | 429 | 500 | 503;
 
-const API_ERROR_STATUSES = new Set<number>([400, 401, 402, 403, 404, 409, 422, 429, 500, 503]);
+const API_ERROR_STATUSES = new Set<number>([400, 401, 402, 403, 404, 409, 410, 422, 429, 500, 503]);
 
 export function isRecord(value: unknown): value is UnknownErrorRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);

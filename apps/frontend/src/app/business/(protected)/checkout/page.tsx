@@ -34,6 +34,7 @@ type CheckoutWorkflowNode = {
 };
 
 type CheckoutWorkflow = {
+    description?: string | null;
     workflowJson?: {
         nodes?: CheckoutWorkflowNode[];
     } | null;
@@ -46,6 +47,9 @@ type CheckoutListing = {
     requiredConnectors?: string[];
     supportedLlms?: string[];
     workflow?: CheckoutWorkflow | null;
+    shortDescription?: string;
+    description?: string | null;
+    includedFeatures?: string[];
     architect?: {
         fullName?: string | null;
         email?: string | null;
@@ -561,20 +565,30 @@ select.field {
 // nodes describe the actual steps; connectors/LLMs and requiredConnectors are
 // used as a fallback when the workflow has no usable step labels.
 function getIncludedItems(listing: CheckoutListing) {
+    const fromFeatures = (listing.includedFeatures ?? [])
+        .map((feature) => feature.trim())
+        .filter(Boolean);
+    if (fromFeatures.length) return fromFeatures;
+
     const nodes = listing.workflow?.workflowJson?.nodes ?? [];
 
     const fromNodes = nodes
         .map((node) => node.data?.label || node.data?.title)
         .filter((value): value is string => Boolean(value?.trim()));
 
-    const fromConnectors = (listing.requiredConnectors ?? []).map(
-        (connector) => getConnectorIncludedItem(connector)
-    );
-    const fromLlms = (listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm));
+    if (fromNodes.length) return fromNodes;
 
-    const items = Array.from(new Set([...fromNodes, ...fromConnectors, ...fromLlms]));
+    const connectors = listing.requiredConnectors ?? [];
+    if (connectors.length) {
+        return connectors.map((connector) => getConnectorIncludedItem(connector));
+    }
 
-    return items;
+    return [
+        listing.shortDescription ||
+        listing.description ||
+        listing.workflow?.description ||
+        "Automates business workflows with AI."
+    ];
 }
 
 const nextSteps = [
@@ -653,6 +667,19 @@ function isZipValid(country: string, value: string) {
 function formatBillingAddress(addressLine: string, zip: string, countryName: string) {
     return [addressLine.trim(), zip.trim(), countryName.trim()].filter(Boolean).join(", ");
 }
+
+// Stripe element styling matched to the existing `.field` inputs.
+const STRIPE_ELEMENT_STYLE = {
+    base: {
+        fontSize: "16px",
+        color: "#0f172a",
+        fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
+        "::placeholder": { color: "#9ca3af" }
+    },
+    invalid: { color: "#ef4444" }
+};
+
+type CardElementFieldState = { complete: boolean; error: string };
 
 function unpackSavedBillingAddress(
     savedAddress: string,
@@ -759,6 +786,18 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [cardNumber, setCardNumber] = useState("");
     const [expiry, setExpiry] = useState("");
     const [cvc, setCvc] = useState("");
+    // Stripe Elements state (stripeMode): completeness + inline errors come
+    // from the elements themselves; the card never touches our own state.
+    const [cardElementFields, setCardElementFields] = useState<{
+        number: CardElementFieldState;
+        expiry: CardElementFieldState;
+        cvc: CardElementFieldState;
+    }>({
+        number: { complete: false, error: "" },
+        expiry: { complete: false, error: "" },
+        cvc: { complete: false, error: "" }
+    });
+    const [elementBrand, setElementBrand] = useState<CardBrand>(null);
     const [primaryCard, setPrimaryCard] = useState<CheckoutBillingResponse["billing"]["paymentMethod"]>(null);
     const [usePrimaryCard, setUsePrimaryCard] = useState(false);
     const [cardName, setCardName] = useState("");

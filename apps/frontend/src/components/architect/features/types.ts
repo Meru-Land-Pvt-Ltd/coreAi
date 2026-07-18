@@ -157,6 +157,17 @@ export type ArchitectConversationToolCall = {
   output?: Record<string, unknown>;
 };
 
+export type ArchitectTestCalendarEvent = {
+  testEventId?: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  timeZone: string;
+  htmlLink: string | null;
+  status: "SIMULATED" | "CREATED";
+  description?: string;
+};
+
 export type ArchitectConversationTestResult = {
   reply: string;
   transcript: ArchitectConversationMessage[];
@@ -164,6 +175,13 @@ export type ArchitectConversationTestResult = {
   toolCalls: ArchitectConversationToolCall[];
   finalOutput: Record<string, unknown>;
   simulated: true;
+  executionMode?: "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
+  timeZone?: string | null;
+  testSessionId?: string | null;
+  calendarEvent?: ArchitectTestCalendarEvent | null;
+  /** This turn's booking failure (e.g. CALENDAR_NOT_CONNECTED) — actionable. */
+  calendarError?: { code: string; message: string; remediation: string } | null;
+  configError?: { code: string; message: string; remediation: string } | null;
 };
 
 export type GmailConnectorStatus = {

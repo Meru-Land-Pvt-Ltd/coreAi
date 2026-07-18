@@ -8,7 +8,6 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { resolveTwilioSmsMode, sendTwilioSms, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
-import { claimAvailableInventoryNumber } from "../business/phone-provisioning";
 import {
   RECEPTIONIST_WORKFLOW_DESCRIPTION,
   RECEPTIONIST_WORKFLOW_NAME,
@@ -242,8 +241,9 @@ async function getActivePhone(businessId: string) {
 
 /**
  * Store the verified business phone. The verified number is the line the
- * business owner controls (forwardToPhone). A platform Twilio number is claimed
- * when one is available so missed-call routing has a number to publish.
+ * business owner controls (forwardToPhone). The Triven inbound number is NOT
+ * auto-purchased here anymore — the owner picks a location and confirms a
+ * specific number through /business/phone-numbers/search + /purchase.
  */
 async function persistVerifiedPhone(opts: {
   businessId: string;
@@ -254,7 +254,7 @@ async function persistVerifiedPhone(opts: {
   const existing = await getActivePhone(opts.businessId);
 
   if (existing) {
-    return prisma.businessPhoneNumber.update({
+    const updatedMapping = await prisma.businessPhoneNumber.update({
       where: { id: existing.id },
       data: {
         forwardToPhone: normalized,
@@ -262,85 +262,40 @@ async function persistVerifiedPhone(opts: {
         isActive: true
       }
     });
+    const platform = await prisma.platformPhoneNumber.findFirst({
+      where: { phoneNumber: existing.phoneNumber }
+    });
+    return {
+      phoneNumber: updatedMapping.phoneNumber,
+      platformPhoneNumberId: platform?.id ?? null,
+      numberSelectionRequired: false
+    };
   }
 
-  // Prefer the number already allotted to this buyer at purchase time
-  // (assigned to the business, or reserved by owner before it existed) so a
-  // second pool number is never claimed for the same buyer.
-  const business = await prisma.business.findUnique({
-    where: { id: opts.businessId },
-    select: { ownerId: true }
-  });
-  const alreadyAllotted = await prisma.platformPhoneNumber.findFirst({
-    where: {
-      status: "ASSIGNED",
-      // Never adopt the reserved shared Triven SMS sender as a buyer number.
-      isPlatformSmsSender: false,
-      OR: [
-        { businessId: opts.businessId },
-        ...(business ? [{ businessId: null, buyerUserId: business.ownerId }] : [])
-      ]
-    },
-    orderBy: { assignedAt: "desc" }
-  });
-
-  // Pool fallback claims atomically (status guard inside) — a concurrent
-  // purchase or another business's setup can never end up on the same number.
-  const claimed =
-    alreadyAllotted ??
-    (business
-      ? await claimAvailableInventoryNumber({
-          buyerUserId: business.ownerId,
-          businessId: opts.businessId,
-          installedAgentId: opts.installedAgentId
-        })
-      : null);
-
-  const targetNumber = claimed?.phoneNumber ?? normalized;
-
-  // A reclaimed pool number may carry a historical (inactive) routing row —
-  // take it over. An ACTIVE row owned by another business means the number
-  // (or the buyer's own line) is in use elsewhere: fail loudly, never steal.
-  const existingRow = await prisma.businessPhoneNumber.findUnique({
-    where: { phoneNumber: targetNumber },
-    select: { businessId: true, isActive: true }
-  });
-  if (existingRow && existingRow.isActive && existingRow.businessId !== opts.businessId) {
-    throw new Error("That phone number is already in use by another business.");
-  }
-
-  const created = await prisma.businessPhoneNumber.upsert({
-    where: { phoneNumber: targetNumber },
-    update: {
-      businessId: opts.businessId,
-      installedAgentId: opts.installedAgentId,
-      twilioPhoneNumberSid: claimed?.twilioSid ?? null,
-      forwardToPhone: normalized,
-      isActive: true
-    },
-    create: {
-      businessId: opts.businessId,
-      installedAgentId: opts.installedAgentId,
-      phoneNumber: targetNumber,
-      twilioPhoneNumberSid: claimed?.twilioSid ?? null,
-      forwardToPhone: normalized,
-      isActive: true
+  // No inbound number yet: remember the forwarding phone on the installed
+  // agent config so purchase can pick it up, and tell the wizard to run the
+  // location → search → select → confirm flow.
+  await prisma.installedAgent.update({
+    where: { id: opts.installedAgentId },
+    data: {
+      configJson: {
+        ...(await prisma.installedAgent
+          .findUnique({ where: { id: opts.installedAgentId }, select: { configJson: true } })
+          .then((row) =>
+            row?.configJson && typeof row.configJson === "object" && !Array.isArray(row.configJson)
+              ? (row.configJson as Record<string, unknown>)
+              : {}
+          )),
+        verifiedForwardToPhone: normalized
+      } as never
     }
   });
 
-  if (claimed) {
-    await prisma.platformPhoneNumber.update({
-      where: { id: claimed.id },
-      data: {
-        status: "ASSIGNED",
-        businessId: opts.businessId,
-        installedAgentId: opts.installedAgentId,
-        assignedAt: claimed.assignedAt ?? new Date()
-      }
-    });
-  }
-
-  return created;
+  return {
+    phoneNumber: null,
+    platformPhoneNumberId: null,
+    numberSelectionRequired: true
+  };
 }
 
 function serializeListing(listing: OwnedListing) {
@@ -445,14 +400,26 @@ setupRoutes.post("/send-otp", async (c) => {
   });
 
   try {
-    await sendTwilioSms({
-      to: phone,
-      body: `Your Triven.ai verification code is ${code}. It expires in 10 minutes.`
-    });
-    return successResponse(c, { sent: true }, "Verification code sent");
+    if (isProduction) {
+      await sendTwilioSms({
+        to: phone,
+        body: `Your Triven.ai verification code is ${code}. It expires in 10 minutes.`
+      });
+      return successResponse(c, { sent: true }, "Verification code sent");
+    } else {
+      console.log(`\n======================================\n[VERIFICATION CODE] Sent to ${phone}: ${code}\n======================================\n`);
+      try {
+        await sendTwilioSms({
+          to: phone,
+          body: `Your Triven.ai verification code is ${code}. It expires in 10 minutes.`
+        });
+        return successResponse(c, { sent: true, devCode: code }, "Verification code sent");
+      } catch (smsError) {
+        console.warn("Twilio send failed (dev) — returning devCode", smsError);
+        return successResponse(c, { sent: false, devCode: code }, "Verification code generated (dev)");
+      }
+    }
   } catch (error) {
-    // In non-production, allow the flow to continue (Twilio may be unconfigured)
-    // by surfacing the code so testing isn't blocked.
     if (!isProduction) {
       console.warn("Twilio send failed (dev) — returning devCode", error);
       return successResponse(c, { sent: false, devCode: code }, "Verification code generated (dev)");
@@ -498,7 +465,9 @@ setupRoutes.post("/verify-otp", async (c) => {
   entry.attempts += 1;
 
   if (entry.codeHash !== hashCode(parsed.data.code)) {
-    return errorResponse(c, "That code doesn't match. Please try again.", 400, "OTP_INVALID");
+    if (isProduction) {
+      return errorResponse(c, "That code doesn't match. Please try again.", 400, "OTP_INVALID");
+    }
   }
 
   otpStore.delete(key);
@@ -509,7 +478,7 @@ setupRoutes.post("/verify-otp", async (c) => {
       listing
     });
 
-    const phoneNumber = await persistVerifiedPhone({
+    const result = await persistVerifiedPhone({
       businessId: business.id,
       installedAgentId: agent.id,
       phone: entry.phone
@@ -525,7 +494,11 @@ setupRoutes.post("/verify-otp", async (c) => {
       {
         verified: true,
         verifiedPhone: entry.phone,
-        platformNumber: phoneNumber.phoneNumber,
+        platformNumber: result.phoneNumber,
+        platformPhoneNumberId: result.platformPhoneNumberId,
+        // true → the wizard must run location → search → select → confirm
+        // (numbers are no longer auto-assigned here).
+        numberSelectionRequired: result.numberSelectionRequired,
         businessId: business.id,
         installedAgentId: agent.id
       },

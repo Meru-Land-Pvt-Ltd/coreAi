@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, businessSetupPath } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
+import { ExpandableText } from "@/components/common/expandable-text";
 
 const TRIAL_DAYS = 7;
 
@@ -114,6 +115,7 @@ type ApiListing = {
   name: string;
   shortDescription?: string;
   description?: string | null;
+  fullDescription?: string | null;
   tagline?: string | null;
   priceCents?: number | null;
   pricingModel?: string | null;
@@ -142,6 +144,9 @@ type ApiPurchasedAgent = {
   purchaseId: string;
   purchasedAt: string;
   purchaseStatus: string;
+  installedAgentId?: string | null;
+  installedAgentStatus?: string | null;
+  isTrial?: boolean;
   listing: ApiListing;
 };
 
@@ -153,16 +158,20 @@ type OwnedAgentInfo = {
   purchaseId: string;
   purchasedAt: string;
   purchaseStatus: string;
+  installedAgentId: string | null;
+  installedAgentStatus: string | null;
+  isTrial?: boolean;
 };
 
-function getTrialInfo(purchasedAt: string, status: string) {
-  const isTrial = status.toUpperCase() === "TRIALING";
+function getTrialInfo(purchasedAt: string, status: string, isTrialProp?: boolean, trialDaysLimit?: number | null) {
+  const isTrial = isTrialProp ?? status.toUpperCase() === "TRIALING";
+  const trialDays = (trialDaysLimit && trialDaysLimit > 0) ? trialDaysLimit : TRIAL_DAYS;
   const start = new Date(purchasedAt).getTime();
   const elapsedDays = Number.isFinite(start)
     ? Math.floor((Date.now() - start) / (1000 * 60 * 60 * 24))
     : 0;
-  const daysLeft = Math.max(0, TRIAL_DAYS - elapsedDays);
-  const trialEnded = isTrial && daysLeft <= 0;
+  const daysLeft = Math.max(0, trialDays - elapsedDays);
+  const trialEnded = isTrial && (status.toUpperCase() === "FAILED" || status.toUpperCase() === "CANCELED" || daysLeft <= 0);
   return { isTrial, daysLeft, trialEnded };
 }
 
@@ -323,6 +332,16 @@ function PhoneIcon({ className = "h-5 w-5" }: { className?: string }) {
   );
 }
 
+function getAgentDescription(listing: ApiListing): string {
+  return (
+    listing.fullDescription?.trim() ||
+    listing.description?.trim() ||
+    listing.shortDescription?.trim() ||
+    listing.workflow?.description?.trim() ||
+    ""
+  );
+}
+
 export default function BusinessAgentDetailPage() {
   const params = useParams<{ agentId: string }>();
   const agentId = params.agentId;
@@ -398,7 +417,10 @@ export default function BusinessAgentDetailPage() {
           setOwnedAgent({
             purchaseId: entry.purchaseId,
             purchasedAt: entry.purchasedAt,
-            purchaseStatus: entry.purchaseStatus
+            purchaseStatus: entry.purchaseStatus,
+            installedAgentId: entry.installedAgentId ?? null,
+            installedAgentStatus: entry.installedAgentStatus ?? null,
+            isTrial: entry.isTrial,
           });
         } else {
           setOwnedAgent(null);
@@ -463,27 +485,32 @@ export default function BusinessAgentDetailPage() {
     listing?.architect?.email ||
     "Core AI Architect";
 
-  const description =
+  const heroDescription =
     listing?.shortDescription ||
     listing?.tagline ||
     listing?.description ||
     listing?.workflow?.description ||
     "";
+  const agentDescription = useMemo(() => (listing ? getAgentDescription(listing) : ""), [listing]);
   const iconUrl = listing?.iconUrl?.trim() || null;
 
   const checkoutPath = listing ? businessCheckoutPath(listing.id) : "#";
   const setupPath = listing ? businessSetupPath(listing.id) : BUSINESS_AGENTS_PATH;
 
   const trialInfo = ownedAgent
-    ? getTrialInfo(ownedAgent.purchasedAt, ownedAgent.purchaseStatus)
+    ? getTrialInfo(ownedAgent.purchasedAt, ownedAgent.purchaseStatus, ownedAgent.isTrial, listing?.trialDays)
     : null;
   const purchaseStatus = ownedAgent?.purchaseStatus.toUpperCase() ?? "";
   const isPaid = purchaseStatus === "SUCCEEDED";
+  const isPaymentFailed = purchaseStatus === "FAILED" || purchaseStatus === "CANCELED";
   const showPayButton = Boolean(
     ownedAgent &&
-      (trialInfo?.isTrial || trialInfo?.trialEnded || purchaseStatus === "TRIALING")
+      (trialInfo?.isTrial || trialInfo?.trialEnded || purchaseStatus === "TRIALING" || isPaymentFailed)
   );
   const showSetupButton = Boolean(ownedAgent && isPaid);
+
+  const installedAgentStatus = (ownedAgent?.installedAgentStatus ?? "").toUpperCase();
+  const isSetupCompleted = Boolean(ownedAgent?.installedAgentId) && (installedAgentStatus === "ACTIVE" || installedAgentStatus === "PAUSED");
 
   function scrollToDemo() {
     setDemoOpen(false);
@@ -573,7 +600,24 @@ export default function BusinessAgentDetailPage() {
                 </span>
               </div>
 
-              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{description}</p>
+              {/* Short Description */}
+              {heroDescription ? (
+                <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription}</p>
+              ) : (
+                agentDescription && (
+                  <ExpandableText
+                    text={agentDescription}
+                    className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600"
+                  />
+                )
+              )}
+
+              {heroDescription && agentDescription ? (
+                <ExpandableText
+                  text={agentDescription}
+                  className="mt-4 text-sm leading-relaxed text-slate-600"
+                />
+              ) : null}
 
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 {tags.length > 0 ? (
@@ -602,9 +646,9 @@ export default function BusinessAgentDetailPage() {
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-owned-agent-trial-days-left">
                     ⏱ {trialInfo.daysLeft} {trialInfo.daysLeft === 1 ? "day" : "days"} left in trial
                   </span>
-                ) : trialInfo?.trialEnded ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-red-700" data-testid="business-owned-agent-trial-ended">
-                    Trial ended
+                ) : (trialInfo?.trialEnded || isPaymentFailed) ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-red-700" data-testid={trialInfo?.isTrial ? "business-owned-agent-trial-ended" : "business-owned-agent-suspended"}>
+                    {trialInfo?.isTrial ? "Trial ended" : "Suspended"}
                   </span>
                 ) : isPaid ? (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-green-700" data-testid="business-owned-agent-active">
@@ -669,7 +713,7 @@ export default function BusinessAgentDetailPage() {
                         data-testid="owned-agent-detail-setup"
                         className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
                       >
-                        Setup agent
+                        {isSetupCompleted ? "Edit Configuration" : "Setup agent"}
                         <ArrowIcon />
                       </Link>
                     ) : null}
@@ -704,6 +748,8 @@ export default function BusinessAgentDetailPage() {
                   <p className="mt-3 text-xs text-slate-500" data-testid="owned-agent-detail-pay-note">
                     {trialInfo?.trialEnded
                       ? `Your trial has ended. Pay $${price} to keep using this agent.`
+                      : isPaymentFailed
+                      ? `Your payment has failed or was canceled. Pay $${price} to restore access.`
                       : `Pay $${price} now to continue after your trial ends.`}
                   </p>
                 ) : null}

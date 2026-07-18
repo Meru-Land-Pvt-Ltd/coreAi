@@ -26,6 +26,7 @@ type WorkflowPreviewListing = {
   tagline?: string | null;
   description?: string | null;
   requiredConnectors?: string[] | null;
+  iconUrl?: string | null;
   workflow?: {
     description?: string | null;
     workflowJson?: {
@@ -273,8 +274,92 @@ function stepClass(step: PreviewStep) {
   return "max-w-[86%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm";
 }
 
+function getInitials(name: string) {
+  const clean = name.replace(/[^\w\s]/g, "").trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "AI";
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function formatMessageBody(body: string) {
+  if (body.includes("View available times")) {
+    const parts = body.split("View available times");
+    return (
+      <>
+        {parts[0]}
+        <span className="font-semibold text-amber-600 underline cursor-pointer">View available times</span>
+        {parts[1]}
+      </>
+    );
+  }
+  if (body.includes("view available times")) {
+    const parts = body.split("view available times");
+    return (
+      <>
+        {parts[0]}
+        <span className="font-semibold text-amber-600 underline cursor-pointer">view available times</span>
+        {parts[1]}
+      </>
+    );
+  }
+  return body;
+}
+
 export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewListing }) {
   const preview = buildJourneyPreview(listing);
+  const initials = getInitials(preview.header);
+
+  const subheaderText = (() => {
+    if (preview.channel === "missed-call" || preview.channel === "sms") return "Text Message · SMS";
+    if (preview.channel === "whatsapp") return "WhatsApp · Chat";
+    if (preview.channel === "email") return "Email · Thread";
+    if (preview.channel === "voice") return "Voice Call";
+    return "Workflow · Triven";
+  })();
+
+  const renderTriggerCard = () => {
+    if (preview.channel === "missed-call") {
+      return (
+        <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-500">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 5a2 2 0 0 1 2-2h2l2 5-2 1a11 11 0 0 0 5 5l1-2 5 2v2a2 2 0 0 1-2 2A16 16 0 0 1 3 5z" />
+              <path d="M22 2l-6 6m0-6l6 6" />
+            </svg>
+          </span>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-slate-900">Missed call</div>
+            <div className="truncate text-[11px] text-slate-500">
+              {preview.header} · just now
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    let iconBg = "bg-amber-50 text-amber-600";
+    let icon = <ChannelIcon channel={preview.channel} />;
+    if (preview.channel === "whatsapp") {
+      iconBg = "bg-emerald-50 text-emerald-600";
+    } else if (preview.channel === "email") {
+      iconBg = "bg-blue-50 text-blue-600";
+    } else if (preview.channel === "manual") {
+      iconBg = "bg-slate-50 text-slate-600";
+    }
+
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${iconBg}`}>
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-slate-900">{preview.triggerTitle}</div>
+          <div className="truncate text-[11px] text-slate-500">{preview.triggerBody}</div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="relative">
@@ -283,47 +368,54 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
       <div className="mx-auto w-full max-w-[320px] animate-float" data-testid="agent-workflow-preview">
         <div className="rounded-[2.5rem] border border-gray-200 bg-white p-2.5 shadow-2xl">
           <div className="overflow-hidden rounded-[2rem] bg-gray-50">
-            <div className="flex items-center justify-between px-5 pb-1 pt-3 text-[10px] font-semibold text-slate-500">
+            {/* status bar */}
+            <div className="flex items-center justify-between px-5 pt-3 pb-1 text-[10px] font-semibold text-slate-500">
               <span>9:41</span>
-              <span className="inline-flex items-center gap-1" aria-hidden="true">5G</span>
+              <span className="inline-flex items-center gap-1" aria-hidden="true">
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2 16h3v5H2zM7 11h3v10H7zM12 7h3v14h-3zM17 3h3v18h-3z" />
+                </svg>
+                5G
+                <svg className="h-3 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <rect x="2" y="7" width="17" height="10" rx="2" />
+                  <path d="M21 10v4" />
+                </svg>
+              </span>
             </div>
 
+            {/* conversation header */}
             <div className="flex items-center gap-2 border-b border-gray-100 bg-white px-4 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                <BotIcon />
-              </span>
+              {listing.iconUrl ? (
+                <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full ring-1 ring-amber-200">
+                  <img src={listing.iconUrl} alt="" className="h-full w-full object-cover" />
+                </div>
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700">
+                  {initials}
+                </span>
+              )}
               <div className="min-w-0">
                 <div className="truncate text-xs font-semibold text-slate-900">{preview.header}</div>
-                <div className="text-[10px] text-slate-500">{preview.subheader}</div>
-              </div>
-              <span className="ml-auto flex h-2 w-2 rounded-full bg-emerald-500" />
-            </div>
-
-            <div className="px-4 pt-4 pb-2">
-              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
-                  <ChannelIcon channel={preview.channel} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-900">{preview.triggerTitle}</div>
-                  <div className="truncate text-[11px] text-slate-500">{preview.triggerBody}</div>
-                </div>
+                <div className="text-[10px] text-slate-500">{subheaderText}</div>
               </div>
             </div>
 
-            <div className="space-y-3 px-4 py-3">
+            {/* messages */}
+            <div className="space-y-3 px-4 py-4">
+              {renderTriggerCard()}
+
               {preview.steps.map((step, index) => (
                 <div key={`${step.side}-${index}`} className={step.side === "customer" ? "flex justify-end" : "flex"}>
                   <div className={stepClass(step)}>
                     {step.title ? <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{step.title}</p> : null}
-                    {step.body}
+                    <p className="line-clamp-3">{formatMessageBody(step.body)}</p>
                   </div>
                 </div>
               ))}
 
               <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Powered by Triven workflow config
+                Automated by CORE · replied in 5s
               </div>
             </div>
           </div>
