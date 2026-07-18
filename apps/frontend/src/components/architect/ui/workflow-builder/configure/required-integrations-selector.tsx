@@ -16,18 +16,22 @@ export function RequiredIntegrationsSelector({
   value,
   onToggle,
   disabled = false,
-  hiddenKeys = []
+  hiddenKeys = [],
+  detectedKeys = []
 }: {
   value: RequiredIntegrations;
   onToggle: (key: RequiredIntegrationKey) => void;
   disabled?: boolean;
   /** Integrations to omit entirely (e.g. SMS when the workflow never sends SMS). */
   hiddenKeys?: RequiredIntegrationKey[];
+  /** Keys auto-derived from the workflow graph — shown with a "workflow" badge. */
+  detectedKeys?: RequiredIntegrationKey[];
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {REQUIRED_INTEGRATION_DEFS.filter((def) => !hiddenKeys.includes(def.key)).map((def) => {
         const active = value[def.key];
+        const fromWorkflow = detectedKeys.includes(def.key);
 
         return (
           <button
@@ -53,7 +57,17 @@ export function RequiredIntegrationsSelector({
               <BuilderIcon name={INTEGRATION_ICONS[def.key]} className="h-[18px] w-[18px]" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-slate-800">{def.label}</span>
+              <span className="flex items-center gap-1.5">
+                <span className="block text-sm font-semibold text-slate-800">{def.label}</span>
+                {fromWorkflow ? (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                    </svg>
+                    workflow
+                  </span>
+                ) : null}
+              </span>
               <span className="mt-0.5 block text-xs text-slate-400">{def.description}</span>
             </span>
             <span className={active ? "toggle on" : "toggle"} role="switch" aria-checked={active}>

@@ -6,6 +6,8 @@ import {
   normalizeTimeZone,
   requiredConnectorsForWorkflow,
   validateBuyerSetupAnswers,
+  workflowUsesVoice,
+  getWorkflowTriggerKind,
   type ConnectorRequirement
 } from "@coreai/shared";
 import { env, isProduction } from "../../config/env";
@@ -1410,6 +1412,9 @@ function serializeSetup(
     // Buyer setup schema snapshot saved at install time — lets the setup form
     // re-render the agent-specific fields without re-fetching the listing.
     buyerSetupSchema: normalizeBuyerSetupFields(config?.buyerSetupSchema),
+    triggerKind: (installedAgent as any)?.workflow?.workflowJson
+      ? getWorkflowTriggerKind((installedAgent as any).workflow.workflowJson)
+      : null,
     silence: silenceConfig
       ? {
         repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,
@@ -1984,16 +1989,20 @@ businessRoutes.post("/setup", async (c) => {
     let deployedVapiAssistantId: string | null = null;
 
     if (input.deploy !== false) {
-      const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
-      deployedVapiAssistantId = voiceDeploy?.assistantId ?? null;
+      const usesVoice = workflowUsesVoice(resolved.workflow.workflowJson);
 
-      if (!deployedVapiAssistantId) {
-        return errorResponse(
-          c,
-          "Live voice assistant was not created. Make sure the workflow has an AI Voice Conversation node and Vapi is configured.",
-          500,
-          "VAPI_ASSISTANT_DEPLOY_FAILED"
-        );
+      if (usesVoice) {
+        const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
+        deployedVapiAssistantId = voiceDeploy?.assistantId ?? null;
+
+        if (!deployedVapiAssistantId) {
+          return errorResponse(
+            c,
+            "Live voice assistant was not created. Make sure the workflow has an AI Voice Conversation node and Vapi is configured.",
+            500,
+            "VAPI_ASSISTANT_DEPLOY_FAILED"
+          );
+        }
       }
 
       const prevConfig = (installedAgent.configJson as Record<string, unknown> | null) ?? {};

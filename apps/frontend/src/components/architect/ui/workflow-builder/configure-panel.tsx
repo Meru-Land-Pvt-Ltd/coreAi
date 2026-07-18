@@ -11,6 +11,7 @@ import {
   REQUIRED_INTEGRATION_DEFS,
   SETUP_TIME_OPTIONS,
   defaultAgentConfigure,
+  deriveRequiredIntegrationsFromWorkflow,
   generateIncludedFeaturesFromWorkflow,
   normalizeBuyerSetupKey,
   RECEPTIONIST_DEFAULT_FULL_DESCRIPTION,
@@ -301,6 +302,15 @@ export function ConfigurePanel({
             while (generated.length < 4) generated.push("");
             loaded.media.includedFeatures = generated;
           }
+        }
+
+        // Auto-seed required integrations from the workflow graph on first load
+        // — only when all integration flags are still at their defaults (all false).
+        // This way manually-saved choices are never overwritten.
+        const allUnset = !Object.values(loaded.template.requiredIntegrations).some((flag) => flag);
+        if (allUnset) {
+          const derived = deriveRequiredIntegrationsFromWorkflow(workflowFlowRef.current);
+          loaded.template.requiredIntegrations = derived;
         }
 
         setConfigure(loaded);
@@ -672,6 +682,37 @@ export function ConfigurePanel({
   );
 
   const workflowHasSms = workflowUsesSms(workflowFlow);
+
+  /** Integrations the current workflow nodes actually require — used for auto-seed and badge. */
+  const workflowDerivedIntegrations = useMemo(
+    () => deriveRequiredIntegrationsFromWorkflow(workflowFlow),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(workflowFlow)]
+  );
+
+  /** Keys auto-derived from the graph (for the "workflow" badge on the selector). */
+  const workflowDetectedKeys = useMemo(
+    () =>
+      (Object.keys(workflowDerivedIntegrations) as RequiredIntegrationKey[]).filter(
+        (key) => workflowDerivedIntegrations[key]
+      ),
+    [workflowDerivedIntegrations]
+  );
+
+  /**
+   * Re-apply the derived integrations from the live workflow graph.
+   * Only ADDS derived flags — never removes manually-enabled ones.
+   */
+  const syncIntegrationsFromWorkflow = useCallback(() => {
+    if (isLocked) return;
+    updateTemplate({
+      requiredIntegrations: {
+        ...configure.template.requiredIntegrations,
+        ...workflowDerivedIntegrations
+      }
+    });
+    pushToast("Required integrations synced from your workflow.");
+  }, [configure.template.requiredIntegrations, isLocked, pushToast, updateTemplate, workflowDerivedIntegrations]);
 
   const toggleIntegration = useCallback(
     (key: RequiredIntegrationKey) => {
@@ -1158,13 +1199,40 @@ export function ConfigurePanel({
 
               {/* 2 · Required integrations */}
               <div className="border-t border-gray-100 pt-7">
-                <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">Required integrations</span>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[13.5px] font-semibold text-slate-700">Required integrations</span>
+                  {!isLocked ? (
+                    <button
+                      type="button"
+                      data-testid="configure-sync-integrations"
+                      onClick={syncIntegrationsFromWorkflow}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:border-amber-300 hover:text-amber-700"
+                    >
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                        <path d="M21 3v5h-5" />
+                        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                        <path d="M3 21v-5h5" />
+                      </svg>
+                      Sync from workflow
+                    </button>
+                  ) : null}
+                </div>
                 <p className="mb-3 text-[12.5px] text-slate-400">Turn on what the buyer must connect for your agent to work.</p>
+                {workflowDetectedKeys.length > 0 ? (
+                  <div className="mb-3 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[12.5px] text-blue-900/90">
+                    <BuilderIcon name="info" className="mt-0.5 h-4 w-4 flex-none text-blue-500" />
+                    <span>
+                      Integrations marked <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">workflow</span> are automatically detected from your workflow nodes and pre-checked. You can still add or remove any toggle.
+                    </span>
+                  </div>
+                ) : null}
                 <RequiredIntegrationsSelector
                   value={configure.template.requiredIntegrations}
                   onToggle={toggleIntegration}
                   disabled={isLocked}
                   hiddenKeys={workflowHasSms || configure.template.requiredIntegrations.sms ? [] : ["sms"]}
+                  detectedKeys={workflowDetectedKeys}
                 />
                 {workflowHasSms ? (
                   <p
