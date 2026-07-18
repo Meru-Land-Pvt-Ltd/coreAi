@@ -14,7 +14,6 @@ import {
     businessSetupPath
 } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
-import Image from "next/image";
 import { X, Check, Dot, Download } from "lucide-react";
 
 type Agent = {
@@ -802,9 +801,9 @@ export default function MarketplacePage() {
     }
 
     return (
-        <main className="min-h-screen bg-white text-slate-900">
-            <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur">
-                <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
+        <main className="min-h-screen overflow-x-hidden bg-white text-slate-900">
+            <nav className="sticky top-0 z-20 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur">
+                <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-4">
                     <div className="relative mx-auto max-w-3xl">
                         <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                             🔍
@@ -826,7 +825,7 @@ export default function MarketplacePage() {
                 <div className="pointer-events-none absolute -left-24 top-8 h-72 w-72 rounded-full bg-amber-200/30 blur-3xl" />
                 <div className="pointer-events-none absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-orange-200/30 blur-3xl" />
 
-                <div className="relative mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+                <div className="relative mx-auto max-w-6xl px-3 py-8 sm:px-4 sm:py-10">
                     <div className="mx-auto max-w-3xl text-center">
                         <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-amber-700" data-testid="business-protected-marketplace-live-marketplace-agents-text">
                             ✨ Live marketplace agents
@@ -854,8 +853,8 @@ export default function MarketplacePage() {
                         </div>
                     </div>
 
-                    <section className="bg-white py-16">
-                        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+                    <section className="bg-white py-8 sm:py-10 mt-8 sm:mt-10">
+                        <div className="mx-auto max-w-6xl px-3 sm:px-4">
                             <div className="text-center">
                                 <h2 className="text-3xl font-bold text-slate-900">
                                     Browse by industry
@@ -953,7 +952,7 @@ export default function MarketplacePage() {
                                         )}
                                     </div>
 
-                                    <div className="mt-6 flex flex-wrap items-center gap-3">
+                                    <div className="mt-6 flex  items-center gap-3">
                                         {isOwnedAgent(featuredAgent.id) ? (
                                             <Link
                                                 href={needsSetup(featuredAgent.id) ? businessSetupPath(featuredAgent.id) : BUSINESS_AGENTS_PATH}
@@ -994,8 +993,13 @@ export default function MarketplacePage() {
                                     <div className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
                                         <div className="overflow-hidden rounded-[1.7rem] bg-slate-50">
                                             <div className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
-                                                <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white" data-testid="business-protected-marketplace-ai-text">
-                                                    AI
+                                                <span className="relative grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-amber-500 text-[11px] font-bold text-white ring-1 ring-amber-200" data-testid="business-protected-marketplace-ai-text">
+                                                    {featuredAgent.iconUrl ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img src={featuredAgent.iconUrl} alt="" className="h-full w-full object-cover" />
+                                                    ) : (
+                                                        "AI"
+                                                    )}
                                                 </span>
                                                 <div>
                                                     <p className="text-[13px] font-semibold text-slate-900" data-testid="business-protected-marketplace-featured-agent-text">
@@ -1038,8 +1042,8 @@ export default function MarketplacePage() {
             </section>
 
 
-            <section className="sticky top-[73px] z-[70] overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <section className="sticky top-[73px] z-20 overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
+                <div className="mx-auto max-w-7xl px-3 sm:px-4">
                     <div className="relative flex flex-wrap items-center gap-3 overflow-visible py-3">
                         <div className="flex items-center gap-2.5">
                             <div className="relative">
@@ -1318,7 +1322,7 @@ export default function MarketplacePage() {
             </section>
 
             <section className="bg-gray-50 py-12">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-5">
                     {isLoading ? (
                         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             {Array.from({ length: 6 }).map((_, index) => (
@@ -1410,7 +1414,7 @@ export default function MarketplacePage() {
             </section>
 
             <section className="bg-slate-900 py-8">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6">
+                <div className="mx-auto max-w-7xl px-3 sm:px-4">
                     <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-sm text-white/80">
                         <TrustItem text="256-bit encryption" />
                         <TrustItem text="99.9% uptime" />
@@ -1493,6 +1497,8 @@ function AgentDetailsModal({
                 ? "All industries"
                 : formatLabel(agent.industry);
 
+    const showTrialCta = !isOwned && Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0;
+
     return (
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
@@ -1520,9 +1526,10 @@ function AgentDetailsModal({
                     </button>
 
                     <div className="flex items-start gap-4 pr-8">
-                        <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-500 ring-1 ring-amber-100">
+                        <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-amber-50 text-amber-500 ring-1 ring-amber-100">
                             {agent.iconUrl ? (
-                                <Image src={agent.iconUrl} alt={agent.name} width={64} height={64} className="object-cover" />
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={agent.iconUrl} alt={agent.name} className="h-full w-full object-cover" />
                             ) : (
                                 <span className="text-2xl">🤖</span>
                             )}
@@ -1590,8 +1597,14 @@ function AgentDetailsModal({
                     </div>
                 </div>
 
-                <div className="flex shrink-0 flex-col-reverse items-stretch gap-3 border-t border-gray-100 bg-gray-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-center sm:text-left">
+                <div
+                    className={
+                        showTrialCta
+                            ? "flex shrink-0 flex-col items-start gap-3 border-t border-gray-100 bg-gray-50/70 p-5 sm:flex-row sm:items-center sm:justify-between"
+                            : "flex shrink-0 flex-row items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/70 p-5"
+                    }
+                >
+                    <div className="shrink-0 text-left">
                         {agent.pricingModel === "FREE" ? (
                             <span
                                 className="text-2xl font-black text-slate-900"
@@ -1614,21 +1627,31 @@ function AgentDetailsModal({
                         )}
                     </div>
 
-                    <div className="flex gap-3">
-                        {!isOwned && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 && (
+                    <div
+                        className={
+                            showTrialCta
+                                ? "flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-end"
+                                : "flex shrink-0"
+                        }
+                    >
+                        {showTrialCta ? (
                             <Link
                                 href={businessCheckoutPath(agent.id)}
                                 data-testid="business-marketplace-agent-details-modal-start-trial"
-                                className="inline-flex items-center justify-center rounded-xl border-2 border-amber-500 px-5 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-50"
+                                className="inline-flex w-full items-center justify-center rounded-xl border-2 border-amber-500 px-5 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-50 sm:w-auto"
                             >
                                 Start {agent.trialDays ?? 7}-day trial
                             </Link>
-                        )}
+                        ) : null}
 
                         <Link
                             href={isOwned ? (setupPending ? businessSetupPath(agent.id) : BUSINESS_AGENTS_PATH) : publicAgentPath(agent.id)}
                             data-testid="business-marketplace-agent-details-modal-view-full-details"
-                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
+                            className={
+                                showTrialCta
+                                    ? "inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600 sm:w-auto"
+                                    : "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
+                            }
                         >
                             {isOwned ? (setupPending ? "Continue Setup" : "Manage agent") : "View full details →"}
                         </Link>
@@ -1674,9 +1697,7 @@ function AgentGridCard({
         >
             <div className="flex-1 p-6">
                 <div className="flex items-start justify-between">
-                    <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-                        {agent.iconUrl ? <img src={agent.iconUrl} alt="" className="h-full w-full object-fill" /> : "🤖"}
-                    </span>
+                    <AgentCardIcon iconUrl={agent.iconUrl} size={12} />
 
                     <div className="text-right flex flex-col items-end">
                         <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="business-protected-marketplace-agent-price-text">
@@ -1808,18 +1829,7 @@ function AgentListCard({
             data-testid={`business-marketplace-agent-card-${agent.id}`}
             className="group flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg sm:flex-row sm:items-center"
         >
-            <span className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-amber-50 ring-1 ring-amber-100">
-                {agent.iconUrl ? (
-                    <img
-                        src={agent.iconUrl}
-                        alt={agent.name}
-                        className="h-full w-full object-fill"
-
-                    />
-                ) : (
-                    "🤖"
-                )}
-            </span>
+            <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
 
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

@@ -367,8 +367,8 @@ export default function BusinessMyAgentsPage() {
     }
 
     return (
-        <main className="min-h-screen bg-gray-50 text-slate-900">
-            <div className="mx-auto max-w-full px-4 py-8 sm:px-6 lg:px-8">
+        <main className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-900">
+            <div className="mx-auto max-w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                         <h1 className="text-2xl font-black tracking-tight text-slate-900" data-testid="business-my-agents-heading">
@@ -528,7 +528,7 @@ function OwnedAgentCard({
                     <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
                         {agent.iconUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element -- listing icons may be data URLs or uploaded URLs from arbitrary hosts.
-                            <img src={agent.iconUrl} alt="" className="h-full w-full object-fill" />
+                            <img src={agent.iconUrl} alt="" className="h-full w-full object-cover" />
                         ) : (
                             "🤖"
                         )}

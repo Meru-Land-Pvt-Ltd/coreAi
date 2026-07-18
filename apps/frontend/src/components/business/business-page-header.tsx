@@ -25,10 +25,10 @@ export function BusinessPageHeader({
   secondaryActionHref
 }: BusinessPageHeaderProps) {
   return (
-    <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="relative px-5 py-5 sm:px-6 lg:px-7">
+    <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="relative px-4 py-4 sm:px-5">
         <div className="pointer-events-none absolute right-0 top-0 h-32 w-56 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.16),transparent_62%)]" />
-        <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-center">
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
             <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-amber-600" data-testid="business-page-header-eyebrow">
               {eyebrow}

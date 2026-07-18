@@ -578,7 +578,7 @@ export default function BusinessAgentDetailPage() {
           <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(245,158,11,0.08),rgba(255,255,255,0)_72%)]" />
 
           <div className="mx-auto grid w-full max-w-none gap-12 lg:grid-cols-5 lg:items-start">
-            <div className="order-2 lg:order-1 lg:col-span-3">
+            <div className="order-1 lg:order-1 lg:col-span-3">
               <div className="relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-amber-500 shadow-glow">
                 {iconUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- icons may be data URLs
@@ -756,7 +756,7 @@ export default function BusinessAgentDetailPage() {
               </div>
             </div>
 
-            <div ref={demoRef} id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
+            <div ref={demoRef} id="demo" className="order-2 scroll-mt-24 lg:order-2 lg:col-span-2">
               <AgentWorkflowPreview listing={listing} />
             </div>
           </div>

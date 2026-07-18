@@ -1305,7 +1305,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
 
             {!confirmation ? (
                 <>
-                    <main className="mx-auto max-w-6xl px-4 py-8 pb-36 sm:px-8 sm:py-12 lg:pb-12">
+                    <main className="mx-auto max-w-6xl overflow-x-hidden px-3 py-4 pb-28 sm:px-4 sm:py-6 lg:pb-8">
                         <div className="grid grid-cols-1 gap-8 lg:grid-cols-5 lg:gap-12">
                             <div className="order-2 space-y-6 lg:order-1 lg:col-span-3">
                                 <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
