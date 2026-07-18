@@ -50,6 +50,9 @@ const REGULATORY_NOTE_BY_COUNTRY: Record<string, string> = {
   AU: "Australian numbers require identity verification under local regulations."
 };
 
+/** The buyer is offered one provider-selected number, never a list. */
+const PHONE_SEARCH_RESULT_LIMIT = 1;
+
 function toSafeNumber(item: AvailableNumberResult, fee: { amountCents: number; label: string }): SafeAvailableNumber {
   return {
     phoneNumber: item.phoneNumber,
@@ -64,6 +67,15 @@ function toSafeNumber(item: AvailableNumberResult, fee: { amountCents: number; l
     regulatoryNote: REGULATORY_NOTE_BY_COUNTRY[item.country.toUpperCase()] ?? null,
     checkedAt: new Date().toISOString()
   };
+}
+
+function toSingleSafeNumberList(
+  items: AvailableNumberResult[],
+  fee: { amountCents: number; label: string }
+): SafeAvailableNumber[] {
+  // Keep the existing array response contract while enforcing the product rule
+  // defensively even if a provider returns more rows than its requested limit.
+  return items.slice(0, PHONE_SEARCH_RESULT_LIMIT).map((item) => toSafeNumber(item, fee));
 }
 
 /** Whether the installed agent's workflow uses SMS (search then requires SMS capability). */
@@ -88,7 +100,6 @@ export async function searchNumbersForBusiness(params: {
   country: string;
   state?: string | null;
   city?: string | null;
-  limit?: number;
 }): Promise<PhoneSearchOutcome> {
   const location = validatePhoneLocation(params);
   if (!location.ok) {
@@ -97,13 +108,12 @@ export async function searchNumbersForBusiness(params: {
 
   const smsRequired = await installedWorkflowNeedsSms(params.businessId, params.installedAgentId);
   const fee = await getPhoneNumberFee();
-  const limit = Math.min(Math.max(Number(params.limit) || 10, 5), 10);
 
   const baseFilters = {
     country: location.country.code,
     voiceEnabled: true,
     ...(smsRequired ? { smsEnabled: true } : {}),
-    limit
+    limit: PHONE_SEARCH_RESULT_LIMIT
   };
 
   // Twilio only honors state/city filters for US/CA local numbers. Everywhere
@@ -112,7 +122,7 @@ export async function searchNumbersForBusiness(params: {
     const national = await searchAvailableNumbers(baseFilters);
 
     return {
-      numbers: national.map((item) => toSafeNumber(item, fee)),
+      numbers: toSingleSafeNumberList(national, fee),
       exactMatchAvailable: national.length > 0,
       matchLevel: "NATIONAL",
       fallbackOptions: [],
@@ -132,7 +142,7 @@ export async function searchNumbersForBusiness(params: {
 
     if (exact.length > 0) {
       return {
-        numbers: exact.map((item) => toSafeNumber(item, fee)),
+        numbers: toSingleSafeNumberList(exact, fee),
         exactMatchAvailable: true,
         matchLevel: "EXACT_CITY",
         fallbackOptions: [],
@@ -155,7 +165,7 @@ export async function searchNumbersForBusiness(params: {
     const regional = await searchAvailableNumbers({ ...baseFilters, inRegion: location.region.code });
 
     return {
-      numbers: regional.map((item) => toSafeNumber(item, fee)),
+      numbers: toSingleSafeNumberList(regional, fee),
       exactMatchAvailable: regional.length > 0,
       matchLevel: "SAME_STATE",
       fallbackOptions: regional.length > 0 ? [] : ["NATIONAL"],
@@ -167,7 +177,7 @@ export async function searchNumbersForBusiness(params: {
   const national = await searchAvailableNumbers(baseFilters);
 
   return {
-    numbers: national.map((item) => toSafeNumber(item, fee)),
+    numbers: toSingleSafeNumberList(national, fee),
     exactMatchAvailable: national.length > 0,
     matchLevel: "NATIONAL",
     fallbackOptions: [],

@@ -2299,7 +2299,13 @@ businessRoutes.post("/setup", async (c) => {
       const usesVoice = workflowUsesVoice(resolved.workflow.workflowJson);
 
       if (usesVoice) {
-        const voiceDeploy = await deployInstalledAgentVoiceAssistant(business.id);
+        // The target row is still PROVISIONING until Vapi succeeds. Pass its
+        // id so deployment cannot skip it or select another ACTIVE agent owned
+        // by the same business.
+        const voiceDeploy = await deployInstalledAgentVoiceAssistant(
+          business.id,
+          installedAgent.id
+        );
         deployedVapiAssistantId = voiceDeploy?.assistantId ?? null;
 
         if (!deployedVapiAssistantId) {
