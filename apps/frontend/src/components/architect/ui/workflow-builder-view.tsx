@@ -16,7 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import Link from "next/link";
 import type { Route } from "next";
-import { BROWSER_CALL_START_MESSAGE, VOICE_NODE_TYPES } from "@coreai/shared";
+import { BROWSER_CALL_START_MESSAGE, VOICE_NODE_TYPES, normalizeTimeZone } from "@coreai/shared";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
@@ -46,10 +46,10 @@ import type {
   WorkflowRunLog,
 } from "@/components/architect/features/types";
 
-/** The architect's browser IANA zone — the default test timezone. */
+/** The architect's browser IANA zone (canonicalized) — the default test timezone. */
 function browserTimeZone(): string {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+    return normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York");
   } catch {
     return "America/New_York";
   }
@@ -832,6 +832,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     if (result.success) {
       setConversationCalendarEvent(null);
+      // The dry-run result panel reads from runContext — mark its event deleted too.
+      setRunContext((previous) => {
+        const appointment = previous.calendarAppointment as Record<string, unknown> | undefined;
+        if (appointment && appointment.testEventId === testEventId) {
+          return { ...previous, calendarAppointment: { ...appointment, status: "DELETED", htmlLink: null, testEventId: null } };
+        }
+        return previous;
+      });
       setMessage("Test calendar event deleted");
     } else {
       setMessage(result.error ?? "Could not delete the test event.");
@@ -1063,6 +1071,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               appointmentEndAt: undefined
             }
           : {}),
+        useTestCalendar,
+        testSessionId: testSessionIdRef.current,
         testEmail: testEmail.trim() || undefined,
         inboundSmsBody: effectiveTriggerMessage,
         latestMessage: effectiveTriggerMessage,

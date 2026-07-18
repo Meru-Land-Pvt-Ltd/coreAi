@@ -100,6 +100,11 @@ export function getCalendarAppointment(context: Record<string, unknown>) {
     summary: getRunTextFromRecord(calendarAppointment, "summary"),
     startAt: getRunTextFromRecord(calendarAppointment, "startAt"),
     endAt: getRunTextFromRecord(calendarAppointment, "endAt"),
-    timeZone: getRunTextFromRecord(calendarAppointment, "timeZone")
+    timeZone: getRunTextFromRecord(calendarAppointment, "timeZone"),
+    status: getRunTextFromRecord(calendarAppointment, "status"),
+    htmlLink: getRunTextFromRecord(calendarAppointment, "htmlLink"),
+    testEventId: getRunTextFromRecord(calendarAppointment, "testEventId"),
+    errorCode: getRunTextFromRecord(calendarAppointment, "errorCode"),
+    remediation: getRunTextFromRecord(calendarAppointment, "remediation")
   };
 }

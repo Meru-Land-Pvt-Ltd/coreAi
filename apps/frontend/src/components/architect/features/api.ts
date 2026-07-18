@@ -707,6 +707,10 @@ export function runArchitectWorkflowTest(
       appointmentEndAt?: string;
       appointmentService?: string;
       testEmail?: string;
+      /** Create a REAL [TRIVEN ARCHITECT TEST] event in the architect's own calendar. */
+      useTestCalendar?: boolean;
+      /** Groups this test run's records (test calendar events). */
+      testSessionId?: string;
     };
   } = {}
 ) {

@@ -4,6 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { createBusinessTestProviders } from "../agent-runtime/provider-adapters";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
+import { runWorkflowTest } from "./workflow-runner";
 
 /**
  * Architect dry-run booking path — checkbox OFF simulates with a full preview,
@@ -316,6 +317,156 @@ describe("business test path", () => {
     });
     expect(row?.executionMode).toBe("BUSINESS_TEST");
     expect(row?.businessId).toBe(`${RUN}-business`);
+  }, 30000);
+});
+
+describe("run-test dry runner (missed-call workflow path)", () => {
+  const runnerWorkflowJson = {
+    nodes: [
+      { id: "t1", data: { type: "trigger.twilio_missed_call", nodeKind: "trigger", label: "Missed call" } },
+      {
+        id: "cal1",
+        data: {
+          nodeKind: "connector",
+          connector: "google_calendar",
+          connectorAction: "book_appointment",
+          label: "Book appointment"
+        }
+      }
+    ],
+    edges: [{ source: "t1", target: "cal1" }]
+  };
+
+  async function fixture() {
+    const architect = await prisma.user.create({
+      data: { email: `${RUN}-runner@test.local`, role: "ARCHITECT" }
+    });
+    const workflow = await prisma.workflowDefinition.create({
+      data: { name: `${RUN} runner wf`, workflowJson: runnerWorkflowJson, architectUserId: architect.id }
+    });
+    return { architect, workflow };
+  }
+
+  async function cleanup(architectId: string, workflowId: string) {
+    await prisma.workflowRun.deleteMany({ where: { workflowId } });
+    await prisma.workflowDefinition.delete({ where: { id: workflowId } });
+    await prisma.user.delete({ where: { id: architectId } });
+  }
+
+  it("dry run without the test calendar returns a SIMULATED preview in the exact wall-clock instant", async () => {
+    if (!(await dbUp())) return;
+    const { architect, workflow } = await fixture();
+
+    try {
+      const run = await runWorkflowTest({
+        userId: architect.id,
+        workflowId: workflow.id,
+        workflowJson: runnerWorkflowJson,
+        mode: "test",
+        input: {
+          callerNumber: "+916396039675",
+          callerName: "Test Customer",
+          businessName: "Sample Business",
+          // Deprecated alias must canonicalize, and the naive local datetime
+          // must be interpreted in that zone — 15:02 IST = 09:32 UTC.
+          timeZone: "Asia/Calcutta",
+          appointmentService: "General Consultation",
+          appointmentStartAt: "2026-07-19T15:02:00",
+          testSessionId: `${RUN}-runner-sim`
+        }
+      });
+
+      const appointment = run.context.calendarAppointment as Record<string, unknown>;
+      expect(appointment.status).toBe("SIMULATED");
+      expect(appointment.timeZone).toBe("Asia/Kolkata");
+      expect(appointment.startAt).toBe("2026-07-19T09:32:00.000Z");
+      expect(appointment.summary).toBe("[TRIVEN ARCHITECT TEST] General Consultation");
+      expect(calendarCreateMock).not.toHaveBeenCalled();
+    } finally {
+      await cleanup(architect.id, workflow.id);
+    }
+  }, 30000);
+
+  it("dry run with useTestCalendar creates a real event in the ARCHITECT's calendar", async () => {
+    if (!(await dbUp())) return;
+    const { architect, workflow } = await fixture();
+
+    calendarCreateMock.mockImplementation(async (input: Record<string, unknown>) => ({
+      id: "gcal-runner-evt-1",
+      htmlLink: "https://calendar.google.com/event?eid=gcal-runner-evt-1",
+      calendarId: "primary",
+      summary: String(input.summaryOverride ?? ""),
+      startAt: new Date(input.startAt as Date).toISOString(),
+      endAt: new Date(input.endAt as Date).toISOString(),
+      timeZone: String(input.timeZone ?? "")
+    }));
+
+    try {
+      const run = await runWorkflowTest({
+        userId: architect.id,
+        workflowId: workflow.id,
+        workflowJson: runnerWorkflowJson,
+        mode: "test",
+        input: {
+          callerNumber: "+916396039675",
+          callerName: "Test Customer",
+          businessName: "Sample Business",
+          timeZone: "Asia/Calcutta",
+          appointmentService: "General Consultation",
+          appointmentStartAt: "2026-07-19T15:02:00",
+          useTestCalendar: true,
+          testSessionId: `${RUN}-runner-real`
+        }
+      });
+
+      expect(calendarCreateMock).toHaveBeenCalledTimes(1);
+      const insert = calendarCreateMock.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(insert.userId).toBe(architect.id);
+      expect(insert.summaryOverride).toBe("[TRIVEN ARCHITECT TEST] General Consultation");
+      expect(insert.timeZone).toBe("Asia/Kolkata");
+      expect(new Date(insert.startAt as Date).toISOString()).toBe("2026-07-19T09:32:00.000Z");
+
+      const appointment = run.context.calendarAppointment as Record<string, unknown>;
+      expect(appointment.status).toBe("CREATED");
+      expect(appointment.htmlLink).toBe("https://calendar.google.com/event?eid=gcal-runner-evt-1");
+      expect(appointment.testEventId).toBeTruthy();
+    } finally {
+      await cleanup(architect.id, workflow.id);
+    }
+  }, 30000);
+
+  it("a failed real write reports the safe error, never a created appointment", async () => {
+    if (!(await dbUp())) return;
+    const { architect, workflow } = await fixture();
+
+    calendarCreateMock.mockRejectedValue(new Error("Gmail is not connected for this account."));
+
+    try {
+      const run = await runWorkflowTest({
+        userId: architect.id,
+        workflowId: workflow.id,
+        workflowJson: runnerWorkflowJson,
+        mode: "test",
+        input: {
+          callerNumber: "+916396039675",
+          timeZone: "Asia/Kolkata",
+          appointmentService: "General Consultation",
+          appointmentStartAt: "2026-07-19T15:02:00",
+          useTestCalendar: true,
+          testSessionId: `${RUN}-runner-fail`
+        }
+      });
+
+      const appointment = run.context.calendarAppointment as Record<string, unknown>;
+      expect(appointment.status).toBe("FAILED");
+      expect(appointment.errorCode).toBe("CALENDAR_NOT_CONNECTED");
+      expect(appointment.id).toBeNull();
+
+      const bookLog = run.logs.find((log) => log.label === "Book appointment");
+      expect(bookLog?.status).toBe("error");
+    } finally {
+      await cleanup(architect.id, workflow.id);
+    }
   }, 30000);
 });
 

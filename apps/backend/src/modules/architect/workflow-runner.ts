@@ -1,4 +1,5 @@
-import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES } from "@coreai/shared";
+import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES, normalizeTimeZone, zonedWallClockToUtc } from "@coreai/shared";
+import { createTestCalendarEvent } from "./test-calendar-events";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
@@ -75,6 +76,11 @@ export type WorkflowRunInput = {
   appointmentService?: string;
   /** Test-mode only: the Send Email node delivers to this address for real. */
   testEmail?: string;
+  /** Test-mode only: create a REAL [TRIVEN ARCHITECT TEST] event in the
+   * architect's own connected calendar instead of a simulated preview. */
+  useTestCalendar?: boolean;
+  /** Groups this test run's records (test calendar events). */
+  testSessionId?: string;
   businessHours?: unknown;
   conversationId?: string;
   leadId?: string;
@@ -271,7 +277,16 @@ type RunnerContext = {
     startAt: string;
     endAt: string;
     timeZone: string;
+    /** SIMULATED (dry preview), CREATED (real event), FAILED (write error). */
+    status?: "SIMULATED" | "CREATED" | "FAILED";
+    htmlLink?: string | null;
+    /** TestCalendarEvent row id — enables the delete-test-event action. */
+    testEventId?: string | null;
+    errorCode?: string;
+    remediation?: string;
   };
+  useTestCalendar?: boolean;
+  testSessionId?: string;
   capturedLead?: {
     callerNumber: string;
     callerName?: string;
@@ -561,6 +576,8 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   if (optionalString(input?.listingId)) context.listingId = optionalString(input?.listingId);
   if (optionalString(input?.latestMessage)) context.latestMessage = optionalString(input?.latestMessage);
   if (optionalString(input?.testEmail)) context.testEmail = optionalString(input?.testEmail);
+  if (input?.useTestCalendar === true) context.useTestCalendar = true;
+  if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);
 
   return context;
 }
@@ -1096,14 +1113,29 @@ async function runGoogleCalendarConnectorNode({
   const customerPhone = context.caller_number || context.missedCall?.callerNumber || "";
   const businessName = context.business?.name ?? "the business";
   const calendarId = renderTemplate(node.data?.calendarId, context) || context.business?.calendarId || "primary";
-  const timeZone = context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const timeZone = normalizeTimeZone(context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
   const service = renderTemplate(node.data?.appointmentService, context) || asString(context.appointmentService, "Appointment");
   context.appointmentService = service;
   const defaultWindow = getDefaultAppointmentWindow(timeZone);
   const startAtRaw = renderTemplate(node.data?.appointmentStartAt, context) || asString(context.appointmentStartAt, defaultWindow.startAt.toISOString());
-  const endAtRaw = renderTemplate(node.data?.appointmentEndAt, context) || asString(context.appointmentEndAt, defaultWindow.endAt.toISOString());
+  const endAtRaw = renderTemplate(node.data?.appointmentEndAt, context) || asString(context.appointmentEndAt);
+  // A naive "YYYY-MM-DDTHH:mm[:ss]" is the tester's wall-clock time in the
+  // execution timezone — never the server's local zone.
+  const startAt = parseAppointmentInstant(startAtRaw, timeZone);
+  // The end defaults to start + 30 min; an explicit end is honored only when
+  // it actually follows the start (never the unrelated default-window end).
+  const explicitEndAt = endAtRaw ? parseAppointmentInstant(endAtRaw, timeZone) : null;
+  const endAt =
+    explicitEndAt && !Number.isNaN(explicitEndAt.getTime()) && explicitEndAt.getTime() > startAt.getTime()
+      ? explicitEndAt
+      : new Date(startAt.getTime() + 30 * 60 * 1000);
   const summary = renderTemplate(node.data?.calendarSummary, context) || `${service} - ${context.caller_name || customerPhone}`;
   const description = renderTemplate(node.data?.calendarDescription, context) || `Booked by Triven AI Receptionist for ${businessName}.`;
+
+  if (Number.isNaN(startAt.getTime())) {
+    logs.push(createLog(node, "error", `Could not interpret the appointment start time "${startAtRaw}".`));
+    return;
+  }
 
   if (!customerPhone && mode === "live") {
     logs.push(createLog(node, "error", "Calendar booking failed because caller phone number is missing."));
@@ -1111,15 +1143,61 @@ async function runGoogleCalendarConnectorNode({
   }
 
   if (mode !== "live") {
-    context.calendarAppointment = {
-      id: null,
+    const testEvent = await createTestCalendarEvent({
+      executionMode: "ARCHITECT_DRY_RUN",
+      ownerUserId: userId,
+      testSessionId: context.testSessionId,
+      serviceName: service,
+      customerName: context.caller_name,
+      customerPhone,
+      startAt,
+      endAt,
+      timeZone,
       calendarId,
-      summary,
-      startAt: new Date(startAtRaw).toISOString(),
-      endAt: new Date(endAtRaw).toISOString(),
-      timeZone
+      businessName,
+      simulate: context.useTestCalendar !== true
+    });
+
+    if (!testEvent.ok) {
+      // Never claim the appointment was created when the calendar write failed.
+      context.calendarAppointment = {
+        id: null,
+        calendarId,
+        summary,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        timeZone,
+        status: "FAILED",
+        htmlLink: null,
+        testEventId: null,
+        errorCode: testEvent.error.code,
+        remediation: testEvent.error.remediation
+      };
+      logs.push(createLog(node, "error", `${testEvent.error.message} ${testEvent.error.remediation}`, context.calendarAppointment));
+      return;
+    }
+
+    context.calendarAppointment = {
+      id: testEvent.event.googleEventId,
+      calendarId,
+      summary: testEvent.event.title,
+      startAt: testEvent.event.startAt,
+      endAt: testEvent.event.endAt,
+      timeZone: testEvent.event.timeZone,
+      status: testEvent.event.status,
+      htmlLink: testEvent.event.htmlLink,
+      testEventId: testEvent.event.testEventId
     };
-    logs.push(createLog(node, "success", "Dry run passed. Calendar event would be created.", context.calendarAppointment));
+    logs.push(
+      createLog(
+        node,
+        "success",
+        testEvent.event.status === "CREATED"
+          ? `Created test calendar event "${testEvent.event.title}" on your connected calendar.`
+          : "Dry run passed. Simulated calendar event preview returned (no live calendar write).",
+        context.calendarAppointment
+      )
+    );
     return;
   }
 
@@ -1131,13 +1209,25 @@ async function runGoogleCalendarConnectorNode({
     customerName: context.caller_name,
     customerPhone,
     service,
-    startAt: startAtRaw,
-    endAt: endAtRaw,
+    startAt,
+    endAt,
     description
   });
 
-  context.calendarAppointment = appointment;
-  logs.push(createLog(node, "success", "Google Calendar appointment created.", appointment));
+  context.calendarAppointment = { ...appointment, status: "CREATED" };
+  logs.push(createLog(node, "success", "Google Calendar appointment created.", context.calendarAppointment));
+}
+
+/**
+ * "2026-07-19T15:02[:00]" (naive, no offset) is wall-clock time in `timeZone`;
+ * strings with an explicit offset/Z parse as-is.
+ */
+function parseAppointmentInstant(raw: string, timeZone: string): Date {
+  const naive = raw.trim().match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/);
+  if (naive) {
+    return zonedWallClockToUtc(naive[1] ?? "", Number(naive[2]), Number(naive[3]), timeZone);
+  }
+  return new Date(raw);
 }
 
 async function runGmailConnectorNode({
@@ -1720,7 +1810,9 @@ async function runConnectorNode({
   mode: WorkflowRunMode;
   chain: WorkflowChain;
 }) {
-  const connector = asString(node.data?.connector, "SMS").toLowerCase();
+  // Normalize separator variants ("google_calendar", "Google-Calendar") to the
+  // canonical space-separated form before dispatching.
+  const connector = asString(node.data?.connector, "SMS").toLowerCase().replace(/[_-]+/g, " ");
 
   if (connector === "coreai" || connector === "core") {
     await runCoreConnectorNode({ userId, node, context, logs, mode, chain });

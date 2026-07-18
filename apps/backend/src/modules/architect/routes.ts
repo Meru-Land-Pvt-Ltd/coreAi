@@ -697,6 +697,8 @@ const workflowRunInputSchema = z.object({
   appointmentEndAt: z.string().trim().optional(),
   appointmentService: z.string().trim().optional(),
   testEmail: z.string().trim().email("Enter a valid test email address").optional(),
+  useTestCalendar: z.boolean().optional(),
+  testSessionId: z.string().trim().max(64).optional(),
   attachments: z
     .array(
       z.object({

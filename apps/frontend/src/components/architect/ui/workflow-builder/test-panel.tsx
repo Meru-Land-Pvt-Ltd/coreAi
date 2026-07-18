@@ -787,9 +787,52 @@ export function TestPanel({
                       </p>
                     ) : null}
                     {calendarAppointment ? (
-                      <p className="font-mono text-xs text-blue-500" data-testid="test-panel-appointment-result">
-                        Appointment result: {calendarAppointment.id ? "booked" : "would be created (dry run)"} — {calendarAppointment.summary}
-                      </p>
+                      <div data-testid="test-panel-appointment-result">
+                        <p className={`font-mono text-xs ${calendarAppointment.status === "FAILED" ? "text-rose-500" : "text-blue-500"}`}>
+                          Appointment result:{" "}
+                          {calendarAppointment.status === "CREATED"
+                            ? "test event created on your calendar"
+                            : calendarAppointment.status === "DELETED"
+                              ? "test event deleted"
+                              : calendarAppointment.status === "FAILED"
+                                ? `failed (${calendarAppointment.errorCode || "calendar error"})`
+                                : calendarAppointment.id
+                                  ? "booked"
+                                  : "simulated (no live calendar write)"}{" "}
+                          — {calendarAppointment.summary}
+                        </p>
+                        {calendarAppointment.status === "FAILED" && calendarAppointment.remediation ? (
+                          <p className="mt-1 font-mono text-xs text-rose-400" data-testid="test-panel-appointment-remediation">
+                            {calendarAppointment.remediation}
+                          </p>
+                        ) : null}
+                        {calendarAppointment.htmlLink || calendarAppointment.testEventId ? (
+                          <span className="mt-1.5 flex items-center gap-2">
+                            {calendarAppointment.htmlLink ? (
+                              <a
+                                href={calendarAppointment.htmlLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                data-testid="test-panel-appointment-link"
+                                className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-gray-50"
+                              >
+                                Open in Google Calendar
+                              </a>
+                            ) : null}
+                            {calendarAppointment.testEventId && calendarAppointment.status === "CREATED" ? (
+                              <button
+                                type="button"
+                                onClick={() => onDeleteTestEvent?.(calendarAppointment.testEventId!)}
+                                disabled={deletingTestEvent}
+                                data-testid="test-panel-appointment-delete"
+                                className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-60"
+                              >
+                                {deletingTestEvent ? "Deleting..." : "Delete test event"}
+                              </button>
+                            ) : null}
+                          </span>
+                        ) : null}
+                      </div>
                     ) : null}
                     {smsNotification ? (
                       <p className="font-mono text-xs text-green-500" data-testid="test-panel-sms-notification-result">
