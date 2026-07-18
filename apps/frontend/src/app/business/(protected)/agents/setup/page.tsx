@@ -6,11 +6,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   CUSTOM_INSTRUCTION_SUGGESTIONS,
   DEFAULT_SILENCE,
+  getAgentSuccessMessage,
+  getWorkflowTriggerKind,
   isBuyerAnswerEmpty,
   normalizeBuyerSetupFields,
   normalizeTimeZone,
   validateBuyerSetupAnswers,
-  VOICE_PRESETS
+  VOICE_PRESETS,
+  type WorkflowTriggerKind
 } from "@coreai/shared";
 import {
   checkMailAliasAvailability,
@@ -176,25 +179,30 @@ const WIZARD_STYLES = `
 .setup-root :focus { outline: none; }
 .setup-root :focus-visible,
 .setup-root a:focus-visible,
-.setup-root button:focus-visible,
-.setup-root input:focus-visible,
-.setup-root select:focus-visible,
-.setup-root textarea:focus-visible {
+.setup-root button:focus-visible {
   outline: 2px solid #f59e0b;
   outline-offset: 2px;
   border-radius: 8px;
 }
+.setup-root input:focus,
+.setup-root select:focus,
+.setup-root textarea:focus,
+.setup-root input:focus-visible,
+.setup-root select:focus-visible,
+.setup-root textarea:focus-visible {
+  outline: none !important;
+}
 
 .setup-root .field {
-  transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background-color .2s var(--ease);
+  transition: border-color .2s var(--ease), background-color .2s var(--ease);
 }
 .setup-root .field:focus {
   border-color: #f59e0b;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, .15);
+  box-shadow: none;
 }
 
 .setup-root .btn {
-  transition: transform .15s ease, box-shadow .25s var(--ease), background-color .2s ease, border-color .2s ease, color .2s ease;
+  transition: transform .15s ease, background-color .2s ease, border-color .2s ease, color .2s ease;
   will-change: transform;
 }
 .setup-root .btn:not(:disabled):hover {
@@ -229,7 +237,7 @@ const WIZARD_STYLES = `
 .setup-root .pstep.upcoming .pdot { background: #f1f5f9; color: #94a3b8; }
 .setup-root .pstep.upcoming .plabel { color: #94a3b8; }
 
-.setup-root .pstep.active .pdot { background: #f59e0b; color: #fff; border-color: #f59e0b; box-shadow: 0 6px 16px -4px rgba(245, 158, 11, .5); transform: scale(1.06); }
+.setup-root .pstep.active .pdot { background: #f59e0b; color: #fff; border-color: #f59e0b; box-shadow: none; transform: scale(1.06); }
 .setup-root .pstep.active .plabel { color: #b45309; }
 
 .setup-root .pstep.done .pdot { background: #f59e0b; color: #fff; }
@@ -256,8 +264,8 @@ const WIZARD_STYLES = `
 }
 
 /* Phone validation valid state */
-.setup-root .phone-wrap { transition: border-color .25s var(--ease), box-shadow .25s var(--ease); }
-.setup-root .phone-wrap.is-valid { border-color: #22c55e !important; box-shadow: 0 0 0 4px rgba(34, 197, 94, .12); }
+.setup-root .phone-wrap { transition: border-color .25s var(--ease); }
+.setup-root .phone-wrap.is-valid { border-color: #22c55e !important; box-shadow: none; }
 .setup-root .phone-check { opacity: 0; transform: scale(.6); transition: opacity .25s var(--ease), transform .35s var(--ease); }
 .setup-root .phone-wrap.is-valid .phone-check { opacity: 1; transform: scale(1); }
 
@@ -266,17 +274,17 @@ const WIZARD_STYLES = `
   width: 3rem; height: 3.5rem; text-align: center;
   font-size: 1.35rem; font-weight: 600; font-family: 'Inter', monospace;
   border: 1.5px solid #e2e8f0; border-radius: .75rem; background: #fff; color: #0f172a;
-  transition: border-color .2s var(--ease), box-shadow .2s var(--ease), transform .25s var(--ease), background-color .2s var(--ease);
+  transition: border-color .2s var(--ease), transform .25s var(--ease), background-color .2s var(--ease);
   caret-color: #f59e0b;
 }
-.setup-root .otp-box:focus { border-color: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, .15); }
+.setup-root .otp-box:focus { border-color: #f59e0b; box-shadow: none; }
 .setup-root .otp-box.filled { border-color: #f59e0b; background: #fffbeb; transform: translateY(-1px); }
 @media (max-width: 380px) { .setup-root .otp-box { width: 2.5rem; height: 3rem; font-size: 1.15rem; } }
 
 /* Pick cards */
-.setup-root .pick { transition: border-color .2s var(--ease), background-color .2s var(--ease), box-shadow .2s var(--ease), transform .2s var(--ease); cursor: pointer; }
+.setup-root .pick { transition: border-color .2s var(--ease), background-color .2s var(--ease), transform .2s var(--ease); cursor: pointer; }
 .setup-root .pick:hover { border-color: #fcd34d; }
-.setup-root .pick.selected { border-color: #f59e0b; background: #fffbeb; box-shadow: 0 0 0 3px rgba(245, 158, 11, .18); }
+.setup-root .pick.selected { border-color: #f59e0b; background: #fffbeb; box-shadow: none; }
 .setup-root .pick .tick { opacity: 0; transform: scale(.5); transition: opacity .2s var(--ease), transform .3s var(--ease); }
 .setup-root .pick.selected .tick { opacity: 1; transform: scale(1); }
 
@@ -301,7 +309,7 @@ const WIZARD_STYLES = `
 
 .setup-root .bubble { position: relative; }
 .setup-root .phone-frame { border: 8px solid #0f172a; border-radius: 2rem; background: #f8fafc; }
-.setup-root .sms-ring { box-shadow: 0 0 0 3px rgba(34, 197, 94, .45), 0 18px 40px -16px rgba(0,0,0,.25); }
+.setup-root .sms-ring { border: 2px solid #22c55e; }
 
 /* Celebration */
 .setup-root .check-pop { animation: pop .6s var(--ease) both; }
@@ -334,7 +342,7 @@ const WIZARD_STYLES = `
 const FIELD =
   "field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 placeholder-slate-400 focus:outline-none";
 const LABEL = "mb-1.5 block text-sm font-semibold text-slate-700";
-const CARD = "animate-in rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8";
+const CARD = "animate-in rounded-2xl border border-gray-100 bg-white p-6 sm:p-8";
 const H2 = "text-lg font-bold text-slate-900";
 const SUB = "mt-1 text-sm text-slate-500";
 const SECTION = "mt-8 border-t border-gray-100 pt-8";
@@ -567,7 +575,7 @@ export default function BusinessAgentSetupPage() {
     <Suspense
       fallback={
         <div className="setup-root mx-auto max-w-2xl px-4 py-8">
-          <div className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-slate-500 shadow-sm">
+          <div className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-slate-500">
             Loading setup…
           </div>
         </div>
@@ -660,6 +668,10 @@ function SetupWizard() {
   const [buyerSetupFields, setBuyerSetupFields] = useState<BuyerSetupFieldDef[]>([]);
   const [buyerSetupInstructions, setBuyerSetupInstructions] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<BuyerCustomFieldValue[]>([]);
+
+  // Trigger kind derived from the listing's workflow graph.
+  // Drives which phone/forwarding/voice sections are shown.
+  const [triggerKind, setTriggerKind] = useState<WorkflowTriggerKind>("none");
 
   const setCustomFieldValue = useCallback((key: string, label: string, value: string | string[] | boolean) => {
     setCustomFieldValues((current) => {
@@ -859,6 +871,10 @@ function SetupWizard() {
         setBuyerSetupFields(data.buyerSetupSchema.filter((field) => field && field.key && field.label));
       }
 
+      if (data.triggerKind) {
+        setTriggerKind(data.triggerKind);
+      }
+
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
       let loadedBuyerSetupFields = data.buyerSetupSchema?.filter((field) => field && field.key && field.label) || [];
 
@@ -877,6 +893,12 @@ function SetupWizard() {
           setBuyerSetupFields(setupFields);
           loadedBuyerSetupFields = setupFields;
           setBuyerSetupInstructions((listingRes.data.listing.buyerSetupInstructions ?? "").trim());
+
+          // Derive trigger kind from the listing's workflow JSON
+          const listingWorkflowJson = listingRes.data.listing.workflowJson || listingRes.data.listing.workflow?.workflowJson;
+          if (listingWorkflowJson) {
+            setTriggerKind(getWorkflowTriggerKind(listingWorkflowJson));
+          }
         }
       }
 
@@ -888,13 +910,17 @@ function SetupWizard() {
         if (savedStep >= 1 && savedStep <= STEPS.length) {
           setStep(savedStep);
         } else {
-          // Dynamic resumption: evaluate which step is incomplete based on loaded data
+          // Dynamic resumption: evaluate which step is incomplete based on loaded data.
+          // Newly purchased agents (not live/ACTIVE yet) must always start at Step 1.
+          const isDeployed = data.installedAgent?.status === "ACTIVE";
           const hasPhone = Boolean(data.selectedPlatformPhoneNumberId || data.phoneNumber?.phoneNumber);
           const routingMode = data.answeringMode || "AI_FIRST";
           const fwPhone = data.phoneNumber?.forwardToPhone || "";
           const step1Ok = hasPhone && (routingMode === "AI_FIRST" || fwPhone.trim().length >= 5);
 
-          if (!step1Ok) {
+          if (!isDeployed) {
+            setStep(1);
+          } else if (!step1Ok) {
             setStep(1);
           } else {
             const bName = data.business?.name || "";
@@ -1191,7 +1217,7 @@ function SetupWizard() {
       return;
     }
 
-    if (showPhone && answeringMode !== "AI_FIRST" && forwardToPhone.trim().length < 5) {
+    if (showCallForwarding && answeringMode !== "AI_FIRST" && forwardToPhone.trim().length < 5) {
       setStep(1);
       setError("Add the phone number that should receive forwarded/live calls.");
       return;
@@ -1203,7 +1229,8 @@ function SetupWizard() {
 
     if (!result.ok) return;
 
-    const requiresVoice = new Set(requiredKeys).has("vapi");
+    // Only require a vapiAssistantId when the workflow actually uses Vapi voice.
+    const requiresVoice = showVoice && needs.has("vapi");
 
     if (requiresVoice && !result.vapiAssistantId) {
       setStep(4);
@@ -1257,20 +1284,30 @@ function SetupWizard() {
   const phoneComplete = phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5);
   const voiceChoiceComplete = voiceChoice !== "custom" || customVoiceId.trim().length > 0;
   const voiceComplete = assistantNameComplete && voiceChoiceComplete;
+
+  // --- Trigger-aware visibility flags ---
+  // Phone number verification is always shown (all agent types need a number).
+  // Call forwarding and answering mode are only needed for missed-call and voice workflows.
+  // Voice/Vapi setup is only needed when there is a voice node.
+  const connectorsKnown = requiredKeys.length > 0 || (!loading && Boolean(listingId));
   const needsCalendar = needs.has("google_calendar");
   const needsGmail = needs.has("gmail");
-  const needsPhone = needs.has("phone_provider") || needs.has("twilio");
-  const needsSms = needs.has("twilio");
-  const needsVoice = needs.has("vapi");
+  const needsPhone = needs.has("phone_provider") || needs.has("twilio") || needs.has("phone");
+  const needsSms = needs.has("twilio") && triggerKind === "inbound_sms";
+  const needsVoice = needs.has("vapi") || triggerKind === "voice";
   const needsMail = needs.has("triven_mail");
   const mailComplete = mailAlias?.status === "ACTIVE";
 
-const connectorsKnown = requiredKeys.length > 0;
-  const showPhone = !connectorsKnown || needsPhone || needsVoice || needsSms;
+  // showPhone: always true (number verification is universal)
+  const showPhone = true;
+  // showCallForwarding: only for missed-call or voice workflows that need forwarding
+  const showCallForwarding = triggerKind === "missed_call" || triggerKind === "voice";
+  // showAnsweringMode: only for voice workflows (missed-call always uses NO_ANSWER / forward)
+  const showAnsweringMode = triggerKind === "voice";
   const showCalendar = !connectorsKnown || needsCalendar || needsGmail;
-  const showSmsNote = showPhone && needsSms;
+  const showSmsNote = triggerKind === "inbound_sms" || needsSms;
   const showMail = !connectorsKnown || needsMail;
-  const showVoice = !connectorsKnown || needsVoice;
+  const showVoice = !connectorsKnown ? triggerKind === "voice" : needsVoice;
 
   const connectTitle =
     showPhone && showCalendar ? "Connect your phone & calendar" : showPhone ? "Connect your phone" : "Connect your services";
@@ -1278,8 +1315,10 @@ const connectorsKnown = requiredKeys.length > 0;
 
   // Per-step completion for the header indicator — a step is "done" when the
   // required checklist items that live on it are complete.
+  // Call-forwarding check is only applied when the workflow needs it.
   const connectComplete =
-    (!showPhone || phoneComplete) &&
+    (!showPhone || phoneSelected) &&
+    (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
     (!needsCalendar || calendar.connected) &&
     (!needsGmail || calendar.connected) &&
     (!needsMail || mailComplete);
@@ -1398,7 +1437,7 @@ const connectorsKnown = requiredKeys.length > 0;
       <div className="setup-root mx-auto max-w-2xl px-4 py-8">
         <div
           data-testid="business-setup-loading"
-          className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-slate-500 shadow-sm"
+          className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-slate-500"
         >
           Loading your setup…
         </div>
@@ -1416,57 +1455,45 @@ const connectorsKnown = requiredKeys.length > 0;
         <div className="mx-auto max-w-lg px-5 py-12 text-center">
           <div data-testid="business-setup-success">
             {/* Pop-in Checkmark circle */}
-            <div className="check-pop w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-green-500 grid place-items-center shadow-xl shadow-amber-500/30">
+            <div className="check-pop w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-green-500 grid place-items-center">
               <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10">
                 <polyline className="draw" points="20 6 9 17 4 12"></polyline>
               </svg>
             </div>
 
             <div className="stagger">
-              <div>
-                <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
-                  Your agent is live 🎉
-                </h2>
-                <p className="text-lg text-slate-600 mt-3">
-                  Missed Call Text-Back is now protecting your practice 24/7. Every missed call gets an instant response.
-                </p>
-              </div>
+              {/* Dynamic success copy based on the workflow trigger kind */}
+              {(() => {
+                const msg = getAgentSuccessMessage(triggerKind);
+                return (
+                  <div>
+                    <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
+                      {msg.headline}
+                    </h2>
+                    <p className="text-lg text-slate-600 mt-3">
+                      {msg.body}
+                    </p>
+                  </div>
+                );
+              })()}
 
-              {/* Stats card */}
+              {/* Capability list */}
               <div
                 className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-7 sm:p-8 mt-8 border border-amber-100 text-left"
                 data-testid="business-setup-success-capabilities"
               >
                 <p className="text-sm font-semibold text-slate-700 mb-4">Your agent is ready to:</p>
                 <ul className="space-y-3">
-                  {showPhone ? (
-                    <li className="flex items-center gap-3 text-sm text-slate-700">
+                  {getAgentSuccessMessage(triggerKind).capabilities.map((cap: string) => (
+                    <li key={cap} className="flex items-center gap-3 text-sm text-slate-700">
                       <span className="text-green-500 shrink-0">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                           <polyline points="20 6 9 17 4 12"/>
                         </svg>
                       </span>
-                      <span>
-                        Detect missed calls on <strong className="font-semibold text-slate-900 font-mono">{successNumber || assignedNumber || "your Triven number"}</strong>
-                      </span>
+                      <span>{cap}</span>
                     </li>
-                  ) : null}
-                  <li className="flex items-center gap-3 text-sm text-slate-700">
-                    <span className="text-green-500 shrink-0">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    </span>
-                    <span>Send personalized texts within 30 seconds</span>
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-slate-700">
-                    <span className="text-green-500 shrink-0">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    </span>
-                    <span>Help patients book appointments automatically</span>
-                  </li>
+                  ))}
                 </ul>
               </div>
 
@@ -1476,7 +1503,7 @@ const connectorsKnown = requiredKeys.length > 0;
                   data-testid="business-setup-go-dashboard"
                   type="button"
                   onClick={() => router.push(DASHBOARD_ROUTE)}
-                  className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold shadow-lg shadow-amber-500/30 hover:bg-amber-600 w-full max-w-xs"
+                  className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 w-full max-w-xs"
                 >
                   Go to dashboard
                 </button>
@@ -1579,12 +1606,14 @@ const connectorsKnown = requiredKeys.length > 0;
         </div>
       </header>
 
-      <div className="mx-auto max-w-2xl px-5 sm:px-6 py-10 sm:py-12">
+      <div className="mx-auto max-w-3xl px-5 sm:px-6 py-10 sm:py-12">
         <div className={CARD}>
           {step === 1 ? (
             <StepConnect
               title={connectTitle}
               showPhone={showPhone}
+              showCallForwarding={showCallForwarding}
+              showAnsweringMode={showAnsweringMode}
               showCalendar={showCalendar}
               showSmsNote={showSmsNote}
               showMail={showMail}
@@ -1765,7 +1794,7 @@ const connectorsKnown = requiredKeys.length > 0;
                   onClick={goNext}
                   disabled={saving}
                   data-testid="business-setup-next"
-                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20"
+                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors"
                 >
                   Continue
                 </button>
@@ -1775,7 +1804,7 @@ const connectorsKnown = requiredKeys.length > 0;
                   onClick={handleDeploy}
                   disabled={saving || !readyToDeploy}
                   data-testid="business-setup-submit"
-                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20"
+                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors"
                 >
                   {saving ? "Deploying…" : "Deploy live agent"}
                 </button>
@@ -1789,7 +1818,7 @@ const connectorsKnown = requiredKeys.length > 0;
         <div
           role="status"
           data-testid="business-setup-toast"
-          className="toast-in fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-xl"
+          className="toast-in fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white"
         >
           {statusMsg}
         </div>
@@ -2556,6 +2585,8 @@ function BuyerSetupFieldControl({
 function StepConnect({
   title,
   showPhone,
+  showCallForwarding,
+  showAnsweringMode,
   showCalendar,
   showSmsNote,
   showMail,
@@ -2597,6 +2628,10 @@ function StepConnect({
 }: {
   title: string;
   showPhone: boolean;
+  /** Show the call-forwarding number + answering-mode options. True for missed-call and voice workflows. */
+  showCallForwarding: boolean;
+  /** Show the answering-mode dropdown. True only for voice workflows. */
+  showAnsweringMode: boolean;
   showCalendar: boolean;
   showSmsNote: boolean;
   showMail: boolean;
@@ -2682,7 +2717,9 @@ function StepConnect({
 
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
       <p className="text-slate-500 text-base mt-2 max-w-md">
-        This is the number your patients call. We detect missed calls and text them back automatically.
+        {showCallForwarding
+          ? "Connect the number your customers call. We'll route it through your Triven agent automatically."
+          : "Verify your business number so your agent knows which SMS messages to handle."}
       </p>
       <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
@@ -2756,7 +2793,7 @@ function StepConnect({
             type="button"
             disabled={isSendingOtp || !phoneValid}
             onClick={onSendOtp}
-            className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold shadow-lg shadow-amber-500/30 hover:bg-amber-600 inline-flex items-center justify-center gap-2 mt-4 w-full sm:w-auto"
+            className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 inline-flex items-center justify-center gap-2 mt-4 w-full sm:w-auto"
           >
             {isSendingOtp ? "Sending code…" : "Send verification code"}
           </button>
@@ -2840,16 +2877,16 @@ function StepConnect({
 
       {/* Success Block */}
       {showPhone && phoneVerified && (
-        <div className="space-y-6">
-          <div id="phoneSuccess" className="bg-green-50 border border-green-100 rounded-xl p-4 flex items-center justify-between gap-3" role="status">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
+          {/* Row 1: Verified Banner */}
+          <div id="phoneSuccess" className="flex items-center justify-between gap-3" role="status">
             <div className="flex items-center gap-3">
-              <span className="w-8 h-8 rounded-full bg-green-500 grid place-items-center text-white shrink-0">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-              </span>
-              <p className="text-sm text-green-800">
-                <span className="font-semibold">Phone connected.</span> <span id="successNum" className="font-bold">{existingPhoneNumber}</span> is now linked to your agent.
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-green-600 shrink-0">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m9 12 2 2 4-4" />
+              </svg>
+              <p className="text-sm font-semibold text-slate-850">
+                Number verified. <span id="successNum" className="font-bold">{existingPhoneNumber}</span> is confirmed.
               </p>
             </div>
             <button
@@ -2865,66 +2902,81 @@ function StepConnect({
             </button>
           </div>
 
-          <div className="mt-5 flex items-start gap-3 bg-slate-50 rounded-xl p-5 border border-slate-100">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 grid place-items-center shrink-0">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-              </svg>
-            </div>
+          {/* Divider */}
+          <div className="-mx-6 border-t border-slate-200/80 my-5" />
+
+          {/* Row 2: CORE number ready */}
+          <div className="flex items-start gap-3.5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+            </svg>
             <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your Triven phone number is ready:</p>
-              <p className="mt-1 font-mono text-2xl font-bold tracking-tight text-slate-900">{assignedNumber || "Pending..."}</p>
+              <p className="text-sm font-semibold text-slate-500">Your CORE number is ready:</p>
+              <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight">{assignedNumber || "Pending..."}</p>
             </div>
           </div>
 
-          {/* Answering mode selection */}
-          <div className="space-y-3">
-            <span className="block text-sm font-semibold text-slate-700 mb-2">How should calls reach your agent?</span>
+          {/* Spacer / selection */}
+          {showCallForwarding ? (
+            <div className="mt-8 space-y-4">
+              <span className="block text-sm font-semibold text-slate-700">How should calls reach your agent?</span>
 
-            <button
-              type="button"
-              onClick={() => onAnsweringMode("NO_ANSWER")}
-              className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 ${
-                answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-              }`}
-            >
-              <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-              }`}>
-                {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
-              </span>
-              <span className="flex-1">
-                <span className="block text-sm font-semibold text-slate-900">Forward my existing number</span>
-                <span className="block text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  Keep giving out {existingPhoneNumber}. Forward it to {assignedNumber || "your Triven number"} so calls reach your agent.
-                </span>
-              </span>
-            </button>
+              {showAnsweringMode ? (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => onAnsweringMode("NO_ANSWER")}
+                    className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
+                      answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                    }`}
+                    style={answeringMode !== "AI_FIRST" ? { boxShadow: "none" } : undefined}
+                  >
+                    <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+                      answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                    }`}>
+                      {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
+                    </span>
+                    <span className="flex-1">
+                      <span className="block text-sm font-bold text-slate-900">Forward my existing number</span>
+                      <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                        Keep giving out {existingPhoneNumber}. Forward it to {assignedNumber || "your CORE number"} so calls reach your agent.
+                      </span>
+                    </span>
+                  </button>
 
-            <button
-              type="button"
-              onClick={() => onAnsweringMode("AI_FIRST")}
-              className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 ${
-                answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-              }`}
-            >
-              <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-              }`}>
-                {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
-              </span>
-              <span className="flex-1">
-                <span className="block text-sm font-semibold text-slate-900">Use the CORE number directly</span>
-                <span className="block text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  Give {assignedNumber || "your Triven number"} to customers as your main line. Calls go straight to your agent.
-                </span>
-              </span>
-            </button>
-          </div>
+                  <button
+                    type="button"
+                    onClick={() => onAnsweringMode("AI_FIRST")}
+                    className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
+                      answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                    }`}
+                    style={answeringMode === "AI_FIRST" ? { boxShadow: "none" } : undefined}
+                  >
+                    <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+                      answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                    }`}>
+                      {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
+                    </span>
+                    <span className="flex-1">
+                      <span className="block text-sm font-bold text-slate-900">Use the CORE number directly</span>
+                      <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                        Give {assignedNumber || "your CORE number"} to customers as your main line. Calls go straight to your agent.
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                /* Missed-call workflow: always uses forwarding, no mode selector needed */
+                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-sm text-slate-600">
+                  <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your CORE number and the AI handles the rest.
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       )}
 
-      {showPhone && phoneVerified && routingMode === "forward" ? (
+      {showPhone && phoneVerified && showCallForwarding && showAnsweringMode && routingMode === "forward" ? (
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Call handling</h3>
           <div>
@@ -2985,7 +3037,7 @@ function StepConnect({
                 type="button"
                 disabled={calendarBusy}
                 onClick={onDisconnectCalendar}
-                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-gray-300 shadow-sm"
+                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-gray-300"
               >
                 Disconnect
               </button>
@@ -2994,7 +3046,7 @@ function StepConnect({
                 type="button"
                 disabled={calendarBusy}
                 onClick={onConnectCalendar}
-                className="btn shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600 shadow-sm"
+                className="btn shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600"
               >
                 {calendarBusy ? "Connecting…" : "Connect"}
               </button>
@@ -3934,10 +3986,10 @@ const inferWorkflowChannel = (nodes: any[], connectors: string[]): "sms" | "miss
   return "manual";
 };
 
-const getAnsweringLabels = (mode: string, listing?: any) => {
+const getAnsweringLabels = (mode: string, listing?: any, assignedNumber?: string | null) => {
   let channel = "missed-call";
   if (listing) {
-    const nodes = listing.workflow?.workflowJson?.nodes || [];
+    const nodes = listing.workflowJson?.nodes || listing.workflow?.workflowJson?.nodes || [];
     const connectors = listing.requiredConnectors || [];
     channel = inferWorkflowChannel(nodes, connectors);
   } else {
@@ -3949,58 +4001,72 @@ const getAnsweringLabels = (mode: string, listing?: any) => {
     }
   }
 
+  const numLabel = assignedNumber ? ` ${assignedNumber}` : " your Triven number";
+
   switch (channel) {
     case "sms":
       return {
+        isVoice: false,
         waiting: "Waiting for an incoming text…",
         detected: "Text message received",
         action: "Simulate an incoming SMS",
-        subtitle: "Send a text message to your Triven number and watch the agent reply dynamically.",
-        instruction2: "Send an SMS to your business number",
+        subtitle: `Send a text message to${numLabel} and watch the agent reply dynamically.`,
+        instruction1: `Send a text message to${numLabel} from your phone`,
+        instruction2: "Enter your message text",
         instruction3: "Watch the live feed below update in real time"
       };
     case "whatsapp":
       return {
+        isVoice: false,
         waiting: "Waiting for a WhatsApp message…",
         detected: "WhatsApp message received",
         action: "Simulate a WhatsApp message",
-        subtitle: "Send a WhatsApp message to your number and watch the agent respond.",
-        instruction2: "Send a WhatsApp message to your Triven number",
+        subtitle: `Send a WhatsApp message to${numLabel} and watch the agent respond.`,
+        instruction1: `Send a WhatsApp message to${numLabel}`,
+        instruction2: "Verify that the message goes through",
         instruction3: "Watch the live feed below update in real time"
       };
     case "email":
       return {
+        isVoice: false,
         waiting: "Waiting for an email…",
         detected: "Email received",
         action: "Simulate an email",
         subtitle: "Send an email to your address and watch the agent respond.",
-        instruction2: "Send an email to your Triven email alias",
+        instruction1: "Send an email to your Triven email alias",
+        instruction2: "Verify email reception",
         instruction3: "Watch the live feed below update in real time"
       };
     case "voice":
       return {
+        isVoice: true,
         waiting: "Waiting for an inbound call…",
         detected: "Inbound call detected",
         action: "Simulate an inbound call",
-        subtitle: "Call your Triven number and speak to your live agent, or simulate a call below.",
+        subtitle: `Call${numLabel} and speak to your live agent, or simulate a call below.`,
+        instruction1: `Call${numLabel} from your personal phone`,
         instruction2: "Let the call connect, and speak to the agent",
         instruction3: "Watch the live feed update as you talk"
       };
     case "manual":
       return {
+        isVoice: false,
         waiting: "Waiting for a manual trigger…",
         detected: "Manual trigger detected",
         action: "Simulate a manual trigger",
         subtitle: "Run a workflow trigger and watch the agent execute actions.",
-        instruction2: "Start a manual trigger run",
+        instruction1: "Start a manual trigger run from the dashboard",
+        instruction2: "Verify trigger parameters",
         instruction3: "Watch the live feed below update in real time"
       };
     default:
       return {
+        isVoice: true,
         waiting: "Waiting for a missed call…",
         detected: "Missed call detected",
         action: "Simulate a missed call",
-        subtitle: "Call your business number and hang up after 3 rings, then watch the agent respond in real time.",
+        subtitle: `Call${numLabel} and hang up after 3 rings, then watch the agent respond in real time.`,
+        instruction1: `Call${numLabel} from your phone`,
         instruction2: "Let it ring 3 times, then hang up",
         instruction3: "Watch the live feed below light up"
       };
@@ -4115,59 +4181,61 @@ function MissedCallSimulationSection({
       </div>
 
       {/* Live status feed container */}
-      <div className="rounded-xl border border-slate-100 bg-white divide-y divide-slate-50 overflow-hidden shadow-sm" id="feed">
-        {/* Waiting step */}
-        <div className={`feed-item flex items-center gap-3 p-4 ${stage !== "idle" ? "show" : ""}`}>
-          <span className={`${stage === "waiting" ? "text-amber-400 dot-pulse" : "text-green-500"} w-2.5 h-2.5 rounded-full bg-current shrink-0`} />
-          <span className={`text-sm ${stage !== "idle" ? "text-slate-700 font-semibold" : "text-slate-500"}`}>
-            {labels.waiting}
-          </span>
+      {stage !== "idle" && (
+        <div className="rounded-xl border border-slate-100 bg-white divide-y divide-slate-50 overflow-hidden" id="feed">
+          {/* Waiting step */}
+          <div className="feed-item flex items-center gap-3 p-4 show">
+            <span className={`${stage === "waiting" ? "text-amber-400 dot-pulse" : "text-green-500"} w-2.5 h-2.5 rounded-full bg-current shrink-0`} />
+            <span className="text-sm text-slate-700 font-semibold">
+              {labels.waiting}
+            </span>
+          </div>
+
+          {/* Detected step */}
+          {stageReached("detected") && (
+            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-detected">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
+              <span className="flex-1 text-sm text-slate-700 font-semibold">
+                {labels.detected} from <strong className="font-mono">{phone.trim() || "unknown"}</strong>
+              </span>
+              <span className="font-mono text-xs text-slate-400">{detectedAt}</span>
+            </div>
+          )}
+
+          {/* Generating step */}
+          {stageReached("generating") && (
+            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-generating">
+              {stage === "generating" ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="h-4 w-4 shrink-0 spin text-violet-500">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              ) : (
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-500" />
+              )}
+              <span className="flex-1 text-sm text-slate-700 font-semibold">
+                {stage === "generating" ? "AI generating a personalized response…" : "Personalized response generated"}
+              </span>
+            </div>
+          )}
+
+          {/* Sent / Delivery step */}
+          {stage === "sent" && (
+            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-sent">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-green-500 text-[11px] font-bold text-white">✓</span>
+              <span className="flex-1 text-sm font-semibold text-green-700">SMS sent successfully</span>
+              <span className="font-mono text-xs text-slate-400">{sentAt}</span>
+            </div>
+          )}
+
+          {/* Failed step */}
+          {stage === "failed" && (
+            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-failed">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">✕</span>
+              <span className="flex-1 text-sm font-semibold text-red-600">SMS could not be sent</span>
+            </div>
+          )}
         </div>
-
-        {/* Detected step */}
-        {stageReached("detected") && (
-          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-detected">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
-            <span className="flex-1 text-sm text-slate-700 font-semibold">
-              {labels.detected} from <strong className="font-mono">{phone.trim() || "unknown"}</strong>
-            </span>
-            <span className="font-mono text-xs text-slate-400">{detectedAt}</span>
-          </div>
-        )}
-
-        {/* Generating step */}
-        {stageReached("generating") && (
-          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-generating">
-            {stage === "generating" ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="h-4 w-4 shrink-0 spin text-violet-500">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
-            ) : (
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-500" />
-            )}
-            <span className="flex-1 text-sm text-slate-700 font-semibold">
-              {stage === "generating" ? "AI generating a personalized response…" : "Personalized response generated"}
-            </span>
-          </div>
-        )}
-
-        {/* Sent / Delivery step */}
-        {stage === "sent" && (
-          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-sent">
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-green-500 text-[11px] font-bold text-white">✓</span>
-            <span className="flex-1 text-sm font-semibold text-green-700">SMS sent successfully</span>
-            <span className="font-mono text-xs text-slate-400">{sentAt}</span>
-          </div>
-        )}
-
-        {/* Failed step */}
-        {stage === "failed" && (
-          <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-failed">
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">✕</span>
-            <span className="flex-1 text-sm font-semibold text-red-600">SMS could not be sent</span>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* SMS Preview Mockup */}
       {stage === "sent" && result && (
@@ -4183,7 +4251,7 @@ function MissedCallSimulationSection({
               </div>
             </div>
 
-            <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] leading-snug text-slate-700 shadow-sm">
+            <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] leading-snug text-slate-700">
               {message}
             </div>
           </div>
@@ -4226,7 +4294,7 @@ function MissedCallSimulationSection({
             data-testid="business-setup-simulate-run"
             disabled={running}
             onClick={() => void runSimulation()}
-            className="btn bg-amber-500 text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-amber-500/30 hover:bg-amber-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
+            className="btn bg-amber-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-amber-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
               <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
@@ -4238,7 +4306,7 @@ function MissedCallSimulationSection({
             <button
               type="button"
               onClick={() => setTestConfirmed(true)}
-              className="btn bg-green-500 text-white rounded-xl px-6 py-3 font-semibold shadow-lg shadow-green-500/30 hover:bg-green-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
+              className="btn bg-green-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-green-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                 <polyline points="20 6 9 17 4 12" />
@@ -4294,7 +4362,7 @@ function StepTest({
   answeringMode: string;
   listing?: any;
 }) {
-  const labels = getAnsweringLabels(answeringMode, listing);
+  const labels = getAnsweringLabels(answeringMode, listing, assignedNumber);
 
   return (
     <div className="space-y-6">
@@ -4307,9 +4375,7 @@ function StepTest({
 
       <h2 className="text-2xl font-bold tracking-tight text-slate-900">Let&rsquo;s test it live</h2>
       <p className="text-slate-500 text-base mt-2 max-w-md">
-        {assignedNumber
-          ? <>{"Call "}<span className="font-mono font-semibold text-slate-700">{assignedNumber}</span>{" and check the routing logic, then watch the agent respond."}</>
-          : labels.subtitle}
+        {labels.subtitle}
       </p>
       <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
@@ -4326,11 +4392,7 @@ function StepTest({
             <li className="flex items-center gap-3">
               <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">1</span>
               <span className="text-sm text-slate-700">
-                Call{" "}
-                <strong className="font-semibold text-slate-900 font-mono">
-                  {assignedNumber ?? "your Triven number"}
-                </strong>{" "}
-                from your personal phone
+                {labels.instruction1}
               </span>
             </li>
             <li className="flex items-center gap-3">
@@ -4346,7 +4408,7 @@ function StepTest({
       ) : null}
 
       {/* Pre-deploy note */}
-      {showCallTest && !deployedLive ? (
+      {showCallTest && labels.isVoice && !deployedLive ? (
         <div
           className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
           data-testid="business-setup-test-predeploy-note"
@@ -4362,7 +4424,7 @@ function StepTest({
 
       {showPreview ? <PreviewCallSection /> : null}
 
-      {showCallTest ? (
+      {showCallTest && labels.isVoice ? (
       <div className={SECTION} data-testid="business-setup-test-routing">
         <div className="flex items-center justify-between gap-3">
           <div>

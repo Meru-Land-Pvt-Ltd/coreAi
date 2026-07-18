@@ -1284,5 +1284,171 @@ export function getHowItWorksSubtitle(
   return "From trigger event to completed task in three automatic steps.";
 }
 
+/* ---- Workflow-driven integration & trigger helpers ---- */
 
+/**
+ * The three primary trigger kinds that drive what the Setup page shows.
+ * - "missed_call": trigger.twilio_missed_call — needs call-forwarding number
+ * - "inbound_sms":  trigger.twilio_inbound_sms — SMS number only, no call-forwarding
+ * - "voice":        trigger.phone_call — needs call-forwarding + answering-mode selector
+ * - "none":         no recognised trigger (AI Brain-only, manual, webhook, etc.)
+ */
+export type WorkflowTriggerKind = "missed_call" | "inbound_sms" | "voice" | "none";
+
+/**
+ * Inspect workflowJson and return the dominant trigger kind.
+ * When multiple triggers are present the priority order is:
+ * missed_call > voice > inbound_sms > none.
+ */
+export function getWorkflowTriggerKind(workflowJson: unknown): WorkflowTriggerKind {
+  if (!isRecord(workflowJson) || !Array.isArray(workflowJson.nodes)) return "none";
+
+  let hasMissedCall = false;
+  let hasVoice = false;
+  let hasSms = false;
+
+  for (const rawNode of workflowJson.nodes) {
+    if (!isRecord(rawNode)) continue;
+    const data = isRecord(rawNode.data) ? rawNode.data : {};
+    const type =
+      typeof data.type === "string" ? data.type :
+      typeof data.kind === "string" ? data.kind :
+      typeof rawNode.type === "string" ? rawNode.type : "";
+
+    if (type === "trigger.twilio_missed_call") hasMissedCall = true;
+    if (type === "trigger.phone_call" || type === "ai.voice_conversation") hasVoice = true;
+    if (type === "trigger.twilio_inbound_sms") hasSms = true;
+  }
+
+  if (hasMissedCall) return "missed_call";
+  if (hasVoice) return "voice";
+  if (hasSms) return "inbound_sms";
+  return "none";
+}
+
+/**
+ * Derive the RequiredIntegrations flags directly from the node types present
+ * in workflowJson, using the REQUIRED_CONNECTORS_BY_TYPE registry.
+ * Returns only the integrations the workflow actually needs.
+ */
+export function deriveRequiredIntegrationsFromWorkflow(
+  workflowJson: unknown
+): RequiredIntegrations {
+  const integrations = emptyRequiredIntegrations();
+  if (!isRecord(workflowJson) || !Array.isArray(workflowJson.nodes)) return integrations;
+
+  for (const rawNode of workflowJson.nodes) {
+    if (!isRecord(rawNode)) continue;
+    const data = isRecord(rawNode.data) ? rawNode.data : {};
+    const type =
+      typeof data.type === "string" ? data.type :
+      typeof data.kind === "string" ? data.kind :
+      typeof rawNode.type === "string" ? rawNode.type : "";
+    if (!type) continue;
+
+    const connector =
+      typeof data.connector === "string" ? data.connector.toLowerCase() : "";
+    const combined = `${type} ${connector}`.toLowerCase();
+
+    // Vapi / voice AI
+    if (type === "ai.voice_conversation" || type === "action.start_vapi_call" ||
+        type === "trigger.vapi_tool_call" || combined.includes("vapi")) {
+      integrations.vapi = true;
+    }
+
+    // Phone / Twilio (call routing/forwarding/voice triggers only - exclude SMS)
+    const isVoiceTrigger = type === "trigger.phone_call" || type === "trigger.twilio_missed_call";
+    const isTwilioVoice = combined.includes("phone_provider") || 
+      (combined.includes("twilio") && !combined.includes("sms"));
+    if (isVoiceTrigger || isTwilioVoice) {
+      integrations.phone = true;
+      integrations.twilio = true;
+    }
+
+    // SMS
+    if (type === "trigger.twilio_inbound_sms" || type === "action.send_sms" ||
+        type === "communication.send_sms" || combined.includes("sms")) {
+      integrations.sms = true;
+    }
+
+    // Google Calendar
+    if (type === "calendar.availability" || type === "calendar.book_appointment" ||
+        type === "action.google_calendar_availability" ||
+        type === "action.google_calendar_create_appointment" ||
+        combined.includes("google_calendar") || combined.includes("calendar")) {
+      integrations.calendar = true;
+    }
+
+    // Gmail / Email (triven_mail counts as email too)
+    if (type === "integration.gmail_read_emails" || type === "integration.gmail_send_email" ||
+        type === "integration.gmail_create_draft" || type === "trigger.gmail_new_email" ||
+        type === "communication.send_email" || combined.includes("gmail") ||
+        combined.includes("email") || combined.includes("triven_mail")) {
+      integrations.email = true;
+    }
+
+    // CRM
+    if (combined.includes("crm")) integrations.crm = true;
+
+    // Webhook
+    if (type === "trigger.webhook" || type === "action.http_request") {
+      integrations.webhook = true;
+    }
+  }
+
+  return integrations;
+}
+
+/**
+ * Generate a contextual success message for the deployment confirmation screen,
+ * based on the active trigger kind of the deployed workflow.
+ */
+export function getAgentSuccessMessage(triggerKind: WorkflowTriggerKind): {
+  headline: string;
+  body: string;
+  capabilities: string[];
+} {
+  switch (triggerKind) {
+    case "missed_call":
+      return {
+        headline: "Your missed-call agent is live 🎉",
+        body: "Every missed call now gets an instant AI text-back, keeping leads engaged before they go elsewhere.",
+        capabilities: [
+          "Detect missed calls on your Triven number",
+          "Send a personalised text within 30 seconds",
+          "Capture leads and book appointments automatically"
+        ]
+      };
+    case "inbound_sms":
+      return {
+        headline: "Your SMS agent is live 🎉",
+        body: "Your AI will now respond to every inbound text instantly, 24/7, without you lifting a finger.",
+        capabilities: [
+          "Reply to incoming SMS messages instantly",
+          "Answer FAQs and capture lead details",
+          "Escalate complex requests to your team"
+        ]
+      };
+    case "voice":
+      return {
+        headline: "Your AI receptionist is live 🎉",
+        body: "Your AI now answers every call, checks availability, books appointments, and sends follow-ups automatically.",
+        capabilities: [
+          "Answer calls instantly on your Triven number",
+          "Check calendar availability in real time",
+          "Book appointments and send email confirmations"
+        ]
+      };
+    default:
+      return {
+        headline: "Your agent is live 🎉",
+        body: "Your AI workflow is now running automatically. Sit back and let it work.",
+        capabilities: [
+          "Process incoming triggers automatically",
+          "Execute your custom workflow steps",
+          "Capture and sync data to your systems"
+        ]
+      };
+  }
+}
 

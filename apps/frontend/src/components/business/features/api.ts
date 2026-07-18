@@ -179,6 +179,7 @@ export type BusinessSetupData = {
   selectedPlatformPhoneNumberId?: string | null;
   installedAgentId?: string | null;
   vapiAssistantId?: string | null;
+  triggerKind?: any;
 };
 
 export type CallRoutingCheck = {
@@ -204,6 +205,9 @@ export type MarketplaceListing = {
   shortDescription: string;
   requiredConnectors: string[];
   workflowId: string | null;
+  /** The workflow graph — used to derive trigger kind for setup page UX. */
+  workflowJson?: unknown;
+  workflow?: any;
   /** Architect-defined setup fields the buyer fills in during install. */
   requiredBuyerSetup?: BuyerSetupFieldDef[] | null;
   /** Architect's setup notes shown to the buyer above the agent-specific fields. */
