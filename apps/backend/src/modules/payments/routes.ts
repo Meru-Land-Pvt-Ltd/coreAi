@@ -13,7 +13,6 @@ import {
   type PaymentWithListing
 } from "../../lib/billing-invoices";
 import {
-  autoProvisionPhoneNumberForPurchase,
   buildAgentPurchaseLineItems,
   getPhoneNumberFee,
   listingNeedsPhoneNumber,
@@ -1145,10 +1144,10 @@ paymentRoutes.post("/start-trial", async (c) => {
     }
   });
 
-  // Allot the buyer's dedicated number at trial start (agents with a phone
-  // node only). The fee is billed with the agent price after the trial; a
-  // provisioning failure must never break the purchase — setup retries later.
-  let assignedPhoneNumber: string | null = null;
+  // No number is acquired at trial start: the buyer selects and explicitly
+  // purchases their Triven AI number during agent setup (country → state →
+  // city → confirm). This field stays null for API-shape compatibility.
+  const assignedPhoneNumber: string | null = null;
 
   // Send a purchase-confirmation email with the invoice attached. Best-effort:
   // a mail failure must never break the purchase.
@@ -1255,7 +1254,8 @@ paymentRoutes.post("/purchase", async (c) => {
       }
     });
 
-    let assignedPhoneNumber: string | null = null;
+    // No number is acquired at purchase — number selection happens in setup.
+    const assignedPhoneNumber: string | null = null;
 
     try {
       const invoice = await buildInvoiceData(payment, authUser);
@@ -1308,21 +1308,10 @@ paymentRoutes.post("/purchase", async (c) => {
 
   const priorTrialPaymentId = activePayment?.status === "TRIALING" ? activePayment.id : null;
 
-  // Provision first (idempotently) so a dedicated-number fee can be included
-  // in the same authenticated checkout charge.
-  try {
-    await autoProvisionPhoneNumberForPurchase({
-      buyerUserId: authUser.id,
-      businessId,
-      listingId: listing.id
-    });
-  } catch (error) {
-    console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
-      listingId: listing.id,
-      error
-    });
-  }
-
+  // No number is acquired at checkout: the buyer selects and explicitly
+  // purchases their Triven AI number during agent setup (country → state →
+  // city → confirm). If they already provisioned one there, its one-time fee
+  // is billed with this charge below (resolveUnbilledPhoneFee).
   const unbilledPhoneFee = await resolveUnbilledPhoneFee({
     buyerUserId: authUser.id,
     businessId

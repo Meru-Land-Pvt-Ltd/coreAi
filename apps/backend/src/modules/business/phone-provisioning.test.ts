@@ -2,14 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
 import { PhoneNumberServiceError } from "../admin/twilio-number-service";
 import { assignPlatformNumber } from "./phone-assignment";
-import { claimAvailableInventoryNumber, findBuyerPlatformNumber } from "./phone-provisioning";
-
-/**
- * Integration tests against the local dev database — the reserved shared
- * Triven SMS sender must never reach a buyer through any assignment path.
- * Fixtures are unique per run and deleted afterwards; skipped when the DB is
- * unreachable (same convention as the email integration suite).
- */
+import { findBuyerPlatformNumber } from "./phone-provisioning";
 
 const RUN = `phonetest-${process.pid}-${Date.now().toString(36)}`;
 const sharedNumber = `+1777${String(Date.now()).slice(-7)}`;
@@ -73,23 +66,6 @@ afterAll(async () => {
 });
 
 describe("shared SMS sender protection", () => {
-  it("inventory claiming skips the shared sender and buyer voice provisioning still works", async () => {
-    if (!dbAvailable) return;
-
-    const claimed = await claimAvailableInventoryNumber({
-      buyerUserId,
-      businessId,
-      installedAgentId: null
-    });
-
-    expect(claimed?.phoneNumber).not.toBe(sharedNumber);
-    expect(claimed?.isPlatformSmsSender).toBe(false);
-
-    const shared = await prisma.platformPhoneNumber.findUnique({ where: { phoneNumber: sharedNumber } });
-    expect(shared?.status).toBe("AVAILABLE");
-    expect(shared?.businessId).toBeNull();
-  });
-
   it("findBuyerPlatformNumber never returns the shared sender", async () => {
     if (!dbAvailable) return;
 
