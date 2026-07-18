@@ -404,7 +404,6 @@ export default function ArchitectPayoutsPage() {
                 setPayoutDeliveryMethod("instant");
                 setPayoutModalOpen(true);
               }}
-              openingStripe={openingStripe}
             />
           </div>
         </section>
@@ -619,20 +618,18 @@ function PayoutMethodCard({
   payoutMethod,
   instantPayout,
   availableBalanceCents,
-  openingStripe,
+  openingStripe = false,
   onAdd,
   onChange,
-  onInstantPayout,
-  openingStripe = false
+  onInstantPayout
 }: {
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
   instantPayout: ArchitectPayoutSummary["instantPayout"];
   availableBalanceCents: number;
-  openingStripe: boolean;
+  openingStripe?: boolean;
   onAdd: () => void;
   onChange: () => void;
   onInstantPayout: () => void;
-  openingStripe?: boolean;
 }) {
   const instantDisabled = !payoutMethod?.verified || !instantPayout.eligible || availableBalanceCents <= 0;
   const instantTitle = !payoutMethod?.verified
