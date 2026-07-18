@@ -27,6 +27,7 @@ import {
   type InvoiceData
 } from "../../lib/mailer";
 import { getStripeClient, isStripeConfigured } from "./stripe";
+import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-finalize";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
@@ -74,6 +75,11 @@ const purchaseSchema = z.object({
   /// Per-attempt UUID from checkout — Stripe idempotency key so a retried
   /// submit can never double-charge the buyer.
   attemptId: z.string().trim().min(8).max(64).optional()
+});
+
+const confirmPurchaseSchema = z.object({
+  listingId: z.string().trim().min(1),
+  paymentIntentId: z.string().trim().min(1)
 });
 
 const billingPaymentMethodSchema = z.object({
@@ -179,7 +185,8 @@ async function chargeAgentOnce({
   userId,
   amountCents,
   phoneFeeCents,
-  attemptId
+  attemptId,
+  priorTrialPaymentId
 }: {
   stripe: NonNullable<ReturnType<typeof getStripeClient>>;
   customerId: string;
@@ -191,6 +198,7 @@ async function chargeAgentOnce({
   phoneFeeCents?: number;
   /** Checkout attempt UUID — deduplicates retried submits at Stripe. */
   attemptId?: string;
+  priorTrialPaymentId?: string | null;
 }) {
   return stripe.paymentIntents.create(
     {
@@ -198,14 +206,21 @@ async function chargeAgentOnce({
       currency: "usd",
       customer: customerId,
       payment_method: paymentMethodId,
+      payment_method_types: ["card"],
       confirm: true,
-      off_session: true,
+      use_stripe_sdk: true,
+      // Checkout is an on-session payment: the buyer is present and can
+      // complete a bank/3DS challenge. Marking this off-session makes Stripe
+      // reject India-issued cards before authentication can occur.
+      off_session: false,
+      setup_future_usage: "off_session",
       description: `One-time purchase of ${listing.name}`,
       metadata: {
         userId,
         listingId: listing.id,
         chargeType: "agent_purchase",
-        ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
+        ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {}),
+        ...(priorTrialPaymentId ? { priorTrialPaymentId } : {})
       }
     },
     attemptId
@@ -1291,146 +1306,22 @@ paymentRoutes.post("/purchase", async (c) => {
     });
   }
 
-  const previousPayment = await prisma.payment.findFirst({
-    where: {
-      userId: authUser.id,
-      stripeCustomerId: { not: null }
-    },
-    orderBy: { createdAt: "desc" }
-  });
-  const checkoutBusiness = businessId
-    ? await prisma.business.findUnique({
-        where: { id: businessId },
-        select: { stripeCustomerId: true }
-      })
-    : null;
+  const priorTrialPaymentId = activePayment?.status === "TRIALING" ? activePayment.id : null;
 
-  let customerId: string;
-
-  if (checkoutBusiness?.stripeCustomerId) {
-    customerId = checkoutBusiness.stripeCustomerId;
-  } else if (activePayment?.stripeCustomerId) {
-    customerId = activePayment.stripeCustomerId;
-  } else if (previousPayment?.stripeCustomerId) {
-    customerId = previousPayment.stripeCustomerId;
-  } else {
-    const customer = await stripe.customers.create({
-      email: authUser.email,
-      name: authUser.fullName ?? undefined,
-      metadata: {
-        userId: authUser.id
-      }
-    });
-
-    customerId = customer.id;
-  }
-
-  const attachedPaymentMethod = await attachOrReusePaymentMethod(stripe, paymentMethodId, customerId);
-
-  const attachedPaymentMethodId = attachedPaymentMethod.id;
-
-  await stripe.customers.update(customerId, {
-    name: billingName,
-    email: billingEmail,
-    invoice_settings: {
-      default_payment_method: attachedPaymentMethodId
-    }
-  });
-
-  if (activePayment?.status === "TRIALING") {
-    // The number was allotted at trial start; ensure it exists (idempotent)
-    // and bill its fee together with the agent price, as an invoice line —
-    // but only if this number's fee was never billed before.
-
-    const unbilledPhoneFee = await resolveUnbilledPhoneFee({
+  // Provision first (idempotently) so a dedicated-number fee can be included
+  // in the same authenticated checkout charge.
+  try {
+    await autoProvisionPhoneNumberForPurchase({
       buyerUserId: authUser.id,
-      businessId
+      businessId,
+      listingId: listing.id
     });
-    const lineItems = buildAgentPurchaseLineItems({
-      agentLabel: listing.name,
-      agentPriceCents: listing.priceCents,
-      phoneFee: unbilledPhoneFee?.fee ?? null
+  } catch (error) {
+    console.error("[phone-provision] purchase-time provisioning failed (non-fatal)", {
+      listingId: listing.id,
+      error
     });
-    const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
-
-    const intent = await chargeAgentOnce({
-      stripe,
-      customerId,
-      paymentMethodId: attachedPaymentMethodId,
-      listing,
-      userId: authUser.id,
-      amountCents: totalCents,
-      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
-      attemptId
-    });
-    if (intent.status !== "succeeded") {
-      return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
-    }
-
-    if (activePayment.stripeSubscriptionId) {
-      await stripe.subscriptions.cancel(activePayment.stripeSubscriptionId).catch(() => undefined);
-    }
-
-    const payment = await prisma.payment.create({
-      data: {
-        userId: authUser.id,
-        businessId,
-        listingId: listing.id,
-        amountCents: totalCents,
-        currency: "usd",
-        status: "SUCCEEDED",
-        stripeCustomerId: customerId,
-        stripePaymentId: attachedPaymentMethodId,
-        description: `Purchase of ${listing.name}`,
-        lineItemsJson: lineItems as never,
-        ...paymentBillingData(billingDetails)
-      },
-      include: {
-        listing: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
-    });
-
-    await prisma.payment.update({
-      where: { id: activePayment.id },
-      data: { status: "CANCELED" }
-    });
-
-    if (unbilledPhoneFee) {
-      await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
-    }
-
-    try {
-      const invoice = await buildInvoiceData(payment, authUser);
-
-      await sendPaymentSuccessEmail({
-        to: authUser.email,
-        name: invoice.businessName,
-        setupUrl: setupUrlForListing(listing.id),
-        invoice
-      });
-    } catch (error) {
-      console.error("Payment success email failed (non-fatal)", error);
-    }
-
-    return successResponse(
-      c,
-      {
-        payment,
-        subscriptionId: null
-      },
-      "Purchase completed",
-      201
-    );
   }
-
-  // Direct purchase (no trial): allot the number first, then charge the agent
-  // price plus the number fee (only if never billed for this number) in one
-  // payment with an itemized breakdown.
 
   const unbilledPhoneFee = await resolveUnbilledPhoneFee({
     buyerUserId: authUser.id,
@@ -1443,81 +1334,155 @@ paymentRoutes.post("/purchase", async (c) => {
   });
   const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
 
-  const intent = await chargeAgentOnce({
-    stripe,
-    customerId,
-    paymentMethodId: attachedPaymentMethodId,
-    listing,
-    userId: authUser.id,
-    amountCents: totalCents,
-    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
-    attemptId
-  });
-  if (intent.status !== "succeeded") {
-    return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
-  }
-
-  const payment = await prisma.payment.create({
-    data: {
-      userId: authUser.id,
-      businessId,
-      listingId: listing.id,
-      amountCents: totalCents,
-      currency: "usd",
-      status: "SUCCEEDED",
-      stripeCustomerId: customerId,
-      stripePaymentId: attachedPaymentMethodId,
-      description: `Purchase of ${listing.name}`,
-      lineItemsJson: lineItems as never,
-      ...paymentBillingData(billingDetails)
-    },
-    include: {
-      listing: {
-        select: {
-          id: true,
-          name: true
-        }
-      }
-    }
-  });
-
-  // Cancel any stale TRIALING rows for this listing (an expired trial paid
-  // manually lands here) so the hourly trial-conversion job cannot charge the
-  // same buyer a second time.
-  await prisma.payment.updateMany({
-    where: { userId: authUser.id, listingId: listing.id, status: "TRIALING", NOT: { id: payment.id } },
-    data: { status: "CANCELED" }
-  });
-
-  if (unbilledPhoneFee) {
-    await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
-  }
-
+  let intent;
   try {
-    const invoice = await buildInvoiceData(payment, authUser);
+    const customer = await getOrCreateBusinessStripeCustomer(authUser);
+    const attachedPaymentMethod = await attachOrReusePaymentMethod(
+      stripe,
+      paymentMethodId,
+      customer.customerId
+    );
 
-    await sendPaymentSuccessEmail({
-      to: authUser.email,
-      name: invoice.businessName,
-      setupUrl: setupUrlForListing(listing.id),
-      invoice
+    await stripe.customers.update(customer.customerId, {
+      name: billingName,
+      email: billingEmail,
+      invoice_settings: { default_payment_method: attachedPaymentMethod.id }
+    });
+
+    intent = await chargeAgentOnce({
+      stripe,
+      customerId: customer.customerId,
+      paymentMethodId: attachedPaymentMethod.id,
+      listing,
+      userId: authUser.id,
+      amountCents: totalCents,
+      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
+      attemptId,
+      priorTrialPaymentId
     });
   } catch (error) {
-    console.error("Payment success email failed (non-fatal)", error);
+    const failure = describeStripeError(error);
+    if (failure) {
+      return errorResponse(c, failure.message, failure.status, failure.code);
+    }
+    console.error("[payments] purchase failed with unexpected error", error);
+    return errorResponse(c, "We couldn't process the payment. Please try again.", 500, "PAYMENT_FAILED");
   }
 
-  // Direct purchase (no prior trial) — notify the architect of the new sale.
-  await notifyArchitectOfNewSale({ listingId: listing.id, agentPriceCents: listing.priceCents });
+  // India-issued cards and other SCA cards can now return an authentication
+  // action to the browser instead of failing as an off-session transaction.
+  if (intent.status === "requires_action" && intent.client_secret) {
+    return successResponse(c, {
+      requiresAction: true,
+      paymentIntentId: intent.id,
+      clientSecret: intent.client_secret
+    }, "Card authentication required");
+  }
 
-  return successResponse(
-    c,
-    {
-      payment,
-      subscriptionId: null
-    },
-    "Purchase completed",
-    201
-  );
+  if (intent.status !== "succeeded") {
+    return errorResponse(
+      c,
+      intent.last_payment_error?.message ??
+        "The payment could not be completed. Please try again or use a different card.",
+      402,
+      "PAYMENT_INCOMPLETE"
+    );
+  }
+
+  const { payment } = await finalizePaidAgentPurchase({
+    authUser: { id: authUser.id, email: authUser.email, fullName: authUser.fullName ?? null },
+    listing,
+    businessId,
+    customerId: typeof intent.customer === "string" ? intent.customer : intent.customer?.id ?? null,
+    paymentMethodId:
+      typeof intent.payment_method === "string"
+        ? intent.payment_method
+        : intent.payment_method?.id ?? null,
+    paymentIntentId: intent.id,
+    amountCents: intent.amount,
+    billing: billingDetails,
+    priorTrialPaymentId,
+    notifyArchitect: !priorTrialPaymentId
+  });
+
+  return successResponse(c, { payment, subscriptionId: null }, "Purchase completed", 201);
+});
+
+// Finalize an on-session purchase after Stripe.js completes bank/3DS
+// authentication. Metadata ownership checks prevent confirming another
+// buyer's PaymentIntent by guessing its id.
+paymentRoutes.post("/purchase/confirm", async (c) => {
+  const stripe = getStripeClient();
+  if (!stripe || !isStripeConfigured()) {
+    return errorResponse(c, "Payments are temporarily unavailable.", 503, "STRIPE_NOT_CONFIGURED");
+  }
+
+  const parsed = confirmPurchaseSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, "Invalid payment confirmation payload", 422, "VALIDATION_ERROR");
+  }
+
+  const authUser = c.get("authUser");
+  let intent;
+  try {
+    intent = await stripe.paymentIntents.retrieve(parsed.data.paymentIntentId);
+  } catch (error) {
+    const failure = describeStripeError(error);
+    if (failure) return errorResponse(c, failure.message, failure.status, failure.code);
+    console.error("[payments] purchase confirmation failed", error);
+    return errorResponse(c, "We couldn't confirm the payment. Please try again.", 500, "PAYMENT_FAILED");
+  }
+
+  const metadata = intent.metadata ?? {};
+  if (
+    metadata.chargeType !== "agent_purchase" ||
+    metadata.userId !== authUser.id ||
+    metadata.listingId !== parsed.data.listingId
+  ) {
+    return errorResponse(c, "Payment not found", 404, "PAYMENT_NOT_FOUND");
+  }
+
+  if (intent.status === "requires_action" || intent.status === "requires_confirmation") {
+    return errorResponse(c, "Card authentication was not completed.", 402, "AUTHENTICATION_INCOMPLETE");
+  }
+  if (intent.status !== "succeeded") {
+    return errorResponse(
+      c,
+      intent.last_payment_error?.message ?? "The payment was not completed. Please try another card.",
+      402,
+      "PAYMENT_INCOMPLETE"
+    );
+  }
+
+  const listing = await prisma.agentListing.findUnique({
+    where: { id: parsed.data.listingId },
+    select: { id: true, name: true, priceCents: true }
+  });
+  if (!listing) return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+
+  const { payment } = await finalizePaidAgentPurchase({
+    authUser: { id: authUser.id, email: authUser.email, fullName: authUser.fullName ?? null },
+    listing,
+    businessId: business?.id ?? null,
+    customerId: typeof intent.customer === "string" ? intent.customer : intent.customer?.id ?? null,
+    paymentMethodId:
+      typeof intent.payment_method === "string"
+        ? intent.payment_method
+        : intent.payment_method?.id ?? null,
+    paymentIntentId: intent.id,
+    amountCents: intent.amount,
+    billing: null,
+    priorTrialPaymentId: metadata.priorTrialPaymentId || null,
+    notifyArchitect: !metadata.priorTrialPaymentId
+  });
+
+  return successResponse(c, { payment, subscriptionId: null }, "Purchase completed", 201);
 });
 
 paymentRoutes.post("/cancel-agent/:listingId", async (c) => {
