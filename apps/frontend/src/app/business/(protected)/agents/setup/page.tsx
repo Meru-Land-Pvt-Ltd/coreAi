@@ -751,7 +751,7 @@ function SetupWizard() {
         setForwardToPhone(existingPhoneNumber); // Keep forwarding to the verified number
         setStatusMsg(
           res.data.numberSelectionRequired
-            ? "Number verified! Now choose where your CORE number should be located."
+            ? "Number verified! Now choose where your Triven number should be located."
             : "Number verified successfully!"
         );
       } else {
@@ -1674,7 +1674,7 @@ function SetupWizard() {
               onNumberProvisioned={(phoneNumber) => {
                 setAssignedNumber(phoneNumber);
                 setNumberSelectionRequired(false);
-                setStatusMsg("Your CORE number is ready!");
+                setStatusMsg("Your Triven number is ready!");
               }}
             />
           ) : null}
@@ -2050,7 +2050,7 @@ function StepBusiness({
               type="text"
               value={contactName}
               onChange={(e) => onContactName(e.target.value)}
-              placeholder="Dr. Khushi Kumari"
+              placeholder="Dr. Jhon Doe"
               className={FIELD}
             />
           </div>
@@ -2937,14 +2937,14 @@ function StepConnect({
           {/* Divider */}
           <div className="-mx-6 border-t border-slate-200/80 my-5" />
 
-          {/* Row 2: CORE number — ready, or location-based selection */}
+          {/* Row 2: Triven number — ready, or location-based selection */}
           {assignedNumber ? (
             <div className="flex items-start gap-3.5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
               </svg>
               <div>
-                <p className="text-sm font-semibold text-slate-500">Your CORE number is ready:</p>
+                <p className="text-sm font-semibold text-slate-500">Your Triven number is ready:</p>
                 <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
               </div>
             </div>
@@ -2978,7 +2978,7 @@ function StepConnect({
                     <span className="flex-1">
                       <span className="block text-sm font-bold text-slate-900">Forward my existing number</span>
                       <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                        Keep giving out {existingPhoneNumber}. Forward it to {assignedNumber || "your CORE number"} so calls reach your agent.
+                        Keep giving out {existingPhoneNumber}. Forward it to {assignedNumber || "your Triven number"} so calls reach your agent.
                       </span>
                     </span>
                   </button>
@@ -2997,9 +2997,9 @@ function StepConnect({
                       {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                     </span>
                     <span className="flex-1">
-                      <span className="block text-sm font-bold text-slate-900">Use the CORE number directly</span>
+                      <span className="block text-sm font-bold text-slate-900">Use the Triven number directly</span>
                       <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                        Give {assignedNumber || "your CORE number"} to customers as your main line. Calls go straight to your agent.
+                        Give {assignedNumber || "your Triven number"} to customers as your main line. Calls go straight to your agent.
                       </span>
                     </span>
                   </button>
@@ -3007,7 +3007,7 @@ function StepConnect({
               ) : (
                 /* Missed-call workflow: always uses forwarding, no mode selector needed */
                 <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-sm text-slate-600">
-                  <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your CORE number and the AI handles the rest.
+                  <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your Triven number and the AI handles the rest.
                 </div>
               )}
             </div>
@@ -4601,7 +4601,7 @@ function StepGoLive({
   );
 }
 /* ------------------------------------------------------------------ */
-/* Location-based CORE number selection (country → state → city →      */
+/* Location-based Triven number selection (country → state → city →      */
 /* search → choose → confirm → provisioning progress)                  */
 /* ------------------------------------------------------------------ */
 
@@ -4713,7 +4713,7 @@ function PhoneNumberSelectionSection({
         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
       </svg>
       <div className="w-full">
-        <p className="text-sm font-semibold text-slate-800">Choose where your CORE number should be located</p>
+        <p className="text-sm font-semibold text-slate-800">Choose where your Triven number should be located</p>
         <p className="mt-1 text-xs text-slate-500">
           {catalogueNote || "Number availability depends on Twilio inventory and local regulatory requirements."}
         </p>

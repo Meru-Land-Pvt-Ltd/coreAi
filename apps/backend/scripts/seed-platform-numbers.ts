@@ -1,5 +1,5 @@
 /**
- * Seed pre-provisioned CoreAI/Twilio phone numbers into PlatformPhoneNumber so
+ * Seed pre-provisioned Triven/Twilio phone numbers into PlatformPhoneNumber so
  * the buyer setup flow has numbers to assign.
  *
  * Usage:

@@ -1,4 +1,4 @@
-# CoreAI / Triven.ai — Production Deployment Runbook
+# Triven.ai — Production Deployment Runbook
 
 Last updated: 2026-07-03
 

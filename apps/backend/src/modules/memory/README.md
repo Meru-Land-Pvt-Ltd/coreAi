@@ -1,8 +1,8 @@
 # Brain Memory
 
-Brain Memory is CoreAI's durable workflow memory layer. When a workflow runs, every node can **remember what earlier nodes did** — not just the single step right before it.
+Brain Memory is Triven's durable workflow memory layer. When a workflow runs, every node can **remember what earlier nodes did** — not just the single step right before it.
 
-Most workflow tools (n8n, Zapier, Make) pass only the **last node's output** forward. CoreAI stores the full execution history and lets any later node **back-link** to earlier steps. That is what powers the AI Brain node.
+Most workflow tools (n8n, Zapier, Make) pass only the **last node's output** forward. Triven stores the full execution history and lets any later node **back-link** to earlier steps. That is what powers the AI Brain node.
 
 ---
 
@@ -350,4 +350,4 @@ Step 4  Manus reviews (back-links to 1+2) → buildContextBundle()
 
 Without Brain Memory, step 4 only sees step 3. With Brain Memory, step 4 sees the full story.
 
-That is the CoreAI differentiator.
+That is the Triven differentiator.

@@ -53,8 +53,8 @@ export type NodeDefinition = {
   producedVariables?: string[];
 };
 
-/** The CoreAI connector groups platform actions executed directly by the runner. */
-export const CORE_CONNECTOR = "CoreAI";
+/** The Triven connector groups platform actions executed directly by the runner. */
+export const CORE_CONNECTOR = "Triven";
 
 export const CORE_CONNECTOR_ACTIONS = {
   saveLead: "save_lead",
@@ -750,7 +750,7 @@ const REQ = {
     connector: "vapi",
     label: "Vapi voice",
     ownedBy: "platform",
-    note: "Runs on the CoreAI Vapi platform — no buyer credential needed for MVP."
+    note: "Runs on the Triven Vapi platform — no buyer credential needed for MVP."
   },
   elevenlabs: {
     connector: "elevenlabs",
@@ -848,7 +848,7 @@ export function comingSoonNodes(): NodeDefinition[] {
   return NODE_DEFINITIONS.filter((node) => node.comingSoon);
 }
 
-/** True when (connector, connectorAction) is a CoreAI platform action. */
+/** True when (connector, connectorAction) is a Triven platform action. */
 export function isCoreConnectorAction(value: string): value is CoreConnectorAction {
   return (Object.values(CORE_CONNECTOR_ACTIONS) as string[]).includes(value);
 }

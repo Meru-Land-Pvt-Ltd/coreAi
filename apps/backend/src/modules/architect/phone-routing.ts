@@ -6,7 +6,7 @@ import { prisma } from "../../lib/prisma";
  * works for any vertical (HVAC, legal, medical, salon, …).
  *
  * Model: reuses existing tables.
- *  - BusinessPhoneNumber.phoneNumber = the assigned CoreAI/Twilio forwarding number
+ *  - BusinessPhoneNumber.phoneNumber = the assigned Triven/Twilio forwarding number
  *    (the unique key the Twilio voice webhook routes by — never the caller number).
  *  - InstalledAgent.configJson.phoneRouting = { publicBusinessNumber, aiForwardingNumber,
  *    mode, isActive, setupStatus, updatedAt } — no schema migration required.
@@ -45,7 +45,7 @@ export function forwardingInstructions(
   publicNumber: string | null,
   aiNumber: string | null
 ): ForwardingInstructions {
-  const target = aiNumber || "your assigned CoreAI number";
+  const target = aiNumber || "your assigned Triven number";
   const from = publicNumber || "your existing business number";
   const note =
     "Carrier forwarding support depends on your phone provider (Airtel/Jio/Vi and others use different settings). For production, use a local telephony provider or number porting where available.";
@@ -100,7 +100,7 @@ function findArchitectBusiness(architectUserId: string) {
   });
 }
 
-/** Assign or reuse a unique CoreAI number for this business (no duplicate mappings). */
+/** Assign or reuse a unique Triven number for this business (no duplicate mappings). */
 async function ensureForwardingNumber(
   business: NonNullable<Awaited<ReturnType<typeof findArchitectBusiness>>>,
   installedAgentId: string
@@ -152,7 +152,7 @@ async function ensureForwardingNumber(
     return phone.phoneNumber;
   }
 
-  throw new Error("No CoreAI phone number available. Seed PlatformPhoneNumber rows or set TWILIO_PHONE_NUMBER.");
+  throw new Error("No Triven phone number available. Seed PlatformPhoneNumber rows or set TWILIO_PHONE_NUMBER.");
 }
 
 export async function getPhoneRoutingStatus(architectUserId: string) {
@@ -288,7 +288,7 @@ export async function testPhoneRouting(input: { called?: unknown; from?: unknown
   const callerNumber = normalizePhone(typeof input.from === "string" ? input.from : "");
 
   if (!called) {
-    return { resolved: false, matchedNumber: null, callerNumber, message: "Provide a 'called' number (the assigned CoreAI number)." };
+    return { resolved: false, matchedNumber: null, callerNumber, message: "Provide a 'called' number (the assigned Triven number)." };
   }
 
   const phone = await prisma.businessPhoneNumber.findUnique({
@@ -301,7 +301,7 @@ export async function testPhoneRouting(input: { called?: unknown; from?: unknown
       resolved: false,
       matchedNumber: null,
       callerNumber,
-      message: `No business is mapped to ${called}. Assign/deploy a CoreAI number first.`
+      message: `No business is mapped to ${called}. Assign/deploy a Triven number first.`
     };
   }
 

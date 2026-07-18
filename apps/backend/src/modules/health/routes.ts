@@ -6,7 +6,7 @@ export const healthRoutes = new Hono();
 healthRoutes.get("/", (c) => {
   return successResponse(c, {
     status: "ok",
-    service: "coreai-backend",
+    service: "triven-backend",
     timestamp: new Date().toISOString()
   });
 });

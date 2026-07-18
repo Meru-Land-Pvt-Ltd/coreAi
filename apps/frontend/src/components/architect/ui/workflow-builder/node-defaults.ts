@@ -142,7 +142,7 @@ export function defaultNodeData(
       };
     }
 
-    if (connector === "CoreAI") {
+    if (connector === "Triven" || connector === "CoreAI") {
       return {
         ...base,
         label: "Save Lead",
@@ -151,7 +151,7 @@ export function defaultNodeData(
         icon: "capture",
         accent: "blue",
         subtitle: "Triven platform action for leads, conversations, handoff, or workflow chaining",
-        connector: "CoreAI",
+        connector: "Triven",
         connectorAction: "save_lead",
         ...overrides
       };

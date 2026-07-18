@@ -50,7 +50,7 @@ export default function NotFoundPage() {
       <nav className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-6">
         <Link data-testid="notfound-core-link"
           href={"/" as Route}
-          aria-label="CORE home"
+          aria-label="Triven home"
           className="flex items-center gap-2.5 rounded-lg px-1 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
         >
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-amber-600">
@@ -70,7 +70,7 @@ export default function NotFoundPage() {
           </span>
 
           <span className="text-[15px] font-bold tracking-tight text-slate-900" data-testid="notfound-core-text">
-            CORE
+            Triven
           </span>
         </Link>
 
@@ -170,8 +170,8 @@ export default function NotFoundPage() {
                 name="q"
                 type="text"
                 autoComplete="off"
-                aria-label="Search CORE"
-                placeholder="Search CORE…"
+                aria-label="Search Triven"
+                placeholder="Search Triven…"
                 className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-12 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
               />
 

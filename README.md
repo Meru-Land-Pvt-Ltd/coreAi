@@ -1,4 +1,4 @@
-# CoreAI Agent Marketplace
+# Triven Agent Marketplace
 
 Monorepo MVP scaffold for an AI Agent Marketplace with:
 

@@ -326,7 +326,7 @@ export function getPhoneProvisioningStatus(clientRequestId: string) {
   return apiGet<PhonePurchaseOutcome>(`/business/phone-numbers/provisioning/${encodeURIComponent(clientRequestId)}`);
 }
 
-/** Available CoreAI/platform phone numbers the buyer can select (Step 2). */
+/** Available Triven/platform phone numbers the buyer can select (Step 2). */
 export function getBusinessPhoneNumbers() {
   return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");
 }

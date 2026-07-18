@@ -12,7 +12,7 @@ const server = serve(
     port: env.PORT
   },
   async (info) => {
-    console.log(`CoreAI backend running on http://localhost:${info.port}`);
+    console.log(`Triven backend running on http://localhost:${info.port}`);
     await initProviderEngine();
     startBillingScheduler();
     startEarningReleaseWorker();

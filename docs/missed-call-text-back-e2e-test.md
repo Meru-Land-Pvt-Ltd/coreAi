@@ -74,7 +74,7 @@ Verify: `PlatformPhoneNumber` rows exist with `status = AVAILABLE`.
 2. Log in as a **Business** user at `${FRONTEND_URL}/business/login` (OTP).
 3. Go to `${FRONTEND_URL}/business/agents/setup` (or Marketplace → "Missed Call Text-Back" → Start free trial).
 4. Fill business name/type, **forwarding phone**, services, FAQs, hours, booking URL, team phone, tone, escalation. Optionally **Connect Google Calendar** and set Vapi IDs.
-5. Submit **Save & activate agent** → success screen shows the assigned CoreAI number.
+5. Submit **Save & activate agent** → success screen shows the assigned Triven number.
 
 Equivalent API call (replace `$TOKEN` with the business JWT from `localStorage["coreai-token"]`):
 

@@ -11,9 +11,9 @@ const verificationCodeExpirationMinutes = Number(
 
 const appUrl = env.FRONTEND_URL.replace(/\/$/, "");
 const brandName = "Triven.ai";
-const privacyLink = process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`;
-const termsLink = process.env.CORE_TERMS_URL ?? `${appUrl}/terms`;
-const contactLink = process.env.CORE_CONTACT_URL ?? `${appUrl}/contact`;
+const privacyLink = process.env.TRIVEN_PRIVACY_URL ?? process.env.CORE_PRIVACY_URL ?? `${appUrl}/privacy`;
+const termsLink = process.env.TRIVEN_TERMS_URL ?? process.env.CORE_TERMS_URL ?? `${appUrl}/terms`;
+const contactLink = process.env.TRIVEN_CONTACT_URL ?? process.env.CORE_CONTACT_URL ?? `${appUrl}/contact`;
 const marketplaceLink = `${appUrl}/business/marketplace`;
 const checkoutLink = `${appUrl}/business/checkout`;
 

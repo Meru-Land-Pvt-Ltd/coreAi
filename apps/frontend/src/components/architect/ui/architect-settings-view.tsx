@@ -173,8 +173,8 @@ export function ArchitectSettingsView() {
                   <Toggle checked={toggles.api} label="API access" onChange={() => setToggles((current) => ({ ...current, api: !current.api }))} />
                 </SettingsRow>
                 <div className="rounded-2xl bg-slate-950 p-4 font-mono text-xs text-slate-300">
-                  <p data-testid="architect-ui-architect-settings-view-core-architect-sk-text">CORE_ARCHITECT_KEY=sk_test_••••••••••••</p>
-                  <p className="mt-2 text-slate-500" data-testid="architect-ui-architect-settings-view-webhook-https-api-core-local-architect-hooks-text">Webhook: https://api.core.local/architect/hooks</p>
+                  <p data-testid="architect-ui-architect-settings-view-core-architect-sk-text">TRIVEN_ARCHITECT_KEY=sk_test_••••••••••••</p>
+                  <p className="mt-2 text-slate-500" data-testid="architect-ui-architect-settings-view-webhook-https-api-core-local-architect-hooks-text">Webhook: https://api.triven.ai/architect/hooks</p>
                 </div>
                 <ArchitectPrimaryButton type="button" onClick={() => save("Developer key rotated")}>Rotate key</ArchitectPrimaryButton>
               </div>

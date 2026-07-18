@@ -21,7 +21,7 @@ const MODE_OPTIONS: { value: string; label: string }[] = [
 /**
  * Generic phone-routing setup (works for any business vertical). Customers keep
  * calling the business's existing number; with forwarding, missed/unanswered/etc.
- * calls go to the assigned CoreAI number and are answered by the AI receptionist.
+ * calls go to the assigned Triven number and are answered by the AI receptionist.
  */
 export function PhoneRoutingModal({
   open,

@@ -155,7 +155,7 @@ export async function createGoogleCalendarAppointment({
       description:
         description ??
         [
-          `Booked by CORE AI Receptionist for ${businessName}.`,
+          `Booked by Triven AI Receptionist for ${businessName}.`,
           `Customer phone: ${customerPhone}`,
           service ? `Service: ${service}` : undefined
         ]

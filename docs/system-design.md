@@ -2,7 +2,7 @@
 
 ## 1) Product Overview
 
-CoreAI is a multi-tenant SaaS marketplace where businesses install ready-made AI agents or hire AI Architects to build custom agents and workflows. The platform includes a native workflow engine (no n8n/Zapier/Make/Pabbly), connector framework, multi-LLM gateway, execution tracking, human approvals, payments, and admin moderation.
+Triven is a multi-tenant SaaS marketplace where businesses install ready-made AI agents or hire AI Architects to build custom agents and workflows. The platform includes a native workflow engine (no n8n/Zapier/Make/Pabbly), connector framework, multi-LLM gateway, execution tracking, human approvals, payments, and admin moderation.
 
 ## 2) Core Roles and Permissions
 
