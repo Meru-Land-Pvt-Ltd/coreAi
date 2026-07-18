@@ -247,7 +247,7 @@ export function ArchitectWorkspace() {
 
       <section className="lg:pl-72">
         <header className="sticky top-0 z-20 border-b border-violet-100 bg-[#f7f3ff]/80 px-5 py-4 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <div className="mx-auto flex w-full max-w-full items-center justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-600" data-testid="architect-ui-architect-workspace-ai-architect-text">
                 AI Architect
@@ -263,7 +263,7 @@ export function ArchitectWorkspace() {
           </div>
         </header>
 
-        <div className="mx-auto max-w-7xl p-5">
+        <div className="mx-auto w-full max-w-full p-5">
           {message ? (
             <div className="mb-5 rounded-3xl border border-violet-100 bg-white px-5 py-4 text-sm font-semibold text-violet-700 shadow-sm">
               {message}

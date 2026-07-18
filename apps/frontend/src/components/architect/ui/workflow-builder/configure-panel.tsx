@@ -749,7 +749,7 @@ export function ConfigurePanel({
   if (loading) {
     return (
       <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
-        <div className="mx-auto max-w-4xl px-6 py-16 text-center">
+        <div className="mx-auto w-full max-w-full px-6 py-16 text-center">
           <p className="text-sm font-semibold text-slate-400" data-testid="configure-loading">
             Loading configuration...
           </p>
@@ -760,7 +760,7 @@ export function ConfigurePanel({
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
-      <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mx-auto w-full max-w-full px-6 py-8">
         {/* Intro + draft controls */}
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>

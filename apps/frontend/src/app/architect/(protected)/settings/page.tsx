@@ -757,7 +757,7 @@ export default function ArchitectSettingsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6" data-testid="architect-settings-loading">
-        <div className="mx-auto max-w-6xl animate-pulse space-y-6">
+        <div className="mx-auto w-full max-w-full animate-pulse space-y-6">
           <div className="h-10 w-64 rounded-xl bg-white" />
           <div className="h-96 rounded-2xl bg-white" />
         </div>
@@ -773,7 +773,7 @@ export default function ArchitectSettingsPage() {
       </header>
 
       <main className="px-5 py-6 lg:px-8 lg:py-8">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 lg:flex-row lg:gap-8">
+        <div className="mx-auto flex w-full max-w-full flex-col gap-6 lg:flex-row lg:gap-8">
           <div className="hidden w-56 shrink-0 lg:block">
             <div role="tablist" aria-label="Settings sections" className="sticky top-24 space-y-1">
               {TABS.map((tab) => (

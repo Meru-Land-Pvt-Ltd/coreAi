@@ -1061,7 +1061,7 @@ export function BusinessSettingsView() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6" data-testid="business-settings-loading">
-        <div className="mx-auto max-w-5xl animate-pulse space-y-6">
+        <div className="mx-auto w-full max-w-full animate-pulse space-y-6">
           <div className="h-10 w-64 rounded-xl bg-white" />
           <div className="h-96 rounded-2xl bg-white" />
         </div>
@@ -1071,7 +1071,7 @@ export function BusinessSettingsView() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-900">
-      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+      <main className="mx-auto w-full max-w-full px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
         <BusinessPageHeader
           eyebrow="Configure"
           title="Settings"

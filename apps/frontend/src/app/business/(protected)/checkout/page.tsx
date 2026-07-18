@@ -161,6 +161,23 @@ function testPaymentMethodForBrand(brand: CardBrand) {
 type PaymentTab = "credit" | "google" | "apple";
 type CardBrand = "visa" | "mastercard" | "amex" | null;
 
+type CardElementFields = {
+    number: { complete: boolean; error: string };
+    expiry: { complete: boolean; error: string };
+    cvc: { complete: boolean; error: string };
+};
+
+const STRIPE_ELEMENT_STYLE = {
+    base: {
+        color: "#0f172a",
+        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+        fontSize: "16px",
+        fontSmoothing: "antialiased",
+        "::placeholder": { color: "#94a3b8" }
+    },
+    invalid: { color: "#dc2626" }
+};
+
 type ConfettiPiece = {
     id: number;
     left: string;
@@ -651,19 +668,6 @@ function formatBillingAddress(addressLine: string, zip: string, countryName: str
     return [addressLine.trim(), zip.trim(), countryName.trim()].filter(Boolean).join(", ");
 }
 
-// Stripe element styling matched to the existing `.field` inputs.
-const STRIPE_ELEMENT_STYLE = {
-    base: {
-        fontSize: "16px",
-        color: "#0f172a",
-        fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
-        "::placeholder": { color: "#9ca3af" }
-    },
-    invalid: { color: "#ef4444" }
-};
-
-type CardElementFieldState = { complete: boolean; error: string };
-
 function unpackSavedBillingAddress(
     savedAddress: string,
     savedPostalCode: string,
@@ -759,22 +763,16 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [usageSummaryReady, setUsageSummaryReady] = useState(!usageMode);
     const [trialError, setTrialError] = useState("");
     const [paymentTab, setPaymentTab] = useState<PaymentTab>("credit");
-
-    const [cardNumber, setCardNumber] = useState("");
-    const [expiry, setExpiry] = useState("");
-    const [cvc, setCvc] = useState("");
-    // Stripe Elements state (stripeMode): completeness + inline errors come
-    // from the elements themselves; the card never touches our own state.
-    const [cardElementFields, setCardElementFields] = useState<{
-        number: CardElementFieldState;
-        expiry: CardElementFieldState;
-        cvc: CardElementFieldState;
-    }>({
+    const [elementBrand, setElementBrand] = useState<CardBrand>(null);
+    const [cardElementFields, setCardElementFields] = useState<CardElementFields>({
         number: { complete: false, error: "" },
         expiry: { complete: false, error: "" },
         cvc: { complete: false, error: "" }
     });
-    const [elementBrand, setElementBrand] = useState<CardBrand>(null);
+
+    const [cardNumber, setCardNumber] = useState("");
+    const [expiry, setExpiry] = useState("");
+    const [cvc, setCvc] = useState("");
     const [primaryCard, setPrimaryCard] = useState<CheckoutBillingResponse["billing"]["paymentMethod"]>(null);
     const [usePrimaryCard, setUsePrimaryCard] = useState(false);
     const [cardName, setCardName] = useState("");
@@ -797,7 +795,6 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [processing, setProcessing] = useState(false);
     const [checkoutError, setCheckoutError] = useState("");
     const [listingAccess, setListingAccess] = useState<ListingAccess | null>(null);
-    const [postpaidRate, setPostpaidRate] = useState<number | null>(null);
     const [confirmation, setConfirmation] = useState(false);
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
 
@@ -1000,7 +997,6 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                 if (response.success && response.data) {
                     setListingAccess(response.data);
                     setBasePrice(response.data.amountCents / 100);
-                    setPostpaidRate(response.data.usagePricing?.perMinuteUsd ?? null);
                 }
             } catch {
                 if (mounted) setListingAccess(null);
@@ -1165,6 +1161,8 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
 
             if (isFree) {
                 paymentMethodId = "free_installation";
+            } else if (usePrimaryCard && primaryCard) {
+                paymentMethodId = primaryCard.id;
             } else if (stripeMode) {
                 if (!stripe || !elements) {
                     failCheckout("Payments are still loading. Please try again in a moment.");
@@ -1215,11 +1213,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
 
             const response = await apiPost<StartTrialResponse | PurchaseResponse>(endpoint, {
                 listingId,
-                paymentMethodId: isFree
-                    ? "free_installation"
-                    : usePrimaryCard && primaryCard
-                        ? primaryCard.id
-                        : testPaymentMethodForBrand(brand),
+                paymentMethodId,
                 billingName: isFree ? "Free Install" : cardName.trim(),
                 billingEmail: email.trim(),
                 billingPostalCode: isFree ? undefined : zip.trim(),
@@ -1755,7 +1749,6 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                         price={basePrice}
                                         isPurchaseMode={isPurchaseMode}
                                         dueTodayAmount={dueTodayAmount}
-                                        postpaidRate={postpaidRate}
                                         isUsageMode={usageMode}
                                         phoneFeeLabel={phoneFee?.label ?? null}
                                         phoneFeeAmount={phoneFeeAmount}
@@ -2049,7 +2042,6 @@ function OrderSummary({
     price,
     isPurchaseMode = false,
     dueTodayAmount = 0,
-    postpaidRate = null,
     isUsageMode = false,
     phoneFeeLabel = null,
     phoneFeeAmount = 0,
@@ -2065,7 +2057,6 @@ function OrderSummary({
     price: number;
     isPurchaseMode?: boolean;
     dueTodayAmount?: number;
-    postpaidRate?: number | null;
     isUsageMode?: boolean;
     phoneFeeLabel?: string | null;
     phoneFeeAmount?: number;
@@ -2122,18 +2113,9 @@ function OrderSummary({
                 <div className="px-6 py-5">
                     <div className="space-y-3">
                         <PriceRow
-                            label={isUsageMode ? "Usage amount" : pricingModel === "FREE" ? "Free" : pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
+                            label={isUsageMode ? "Post-paid execution fees" : pricingModel === "FREE" ? "Free" : pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
                             value={pricingModel === "FREE" ? "Free" : `$${priceLabel}${pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
                         />
-                        {pricingModel === "FREE" && (
-                            <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Pay only for usage</p>
-                        )}
-                        {pricingModel === "ONE_TIME" && (
-                            <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Usage charges apply separately</p>
-                        )}
-                        {pricingModel === "SUBSCRIPTION" && (
-                            <p className="text-[11px] text-slate-400 italic leading-none -mt-1">Usage charges billed separately</p>
-                        )}
                         {phoneFeeAmount > 0 ? (
                             <PriceRow
                                 label={phoneFeeLabel ?? "AI Receptionist No."}
@@ -2143,13 +2125,6 @@ function OrderSummary({
                         {isPurchaseMode || pricingModel === "FREE" ? null : (
                             <PriceRow label={`${trialDays}-day free trial`} value={`−$${trialDiscountLabel}`} green />
                         )}
-                        {!isUsageMode ? (
-                            <PriceRow
-                                label="Post-paid execution fees"
-                                value={postpaidRate === null ? "Pay as you go" : `$${postpaidRate.toFixed(2)}`}
-                                muted
-                            />
-                        ) : null}
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
@@ -2181,11 +2156,11 @@ function OrderSummary({
                             ? "This invoice covers usage already consumed. Payment is due immediately."
                             : isPurchaseMode
                                 ? pricingModel === "ONE_TIME"
-                                    ? "This is a one-time purchase. No future agent fees; usage charges apply separately."
-                                    : "Your subscription begins today. Billed monthly on this date. Usage charges billed separately."
+                                    ? "This is a one-time purchase. No future agent fees."
+                                    : "Your subscription begins today. Billed monthly on this date."
                                 : pricingModel === "ONE_TIME"
-                                    ? `Your ${trialDays}-day free trial starts now. You won't be charged the one-time purchase fee until ${trialDate}. Usage charges apply separately.`
-                                    : `Your ${trialDays}-day free trial starts now. You won't be charged the subscription fee until ${trialDate}. Usage charges billed separately.`}
+                                    ? `Your ${trialDays}-day free trial starts now. You won't be charged the one-time purchase fee until ${trialDate}.`
+                                    : `Your ${trialDays}-day free trial starts now. You won't be charged the subscription fee until ${trialDate}.`}
                     </p>
                 </div>
 

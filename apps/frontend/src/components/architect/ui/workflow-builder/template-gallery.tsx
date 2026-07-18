@@ -47,7 +47,7 @@ export function TemplateGallery({
       className="scroll-thin absolute inset-0 z-10 overflow-y-auto bg-white/95 px-5 py-6 backdrop-blur"
       data-testid="template-gallery"
     >
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto w-full max-w-full">
         <div className="mb-1 flex items-center gap-2">
           <h2 className="text-lg font-black text-slate-900" data-testid="template-gallery-title">Template Gallery</h2>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">

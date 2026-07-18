@@ -291,6 +291,7 @@ export type ArchitectPayoutSummary = {
   architectSharePercent: number;
   sales: ArchitectPayoutSale[];
   listingBreakdown: ArchitectListingEarnings[];
+  payoutSchedule: ArchitectPayoutSchedule;
   chart: {
     period: string;
     points: Array<{

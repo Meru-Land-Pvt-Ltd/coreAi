@@ -772,8 +772,15 @@ paymentRoutes.get("/my-agents", async (c) => {
       }
     }
 
-    const isTrial = listingPayments.some(
-      (p) => p.status === "TRIALING" || p.description?.toLowerCase().includes("trial")
+    // A historical trial must not keep a converted/paid purchase in trial
+    // mode. The status selected above is the current source of truth; only
+    // retain the historical marker for failed/canceled trial acquisitions.
+    const isTrial = statusToUse === PaymentStatus.TRIALING || (
+      statusToUse !== PaymentStatus.SUCCEEDED &&
+      listingPayments.some((payment) =>
+        payment.status === PaymentStatus.TRIALING ||
+        payment.description?.toLowerCase().includes("trial")
+      )
     );
 
     const stats = installedAgent

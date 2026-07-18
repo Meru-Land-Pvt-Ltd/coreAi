@@ -229,7 +229,7 @@ export default function ArchitectPayoutsPage() {
   if (loading && !summary) {
     return (
       <div className="min-h-screen bg-gray-50 p-6" data-testid="architect-payouts-loading">
-        <div className="mx-auto max-w-6xl animate-pulse space-y-6">
+        <div className="mx-auto w-full max-w-full animate-pulse space-y-6">
           <div className="h-10 w-64 rounded-xl bg-white" />
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, index) => (
@@ -241,7 +241,7 @@ export default function ArchitectPayoutsPage() {
     );
   }
 
-  const data = summary ?? {
+  const data: ArchitectPayoutSummary = summary ?? {
     totalEarningsCents: 0,
     availableBalanceCents: 0,
     pendingCents: 0,
@@ -253,6 +253,13 @@ export default function ArchitectPayoutsPage() {
     architectSharePercent: 70,
     sales: [],
     listingBreakdown: [],
+    payoutSchedule: {
+      frequency: "Monthly",
+      monthlyDay: "1",
+      weeklyDay: "Monday",
+      firstPayoutDate: null,
+      thresholdCents: 5000
+    },
     chart: { period: "12M", points: [] },
     nextPayout: {
       amountCents: 0,
@@ -277,7 +284,7 @@ export default function ArchitectPayoutsPage() {
         </h1>
       </header>
 
-      <main className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-full space-y-8 px-4 py-8 sm:px-6 lg:px-8">
         {summaryError ? (
           <div
             className="flex flex-col justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 sm:flex-row sm:items-center"
@@ -384,6 +391,7 @@ export default function ArchitectPayoutsPage() {
               payoutMethod={data.payoutMethod}
               instantPayout={data.instantPayout}
               availableBalanceCents={data.availableBalanceCents}
+              openingStripe={openingStripe}
               onAdd={() => setMethodModalOpen(true)}
               onChange={() => {
                 if (data.payoutMethod?.stripeConnected && !data.payoutMethod.verified) {
@@ -611,6 +619,7 @@ function PayoutMethodCard({
   payoutMethod,
   instantPayout,
   availableBalanceCents,
+  openingStripe,
   onAdd,
   onChange,
   onInstantPayout,
@@ -619,6 +628,7 @@ function PayoutMethodCard({
   payoutMethod: ArchitectPayoutSummary["payoutMethod"];
   instantPayout: ArchitectPayoutSummary["instantPayout"];
   availableBalanceCents: number;
+  openingStripe: boolean;
   onAdd: () => void;
   onChange: () => void;
   onInstantPayout: () => void;
