@@ -503,7 +503,7 @@ function SettingsSection({
         <ChevronIcon open={mobileOpen} />
       </button>
       <div
-        className={`${mobileOpen ? "block" : "hidden"} p-5 sm:p-6 lg:block lg:p-8`}
+        className={`${mobileOpen ? "block" : "hidden"} p-4 sm:p-5 lg:block lg:p-5`}
         role="tabpanel"
         tabIndex={0}
       >
@@ -1070,8 +1070,8 @@ export function BusinessSettingsView() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-900">
-      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+    <div className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-900">
+      <main className="mx-auto max-w-5xl overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5 lg:py-5">
         <BusinessPageHeader
           eyebrow="Configure"
           title="Settings"

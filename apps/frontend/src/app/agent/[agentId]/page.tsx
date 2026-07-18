@@ -674,7 +674,7 @@ export default function PublicAgentDetailsPage() {
 
           <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-5 lg:items-start">
             {/* Left: Agent Info + CTA */}
-            <div className="order-2 lg:order-1 lg:col-span-3">
+            <div className="order-1 lg:order-1 lg:col-span-3">
               {/* Agent Icon */}
               <div className="relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-amber-500 shadow-glow">
                 {iconUrl ? (
@@ -823,7 +823,7 @@ export default function PublicAgentDetailsPage() {
             </div>
 
             {/* Right: Agent Preview */}
-            <div id="demo" className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
+            <div id="demo" className="order-2 scroll-mt-24 lg:order-2 lg:col-span-2">
               <AgentWorkflowPreview listing={listing} />
             </div>
           </div>

@@ -842,6 +842,7 @@ paymentRoutes.get("/my-agents", async (c) => {
         industryTags: listing.industryTags,
         requiredConnectors: listing.requiredConnectors,
         supportedLlms: listing.supportedLlms,
+        iconUrl: listing.iconUrl,
         workflowId: listing.workflowId,
         createdAt: listing.createdAt,
         workflow: listing.workflow,
