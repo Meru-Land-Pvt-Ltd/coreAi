@@ -716,24 +716,21 @@ const REQ = {
   },
   gmailRead: {
     connector: "gmail",
-    label: "Gmail",
+    label: "Google account",
     ownedBy: "buyer",
-    scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
-    note: "Requires the buyer to connect their Gmail (read)."
+    note: "Legacy Gmail node — no longer supported. Google connect grants calendar access only."
   },
   gmailSend: {
     connector: "gmail",
-    label: "Gmail",
+    label: "Google account",
     ownedBy: "buyer",
-    scopes: ["https://www.googleapis.com/auth/gmail.send"],
-    note: "Requires the buyer to connect their Gmail (send)."
+    note: "Legacy Gmail node — no longer supported. Use the platform Send Email node instead."
   },
   gmailCompose: {
     connector: "gmail",
-    label: "Gmail",
+    label: "Google account",
     ownedBy: "buyer",
-    scopes: ["https://www.googleapis.com/auth/gmail.compose"],
-    note: "Requires the buyer to connect their Gmail (compose drafts)."
+    note: "Legacy Gmail node — no longer supported. Use the platform Send Email node instead."
   },
   twilioSms: {
     connector: "twilio",

@@ -1364,10 +1364,10 @@ function SetupWizard() {
       ? [
         {
           key: "gmail",
-          label: "Gmail",
+          label: "Google account",
           required: true,
           complete: calendar.connected,
-          blocker: calendar.connected ? undefined : "Gmail connection is required before sending email."
+          blocker: calendar.connected ? undefined : "Connect Google (calendar access) before going live."
         }
       ]
       : []),

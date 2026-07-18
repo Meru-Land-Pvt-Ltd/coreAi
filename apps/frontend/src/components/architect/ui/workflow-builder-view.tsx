@@ -960,12 +960,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     if (hasGmailFlow && !gmailConnected) {
       setActiveTab("test");
-      setMessage("Connect Gmail before running this agent");
+      setMessage("Connect Google before running this agent");
       return;
     }
 
     setRunning(true);
-    setMessage(hasGmailFlow ? "Running Gmail workflow..." : "Running dry test...");
+    setMessage("Running dry test...");
     setRunLogs([]);
     setRunContext({});
 
@@ -976,8 +976,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
-    // For manual trigger workflows, auto-inject a dummy message when the user
-    // hasn't typed anything, so downstream AI nodes have non-empty context.
     const effectiveTriggerMessage =
       triggerMessage.trim() ||
       (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
@@ -1015,20 +1013,18 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
 
     if (!result.success || !result.data) {
-      setMessage(result.error ?? (hasGmailFlow ? "Could not run Gmail workflow" : "Could not run test"));
+      setMessage(result.error ?? "Could not run test");
       setRunning(false);
       return;
     }
 
     setRunLogs(result.data.run.logs);
     setRunContext(result.data.run.context);
-    setMessage(hasGmailFlow ? "Gmail run complete" : "Dry run complete");
+    setMessage("Dry run complete");
     setActiveTab("test");
     setRunning(false);
   }
 
-  // Preview content mirrors the actual architecture: assistant name and
-  // greeting from the voice node, sample turns matched to real capabilities.
   const nodeTypeOf = (node: BuilderNode): string => {
     const data = node.data as Record<string, unknown>;
     return String(data.type ?? data.kind ?? "");

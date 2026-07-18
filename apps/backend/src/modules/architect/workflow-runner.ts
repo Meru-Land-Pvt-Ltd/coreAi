@@ -16,11 +16,6 @@ import { enqueueEmail } from "../email/email-queue";
 import { isValidEmailAddress, TEAM_RECIPIENT } from "../email/ses-mail-service";
 import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import {
-  createGmailDraft,
-  readGmailEmail,
-  sendGmailEmail
-} from "./gmail-connector";
-import {
   createGoogleCalendarAppointment,
   getDefaultAppointmentWindow,
   listAvailableSlots
@@ -1146,9 +1141,7 @@ async function runGoogleCalendarConnectorNode({
 }
 
 async function runGmailConnectorNode({
-  userId,
   node,
-  context,
   logs
 }: {
   userId: string;
@@ -1158,81 +1151,13 @@ async function runGmailConnectorNode({
 }) {
   const action = asString(node.data?.connectorAction, "read_emails");
 
-  if (action === "read_emails") {
-    const query = asString(node.data?.gmailQuery, "newer_than:7d");
-    const email = await readGmailEmail({
-      userId,
-      query
-    });
-
-    if (!email) {
-      logs.push(createLog(node, "error", `No Gmail emails found for query: ${query}`));
-      return;
-    }
-
-    context.gmail = {
-      emails: [email],
-      senderEmail: email.senderEmail,
-      subject: email.subject,
-      body: email.body
-    };
-
-    logs.push(
-      createLog(node, "success", `Read Gmail email using query: ${query}`, {
-        email
-      })
-    );
-
-    return;
-  }
-
-  if (action === "send_email") {
-    const to = renderTemplate(node.data?.gmailTo, context);
-    const subject = renderTemplate(node.data?.gmailSubject, context);
-    const body = renderTemplate(node.data?.gmailBody, context);
-
-    if (!to || !subject || !body) {
-      logs.push(createLog(node, "error", "Gmail send failed because To, Subject, or Body is empty."));
-      return;
-    }
-
-    const sentEmail = await sendGmailEmail({
-      userId,
-      to,
-      subject,
-      body
-    });
-
-    context.sentEmail = sentEmail;
-
-    logs.push(createLog(node, "success", "Gmail email sent successfully.", sentEmail));
-    return;
-  }
-
-  if (action === "draft_reply") {
-    const to = renderTemplate(node.data?.gmailTo, context);
-    const subject = renderTemplate(node.data?.gmailSubject, context);
-    const body = renderTemplate(node.data?.gmailBody, context);
-
-    if (!to || !subject || !body) {
-      logs.push(createLog(node, "error", "Gmail draft failed because To, Subject, or Body is empty."));
-      return;
-    }
-
-    const draftEmail = await createGmailDraft({
-      userId,
-      to,
-      subject,
-      body
-    });
-
-    context.draftEmail = draftEmail;
-
-    logs.push(createLog(node, "success", "Gmail draft created successfully.", draftEmail));
-    return;
-  }
-
-  logs.push(createLog(node, "error", `Unsupported Gmail action: ${action}`));
+  logs.push(
+    createLog(
+      node,
+      "error",
+      `Gmail action "${action}" is no longer supported — Google connection only grants calendar access. Use the Send Email node instead.`
+    )
+  );
 }
 
 function customerPhoneFromContext(context: RunnerContext) {

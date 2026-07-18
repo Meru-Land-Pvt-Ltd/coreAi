@@ -185,7 +185,7 @@ export function TestPanel({
             ) : null}
             {hasGmailFlow ? (
               <p className="mt-2 text-xs font-medium text-blue-600" data-testid="architect-ui-workflow-builder-test-panel-gmail-connected-gmail-connected-gmail-email-gmail-text">
-                {gmailConnected ? `Gmail connected: ${gmailEmail ?? "Gmail"}` : "Connect Gmail before a live Gmail run."}
+                {gmailConnected ? `Google connected: ${gmailEmail ?? "Google"}` : "Connect Google (calendar access) before a live run."}
               </p>
             ) : null}
           </div>
@@ -198,7 +198,7 @@ export function TestPanel({
                 data-testid="test-connect-gmail"
                 className="rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:opacity-60"
               >
-                {connectingGmail ? "Connecting..." : "Connect Gmail"}
+                {connectingGmail ? "Connecting..." : "Connect Google"}
               </button>
             ) : null}
             <button
@@ -465,7 +465,7 @@ export function TestPanel({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {needsGoogleConnection ? (
                 <div className="rounded-xl border border-gray-100 bg-gray-50 p-4" data-testid="builder-test-google-card">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Gmail / Google account</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Google account (Calendar)</p>
                   <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="builder-test-google-status">
                     {gmailConnected ? `Google connected: ${gmailEmail ?? "connected"}` : "Not connected"}
                   </p>
