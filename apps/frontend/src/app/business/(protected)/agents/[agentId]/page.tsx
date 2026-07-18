@@ -823,15 +823,7 @@ export default function BusinessAgentDetailPage() {
               </button>
 
               <div className={`overflow-hidden px-6 transition-all duration-300 ${techOpen ? "max-h-[600px]" : "max-h-0"}`}>
-                <dl className="grid gap-x-8 gap-y-5 border-t border-gray-100 py-6 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Connectors used</dt>
-                    <dd className="mt-1 text-slate-700">
-                      {(listing.requiredConnectors ?? []).length
-                        ? listing.requiredConnectors?.join(", ")
-                        : "Configured during setup"}
-                    </dd>
-                  </div>
+                <dl className="grid gap-x-8 gap-y-5 border-t border-gray-100 py-6 sm:grid-cols-3">
                   <div>
                     <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Supported LLMs</dt>
                     <dd className="mt-1 text-slate-700">

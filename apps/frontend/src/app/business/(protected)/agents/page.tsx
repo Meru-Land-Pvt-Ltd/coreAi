@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Dot } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
 import { getAuthToken, getAuthUser } from "@/lib/auth";
@@ -110,14 +109,17 @@ function isAgentPaused(agent: OwnedAgent) {
 // Trial runs from the purchase date. Day of purchase = trialDays left,
 // counting down to 0 when the trial has fully elapsed.
 function getTrialInfo(purchasedAt: string, status: string, isTrialProp?: boolean, trialDaysLimit?: number | null) {
-    const isTrial = isTrialProp ?? status.toUpperCase() === "TRIALING";
+    const normalizedStatus = status.toUpperCase();
+    // A completed payment is authoritative even if an older API response or
+    // historical trial record still carries isTrial=true.
+    const isTrial = normalizedStatus !== "SUCCEEDED" && (normalizedStatus === "TRIALING" || isTrialProp === true);
     const trialDays = (trialDaysLimit && trialDaysLimit > 0) ? trialDaysLimit : TRIAL_DAYS;
     const start = new Date(purchasedAt).getTime();
     const elapsedDays = Number.isFinite(start)
         ? Math.floor((Date.now() - start) / (1000 * 60 * 60 * 24))
         : 0;
     const daysLeft = Math.max(0, trialDays - elapsedDays);
-    const trialEnded = isTrial && (status.toUpperCase() === "FAILED" || status.toUpperCase() === "CANCELED" || daysLeft <= 0);
+    const trialEnded = isTrial && (normalizedStatus === "FAILED" || normalizedStatus === "CANCELED" || daysLeft <= 0);
     return { isTrial, daysLeft, trialEnded };
 }
 

@@ -39,7 +39,7 @@ export function ArchitectWorkflowCreateView() {
   }
 
   return (
-    <div className="mx-auto grid min-h-[calc(100vh-48px)] w-full max-w-6xl items-center gap-8 py-4 lg:grid-cols-[1fr_420px]">
+    <div className="mx-auto grid min-h-[calc(100vh-48px)] w-full max-w-full items-center gap-8 py-4 lg:grid-cols-[1fr_420px]">
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8 lg:p-10">
         <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-amber-700" data-testid="architect-ui-workflow-create-view-new-agent-text">
           New agent
