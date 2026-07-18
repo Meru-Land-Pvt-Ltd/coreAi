@@ -797,12 +797,24 @@ export function startArchitectVapiBrowserTest(
       appointmentService?: string;
       services?: string[];
       faqs?: string[];
+      /** Create real [TRIVEN ARCHITECT TEST] events in the architect's own calendar. */
+      useTestCalendar?: boolean;
+      /** Groups this browser test's records (test calendar events). */
+      testSessionId?: string;
     };
   } = {}
 ) {
   return apiPost<{ session: ArchitectVapiBrowserTestSession }>(
     `/architect/workflows/${workflowId}/vapi-browser-test/start`,
     body
+  );
+}
+
+/** Latest architect test calendar event (optionally scoped to one test session). */
+export function getLatestArchitectTestEvent(testSessionId?: string) {
+  const query = testSessionId ? `?testSessionId=${encodeURIComponent(testSessionId)}` : "";
+  return apiGet<{ event: import("./types").ArchitectTestCalendarEvent | null }>(
+    `/architect/test-events/latest${query}`
   );
 }
 

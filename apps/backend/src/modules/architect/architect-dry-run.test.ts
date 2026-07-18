@@ -1,8 +1,11 @@
+import { Hono } from "hono";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { zonedWallClockToUtc } from "@coreai/shared";
+import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { createBusinessTestProviders } from "../agent-runtime/provider-adapters";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import { handleVapiWebhook } from "./twilio-business-routing";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { runWorkflowTest } from "./workflow-runner";
 
@@ -466,6 +469,140 @@ describe("run-test dry runner (missed-call workflow path)", () => {
       expect(bookLog?.status).toBe("error");
     } finally {
       await cleanup(architect.id, workflow.id);
+    }
+  }, 30000);
+});
+
+describe("vapi browser voice call booking (webhook tool path)", () => {
+  async function browserTestFixture(useTestCalendar: boolean) {
+    const architect = await prisma.user.create({
+      data: { email: `${RUN}-vapi-${useTestCalendar ? "on" : "off"}@test.local`, role: "ARCHITECT" }
+    });
+    const business = await prisma.business.create({
+      data: { ownerId: architect.id, name: `${RUN} Vapi Sandbox`, type: "service business" }
+    });
+    const workflow = await prisma.workflowDefinition.create({
+      data: { name: `${RUN} vapi wf`, workflowJson: { nodes: [], edges: [] }, architectUserId: architect.id }
+    });
+    const agent = await prisma.installedAgent.create({
+      data: {
+        businessId: business.id,
+        workflowId: workflow.id,
+        name: "Browser Test",
+        status: "ACTIVE",
+        configJson: {
+          testMode: true,
+          executionMode: "ARCHITECT_DRY_RUN",
+          testDryRun: true,
+          useTestCalendar,
+          testSessionId: `${SESSION}-vapi`,
+          architectUserId: architect.id,
+          calendar: { ownerUserId: architect.id, calendarId: "primary", timeZone: "Asia/Kolkata" }
+        } as never
+      }
+    });
+    return { architect, business, workflow, agent };
+  }
+
+  async function cleanupFixture(fixture: Awaited<ReturnType<typeof browserTestFixture>>) {
+    await prisma.installedAgent.delete({ where: { id: fixture.agent.id } });
+    await prisma.workflowDefinition.delete({ where: { id: fixture.workflow.id } });
+    await prisma.business.delete({ where: { id: fixture.business.id } });
+    await prisma.user.delete({ where: { id: fixture.architect.id } });
+  }
+
+  async function postBooking(businessId: string): Promise<Record<string, unknown>> {
+    const app = new Hono();
+    app.post("/architect/connectors/vapi/webhook", handleVapiWebhook);
+
+    const response = await app.request("/architect/connectors/vapi/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          type: "tool-calls",
+          toolCalls: [
+            {
+              id: "tc_browser_book",
+              function: {
+                name: "book_appointment",
+                arguments: JSON.stringify({
+                  customer_name: "Alex Tester",
+                  customer_phone: "+15550018888",
+                  date: "2026-07-25",
+                  time: "3:00 PM",
+                  service_type: "Test Appointment"
+                })
+              }
+            }
+          ],
+          call: { id: "call_browser_book", customer: { number: "+15550018888" } }
+        },
+        metadata: { businessId }
+      })
+    });
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { results?: Array<{ result: string }> };
+    return JSON.parse(json.results?.[0]?.result ?? "{}") as Record<string, unknown>;
+  }
+
+  const originalSecret = env.VAPI_WEBHOOK_SECRET;
+
+  it("with the toggle ON creates a real marked event in the architect's calendar", async () => {
+    if (!(await dbUp())) return;
+    env.VAPI_WEBHOOK_SECRET = "";
+
+    calendarCreateMock.mockImplementation(async (input: Record<string, unknown>) => ({
+      id: "gcal-vapi-evt-1",
+      htmlLink: "https://calendar.google.com/event?eid=gcal-vapi-evt-1",
+      calendarId: "primary",
+      summary: String(input.summaryOverride ?? ""),
+      startAt: new Date(input.startAt as Date).toISOString(),
+      endAt: new Date(input.endAt as Date).toISOString(),
+      timeZone: String(input.timeZone ?? "")
+    }));
+
+    const fixture = await browserTestFixture(true);
+    try {
+      const result = await postBooking(fixture.business.id);
+
+      expect(result.success).toBe(true);
+      expect(result.dry_run).toBe(true);
+      expect(result.calendar_status).toBe("test_event_created");
+      expect(result.event_link).toBe("https://calendar.google.com/event?eid=gcal-vapi-evt-1");
+      expect(result.event_title).toBe("[TRIVEN ARCHITECT TEST] Test Appointment");
+
+      const insert = calendarCreateMock.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(insert.userId).toBe(fixture.architect.id);
+      expect(insert.summaryOverride).toBe("[TRIVEN ARCHITECT TEST] Test Appointment");
+      // 3:00 PM IST on 2026-07-25 = 09:30 UTC.
+      expect(new Date(insert.startAt as Date).toISOString()).toBe("2026-07-25T09:30:00.000Z");
+
+      // No real customer appointment row was created.
+      const appointments = await prisma.appointment.count({ where: { businessId: fixture.business.id } });
+      expect(appointments).toBe(0);
+    } finally {
+      env.VAPI_WEBHOOK_SECRET = originalSecret;
+      await cleanupFixture(fixture);
+    }
+  }, 30000);
+
+  it("with the toggle OFF stays fully simulated (no Google write)", async () => {
+    if (!(await dbUp())) return;
+    env.VAPI_WEBHOOK_SECRET = "";
+
+    const fixture = await browserTestFixture(false);
+    try {
+      const result = await postBooking(fixture.business.id);
+
+      expect(result.success).toBe(true);
+      expect(result.dry_run).toBe(true);
+      expect(result.calendar_status).toBe("dry_run");
+      expect(result.event_link).toBeNull();
+      expect(calendarCreateMock).not.toHaveBeenCalled();
+    } finally {
+      env.VAPI_WEBHOOK_SECRET = originalSecret;
+      await cleanupFixture(fixture);
     }
   }, 30000);
 });

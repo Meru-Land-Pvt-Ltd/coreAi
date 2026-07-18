@@ -74,6 +74,7 @@ export function TestPanel({
   onStartVapiCall,
   onSendConversationMessage,
   onResetConversationTest,
+  onBrowserCallEnded,
   onCallerNumberChange,
   onCallerNameChange,
   onBusinessNameChange,
@@ -138,6 +139,7 @@ export function TestPanel({
   onStartVapiCall: () => Promise<ArchitectVapiBrowserTestSession | { error: string }>;
   onSendConversationMessage: (value: string) => Promise<string | null>;
   onResetConversationTest: () => void;
+  onBrowserCallEnded?: () => void;
   onCallerNumberChange: (value: string) => void;
   onCallerNameChange: (value: string) => void;
   onBusinessNameChange: (value: string) => void;
@@ -654,6 +656,7 @@ export function TestPanel({
             onStartVapiCall={onStartVapiCall}
             onSendConversationMessage={onSendConversationMessage}
             onResetConversationTest={onResetConversationTest}
+            onCallEnded={onBrowserCallEnded}
           />
         ) : null}
 

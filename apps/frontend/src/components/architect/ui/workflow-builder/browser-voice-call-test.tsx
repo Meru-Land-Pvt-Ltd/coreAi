@@ -239,7 +239,8 @@ export function BrowserVoiceCallTest({
     appointmentService,
     onStartVapiCall,
     onSendConversationMessage,
-    onResetConversationTest
+    onResetConversationTest,
+    onCallEnded
 }: {
     conversationMessages: ArchitectConversationMessage[];
     chatting: boolean;
@@ -251,6 +252,8 @@ export function BrowserVoiceCallTest({
     onStartVapiCall: () => Promise<ArchitectVapiBrowserTestSession | { error: string }>;
     onSendConversationMessage: (value: string) => Promise<string | null>;
     onResetConversationTest: () => void;
+    /** Fired when the Vapi voice call ends — lets the panel fetch the booked test event. */
+    onCallEnded?: () => void;
 }) {
     const [callState, setCallState] = useState<CallState>("idle");
     const [mode, setMode] = useState<CallMode>(null);
@@ -402,6 +405,7 @@ export function BrowserVoiceCallTest({
             callActiveRef.current = false;
             setCallState("ended");
             void showRealEndReason();
+            onCallEnded?.();
         };
 
         const onError = (payload?: unknown) => {

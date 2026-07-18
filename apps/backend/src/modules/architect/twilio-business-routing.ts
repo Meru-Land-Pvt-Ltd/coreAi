@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { calendarEventTitleForMode } from "@coreai/shared";
+import { createTestCalendarEvent } from "./test-calendar-events";
 import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -171,12 +172,6 @@ function computeTwilioSignature(
   return createHmac("sha1", authToken).update(Buffer.from(data, "utf-8")).digest("base64");
 }
 
-/**
- * Validates the X-Twilio-Signature header. Disabled by default
- * (TWILIO_VALIDATE_SIGNATURE) so local/manual testing and the :workflowId test
- * endpoints keep working; enable it in production once BACKEND_URL is the public
- * URL Twilio posts to.
- */
 function isValidTwilioRequest(c: Context, body: Record<string, unknown>): boolean {
   if (!env.TWILIO_VALIDATE_SIGNATURE) return true;
 
@@ -989,11 +984,6 @@ function readRoutingMode(configJson: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * Is "now" within the business's open hours? Returns null when hours aren't
- * configured/parseable. Expects the buyer-setup shape:
- * [{ day: "Monday", open: "HH:mm", close: "HH:mm", closed: boolean }].
- */
 function isWithinBusinessHours(hours: unknown, timeZone?: string): boolean | null {
   if (!Array.isArray(hours) || hours.length === 0) return null;
   const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
@@ -1275,23 +1265,9 @@ export async function handleTwilioMissedCall(c: Context) {
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
 
-/* --------------------- SMS "Reply C to cancel" handling -------------------- */
-
-/**
- * Bare "C" asks to cancel the upcoming appointment — the booking confirmation
- * SMS promises exactly that ("Reply C to cancel"). Note "CANCEL" itself is a
- * carrier-mandated STOP synonym (consent opt-out) and is never repurposed.
- */
 function isSmsCancelRequest(body: string): boolean {
   return /^c$/i.test((body ?? "").trim().replace(/[.!]+$/, ""));
 }
-
-/**
- * Cancel a customer's upcoming appointment from an inbound SMS. Identity is
- * the SMS sender number (same trust basis as voice caller-id). Only an
- * unambiguous single match is cancelled automatically; anything else gets a
- * safe redirect to the business. Returns the reply text for the TwiML.
- */
 async function cancelAppointmentFromSms(
   customerPhone: string,
   businessId?: string | null
@@ -1560,9 +1536,6 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   });
 
   const history = conversation?.id ? await loadConversationHistory(conversation.id) : [];
-
-  // If the customer texted a concrete day + time, book it straight to Google
-  // Calendar and confirm by SMS. Otherwise fall back to a context-aware reply.
   let replyBody: string;
   let bookedEventId: string | null = null;
   let bookedAppointmentId: string | null = null;
@@ -1603,9 +1576,6 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
     replyBody = buildInboundSmsReply(agent, incomingBody, history);
   }
 
-  // Sent through the shared Triven Messaging Service — the business's own
-  // number never sends SMS. A booking reply doubles as the appointment
-  // confirmation, so it claims the confirmation dedupe key.
   const sent = await sendTrackedSms({
     to: customerPhone,
     body: replyBody,
@@ -1635,12 +1605,6 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
 
-/**
- * Twilio message delivery-status callback (public webhook — Twilio cannot send
- * the app JWT). Signature-validated when TWILIO_VALIDATE_SIGNATURE=true.
- * Idempotent: replayed/out-of-order callbacks never downgrade an execution.
- * Always answers 2xx to a processed callback so Twilio does not retry forever.
- */
 export async function handleTwilioMessageStatus(c: Context) {
   const body = await parseBody(c);
 
@@ -1678,9 +1642,6 @@ export async function handleTwilioMessageStatus(c: Context) {
 }
 
 function getVapiMetadata(body: Record<string, unknown>) {
-  // Metadata can arrive at several places depending on how the call started
-  // (assistant-level, web-call assistantOverrides, call-level). Merge them,
-  // with call-level values winning.
   const paths: string[][] = [
     ["message", "assistant", "metadata"],
     ["assistant", "metadata"],
@@ -1837,8 +1798,13 @@ async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
 }
 
 type DentalToolConfig = {
-  /** Browser-test agents: booking + SMS become dry-runs; availability reads stay real. */
   dryRun: boolean;
+  useTestCalendar: boolean;
+  testSessionId: string | null;
+  architectUserId: string | null;
+  /** Browser-test agents only: the architect-selected test timezone. Live
+   * agents always use the business profile timezone instead. */
+  testTimeZone: string | null;
   bufferMinutes: number;
   slotsToOffer: number;
   openHour: number;
@@ -1851,19 +1817,10 @@ type DentalToolConfig = {
   patientTemplate: string;
   dentistTemplate: string;
   confirmationMessage: string;
-  /** What a booking is called for this business: appointment, reservation, consultation, quote request… */
   bookingLabel: string;
-  /** Architect-authored Send Email node config (validated); null when the workflow has no email node. */
   emailNode: SendEmailNodeConfig | null;
 };
 
-/**
- * Read scheduling/tool params persisted on the InstalledAgent at Deploy time.
- * Generic `configJson.scheduling` (buyer timing setup) takes priority; the
- * legacy `dentalConfig` block stays supported for existing installs. Generic
- * key names (providerName/teamPhone/customerTemplate/teamTemplate) are read
- * first, with the legacy dental key names as fallbacks.
- */
 async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
   const agent = await prisma.installedAgent.findFirst({
     where: { businessId, status: "ACTIVE" },
@@ -1871,8 +1828,6 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
     select: { configJson: true, workflow: { select: { workflowJson: true } } }
   });
   const configJson = (agent?.configJson as Record<string, unknown> | null) ?? {};
-  // Recipients are buyer-owned: buyer setup To/CC/BCC overrides any legacy
-  // recipient fields still stored on the architect's Send Email node.
   const emailNode = applyBuyerEmailRecipients(
     extractSendEmailNodeConfig(agent?.workflow?.workflowJson ?? null),
     extractBuyerEmailRecipients(configJson)
@@ -1888,8 +1843,13 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
   const str = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
   const strOr = (value: unknown, fallback: string) =>
     typeof value === "string" && value.trim() ? value : fallback;
+  const calendarConfig = (configJson.calendar ?? {}) as Record<string, unknown>;
   return {
     dryRun,
+    useTestCalendar: configJson.useTestCalendar === true,
+    testSessionId: str(configJson.testSessionId) || null,
+    architectUserId: str(configJson.architectUserId) || str(calendarConfig.ownerUserId) || null,
+    testTimeZone: dryRun ? str(calendarConfig.timeZone) || null : null,
     bufferMinutes: num(cfg.bufferMinutes, 10),
     slotsToOffer: num(cfg.maximumSlotsToShow ?? cfg.maxSlotsToShow ?? cfg.slotsToOffer, 6),
     openHour: num(cfg.openHour, 9),
@@ -1930,11 +1890,6 @@ function applyBracketTemplate(template: string, values: Record<string, string>):
   });
 }
 
-/**
- * Bracket-token values with both generic tokens ([Customer Name], [Business
- * Name], [Team]) and legacy dental tokens ([Patient Name], [Doctor Name]) so
- * templates written for any industry — or before the rename — keep filling.
- */
 function bracketTemplateValues(input: {
   service: string;
   customerName: string;
@@ -2452,14 +2407,53 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     .filter(Boolean)
     .join("\n");
 
-  // Architect browser test: confirm conversationally, never write a calendar
-  // event or local appointment record.
+  // Architect browser test: never a real customer booking. With the
+  // test-calendar toggle on, create a REAL [TRIVEN ARCHITECT TEST] event in
+  // the ARCHITECT's own calendar; otherwise record a simulated preview. Both
+  // are TestCalendarEvent rows so the delete-test-event action works.
   if (ctx.dental?.dryRun) {
-    console.log("[vapi-tool] dry-run booking success", {
+    const architectUserId = ctx.dental.architectUserId ?? ctx.business?.ownerId ?? null;
+
+    if (!architectUserId) {
+      return {
+        success: false,
+        dry_run: true,
+        calendar_status: "not_connected",
+        message: "This test agent has no calendar owner configured, so the test booking could not be recorded."
+      };
+    }
+
+    const testEvent = await createTestCalendarEvent({
+      executionMode: "ARCHITECT_DRY_RUN",
+      ownerUserId: architectUserId,
+      testSessionId: ctx.dental.testSessionId,
+      serviceName: service,
+      customerName: patientName,
+      customerPhone: patientPhone,
+      startAt,
+      endAt,
+      timeZone: ctx.timeZone,
+      calendarId: ctx.business?.calendarId,
+      businessName: ctx.business?.businessName ?? "the business",
+      simulate: ctx.dental.useTestCalendar !== true
+    });
+
+    if (!testEvent.ok) {
+      // Never claim the appointment was created when the calendar write failed.
+      console.error("[vapi-tool] browser-test booking failed", { code: testEvent.error.code });
+      return {
+        success: false,
+        dry_run: true,
+        calendar_status: testEvent.error.code,
+        message: `${testEvent.error.message} ${testEvent.error.remediation}`
+      };
+    }
+
+    console.log("[vapi-tool] browser-test booking", {
       customer_name: patientName,
-      customer_phone: patientPhone,
       date,
-      service_type: service
+      service_type: service,
+      status: testEvent.event.status
     });
     return {
       success: true,
@@ -2470,14 +2464,20 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       date,
       time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
       service_type: service,
-      event_id: `test_${Date.now()}`,
-      event_link: null,
+      event_id: testEvent.event.googleEventId ?? testEvent.event.testEventId,
+      event_link: testEvent.event.htmlLink,
+      test_event_id: testEvent.event.testEventId,
+      event_title: testEvent.event.title,
+      event_status: testEvent.event.status,
       calendar_id: ctx.business?.calendarId ?? "primary",
-      calendar_status: "dry_run",
+      calendar_status: testEvent.event.status === "CREATED" ? "test_event_created" : "dry_run",
       source: "dry_run",
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
-      message: `Booking confirmed for ${patientName} on ${whenLabel}.`,
+      message:
+        testEvent.event.status === "CREATED"
+          ? `Test booking confirmed for ${patientName} on ${whenLabel} — a marked test event was created on your calendar.`
+          : `Booking confirmed for ${patientName} on ${whenLabel}.`,
       confirmation
     };
   }
@@ -3794,7 +3794,9 @@ export async function handleVapiWebhook(c: Context) {
     const baseCtx: VapiToolContext = {
       business: businessContext,
       dental,
-      timeZone: businessContext?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
+      // Browser-test agents use the architect-selected test timezone; live
+      // agents use the business profile timezone. Never the server's zone.
+      timeZone: dental?.testTimeZone || businessContext?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
       customerPhone,
       patientPhone: customerPhone,
       conversationId,

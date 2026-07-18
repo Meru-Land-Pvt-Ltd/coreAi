@@ -26,6 +26,7 @@ import {
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
+  getLatestArchitectTestEvent,
   getWorkflowConfigure,
   runArchitectWorkflowTest,
   runArchitectConversationTest,
@@ -825,6 +826,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setMessage("Browser call reset");
   }
 
+  // After a Vapi voice call ends, surface the test event booked during the
+  // call (real or simulated) in the panel's event card with its delete action.
+  async function refreshLatestTestEvent() {
+    const result = await getLatestArchitectTestEvent(testSessionIdRef.current);
+
+    if (result.success && result.data?.event) {
+      setConversationCalendarEvent(result.data.event);
+      setMessage(
+        result.data.event.status === "CREATED"
+          ? "Test calendar event created during the call"
+          : "Simulated test booking recorded during the call"
+      );
+    }
+  }
+
   async function deleteTestEvent(testEventId: string) {
     setDeletingTestEvent(true);
     const result = await deleteArchitectTestEvent(testEventId);
@@ -886,8 +902,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         callerName: callerName.trim() || "Test caller",
         callerPhone: callerNumber.trim() || "+15555550100",
         calendarId: calendarId.trim() || "primary",
-        timeZone: timeZone.trim() || "America/Los_Angeles",
-        appointmentService: appointmentService.trim() || "Consultation"
+        timeZone: timeZone.trim() || browserTimeZone(),
+        appointmentService: appointmentService.trim() || "Consultation",
+        // Voice-call bookings honor the same test-calendar toggle as the chat test.
+        useTestCalendar,
+        testSessionId: testSessionIdRef.current
       }
     });
 
@@ -1358,6 +1377,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onStartVapiCall={startVapiBrowserTest}
             onSendConversationMessage={sendConversationMessage}
             onResetConversationTest={resetConversationTest}
+            onBrowserCallEnded={() => void refreshLatestTestEvent()}
             onCallerNumberChange={setCallerNumber}
             onCallerNameChange={setCallerName}
             onBusinessNameChange={setBusinessName}

@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { calendarEventTitleForMode, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -732,7 +732,11 @@ const vapiBrowserTestSchema = z.object({
       timeZone: z.string().trim().optional(),
       appointmentService: z.string().trim().optional(),
       services: z.array(z.string().trim()).optional(),
-      faqs: z.array(z.string().trim()).optional()
+      faqs: z.array(z.string().trim()).optional(),
+      /** Create real [TRIVEN ARCHITECT TEST] events in the architect's own calendar. */
+      useTestCalendar: z.boolean().optional(),
+      /** Groups this browser test's records (test calendar events). */
+      testSessionId: z.string().trim().max(64).optional()
     })
     .default({})
 });
@@ -1767,6 +1771,37 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       "ARCHITECT_CONVERSATION_TEST_FAILED"
     );
   }
+});
+
+// Latest test calendar event for this architect (optionally per test session) —
+// lets the browser voice call test surface the event booked during the call.
+architectRoutes.get("/test-events/latest", async (c) => {
+  const authUser = c.get("authUser");
+  const testSessionId = c.req.query("testSessionId")?.trim();
+
+  const row = await prisma.testCalendarEvent.findFirst({
+    where: {
+      ownerUserId: authUser.id,
+      executionMode: "ARCHITECT_DRY_RUN",
+      status: { not: "DELETED" },
+      ...(testSessionId ? { testSessionId } : {})
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  if (!row) return successResponse(c, { event: null });
+
+  return successResponse(c, {
+    event: {
+      testEventId: row.id,
+      title: calendarEventTitleForMode("ARCHITECT_DRY_RUN", row.serviceName),
+      startAt: row.startAt.toISOString(),
+      endAt: row.endAt.toISOString(),
+      timeZone: row.timeZone,
+      htmlLink: row.htmlLink,
+      status: row.status === "CREATED" ? "CREATED" : "SIMULATED"
+    }
+  });
 });
 
 // Delete an Architect test calendar event — ownership-validated and idempotent.

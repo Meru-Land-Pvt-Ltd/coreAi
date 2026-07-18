@@ -34,6 +34,10 @@ export type VapiBrowserTestInput = {
   appointmentService?: string;
   services?: string[];
   faqs?: string[];
+  /** Create real [TRIVEN ARCHITECT TEST] events in the architect's own calendar. */
+  useTestCalendar?: boolean;
+  /** Groups this browser test's records (test calendar events). */
+  testSessionId?: string;
 };
 
 export type VapiBrowserTestSession = {
@@ -440,8 +444,12 @@ Live call handling:
     testMode: true,
     executionMode: "ARCHITECT_DRY_RUN",
     browserTest: true,
-    // Booking + SMS are dry-runs in the browser test; availability reads stay real.
+    // Booking + SMS are dry-runs in the browser test; availability reads stay
+    // real. With useTestCalendar the booking creates a REAL marked event in
+    // the architect's OWN calendar.
     testDryRun: true,
+    useTestCalendar: input.useTestCalendar === true,
+    testSessionId: input.testSessionId?.trim() || null,
     architectUserId,
     workflowId,
     connectors: ["VAPI", "GOOGLE_CALENDAR"],
