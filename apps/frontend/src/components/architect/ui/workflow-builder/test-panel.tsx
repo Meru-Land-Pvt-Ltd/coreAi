@@ -220,7 +220,7 @@ export function TestPanel({
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
-      <div className="mx-auto w-full max-w-full px-6 py-8">
+      <div className="mx-auto w-full max-w-6xl px-6 py-8">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-test-panel-console-heading">{heading}</h2>
