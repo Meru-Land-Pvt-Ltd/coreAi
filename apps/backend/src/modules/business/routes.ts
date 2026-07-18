@@ -13,10 +13,16 @@ import {
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus, errorMessage, isRecord } from "../../lib/error-utils";
+import {
+  findPhoneCountry,
+  listPhoneCities,
+  listPhoneCountries,
+  listPhoneStates,
+  supportsLocalityFilter
+} from "../../lib/phone-locations";
 import { PhoneNumberServiceError } from "../admin/twilio-number-service";
 import {
   getProvisioningRequestStatus,
-  listPhoneLocations,
   purchaseNumberForBusiness,
   searchNumbersForBusiness
 } from "./phone-provisioning-flow";
@@ -798,9 +804,31 @@ async function resolveOwnedInstalledAgentId(
   return agent ? agent.id : null;
 }
 
+// Hierarchical location catalogue: no params → all countries; ?country= →
+// that country's states; ?country=&state= → that state's cities. Backed by
+// the full ISO dataset so every country/state/city is selectable; selections
+// are still re-validated server-side at search/purchase time.
 businessRoutes.get("/phone-numbers/locations", async (c) => {
+  const country = c.req.query("country")?.trim().toUpperCase() ?? "";
+  const state = c.req.query("state")?.trim().toUpperCase() ?? "";
+
+  if (country && !findPhoneCountry(country)) {
+    return errorResponse(c, "Select a valid country.", 422, "UNSUPPORTED_COUNTRY");
+  }
+
+  if (country && state) {
+    return successResponse(c, { cities: listPhoneCities(country, state) });
+  }
+
+  if (country) {
+    return successResponse(c, {
+      states: listPhoneStates(country),
+      supportsCityFilter: supportsLocalityFilter(country)
+    });
+  }
+
   return successResponse(c, {
-    countries: listPhoneLocations(),
+    countries: listPhoneCountries(),
     note: "Number availability depends on Twilio inventory and local regulatory requirements."
   });
 });
@@ -861,7 +889,9 @@ const phonePurchaseSchema = z.object({
   city: z.string().trim().max(80).optional(),
   fallbackType: z.enum(["NEARBY_CITY", "SAME_STATE", "NATIONAL", "TOLL_FREE"]).optional(),
   /** The buyer's own business line — stored as the forwarding target. */
-  forwardToPhone: z.string().trim().max(24).optional()
+  forwardToPhone: z.string().trim().max(24).optional(),
+  /** Change-number flow: the old number stays active until the new one is configured. */
+  replaceExisting: z.boolean().optional()
 });
 
 businessRoutes.post("/phone-numbers/purchase", async (c) => {
@@ -893,7 +923,8 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
       state: parsed.data.state,
       city: parsed.data.city,
       fallbackType: parsed.data.fallbackType ?? null,
-      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null
+      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null,
+      replaceExisting: parsed.data.replaceExisting === true
     });
     return successResponse(c, outcome);
   } catch (error) {

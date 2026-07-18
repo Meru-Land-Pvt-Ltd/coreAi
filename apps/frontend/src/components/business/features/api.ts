@@ -259,15 +259,26 @@ export function verifyPhoneOtp(listingId: string, phone: string, code: string) {
 
 /* ---- Location-based phone number provisioning ---- */
 
-export type PhoneLocationCountry = {
-  code: string;
-  name: string;
-  supportsRegionSearch: boolean;
-  regions: Array<{ code: string; name: string; cities: string[] }>;
-};
+export type PhoneCountryOption = { code: string; name: string };
+export type PhoneStateOption = { code: string; name: string };
 
-export function getPhoneLocations() {
-  return apiGet<{ countries: PhoneLocationCountry[]; note: string }>("/business/phone-numbers/locations");
+/** All countries (full ISO list) for the Triven AI number picker. */
+export function getPhoneCountries() {
+  return apiGet<{ countries: PhoneCountryOption[]; note: string }>("/business/phone-numbers/locations");
+}
+
+/** States/provinces of one country (lazy-loaded on country select). */
+export function getPhoneStates(country: string) {
+  return apiGet<{ states: PhoneStateOption[]; supportsCityFilter: boolean }>(
+    `/business/phone-numbers/locations?country=${encodeURIComponent(country)}`
+  );
+}
+
+/** Cities of one state (lazy-loaded on state select; empty state = country-level cities). */
+export function getPhoneCities(country: string, state: string) {
+  return apiGet<{ cities: string[] }>(
+    `/business/phone-numbers/locations?country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}`
+  );
 }
 
 export type AvailablePhoneNumber = {
@@ -290,6 +301,8 @@ export type PhoneNumberSearchResult = {
   matchLevel: "EXACT_CITY" | "SAME_STATE" | "NATIONAL";
   fallbackOptions: Array<"NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE">;
   smsRequired: boolean;
+  /** False when Twilio cannot filter this country by state/city (country-wide search). */
+  localityFilterSupported?: boolean;
 };
 
 export function searchBusinessPhoneNumbers(body: {
@@ -324,6 +337,8 @@ export function purchaseBusinessPhoneNumber(body: {
   fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE";
   /** The buyer's own business line — stored as the forwarding target. */
   forwardToPhone?: string;
+  /** Change-number flow: swap only after the new number is fully configured. */
+  replaceExisting?: boolean;
 }) {
   return apiPost<PhonePurchaseOutcome>("/business/phone-numbers/purchase", body);
 }

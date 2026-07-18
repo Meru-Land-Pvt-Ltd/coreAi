@@ -1,10 +1,6 @@
 import type { PhoneProvisioningStatus, Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import {
-  PHONE_PROVISIONING_COUNTRIES,
-  findPhoneCountry,
-  validatePhoneLocation
-} from "../../lib/phone-locations";
+import { findPhoneCountry, validatePhoneLocation } from "../../lib/phone-locations";
 import {
   PhoneNumberServiceError,
   purchaseNumber,
@@ -12,7 +8,7 @@ import {
   type AvailableNumberResult
 } from "../admin/twilio-number-service";
 import { workflowSupportsSmsReplies } from "../architect/twilio-business-routing";
-import { assignPlatformNumber } from "./phone-assignment";
+import { assignPlatformNumber, unassignPlatformNumber } from "./phone-assignment";
 import { getPhoneNumberFee } from "./phone-provisioning";
 
 /**
@@ -20,26 +16,6 @@ import { getPhoneNumberFee } from "./phone-provisioning";
  * explicit number selection → idempotent purchase driven by a persisted state
  * machine (PhoneProvisioningRequest). Replaces silent auto-assignment.
  */
-
-export type PhoneLocationCatalogue = Array<{
-  code: string;
-  name: string;
-  supportsRegionSearch: boolean;
-  regions: Array<{ code: string; name: string; cities: string[] }>;
-}>;
-
-export function listPhoneLocations(): PhoneLocationCatalogue {
-  return PHONE_PROVISIONING_COUNTRIES.map((country) => ({
-    code: country.code,
-    name: country.name,
-    supportsRegionSearch: country.supportsRegionSearch,
-    regions: country.regions.map((region) => ({
-      code: region.code,
-      name: region.name,
-      cities: [...region.cities]
-    }))
-  }));
-}
 
 export type SafeAvailableNumber = {
   phoneNumber: string;
@@ -64,6 +40,9 @@ export type PhoneSearchOutcome = {
   matchLevel: "EXACT_CITY" | "SAME_STATE" | "NATIONAL";
   fallbackOptions: Array<"NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE">;
   smsRequired: boolean;
+  /** False when Twilio cannot filter this country by state/city — the search
+   * ran country-wide and the UI says so honestly. */
+  localityFilterSupported: boolean;
 };
 
 const REGULATORY_NOTE_BY_COUNTRY: Record<string, string> = {
@@ -127,6 +106,21 @@ export async function searchNumbersForBusiness(params: {
     limit
   };
 
+  // Twilio only honors state/city filters for US/CA local numbers. Everywhere
+  // else the search runs country-wide and says so — never a silent fallback.
+  if (!location.localityFilter) {
+    const national = await searchAvailableNumbers(baseFilters);
+
+    return {
+      numbers: national.map((item) => toSafeNumber(item, fee)),
+      exactMatchAvailable: national.length > 0,
+      matchLevel: "NATIONAL",
+      fallbackOptions: [],
+      smsRequired,
+      localityFilterSupported: false
+    };
+  }
+
   // Exact city first, then widen: same state, then national. Never silently —
   // the match level and fallback options are always reported to the buyer.
   if (location.city && location.region) {
@@ -142,7 +136,8 @@ export async function searchNumbersForBusiness(params: {
         exactMatchAvailable: true,
         matchLevel: "EXACT_CITY",
         fallbackOptions: [],
-        smsRequired
+        smsRequired,
+        localityFilterSupported: true
       };
     }
 
@@ -151,7 +146,8 @@ export async function searchNumbersForBusiness(params: {
       exactMatchAvailable: false,
       matchLevel: "EXACT_CITY",
       fallbackOptions: ["NEARBY_CITY", "SAME_STATE", "NATIONAL"],
-      smsRequired
+      smsRequired,
+      localityFilterSupported: true
     };
   }
 
@@ -163,7 +159,8 @@ export async function searchNumbersForBusiness(params: {
       exactMatchAvailable: regional.length > 0,
       matchLevel: "SAME_STATE",
       fallbackOptions: regional.length > 0 ? [] : ["NATIONAL"],
-      smsRequired
+      smsRequired,
+      localityFilterSupported: true
     };
   }
 
@@ -174,7 +171,8 @@ export async function searchNumbersForBusiness(params: {
     exactMatchAvailable: national.length > 0,
     matchLevel: "NATIONAL",
     fallbackOptions: [],
-    smsRequired
+    smsRequired,
+    localityFilterSupported: true
   };
 }
 
@@ -272,6 +270,9 @@ export async function purchaseNumberForBusiness(params: {
   fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" | null;
   /** The buyer's own business line (already normalized) — forwarding target. */
   forwardToPhone?: string | null;
+  /** Change-number flow: purchase and configure the new number FIRST, then
+   * unassign the old one in the same transaction. Never releases early. */
+  replaceExisting?: boolean;
 }): Promise<PurchaseOutcome> {
   const location = validatePhoneLocation(params);
   if (!location.ok) {
@@ -290,12 +291,13 @@ export async function purchaseNumberForBusiness(params: {
   if (existing) return outcomeFromRequest(existing, true);
 
   // One active number per business: repeated provisioning returns the current
-  // number instead of purchasing a second one.
+  // number instead of purchasing a second one. The explicit change-number flow
+  // (replaceExisting) is the only path that may purchase a replacement.
   const currentNumber = await prisma.platformPhoneNumber.findFirst({
     where: { businessId: params.businessId, status: "ASSIGNED", isPlatformSmsSender: false },
-    select: { phoneNumber: true }
+    select: { id: true, phoneNumber: true, status: true }
   });
-  if (currentNumber) {
+  if (currentNumber && !params.replaceExisting) {
     return {
       status: "ACTIVE",
       requestId: "",
@@ -443,15 +445,22 @@ export async function purchaseNumberForBusiness(params: {
   }
 
   try {
-    await prisma.$transaction((tx) =>
-      assignPlatformNumber(tx, {
+    // Change-number flow: the old number is unassigned in the SAME transaction
+    // that assigns the new one — it stays fully active until this point, and if
+    // the assignment fails the old number keeps working. The old number returns
+    // to the AVAILABLE pool; it is never released on Twilio here.
+    await prisma.$transaction(async (tx) => {
+      if (params.replaceExisting && currentNumber && currentNumber.id !== platformNumber.id) {
+        await unassignPlatformNumber(tx, { platform: currentNumber });
+      }
+      await assignPlatformNumber(tx, {
         platform: platformNumber,
         businessId: params.businessId,
         installedAgentId: params.installedAgentId ?? null,
         buyerUserId: params.requestedByUserId,
         forwardToPhone
-      })
-    );
+      });
+    });
   } catch (error) {
     // Twilio purchase succeeded, DB assignment failed: keep the provider
     // reference on the request for reconciliation; do not purchase again.

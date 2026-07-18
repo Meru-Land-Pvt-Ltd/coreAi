@@ -15,6 +15,7 @@ import {
   VOICE_PRESETS,
   type WorkflowTriggerKind
 } from "@coreai/shared";
+import { PhoneNumberSelectionSection } from "@/components/business/phone-number-selection";
 import {
   checkMailAliasAvailability,
   deleteBusinessTestEvent,
@@ -23,17 +24,13 @@ import {
   getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
-  getPhoneLocations,
-  purchaseBusinessPhoneNumber,
   runBusinessSetupChatTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
-  searchBusinessPhoneNumbers,
   sendBusinessTestSms,
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
-  type AvailablePhoneNumber,
   type BusinessChatTestMessage,
   type BusinessPreviewCallSession,
   type BusinessEmailAliasData,
@@ -44,8 +41,6 @@ import {
   type BuyerCustomFieldValue,
   type BuyerSetupFieldDef,
   type CallRoutingResult,
-  type PhoneLocationCountry,
-  type PhoneNumberSearchResult,
   type PlatformPhoneOption,
   type TestSmsResult
 } from "@/components/business/features/api";
@@ -644,10 +639,8 @@ function SetupWizard() {
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
-  // Business phone (forwarding target). No OTP verification — the buyer simply
-  // enters their existing line, and the Triven AI number is chosen by location.
+  // The buyer's own business line — optional, forwarding target only. No OTP.
   const [existingPhoneNumber, setExistingPhoneNumber] = useState("");
-  const [phoneConfirmed, setPhoneConfirmed] = useState(false);
 
   const [assistantName, setAssistantName] = useState(DEFAULT_ASSISTANT_NAME);
   const [voiceChoice, setVoiceChoice] = useState(PLATFORM_DEFAULT_VOICE_ID);
@@ -686,29 +679,6 @@ function SetupWizard() {
       return [...current, { key, label, value }];
     });
   }, []);
-
-  // Save the buyer's own business line as the forwarding target — no OTP.
-  const handleConfirmPhone = useCallback(() => {
-    if (!existingPhoneNumber || existingPhoneNumber.trim().length < 5) {
-      setError("Please enter a valid business phone number.");
-      return;
-    }
-    setError("");
-    setPhoneConfirmed(true);
-    setForwardToPhone(existingPhoneNumber);
-    setStatusMsg("Business number saved. Now choose your Triven AI number's location.");
-  }, [existingPhoneNumber, setError, setStatusMsg]);
-
-  // Businesses without an existing line (AI answers everything) can skip —
-  // with nothing to forward, the AI answers directly on the Triven AI number.
-  const handleSkipPhone = useCallback(() => {
-    setError("");
-    setExistingPhoneNumber("");
-    setForwardToPhone("");
-    setAnsweringMode("AI_FIRST");
-    setPhoneConfirmed(true);
-    setStatusMsg("Skipped — the AI will answer calls directly on your Triven AI number.");
-  }, [setError, setStatusMsg]);
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
@@ -790,10 +760,7 @@ function SetupWizard() {
       if (data.phoneNumber) {
         setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
         setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
-        if (data.phoneNumber.phoneNumber || data.phoneNumber.forwardToPhone) {
-          setPhoneConfirmed(true);
-          setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
-        }
+        setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
       }
 
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
@@ -1119,11 +1086,6 @@ function SetupWizard() {
 
   async function goNext() {
     setError("");
-
-    if (step === 1 && !phoneConfirmed) {
-      setError("Add your business phone number (or skip it) first.");
-      return;
-    }
 
     if (step < STEPS.length && canPersist) {
       setSaving(true);
@@ -1516,7 +1478,7 @@ function SetupWizard() {
               const active = entry.id === step;
               const done = stepDone[entry.id];
               const upcoming = step < entry.id && !done;
-              const clickable = phoneConfirmed || entry.id === 1;
+              const clickable = true;
 
               return (
                 <div key={entry.id} className="flex items-center">
@@ -1530,10 +1492,6 @@ function SetupWizard() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (!phoneConfirmed && entry.id > 1) {
-                        setError("Add your business phone number (or skip it) first.");
-                        return;
-                      }
                       setError("");
                       setStep(entry.id);
                     }}
@@ -1604,10 +1562,6 @@ function SetupWizard() {
               onTimeZone={setTimeZone}
               existingPhoneNumber={existingPhoneNumber}
               onExistingPhoneNumberChange={setExistingPhoneNumber}
-              phoneConfirmed={phoneConfirmed}
-              onConfirmPhone={handleConfirmPhone}
-              onSkipPhone={handleSkipPhone}
-              onChangePhone={() => setPhoneConfirmed(false)}
               listingId={listingId}
               installedAgentIdForPhone={liveInstalledAgentId}
               onNumberProvisioned={(phoneNumber) => {
@@ -2579,10 +2533,6 @@ function StepConnect({
 
   existingPhoneNumber,
   onExistingPhoneNumberChange,
-  phoneConfirmed,
-  onConfirmPhone,
-  onSkipPhone,
-  onChangePhone,
   listingId,
   installedAgentIdForPhone,
   onNumberProvisioned
@@ -2619,10 +2569,6 @@ function StepConnect({
 
   existingPhoneNumber: string;
   onExistingPhoneNumberChange: (v: string) => void;
-  phoneConfirmed: boolean;
-  onConfirmPhone: () => void;
-  onSkipPhone: () => void;
-  onChangePhone: () => void;
   listingId: string;
   installedAgentIdForPhone: string | null;
   onNumberProvisioned: (phoneNumber: string) => void;
@@ -2630,6 +2576,7 @@ function StepConnect({
   const [countryFlag, setCountryFlag] = useState("🇺🇸");
   const [countryCode, setCountryCode] = useState("+1");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
+  const [changingNumber, setChangingNumber] = useState(false);
 
   const routingMode = answeringMode === "AI_FIRST" ? "direct" : "forward";
   const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
@@ -2648,8 +2595,8 @@ function StepConnect({
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
       <p className="text-slate-500 text-base mt-2 max-w-md">
         {showCallForwarding
-          ? "Add the number your customers call today, then choose where your dedicated Triven AI number should be located."
-          : "Add your business number, then choose where your dedicated Triven AI number should be located."}
+          ? "Choose your dedicated Triven AI phone number first, then decide how customers reach your agent."
+          : "Choose your dedicated Triven AI phone number for this agent."}
       </p>
       <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
@@ -2659,229 +2606,213 @@ function StepConnect({
         ~90 seconds
       </span>
 
-      {/* Phone number input block */}
-      {showPhone && !phoneConfirmed && (
-        <div className="mt-4">
-          <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">Business phone number</label>
-
-          <div className={`phone-wrap flex items-stretch border rounded-xl overflow-hidden bg-white relative ${phoneValid ? "is-valid" : "border-gray-200"}`}>
-            {/* Country code */}
-            <div className="relative">
+      {/* SECTION 1 — Choose your Triven AI phone number. Always visible when
+          the workflow needs a phone; never gated behind an existing phone,
+          verification, or any other setup section. */}
+      {showPhone && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-number-card">
+          {assignedNumber && !changingNumber ? (
+            <div className="flex items-start justify-between gap-3.5">
+              <div className="flex items-start gap-3.5">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-slate-500">Your Triven AI number</p>
+                  <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setCountryMenuOpen(!countryMenuOpen)}
-                aria-haspopup="listbox"
-                aria-expanded={countryMenuOpen}
-                className="h-full flex items-center gap-1.5 bg-gray-50 border-r border-gray-200 px-4 py-4 text-base font-medium text-slate-700 hover:bg-gray-100 transition-colors"
+                onClick={() => setChangingNumber(true)}
+                data-testid="business-setup-phone-change-number"
+                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-amber-300"
               >
-                <span className="text-lg leading-none">{countryFlag}</span>
-                <span className="text-slate-700">{countryCode}</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-slate-400">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
+                Change number
               </button>
-              {countryMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setCountryMenuOpen(false)} />
-                  <ul role="listbox" className="cc-menu absolute left-0 top-full mt-1.5 w-52 bg-white border border-gray-100 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 z-50 text-sm">
-                    <li onClick={() => { setCountryFlag("🇺🇸"); setCountryCode("+1"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇺🇸 <span className="flex-1">United States</span><span className="text-slate-400">+1</span></li>
-                    <li onClick={() => { setCountryFlag("🇨🇦"); setCountryCode("+1"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇨🇦 <span className="flex-1">Canada</span><span className="text-slate-400">+1</span></li>
-                    <li onClick={() => { setCountryFlag("🇬🇧"); setCountryCode("+44"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇬🇧 <span className="flex-1">United Kingdom</span><span className="text-slate-400">+44</span></li>
-                    <li onClick={() => { setCountryFlag("🇦🇺"); setCountryCode("+61"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇦🇺 <span className="flex-1">Australia</span><span className="text-slate-400">+61</span></li>
-                    <li onClick={() => { setCountryFlag("🇮🇳"); setCountryCode("+91"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇮🇳 <span className="flex-1">India</span><span className="text-slate-400">+91</span></li>
-                  </ul>
-                </>
-              )}
             </div>
-
-            {/* Number input */}
-            <input
-              id="phone"
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              value={existingPhoneNumber}
-              onChange={(e) => {
-                const formatted = fmtPhone(e.target.value);
-                onExistingPhoneNumberChange(formatted);
-              }}
-              className="field flex-1 px-5 py-4 text-lg font-mono placeholder:text-slate-300 outline-none border-0"
-              placeholder="(555) 123-4567"
-            />
-
-            {/* Check icon */}
-            <span className="phone-check absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true" style={{ opacity: phoneValid ? 1 : 0, transform: phoneValid ? "scale(1)" : "scale(0.6)" }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </span>
-          </div>
-
-          <p className="text-xs text-slate-400 mt-2 font-semibold">
-            {showCallForwarding
-              ? "Calls your agent can't take are forwarded to this number — keep giving it out as usual."
-              : "Your agent uses this number to reach your team when needed."}
-          </p>
-
-          <button
-            type="button"
-            disabled={!phoneValid}
-            onClick={onConfirmPhone}
-            data-testid="business-setup-phone-confirm-own"
-            className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 inline-flex items-center justify-center gap-2 mt-4 w-full sm:w-auto"
-          >
-            Use this number
-          </button>
-          <button
-            type="button"
-            onClick={onSkipPhone}
-            data-testid="business-setup-phone-skip"
-            className="block text-sm text-slate-500 font-semibold hover:text-slate-700 transition-colors mt-3"
-          >
-            I don&apos;t have an existing business number — the AI answers everything
-          </button>
+          ) : (
+            <>
+              {assignedNumber ? (
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <p className="text-sm text-slate-700">
+                    Your current number <span className="font-mono font-bold">{assignedNumber}</span> stays active until the replacement is purchased and configured.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setChangingNumber(false)}
+                    data-testid="business-setup-phone-change-cancel"
+                    className="text-xs font-bold text-slate-500 hover:text-slate-700 underline shrink-0"
+                  >
+                    Keep current number
+                  </button>
+                </div>
+              ) : null}
+              <PhoneNumberSelectionSection
+                installedAgentId={installedAgentIdForPhone}
+                listingId={listingId}
+                forwardToPhone={routingMode === "forward" ? existingPhoneNumber : ""}
+                replaceExisting={Boolean(assignedNumber)}
+                onProvisioned={(phoneNumber) => {
+                  setChangingNumber(false);
+                  onNumberProvisioned(phoneNumber);
+                }}
+              />
+            </>
+          )}
         </div>
       )}
 
-      {/* Success Block */}
-      {showPhone && phoneConfirmed && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
-          {/* Row 1: Business number banner */}
-          <div id="phoneSuccess" className="flex items-center justify-between gap-3" role="status">
-            <div className="flex items-center gap-3">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-green-600 shrink-0">
-                <circle cx="12" cy="12" r="10" />
-                <path d="m9 12 2 2 4-4" />
-              </svg>
-              <p className="text-sm font-semibold text-slate-850">
-                {existingPhoneNumber ? (
-                  <>Business number saved: <span id="successNum" className="font-bold">{existingPhoneNumber}</span></>
-                ) : (
-                  <>No existing business number — the AI answers directly on your Triven AI number.</>
-                )}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onChangePhone}
-              data-testid="business-setup-phone-change"
-              className="text-xs font-bold text-slate-500 hover:text-red-500 underline shrink-0 transition-colors"
-            >
-              Change
-            </button>
-          </div>
+      {/* SECTION 2 — Call routing. Appears once a Triven AI number exists. */}
+      {showPhone && showCallForwarding && assignedNumber ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-routing-card">
+          <span className="block text-sm font-semibold text-slate-700">How should customers reach your AI agent?</span>
 
-          {/* Divider */}
-          <div className="-mx-6 border-t border-slate-200/80 my-5" />
+          {showAnsweringMode ? (
+            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => onAnsweringMode("AI_FIRST")}
+                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
+                  answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                }`}
+                style={answeringMode === "AI_FIRST" ? { boxShadow: "none" } : undefined}
+                data-testid="business-setup-routing-direct"
+              >
+                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+                  answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                }`}>
+                  {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
+                </span>
+                <span className="flex-1">
+                  <span className="block text-sm font-bold text-slate-900">Use my Triven AI number directly</span>
+                  <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                    Give {assignedNumber} to customers. Calls go directly to your AI agent.
+                  </span>
+                </span>
+              </button>
 
-          {/* Row 2: Triven AI number — ready, or location-based selection */}
-          {assignedNumber ? (
-            <div className="flex items-start gap-3.5">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-              </svg>
-              <div>
-                <p className="text-sm font-semibold text-slate-500">Your Triven AI number is ready:</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => onAnsweringMode("NO_ANSWER")}
+                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
+                  answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                }`}
+                style={answeringMode !== "AI_FIRST" ? { boxShadow: "none" } : undefined}
+                data-testid="business-setup-routing-forward"
+              >
+                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
+                  answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                }`}>
+                  {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
+                </span>
+                <span className="flex-1">
+                  <span className="block text-sm font-bold text-slate-900">Keep using my existing business number</span>
+                  <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                    Forward calls from your existing number to {assignedNumber}.
+                  </span>
+                </span>
+              </button>
             </div>
           ) : (
-            <PhoneNumberSelectionSection
-              installedAgentId={installedAgentIdForPhone}
-              listingId={listingId}
-              forwardToPhone={existingPhoneNumber}
-              onProvisioned={onNumberProvisioned}
-            />
+            /* Missed-call workflow: always uses forwarding, no mode selector needed */
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your Triven AI number and the AI handles the rest.
+            </div>
           )}
 
-          {/* Spacer / selection */}
-          {showCallForwarding ? (
-            <div className="mt-8 space-y-4">
-              <span className="block text-sm font-semibold text-slate-700">How should calls reach your agent?</span>
+          {routingMode === "forward" || !showAnsweringMode ? (
+            <div className="mt-6 border-t border-slate-200/80 pt-5">
+              <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">Existing business phone number</label>
 
-              {showAnsweringMode ? (
-                <div className="space-y-3">
+              <div className={`phone-wrap flex items-stretch border rounded-xl overflow-hidden bg-white relative ${phoneValid ? "is-valid" : "border-gray-200"}`}>
+                {/* Country code */}
+                <div className="relative">
                   <button
                     type="button"
-                    onClick={() => onAnsweringMode("NO_ANSWER")}
-                    className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
-                      answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-                    }`}
-                    style={answeringMode !== "AI_FIRST" ? { boxShadow: "none" } : undefined}
+                    onClick={() => setCountryMenuOpen(!countryMenuOpen)}
+                    aria-haspopup="listbox"
+                    aria-expanded={countryMenuOpen}
+                    className="h-full flex items-center gap-1.5 bg-gray-50 border-r border-gray-200 px-4 py-4 text-base font-medium text-slate-700 hover:bg-gray-100 transition-colors"
                   >
-                    <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                      answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-                    }`}>
-                      {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block text-sm font-bold text-slate-900">Forward my existing number</span>
-                      <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                        Keep giving out {existingPhoneNumber || "your business number"}. Forward it to {assignedNumber || "your Triven AI number"} so calls reach your agent.
-                      </span>
-                    </span>
+                    <span className="text-lg leading-none">{countryFlag}</span>
+                    <span className="text-slate-700">{countryCode}</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-slate-400">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
                   </button>
+                  {countryMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setCountryMenuOpen(false)} />
+                      <ul role="listbox" className="cc-menu absolute left-0 top-full mt-1.5 w-52 bg-white border border-gray-100 rounded-xl shadow-xl shadow-slate-900/10 py-1.5 z-50 text-sm">
+                        <li onClick={() => { setCountryFlag("🇺🇸"); setCountryCode("+1"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇺🇸 <span className="flex-1">United States</span><span className="text-slate-400">+1</span></li>
+                        <li onClick={() => { setCountryFlag("🇨🇦"); setCountryCode("+1"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇨🇦 <span className="flex-1">Canada</span><span className="text-slate-400">+1</span></li>
+                        <li onClick={() => { setCountryFlag("🇬🇧"); setCountryCode("+44"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇬🇧 <span className="flex-1">United Kingdom</span><span className="text-slate-400">+44</span></li>
+                        <li onClick={() => { setCountryFlag("🇦🇺"); setCountryCode("+61"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇦🇺 <span className="flex-1">Australia</span><span className="text-slate-400">+61</span></li>
+                        <li onClick={() => { setCountryFlag("🇮🇳"); setCountryCode("+91"); setCountryMenuOpen(false); }} className="px-4 py-2.5 flex items-center gap-2.5 hover:bg-amber-50 cursor-pointer">🇮🇳 <span className="flex-1">India</span><span className="text-slate-400">+91</span></li>
+                      </ul>
+                    </>
+                  )}
+                </div>
 
-                  <button
-                    type="button"
-                    onClick={() => onAnsweringMode("AI_FIRST")}
-                    className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
-                      answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-                    }`}
-                    style={answeringMode === "AI_FIRST" ? { boxShadow: "none" } : undefined}
-                  >
-                    <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                      answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-                    }`}>
-                      {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block text-sm font-bold text-slate-900">Use the Triven AI number directly</span>
-                      <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                        Give {assignedNumber || "your Triven AI number"} to customers as your main line. Calls go straight to your agent.
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              ) : (
-                /* Missed-call workflow: always uses forwarding, no mode selector needed */
-                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-sm text-slate-600">
-                  <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your Triven AI number and the AI handles the rest.
-                </div>
-              )}
+                {/* Number input */}
+                <input
+                  id="phone"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
+                  value={existingPhoneNumber}
+                  onChange={(e) => {
+                    const formatted = fmtPhone(e.target.value);
+                    onExistingPhoneNumberChange(formatted);
+                    onForward(formatted);
+                  }}
+                  data-testid="business-setup-existing-phone"
+                  className="field flex-1 px-5 py-4 text-lg font-mono placeholder:text-slate-300 outline-none border-0"
+                  placeholder="(555) 123-4567"
+                />
+
+                {/* Check icon */}
+                <span className="phone-check absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true" style={{ opacity: phoneValid ? 1 : 0, transform: phoneValid ? "scale(1)" : "scale(0.6)" }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-400 mt-2 font-semibold">
+                Used only as the forwarding target — no verification needed.
+              </p>
+            </div>
+          ) : null}
+
+          {showAnsweringMode && routingMode === "forward" ? (
+            <div className="mt-6 border-t border-slate-200/80 pt-5">
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="answering-mode">
+                Answering mode
+              </label>
+              <select
+                id="answering-mode"
+                value={answeringMode}
+                onChange={(e) => onAnsweringMode(e.target.value)}
+                className="field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 focus:outline-none"
+              >
+                {ANSWERING_MODES.filter(m => m.value !== "AI_FIRST").map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-slate-400 font-semibold">
+                Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
+              </p>
             </div>
           ) : null}
         </div>
-      )}
-
-      {showPhone && phoneConfirmed && showCallForwarding && showAnsweringMode && routingMode === "forward" ? (
-        <div className="mt-6 border-t border-gray-100 pt-6">
-          <h3 className="text-sm font-bold text-slate-900 mb-3">Call handling</h3>
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="answering-mode">
-              Answering mode
-            </label>
-            <select
-              id="answering-mode"
-              value={answeringMode}
-              onChange={(e) => onAnsweringMode(e.target.value)}
-              className="field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 focus:outline-none"
-            >
-              {ANSWERING_MODES.filter(m => m.value !== "AI_FIRST").map((mode) => (
-                <option key={mode.value} value={mode.value}>
-                  {mode.label}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-slate-400 font-semibold">
-              Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
-            </p>
-          </div>
-        </div>
       ) : null}
 
-      {/* Calendar Connection block */}
-      {phoneConfirmed && showCalendar ? (
+      {/* SECTION 3 — Calendar Connection block */}
+      {showCalendar ? (
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
@@ -2967,7 +2898,7 @@ function StepConnect({
         </div>
       ) : null}
 
-      {phoneConfirmed && showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
+      {showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
     </div>
   );
 }
@@ -4439,334 +4370,6 @@ function StepGoLive({
     </div>
   );
 }
-/* ------------------------------------------------------------------ */
-/* Location-based Triven AI number selection (country → state → city →      */
-/* search → choose → confirm → provisioning progress)                  */
-/* ------------------------------------------------------------------ */
-
-function PhoneNumberSelectionSection({
-  installedAgentId,
-  listingId,
-  forwardToPhone,
-  onProvisioned
-}: {
-  installedAgentId: string | null;
-  /** Bootstraps the business server-side on first-time setup. */
-  listingId?: string;
-  /** The buyer's own line — stored as the forwarding target at purchase. */
-  forwardToPhone?: string;
-  onProvisioned: (phoneNumber: string) => void;
-}) {
-  const [countries, setCountries] = useState<PhoneLocationCountry[]>([]);
-  const [catalogueNote, setCatalogueNote] = useState("");
-  const [country, setCountry] = useState("");
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<PhoneNumberSearchResult | null>(null);
-  const [selectedNumber, setSelectedNumber] = useState<AvailablePhoneNumber | null>(null);
-  const [fallbackType, setFallbackType] = useState<"NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" | null>(null);
-  const [purchasing, setPurchasing] = useState(false);
-  const [purchaseError, setPurchaseError] = useState("");
-  const [progressNote, setProgressNote] = useState("");
-  // One idempotency key per confirmed selection — double clicks and retries
-  // reuse it so two numbers can never be purchased for one confirmation.
-  const clientRequestIdRef = useRef<string>("");
-
-  useEffect(() => {
-    void getPhoneLocations().then((res) => {
-      if (res.success && res.data) {
-        setCountries(res.data.countries);
-        setCatalogueNote(res.data.note);
-      }
-    });
-  }, []);
-
-  const selectedCountry = countries.find((entry) => entry.code === country) ?? null;
-  const selectedRegion = selectedCountry?.regions.find((entry) => entry.code === state) ?? null;
-
-  const runSearch = async (overrides?: { state?: string; city?: string; fallback?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" }) => {
-    if (!country) return;
-    setSearching(true);
-    setPurchaseError("");
-    setSelectedNumber(null);
-    setFallbackType(overrides?.fallback ?? null);
-
-    const res = await searchBusinessPhoneNumbers({
-      installedAgentId: installedAgentId ?? undefined,
-      listingId: listingId || undefined,
-      country,
-      state: overrides?.state !== undefined ? overrides.state || undefined : state || undefined,
-      city: overrides?.city !== undefined ? overrides.city || undefined : city || undefined
-    });
-
-    setSearching(false);
-
-    if (res.success && res.data) {
-      setSearchResult(res.data);
-    } else {
-      setSearchResult(null);
-      setPurchaseError(res.error ?? "Could not search available numbers.");
-    }
-  };
-
-  const confirmPurchase = async () => {
-    if (!selectedNumber || purchasing) return;
-    if (!clientRequestIdRef.current) {
-      clientRequestIdRef.current = `pn_${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;
-    }
-
-    setPurchasing(true);
-    setPurchaseError("");
-    setProgressNote("Rechecking availability and purchasing your number…");
-
-    const res = await purchaseBusinessPhoneNumber({
-      installedAgentId: installedAgentId ?? undefined,
-      listingId: listingId || undefined,
-      clientRequestId: clientRequestIdRef.current,
-      phoneNumber: selectedNumber.phoneNumber,
-      country,
-      state: state || undefined,
-      city: city || undefined,
-      fallbackType: fallbackType ?? undefined,
-      forwardToPhone: forwardToPhone?.trim() || undefined
-    });
-
-    setPurchasing(false);
-    setProgressNote("");
-
-    if (res.success && res.data && res.data.status === "ACTIVE" && res.data.phoneNumber) {
-      onProvisioned(res.data.phoneNumber);
-      return;
-    }
-
-    // A fresh selection needs a fresh idempotency key.
-    clientRequestIdRef.current = "";
-
-    const message =
-      (res.success ? res.data?.errorMessage : null) ??
-      res.error ??
-      "The number could not be provisioned. Please try another number.";
-    setPurchaseError(message);
-
-    if (res.success && res.data?.errorCode === "NUMBER_NO_LONGER_AVAILABLE") {
-      setSelectedNumber(null);
-      void runSearch();
-    }
-  };
-
-  return (
-    <div className="flex items-start gap-3.5" data-testid="business-setup-number-selection">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-amber-500 shrink-0 mt-0.5">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-      </svg>
-      <div className="w-full">
-        <p className="text-sm font-semibold text-slate-800">Choose where your Triven AI number should be located</p>
-        <p className="mt-1 text-xs text-slate-500">
-          {catalogueNote || "Number availability depends on Twilio inventory and local regulatory requirements."}
-        </p>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Country</span>
-            <select
-              data-testid="business-setup-phone-country"
-              value={country}
-              onChange={(event) => {
-                setCountry(event.target.value);
-                setState("");
-                setCity("");
-                setSearchResult(null);
-                setSelectedNumber(null);
-              }}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-            >
-              <option value="">Select country…</option>
-              {countries.map((entry) => (
-                <option key={entry.code} value={entry.code}>
-                  {entry.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">State / Province</span>
-            <select
-              data-testid="business-setup-phone-state"
-              value={state}
-              onChange={(event) => {
-                setState(event.target.value);
-                setCity("");
-                setSearchResult(null);
-                setSelectedNumber(null);
-              }}
-              disabled={!selectedCountry || !selectedCountry.supportsRegionSearch}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
-            >
-              <option value="">
-                {selectedCountry && !selectedCountry.supportsRegionSearch ? "Country-wide search" : "Select state…"}
-              </option>
-              {(selectedCountry?.regions ?? []).map((entry) => (
-                <option key={entry.code} value={entry.code}>
-                  {entry.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">City</span>
-            <select
-              data-testid="business-setup-phone-city"
-              value={city}
-              onChange={(event) => {
-                setCity(event.target.value);
-                setSearchResult(null);
-                setSelectedNumber(null);
-              }}
-              disabled={!selectedRegion}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
-            >
-              <option value="">{selectedRegion ? "Select city…" : "Pick a state first"}</option>
-              {(selectedRegion?.cities ?? []).map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void runSearch()}
-          disabled={!country || searching || purchasing}
-          data-testid="business-setup-phone-search"
-          className="mt-4 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
-        >
-          {searching ? "Searching…" : "Search phone numbers"}
-        </button>
-
-        {searchResult && !searchResult.exactMatchAvailable && searchResult.fallbackOptions.length > 0 ? (
-          <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4" data-testid="business-setup-phone-fallback">
-            <p className="text-sm font-semibold text-slate-800">
-              No phone numbers are currently available for the selected city.
-            </p>
-            <p className="mt-1 text-xs text-slate-600">
-              You can search a nearby city, choose another number from the same state, or select a national number where available.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {searchResult.fallbackOptions.includes("NEARBY_CITY") ? (
-                <button
-                  type="button"
-                  onClick={() => setCity("")}
-                  data-testid="business-setup-phone-fallback-nearby"
-                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-                >
-                  Pick a nearby city
-                </button>
-              ) : null}
-              {searchResult.fallbackOptions.includes("SAME_STATE") ? (
-                <button
-                  type="button"
-                  onClick={() => void runSearch({ city: "", fallback: "SAME_STATE" })}
-                  data-testid="business-setup-phone-fallback-state"
-                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-                >
-                  Search the whole state
-                </button>
-              ) : null}
-              {searchResult.fallbackOptions.includes("NATIONAL") ? (
-                <button
-                  type="button"
-                  onClick={() => void runSearch({ state: "", city: "", fallback: "NATIONAL" })}
-                  data-testid="business-setup-phone-fallback-national"
-                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-                >
-                  Search nationwide
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {searchResult && searchResult.numbers.length > 0 ? (
-          <div className="mt-4 space-y-2" data-testid="business-setup-phone-results">
-            {fallbackType ? (
-              <p className="text-xs font-semibold text-amber-700" data-testid="business-setup-phone-fallback-note">
-                Showing {fallbackType === "SAME_STATE" ? "numbers from the whole state" : "nationwide numbers"} — confirm below to use one instead of an exact-city number.
-              </p>
-            ) : null}
-            {searchResult.numbers.map((number) => (
-              <button
-                key={number.phoneNumber}
-                type="button"
-                onClick={() => setSelectedNumber(number)}
-                data-testid={`business-setup-phone-option-${number.phoneNumber.replace(/\D/g, "")}`}
-                className={`w-full rounded-xl border p-3 text-left transition ${
-                  selectedNumber?.phoneNumber === number.phoneNumber
-                    ? "border-amber-400 bg-amber-50"
-                    : "border-gray-200 bg-white hover:bg-gray-50"
-                }`}
-              >
-                <span className="block font-mono text-sm font-bold text-slate-900">{number.friendlyName || number.phoneNumber}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">
-                  {[number.locality, number.region, number.country].filter(Boolean).join(", ")}
-                  {" · "}
-                  {[
-                    number.capabilities.voice ? "Voice" : null,
-                    number.capabilities.sms ? "SMS" : null,
-                    number.capabilities.mms ? "MMS" : null
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-                {number.feeCents > 0 ? (
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    {number.feeLabel}: ${(number.feeCents / 100).toFixed(2)} (one-time)
-                  </span>
-                ) : null}
-                {number.regulatoryNote ? (
-                  <span className="mt-0.5 block text-xs font-semibold text-amber-700">{number.regulatoryNote}</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {selectedNumber ? (
-          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-phone-review">
-            <p className="text-sm font-semibold text-slate-800">
-              Confirm: <span className="font-mono">{selectedNumber.friendlyName || selectedNumber.phoneNumber}</span>
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {[selectedNumber.locality, selectedNumber.region, selectedNumber.country].filter(Boolean).join(", ")}
-              {selectedNumber.feeCents > 0
-                ? ` · ${selectedNumber.feeLabel}: $${(selectedNumber.feeCents / 100).toFixed(2)} one-time`
-                : ""}
-            </p>
-            <button
-              type="button"
-              onClick={() => void confirmPurchase()}
-              disabled={purchasing}
-              data-testid="business-setup-phone-confirm"
-              className="mt-3 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {purchasing ? "Provisioning…" : "Confirm and provision this number"}
-            </button>
-            {progressNote ? (
-              <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-progress">{progressNote}</p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {purchaseError ? (
-          <p className="mt-3 text-sm font-semibold text-rose-600" data-testid="business-setup-phone-error">{purchaseError}</p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Business calendar booking test — real agent logic; bookings create  */
 /* clearly-marked [TRIVEN BUSINESS TEST] events on the connected       */
