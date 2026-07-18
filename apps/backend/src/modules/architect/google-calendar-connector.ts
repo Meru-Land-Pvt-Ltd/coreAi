@@ -1,3 +1,4 @@
+import { dateOnlyInZone, zonedWallClockToUtc } from "@coreai/shared";
 import { google } from "googleapis";
 import { env } from "../../config/env";
 import { createAuthorizedGoogleOAuthClient } from "./gmail-connector";
@@ -13,6 +14,8 @@ export type CalendarAppointmentInput = {
   startAt: string | Date;
   endAt?: string | Date | null;
   description?: string | null;
+  /** Exact event title (test events use mode-prefixed titles); default is "{service} - {name}". */
+  summaryOverride?: string | null;
 };
 
 function asDate(value: string | Date) {
@@ -23,43 +26,9 @@ function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
-function pad2(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-/** Milliseconds to add to a UTC instant to express it as wall-clock in `timeZone`. */
-function timeZoneOffsetMs(date: Date, timeZone: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  });
-  const parts = dtf.formatToParts(date).reduce<Record<string, string>>((acc, part) => {
-    if (part.type !== "literal") acc[part.type] = part.value;
-    return acc;
-  }, {});
-  const asUtc = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour === "24" ? "0" : parts.hour),
-    Number(parts.minute),
-    Number(parts.second)
-  );
-  return asUtc - date.getTime();
-}
-
-/** Convert a wall-clock time (date + h:m) in `timeZone` to the correct UTC Date. */
-export function zonedWallClockToUtc(dateStr: string, hour: number, minute: number, timeZone: string): Date {
-  const naiveUtc = new Date(`${dateStr}T${pad2(hour)}:${pad2(minute)}:00Z`);
-  const offset = timeZoneOffsetMs(naiveUtc, timeZone);
-  return new Date(naiveUtc.getTime() - offset);
-}
+// Wall-clock ↔ UTC conversion lives in @coreai/shared (single implementation
+// shared with the parser, public booking form, and frontend previews).
+export { zonedWallClockToUtc };
 
 function formatSlotLabel(date: Date, timeZone: string): string {
   return date.toLocaleTimeString("en-US", {
@@ -144,14 +113,15 @@ export async function listAvailableSlots({
 }
 
 export function getDefaultAppointmentWindow(timeZone?: string | null) {
-  const startAt = new Date();
-  startAt.setDate(startAt.getDate() + 1);
-  startAt.setHours(9, 0, 0, 0);
+  const zone = timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  // Tomorrow 9:00 AM as wall-clock time in the target zone — never server-local.
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const startAt = zonedWallClockToUtc(dateOnlyInZone(tomorrow, zone), 9, 0, zone);
 
   return {
     startAt,
     endAt: addMinutes(startAt, 30),
-    timeZone: timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
+    timeZone: zone
   };
 }
 
@@ -165,7 +135,8 @@ export async function createGoogleCalendarAppointment({
   service,
   startAt,
   endAt,
-  description
+  description,
+  summaryOverride
 }: CalendarAppointmentInput) {
   const auth = await createAuthorizedGoogleOAuthClient(userId);
   const calendar = google.calendar({ version: "v3", auth });
@@ -175,11 +146,12 @@ export async function createGoogleCalendarAppointment({
   const safeTimeZone = timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
   const appointmentService = service?.trim() || "Appointment";
   const titleName = customerName?.trim() || customerPhone;
+  const summary = summaryOverride?.trim() || `${appointmentService} - ${titleName}`;
 
   const response = await calendar.events.insert({
     calendarId: safeCalendarId,
     requestBody: {
-      summary: `${appointmentService} - ${titleName}`,
+      summary,
       description:
         description ??
         [
@@ -204,7 +176,7 @@ export async function createGoogleCalendarAppointment({
     id: response.data.id ?? null,
     htmlLink: response.data.htmlLink ?? null,
     calendarId: safeCalendarId,
-    summary: response.data.summary ?? `${appointmentService} - ${titleName}`,
+    summary: response.data.summary ?? summary,
     startAt: startDate.toISOString(),
     endAt: endDate.toISOString(),
     timeZone: safeTimeZone

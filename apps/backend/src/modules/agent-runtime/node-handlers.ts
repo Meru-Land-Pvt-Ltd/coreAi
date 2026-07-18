@@ -228,14 +228,25 @@ const handleBookAppointment: NodeHandler = async (node, context, providers) => {
     "appointment.confirmation_id": result.confirmationId,
     "appointment.date": slotParts?.[1] ?? conversation.requestedDate,
     "appointment.time": slotParts?.[2] ?? slot,
-    "appointment.calendar_event_id": result.calendarEventId
+    "appointment.calendar_event_id": result.calendarEventId,
+    ...(result.event
+      ? {
+          "appointment.event_title": result.event.title,
+          "appointment.event_link": result.event.htmlLink ?? "",
+          "appointment.event_status": result.event.status,
+          "appointment.test_event_id": result.event.testEventId ?? "",
+          "appointment.event_start": result.event.startAt,
+          "appointment.event_end": result.event.endAt,
+          "appointment.event_timezone": result.event.timeZone
+        }
+      : {})
   });
 
   turn.bookedThisTurn = result.status === "confirmed";
 
   context.toolCalls.push({
     name: "calendar.book_appointment",
-    status: "simulated",
+    status: result.status === "failed" ? "error" : "simulated",
     message: result.note,
     input: {
       customerName: stringVariable(context, "customer.name"),
@@ -247,14 +258,27 @@ const handleBookAppointment: NodeHandler = async (node, context, providers) => {
       status: result.status,
       confirmationId: result.confirmationId,
       date: stringVariable(context, "appointment.date"),
-      time: stringVariable(context, "appointment.time")
+      time: stringVariable(context, "appointment.time"),
+      ...(result.event ? { event: result.event } : {}),
+      ...(result.errorCode ? { errorCode: result.errorCode, remediation: result.remediation } : {})
     }
   });
 
-  log(context, node, "success", "Booked appointment through the calendar provider (dry run in test mode).", {
-    slot,
-    status: result.status
-  });
+  if (result.status === "failed") {
+    // Never claim the appointment was created when the calendar write failed.
+    log(context, node, "error", result.note, { slot, status: result.status, errorCode: result.errorCode });
+    return { status: "failed" };
+  }
+
+  log(
+    context,
+    node,
+    "success",
+    result.event?.status === "CREATED"
+      ? "Booked a marked test appointment on the connected calendar."
+      : "Booked appointment through the calendar provider (simulated).",
+    { slot, status: result.status }
+  );
 
   return { status: "executed" };
 };
@@ -284,7 +308,7 @@ const handleSendSms: NodeHandler = async (node, context, providers) => {
   const body = template
     ? resolveTemplate(template, context)
     : turn.bookedThisTurn
-      ? `Your ${stringVariable(context, "service")} is confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"))}. — ${context.business.name}`
+      ? `Your ${stringVariable(context, "service")} is confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone)}. — ${context.business.name}`
       : `Thanks for contacting ${context.business.name}. We will follow up shortly.`;
 
   const to = stringVariable(context, "customer.phone") || context.caller.phone;

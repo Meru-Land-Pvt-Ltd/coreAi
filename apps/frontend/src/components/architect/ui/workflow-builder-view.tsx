@@ -20,6 +20,7 @@ import { BROWSER_CALL_START_MESSAGE, VOICE_NODE_TYPES } from "@coreai/shared";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
+  deleteArchitectTestEvent,
   disconnectGmailConnector,
   getArchitectTestDeployment,
   getArchitectWorkflow,
@@ -38,11 +39,21 @@ import {
 import type {
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
+  ArchitectTestCalendarEvent,
   ArchitectTestDeploymentStatus,
   ArchitectVapiBrowserTestSession,
   ArchitectWorkflow,
   WorkflowRunLog,
 } from "@/components/architect/features/types";
+
+/** The architect's browser IANA zone — the default test timezone. */
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+  } catch {
+    return "America/New_York";
+  }
+}
 import { getAuthUser } from "@/lib/auth";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
@@ -105,6 +116,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [calendarId, setCalendarId] = useState("");
   const [timeZone, setTimeZone] = useState("");
   const [appointmentService, setAppointmentService] = useState("");
+  const [testDate, setTestDate] = useState("");
+  const [testTime, setTestTime] = useState("");
+  const [useTestCalendar, setUseTestCalendar] = useState(false);
+  const [conversationCalendarEvent, setConversationCalendarEvent] = useState<ArchitectTestCalendarEvent | null>(null);
+  const [conversationConfigError, setConversationConfigError] = useState<{ code: string; message: string; remediation: string } | null>(null);
+  const [deletingTestEvent, setDeletingTestEvent] = useState(false);
+  // One session id per builder visit groups this dry run's test records.
+  const testSessionIdRef = useRef<string>(`ts_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
   const [testEmail, setTestEmail] = useState("");
   const [callerNumber, setCallerNumber] = useState("");
   const [callerName, setCallerName] = useState("");
@@ -281,7 +300,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setBusinessType((value) => value || "Service Business");
     setCallerName((value) => value || "Test Customer");
     setCalendarId((value) => value || "primary");
-    setTimeZone((value) => value || "America/Los_Angeles");
+    // Default the test timezone to the architect's browser zone (they can pick
+    // any IANA zone in the dropdown) — never a hardcoded server-side default.
+    setTimeZone((value) => value || browserTimeZone());
     setAppointmentService((value) => value || "General Consultation");
   }, [isVoiceWorkflow]);
 
@@ -799,7 +820,22 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setConversationTranscript([]);
     setConversationLogs([]);
     setConversationToolCalls([]);
+    setConversationCalendarEvent(null);
+    setConversationConfigError(null);
     setMessage("Browser call reset");
+  }
+
+  async function deleteTestEvent(testEventId: string) {
+    setDeletingTestEvent(true);
+    const result = await deleteArchitectTestEvent(testEventId);
+    setDeletingTestEvent(false);
+
+    if (result.success) {
+      setConversationCalendarEvent(null);
+      setMessage("Test calendar event deleted");
+    } else {
+      setMessage(result.error ?? "Could not delete the test event.");
+    }
   }
 
   /**
@@ -892,18 +928,28 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     setConversationTranscript(pendingMessages);
 
+    const serviceName = appointmentService.trim();
     const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
       message: cleanMessage,
       history: previousMessages,
+      testSessionId: testSessionIdRef.current,
+      useTestCalendar,
       testContext: {
         businessName: businessName.trim() || "Sample Business",
         businessType: businessType.trim() || "Service Business",
         callerName: callerName.trim() || "Test caller",
         callerPhone: callerNumber.trim() || "+15555550100",
         calendarId: calendarId.trim() || "primary",
-        timeZone: timeZone.trim() || "America/Los_Angeles",
-        appointmentService: appointmentService.trim() || "Consultation",
-        services: ["Consultation", "Appointment booking", "General inquiry"],
+        timeZone: timeZone.trim() || browserTimeZone(),
+        // The exact service the architect typed — the backend only falls back
+        // when nothing was supplied.
+        appointmentService: serviceName || undefined,
+        // Test-form date/time seed the booking; chat statements still win.
+        requestedDate: testDate || undefined,
+        requestedTime: testTime || undefined,
+        services: serviceName
+          ? [serviceName, "General inquiry"]
+          : ["Consultation", "Appointment booking", "General inquiry"],
         faqs: [
           "Pricing depends on the selected service.",
           "Urgent requests should be escalated to the team."
@@ -932,6 +978,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setConversationTranscript(result.data.conversation.transcript);
     setConversationLogs(result.data.conversation.executedNodes);
     setConversationToolCalls(result.data.conversation.toolCalls);
+    if (result.data.conversation.calendarEvent) {
+      setConversationCalendarEvent(result.data.conversation.calendarEvent);
+    }
+    // Config errors (timezone) and booking failures (calendar disconnected,
+    // event-create failure) share the actionable error panel.
+    setConversationConfigError(
+      result.data.conversation.configError ?? result.data.conversation.calendarError ?? null
+    );
     setMessage("Browser call test complete");
     setActiveTab("test");
 
@@ -1003,6 +1057,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         callTimestamp: new Date().toISOString(),
         missedCallReason: "No one picked up the customer call.",
         appointmentService: appointmentService.trim() || "General Consultation",
+        ...(testDate
+          ? {
+              appointmentStartAt: `${testDate}T${(testTime || "09:00").padStart(5, "0")}:00`,
+              appointmentEndAt: undefined
+            }
+          : {}),
         testEmail: testEmail.trim() || undefined,
         inboundSmsBody: effectiveTriggerMessage,
         latestMessage: effectiveTriggerMessage,
@@ -1262,6 +1322,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             calendarId={calendarId}
             timeZone={timeZone}
             appointmentService={appointmentService}
+            testDate={testDate}
+            testTime={testTime}
+            useTestCalendar={useTestCalendar}
+            conversationCalendarEvent={conversationCalendarEvent}
+            conversationConfigError={conversationConfigError}
+            deletingTestEvent={deletingTestEvent}
             testEmail={testEmail}
             testDeployment={testDeployment}
             runLogs={runLogs}
@@ -1289,6 +1355,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onCalendarIdChange={setCalendarId}
             onTimeZoneChange={setTimeZone}
             onAppointmentServiceChange={setAppointmentService}
+            onTestDateChange={setTestDate}
+            onTestTimeChange={setTestTime}
+            onUseTestCalendarChange={setUseTestCalendar}
+            onDeleteTestEvent={(id) => void deleteTestEvent(id)}
             onTestEmailChange={setTestEmail}
             onTriggerMessageChange={setTriggerMessage}
             onTriggerAttachmentsChange={setTriggerAttachments}

@@ -9,6 +9,8 @@
  * server runs.
  */
 
+import { zonedWallClockToUtc } from "@coreai/shared";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const WEEKDAYS: Record<string, number> = {
@@ -74,43 +76,7 @@ type TimeParts = {
   minute: number;
 };
 
-/**
- * Returns the offset (ms) of `timeZone` at the given absolute instant.
- * offset = (wall clock shown in tz, interpreted as if UTC) - actual UTC instant.
- */
-function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-
-  const map: Record<string, string> = {};
-  for (const part of formatter.formatToParts(date)) {
-    if (part.type !== "literal") map[part.type] = part.value;
-  }
-
-  let hour = Number(map.hour);
-  if (hour === 24) hour = 0;
-
-  const asUTC = Date.UTC(
-    Number(map.year),
-    Number(map.month) - 1,
-    Number(map.day),
-    hour,
-    Number(map.minute),
-    Number(map.second)
-  );
-
-  return asUTC - date.getTime();
-}
-
-/** Convert a wall-clock time in `timeZone` to the correct UTC instant. */
+/** Convert a wall-clock time in `timeZone` to the correct UTC instant (shared impl). */
 function zonedWallTimeToUtc(
   year: number,
   monthIndex: number,
@@ -119,9 +85,8 @@ function zonedWallTimeToUtc(
   minute: number,
   timeZone: string
 ): Date {
-  const naiveUTC = Date.UTC(year, monthIndex, day, hour, minute, 0);
-  const offset = getTimeZoneOffsetMs(new Date(naiveUTC), timeZone);
-  return new Date(naiveUTC - offset);
+  const dateStr = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return zonedWallClockToUtc(dateStr, hour, minute, timeZone);
 }
 
 /** Today's calendar date (and weekday) as seen in the business time zone. */

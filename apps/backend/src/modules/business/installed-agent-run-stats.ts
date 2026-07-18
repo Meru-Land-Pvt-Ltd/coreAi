@@ -37,7 +37,10 @@ export async function buildInstalledAgentRunStats(
       where: { businessId, ...(createdAt ? { createdAt } : {}) },
       select: { installedAgentId: true, billedCostMicroUsd: true }
     }),
-    prisma.appointment.count({ where: { businessId, ...(createdAt ? { createdAt } : {}) } }),
+    // Test-mode appointments never count as production runs.
+    prisma.appointment.count({
+      where: { businessId, executionMode: "LIVE", ...(createdAt ? { createdAt } : {}) }
+    }),
     prisma.lead.count({
       where: {
         businessId,

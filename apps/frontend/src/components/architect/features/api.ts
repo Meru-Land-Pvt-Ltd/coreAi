@@ -643,6 +643,10 @@ export function runArchitectConversationTest(
   body: {
     message: string;
     history?: ArchitectConversationMessage[];
+    /** Groups this dry run's records (test calendar events). */
+    testSessionId?: string;
+    /** Create real events in the architect's OWN connected test calendar. */
+    useTestCalendar?: boolean;
     testContext?: {
       businessName?: string;
       businessType?: string;
@@ -652,6 +656,10 @@ export function runArchitectConversationTest(
       calendarId?: string;
       timeZone?: string;
       appointmentService?: string;
+      /** Test-form pre-selected date ("YYYY-MM-DD") — seeds the conversation. */
+      requestedDate?: string;
+      /** Test-form pre-selected time ("HH:mm", 24h). */
+      requestedTime?: string;
       services?: string[];
       faqs?: string[];
     };
@@ -660,6 +668,11 @@ export function runArchitectConversationTest(
   return apiPost<{
     conversation: ArchitectConversationTestResult;
   }>(`/architect/workflows/${workflowId}/conversation-test`, body);
+}
+
+/** Delete an architect test calendar event (ownership-validated, idempotent). */
+export function deleteArchitectTestEvent(testEventId: string) {
+  return apiPost<{ outcome: string }>(`/architect/test-events/${encodeURIComponent(testEventId)}/delete`, {});
 }
 
 export type { ArchitectConversationMessage, ArchitectConversationToolCall };

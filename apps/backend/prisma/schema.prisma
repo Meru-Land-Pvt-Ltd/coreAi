@@ -416,6 +416,11 @@ model Appointment {
   cancellationReason String?
   /// Vapi call id of the phone call that cancelled this appointment.
   cancellationCallId String?
+  /// How this row was produced: LIVE (default) or a test mode. Test rows are
+  /// excluded from run stats, analytics, and billing.
+  executionMode      String    @default("LIVE")
+  /// Groups rows produced by one test session (architect dry run / business test).
+  testSessionId      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -424,6 +429,43 @@ model Appointment {
   @@index([customerPhone])
   @@index([startAt])
   @@index([calendarEventId])
+  @@index([executionMode])
+}
+
+/// A calendar event created (or simulated) by a test execution. Owns the
+/// deletion lifecycle: test events can only be removed by their owner, and the
+/// stored googleEventId is the only id we ever delete on the provider.
+model TestCalendarEvent {
+  id               String    @id @default(cuid())
+  /// ARCHITECT_DRY_RUN or BUSINESS_TEST — never LIVE.
+  executionMode    String
+  /// The authenticated user who ran the test (architect user or business owner).
+  ownerUserId      String
+  businessId       String?
+  installedAgentId String?
+  workflowId       String?
+  workflowRunId    String?
+  testSessionId    String?
+  serviceName      String
+  customerName     String?
+  customerPhone    String?
+  startAt          DateTime
+  endAt            DateTime
+  timeZone         String
+  calendarId       String?
+  /// Null for simulated events (no provider write happened).
+  googleEventId    String?
+  htmlLink         String?
+  /// SIMULATED | CREATED | DELETED
+  status           String    @default("CREATED")
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([ownerUserId])
+  @@index([businessId])
+  @@index([testSessionId])
+  @@index([executionMode])
 }
 
 model VapiCall {
@@ -1008,6 +1050,57 @@ enum PhoneWebhookStatus {
   UNKNOWN
 }
 
+enum PhoneProvisioningStatus {
+  LOCATION_REQUIRED
+  SEARCHING
+  NUMBER_SELECTED
+  PURCHASE_PENDING
+  PURCHASED
+  WEBHOOK_CONFIGURATION_PENDING
+  VAPI_MAPPING_PENDING
+  ACTIVE
+  FAILED
+  RELEASE_PENDING
+  RELEASED
+}
+
+/// One buyer-initiated phone-number provisioning attempt. Drives the
+/// location → search → select → purchase → configure → active state machine and
+/// makes the purchase idempotent via (businessId, clientRequestId).
+model PhoneProvisioningRequest {
+  id                    String                  @id @default(cuid())
+  businessId            String
+  installedAgentId      String?
+  requestedByUserId     String
+  /// Client-generated idempotency key: repeated submissions return the same request.
+  clientRequestId       String
+  status                PhoneProvisioningStatus @default(NUMBER_SELECTED)
+  /// Location the buyer asked for (ISO country, region code, city name).
+  requestedCountry      String
+  requestedRegion       String?
+  requestedLocality     String?
+  /// Location of the number actually purchased.
+  actualCountry         String?
+  actualRegion          String?
+  actualLocality        String?
+  /// NEARBY_CITY | SAME_STATE | NATIONAL | TOLL_FREE — null for exact-city matches.
+  fallbackType          String?
+  fallbackConfirmedAt   DateTime?
+  selectedPhoneNumber   String
+  platformPhoneNumberId String?
+  errorCode             String?
+  errorDetail           String?
+  /// Append-only transition log: [{ from, to, at, note }].
+  auditJson             Json?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@unique([businessId, clientRequestId])
+  @@index([businessId])
+  @@index([status])
+  @@index([selectedPhoneNumber])
+}
+
 enum PaymentStatus {
   PENDING
   TRIALING
@@ -1027,7 +1120,9 @@ enum ArchitectEarningStatus {
 // WorkflowRun = one execution. NodeRun = one step. ContextLink = back-links between steps.
 
 enum WorkflowRunMode {
-  TEST // Architect test panel / dry run
+  TEST // Legacy generic test value (kept for existing rows)
+  ARCHITECT_DRY_RUN // Architect test panel / dry run
+  BUSINESS_TEST // Business owner testing an installed agent
   LIVE // Real Twilio, Vapi, or production trigger
 }
 

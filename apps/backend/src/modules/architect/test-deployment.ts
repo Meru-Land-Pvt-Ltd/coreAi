@@ -427,6 +427,7 @@ export async function startArchitectTestDeployment(
   const configJson = {
     purpose: ARCHITECT_TEST_PURPOSE,
     testMode: true,
+    executionMode: "ARCHITECT_DRY_RUN",
     architectUserId,
     workflowId,
     connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],

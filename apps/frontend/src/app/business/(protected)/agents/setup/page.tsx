@@ -17,27 +17,37 @@ import {
 } from "@coreai/shared";
 import {
   checkMailAliasAvailability,
+  deleteBusinessTestEvent,
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
   getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
+  getPhoneLocations,
+  purchaseBusinessPhoneNumber,
+  runBusinessSetupChatTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
+  searchBusinessPhoneNumbers,
   sendBusinessTestSms,
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
   sendPhoneOtp,
   verifyPhoneOtp,
+  type AvailablePhoneNumber,
+  type BusinessChatTestMessage,
   type BusinessPreviewCallSession,
   type BusinessEmailAliasData,
   type BusinessFaq,
   type BusinessHoursItem,
   type BusinessKnowledgeItem,
+  type BusinessTestCalendarEvent,
   type BuyerCustomFieldValue,
   type BuyerSetupFieldDef,
   type CallRoutingResult,
+  type PhoneLocationCountry,
+  type PhoneNumberSearchResult,
   type PlatformPhoneOption,
   type TestSmsResult
 } from "@/components/business/features/api";
@@ -624,6 +634,9 @@ function SetupWizard() {
   const [phoneNumbers, setPhoneNumbers] = useState<PlatformPhoneOption[]>([]);
   const [selectedPhoneId, setSelectedPhoneId] = useState("");
   const [assignedNumber, setAssignedNumber] = useState<string | null>(null);
+  // Location-based number selection (country → state → city → search → confirm).
+  const [numberSelectionRequired, setNumberSelectionRequired] = useState(false);
+  const [installedAgentIdForPhone, setInstalledAgentIdForPhone] = useState<string | null>(null);
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
   const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
@@ -731,10 +744,16 @@ function SetupWizard() {
       const res = await verifyPhoneOtp(listingId, existingPhoneNumber, code);
       if (res.success && res.data) {
         setPhoneVerified(true);
-        setAssignedNumber(res.data.platformNumber);
-        setSelectedPhoneId(res.data.platformPhoneNumberId);
+        setAssignedNumber(res.data.platformNumber ?? null);
+        setSelectedPhoneId(res.data.platformPhoneNumberId ?? "");
+        setInstalledAgentIdForPhone(res.data.installedAgentId ?? null);
+        setNumberSelectionRequired(Boolean(res.data.numberSelectionRequired));
         setForwardToPhone(existingPhoneNumber); // Keep forwarding to the verified number
-        setStatusMsg("Number verified successfully!");
+        setStatusMsg(
+          res.data.numberSelectionRequired
+            ? "Number verified! Now choose where your CORE number should be located."
+            : "Number verified successfully!"
+        );
       } else {
         setError(res.error ?? "Verification failed. Please check the code.");
       }
@@ -1651,6 +1670,12 @@ function SetupWizard() {
               devOtpCode={devOtpCode}
               resendCooldown={resendCooldown}
               setPhoneVerified={setPhoneVerified}
+              installedAgentIdForPhone={installedAgentIdForPhone ?? liveInstalledAgentId}
+              onNumberProvisioned={(phoneNumber) => {
+                setAssignedNumber(phoneNumber);
+                setNumberSelectionRequired(false);
+                setStatusMsg("Your CORE number is ready!");
+              }}
             />
           ) : null}
 
@@ -1734,6 +1759,9 @@ function SetupWizard() {
               onTestCallRouting={handleTestCallRouting}
               answeringMode={answeringMode}
               listing={listing}
+              showCalendarTest={showCalendar}
+              calendarConnected={calendar.connected}
+              timeZone={timeZone}
             />
           ) : null}
 
@@ -2624,7 +2652,9 @@ function StepConnect({
   onVerifyOtp,
   devOtpCode,
   resendCooldown,
-  setPhoneVerified
+  setPhoneVerified,
+  installedAgentIdForPhone,
+  onNumberProvisioned
 }: {
   title: string;
   showPhone: boolean;
@@ -2670,6 +2700,8 @@ function StepConnect({
   devOtpCode: string | null;
   resendCooldown: number;
   setPhoneVerified: React.Dispatch<React.SetStateAction<boolean>>;
+  installedAgentIdForPhone: string | null;
+  onNumberProvisioned: (phoneNumber: string) => void;
 }) {
   const [countryFlag, setCountryFlag] = useState("🇺🇸");
   const [countryCode, setCountryCode] = useState("+1");
@@ -2905,16 +2937,23 @@ function StepConnect({
           {/* Divider */}
           <div className="-mx-6 border-t border-slate-200/80 my-5" />
 
-          {/* Row 2: CORE number ready */}
-          <div className="flex items-start gap-3.5">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-            </svg>
-            <div>
-              <p className="text-sm font-semibold text-slate-500">Your CORE number is ready:</p>
-              <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight">{assignedNumber || "Pending..."}</p>
+          {/* Row 2: CORE number — ready, or location-based selection */}
+          {assignedNumber ? (
+            <div className="flex items-start gap-3.5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-slate-500">Your CORE number is ready:</p>
+                <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <PhoneNumberSelectionSection
+              installedAgentId={installedAgentIdForPhone}
+              onProvisioned={onNumberProvisioned}
+            />
+          )}
 
           {/* Spacer / selection */}
           {showCallForwarding ? (
@@ -4348,7 +4387,10 @@ function StepTest({
   testResult,
   onTestCallRouting,
   answeringMode,
-  listing
+  listing,
+  showCalendarTest = false,
+  calendarConnected = false,
+  timeZone = ""
 }: {
   showPreview: boolean;
   showCallTest: boolean;
@@ -4361,6 +4403,9 @@ function StepTest({
   onTestCallRouting: () => void;
   answeringMode: string;
   listing?: any;
+  showCalendarTest?: boolean;
+  calendarConnected?: boolean;
+  timeZone?: string;
 }) {
   const labels = getAnsweringLabels(answeringMode, listing, assignedNumber);
 
@@ -4423,6 +4468,10 @@ function StepTest({
 
 
       {showPreview ? <PreviewCallSection /> : null}
+
+      {showCalendarTest ? (
+        <BusinessCalendarTestSection calendarConnected={calendarConnected} timeZone={timeZone} />
+      ) : null}
 
       {showCallTest && labels.isVoice ? (
       <div className={SECTION} data-testid="business-setup-test-routing">
@@ -4548,6 +4597,511 @@ function StepGoLive({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+/* ------------------------------------------------------------------ */
+/* Location-based CORE number selection (country → state → city →      */
+/* search → choose → confirm → provisioning progress)                  */
+/* ------------------------------------------------------------------ */
+
+function PhoneNumberSelectionSection({
+  installedAgentId,
+  onProvisioned
+}: {
+  installedAgentId: string | null;
+  onProvisioned: (phoneNumber: string) => void;
+}) {
+  const [countries, setCountries] = useState<PhoneLocationCountry[]>([]);
+  const [catalogueNote, setCatalogueNote] = useState("");
+  const [country, setCountry] = useState("");
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState<PhoneNumberSearchResult | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<AvailablePhoneNumber | null>(null);
+  const [fallbackType, setFallbackType] = useState<"NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
+  const [purchaseError, setPurchaseError] = useState("");
+  const [progressNote, setProgressNote] = useState("");
+  // One idempotency key per confirmed selection — double clicks and retries
+  // reuse it so two numbers can never be purchased for one confirmation.
+  const clientRequestIdRef = useRef<string>("");
+
+  useEffect(() => {
+    void getPhoneLocations().then((res) => {
+      if (res.success && res.data) {
+        setCountries(res.data.countries);
+        setCatalogueNote(res.data.note);
+      }
+    });
+  }, []);
+
+  const selectedCountry = countries.find((entry) => entry.code === country) ?? null;
+  const selectedRegion = selectedCountry?.regions.find((entry) => entry.code === state) ?? null;
+
+  const runSearch = async (overrides?: { state?: string; city?: string; fallback?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" }) => {
+    if (!country) return;
+    setSearching(true);
+    setPurchaseError("");
+    setSelectedNumber(null);
+    setFallbackType(overrides?.fallback ?? null);
+
+    const res = await searchBusinessPhoneNumbers({
+      installedAgentId: installedAgentId ?? undefined,
+      country,
+      state: overrides?.state !== undefined ? overrides.state || undefined : state || undefined,
+      city: overrides?.city !== undefined ? overrides.city || undefined : city || undefined
+    });
+
+    setSearching(false);
+
+    if (res.success && res.data) {
+      setSearchResult(res.data);
+    } else {
+      setSearchResult(null);
+      setPurchaseError(res.error ?? "Could not search available numbers.");
+    }
+  };
+
+  const confirmPurchase = async () => {
+    if (!selectedNumber || purchasing) return;
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current = `pn_${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;
+    }
+
+    setPurchasing(true);
+    setPurchaseError("");
+    setProgressNote("Rechecking availability and purchasing your number…");
+
+    const res = await purchaseBusinessPhoneNumber({
+      installedAgentId: installedAgentId ?? undefined,
+      clientRequestId: clientRequestIdRef.current,
+      phoneNumber: selectedNumber.phoneNumber,
+      country,
+      state: state || undefined,
+      city: city || undefined,
+      fallbackType: fallbackType ?? undefined
+    });
+
+    setPurchasing(false);
+    setProgressNote("");
+
+    if (res.success && res.data && res.data.status === "ACTIVE" && res.data.phoneNumber) {
+      onProvisioned(res.data.phoneNumber);
+      return;
+    }
+
+    // A fresh selection needs a fresh idempotency key.
+    clientRequestIdRef.current = "";
+
+    const message =
+      (res.success ? res.data?.errorMessage : null) ??
+      res.error ??
+      "The number could not be provisioned. Please try another number.";
+    setPurchaseError(message);
+
+    if (res.success && res.data?.errorCode === "NUMBER_NO_LONGER_AVAILABLE") {
+      setSelectedNumber(null);
+      void runSearch();
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-3.5" data-testid="business-setup-number-selection">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-amber-500 shrink-0 mt-0.5">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+      </svg>
+      <div className="w-full">
+        <p className="text-sm font-semibold text-slate-800">Choose where your CORE number should be located</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {catalogueNote || "Number availability depends on Twilio inventory and local regulatory requirements."}
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Country</span>
+            <select
+              data-testid="business-setup-phone-country"
+              value={country}
+              onChange={(event) => {
+                setCountry(event.target.value);
+                setState("");
+                setCity("");
+                setSearchResult(null);
+                setSelectedNumber(null);
+              }}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+            >
+              <option value="">Select country…</option>
+              {countries.map((entry) => (
+                <option key={entry.code} value={entry.code}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">State / Province</span>
+            <select
+              data-testid="business-setup-phone-state"
+              value={state}
+              onChange={(event) => {
+                setState(event.target.value);
+                setCity("");
+                setSearchResult(null);
+                setSelectedNumber(null);
+              }}
+              disabled={!selectedCountry || !selectedCountry.supportsRegionSearch}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
+            >
+              <option value="">
+                {selectedCountry && !selectedCountry.supportsRegionSearch ? "Country-wide search" : "Select state…"}
+              </option>
+              {(selectedCountry?.regions ?? []).map((entry) => (
+                <option key={entry.code} value={entry.code}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">City</span>
+            <select
+              data-testid="business-setup-phone-city"
+              value={city}
+              onChange={(event) => {
+                setCity(event.target.value);
+                setSearchResult(null);
+                setSelectedNumber(null);
+              }}
+              disabled={!selectedRegion}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
+            >
+              <option value="">{selectedRegion ? "Select city…" : "Pick a state first"}</option>
+              {(selectedRegion?.cities ?? []).map((entry) => (
+                <option key={entry} value={entry}>
+                  {entry}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void runSearch()}
+          disabled={!country || searching || purchasing}
+          data-testid="business-setup-phone-search"
+          className="mt-4 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
+        >
+          {searching ? "Searching…" : "Search phone numbers"}
+        </button>
+
+        {searchResult && !searchResult.exactMatchAvailable && searchResult.fallbackOptions.length > 0 ? (
+          <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4" data-testid="business-setup-phone-fallback">
+            <p className="text-sm font-semibold text-slate-800">
+              No phone numbers are currently available for the selected city.
+            </p>
+            <p className="mt-1 text-xs text-slate-600">
+              You can search a nearby city, choose another number from the same state, or select a national number where available.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {searchResult.fallbackOptions.includes("NEARBY_CITY") ? (
+                <button
+                  type="button"
+                  onClick={() => setCity("")}
+                  data-testid="business-setup-phone-fallback-nearby"
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                >
+                  Pick a nearby city
+                </button>
+              ) : null}
+              {searchResult.fallbackOptions.includes("SAME_STATE") ? (
+                <button
+                  type="button"
+                  onClick={() => void runSearch({ city: "", fallback: "SAME_STATE" })}
+                  data-testid="business-setup-phone-fallback-state"
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                >
+                  Search the whole state
+                </button>
+              ) : null}
+              {searchResult.fallbackOptions.includes("NATIONAL") ? (
+                <button
+                  type="button"
+                  onClick={() => void runSearch({ state: "", city: "", fallback: "NATIONAL" })}
+                  data-testid="business-setup-phone-fallback-national"
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                >
+                  Search nationwide
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {searchResult && searchResult.numbers.length > 0 ? (
+          <div className="mt-4 space-y-2" data-testid="business-setup-phone-results">
+            {fallbackType ? (
+              <p className="text-xs font-semibold text-amber-700" data-testid="business-setup-phone-fallback-note">
+                Showing {fallbackType === "SAME_STATE" ? "numbers from the whole state" : "nationwide numbers"} — confirm below to use one instead of an exact-city number.
+              </p>
+            ) : null}
+            {searchResult.numbers.map((number) => (
+              <button
+                key={number.phoneNumber}
+                type="button"
+                onClick={() => setSelectedNumber(number)}
+                data-testid={`business-setup-phone-option-${number.phoneNumber.replace(/\D/g, "")}`}
+                className={`w-full rounded-xl border p-3 text-left transition ${
+                  selectedNumber?.phoneNumber === number.phoneNumber
+                    ? "border-amber-400 bg-amber-50"
+                    : "border-gray-200 bg-white hover:bg-gray-50"
+                }`}
+              >
+                <span className="block font-mono text-sm font-bold text-slate-900">{number.friendlyName || number.phoneNumber}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  {[number.locality, number.region, number.country].filter(Boolean).join(", ")}
+                  {" · "}
+                  {[
+                    number.capabilities.voice ? "Voice" : null,
+                    number.capabilities.sms ? "SMS" : null,
+                    number.capabilities.mms ? "MMS" : null
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                {number.feeCents > 0 ? (
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {number.feeLabel}: ${(number.feeCents / 100).toFixed(2)} (one-time)
+                  </span>
+                ) : null}
+                {number.regulatoryNote ? (
+                  <span className="mt-0.5 block text-xs font-semibold text-amber-700">{number.regulatoryNote}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {selectedNumber ? (
+          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-phone-review">
+            <p className="text-sm font-semibold text-slate-800">
+              Confirm: <span className="font-mono">{selectedNumber.friendlyName || selectedNumber.phoneNumber}</span>
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {[selectedNumber.locality, selectedNumber.region, selectedNumber.country].filter(Boolean).join(", ")}
+              {selectedNumber.feeCents > 0
+                ? ` · ${selectedNumber.feeLabel}: $${(selectedNumber.feeCents / 100).toFixed(2)} one-time`
+                : ""}
+            </p>
+            <button
+              type="button"
+              onClick={() => void confirmPurchase()}
+              disabled={purchasing}
+              data-testid="business-setup-phone-confirm"
+              className="mt-3 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+            >
+              {purchasing ? "Provisioning…" : "Confirm and provision this number"}
+            </button>
+            {progressNote ? (
+              <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-progress">{progressNote}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {purchaseError ? (
+          <p className="mt-3 text-sm font-semibold text-rose-600" data-testid="business-setup-phone-error">{purchaseError}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Business calendar booking test — real agent logic; bookings create  */
+/* clearly-marked [TRIVEN BUSINESS TEST] events on the connected       */
+/* business calendar. Never counts as production activity.             */
+/* ------------------------------------------------------------------ */
+
+function BusinessCalendarTestSection({
+  calendarConnected,
+  timeZone
+}: {
+  calendarConnected: boolean;
+  timeZone: string;
+}) {
+  const [messages, setMessages] = useState<BusinessChatTestMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [configError, setConfigError] = useState<{ code: string; message: string; remediation: string } | null>(null);
+  const [calendarEvent, setCalendarEvent] = useState<BusinessTestCalendarEvent | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState(false);
+  const testSessionIdRef = useRef<string>(`bts_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
+
+  const send = async () => {
+    const message = input.trim();
+    if (!message || sending) return;
+
+    setSending(true);
+    setChatError("");
+    setInput("");
+    const pending = [...messages, { role: "user" as const, content: message, createdAt: new Date().toISOString() }];
+    setMessages(pending);
+
+    const res = await runBusinessSetupChatTest({
+      message,
+      history: messages,
+      testSessionId: testSessionIdRef.current
+    });
+
+    setSending(false);
+
+    if (res.success && res.data) {
+      setMessages(res.data.transcript);
+      if (res.data.calendarEvent) setCalendarEvent(res.data.calendarEvent);
+      setConfigError(res.data.configError ?? res.data.calendarError ?? null);
+    } else {
+      setMessages(pending);
+      setChatError(res.error ?? "Could not run the test conversation.");
+    }
+  };
+
+  const deleteEvent = async () => {
+    if (!calendarEvent?.testEventId || deletingEvent) return;
+    setDeletingEvent(true);
+    const res = await deleteBusinessTestEvent(calendarEvent.testEventId);
+    setDeletingEvent(false);
+
+    if (res.success) {
+      setCalendarEvent(null);
+    } else {
+      setChatError(res.error ?? "Could not delete the test event.");
+    }
+  };
+
+  return (
+    <div className={SECTION} data-testid="business-setup-calendar-test">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className={SECTION_TITLE}>Test appointment booking</h3>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Chat with your agent and book a test appointment. It creates a clearly-marked test event on your connected
+            calendar — never a real customer booking.
+          </p>
+        </div>
+        <span
+          className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700"
+          data-testid="business-setup-calendar-test-badge"
+        >
+          BUSINESS TEST
+        </span>
+      </div>
+
+      <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-calendar-test-timezone">
+        Business timezone: <span className="font-semibold text-slate-700">{timeZone || "not set"}</span>
+        {calendarConnected ? " · Google Calendar connected" : " · Google Calendar not connected — bookings will fail safely"}
+      </p>
+
+      <div className="mt-4 rounded-xl border border-gray-200 bg-white">
+        <div className="max-h-64 space-y-2 overflow-y-auto p-4" data-testid="business-setup-calendar-test-transcript">
+          {messages.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Try: &ldquo;I&rsquo;d like to book a Test Appointment tomorrow at 3 PM. My name is Alex, my number is +1 555 010 0000.&rdquo;
+            </p>
+          ) : (
+            messages.map((entry, index) => (
+              <p
+                key={`${entry.role}-${index}`}
+                className={`rounded-lg px-3 py-2 text-sm ${entry.role === "user" ? "bg-amber-50 text-slate-800" : "bg-slate-50 text-slate-700"}`}
+                data-testid={`business-setup-calendar-test-message-${entry.role}`}
+              >
+                <span className="mr-1 font-semibold">{entry.role === "user" ? "You:" : "Agent:"}</span>
+                {entry.content}
+              </p>
+            ))
+          )}
+        </div>
+        <div className="flex gap-2 border-t border-gray-100 p-3">
+          <input
+            type="text"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void send();
+            }}
+            placeholder="Message your agent…"
+            data-testid="business-setup-calendar-test-input"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+          />
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={sending || !input.trim()}
+            data-testid="business-setup-calendar-test-send"
+            className="btn shrink-0 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+          >
+            {sending ? "Sending…" : "Send"}
+          </button>
+        </div>
+      </div>
+
+      {configError ? (
+        <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3" data-testid="business-setup-calendar-test-config-error">
+          <p className="text-sm font-semibold text-rose-700">{configError.message}</p>
+          <p className="mt-0.5 text-xs text-rose-600">{configError.remediation}</p>
+        </div>
+      ) : null}
+
+      {chatError ? (
+        <p className="mt-3 text-sm font-semibold text-rose-600" data-testid="business-setup-calendar-test-error">{chatError}</p>
+      ) : null}
+
+      {calendarEvent ? (
+        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-calendar-test-event">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-bold text-slate-800" data-testid="business-setup-calendar-test-event-title">{calendarEvent.title}</p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${calendarEvent.status === "CREATED" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}
+              data-testid="business-setup-calendar-test-event-status"
+            >
+              {calendarEvent.status === "CREATED" ? "Created on your calendar" : "Simulated"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-start">
+            Starts: {new Date(calendarEvent.startAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })} ({calendarEvent.timeZone})
+          </p>
+          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-end">
+            Ends: {new Date(calendarEvent.endAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            {calendarEvent.htmlLink ? (
+              <a
+                href={calendarEvent.htmlLink}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="business-setup-calendar-test-event-link"
+                className="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+              >
+                Open in Google Calendar
+              </a>
+            ) : null}
+            {calendarEvent.testEventId ? (
+              <button
+                type="button"
+                onClick={() => void deleteEvent()}
+                disabled={deletingEvent}
+                data-testid="business-setup-calendar-test-event-delete"
+                className="btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+              >
+                {deletingEvent ? "Deleting…" : "Delete test event"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

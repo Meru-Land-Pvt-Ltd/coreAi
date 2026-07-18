@@ -1,3 +1,4 @@
+import { normalizeTimeZone, zonedWallClockToUtc } from "@coreai/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
@@ -82,11 +83,16 @@ const bookingRequestSchema = z.object({
   sourceUrl: z.string().trim().max(600).optional()
 });
 
-/** Parse "YYYY-MM-DD" + optional "HH:mm" into a UTC instant; null if unusable. */
-function parseRequestedStart(dateStr?: string, timeStr?: string): Date | null {
+/**
+ * Parse "YYYY-MM-DD" + optional "HH:mm" as wall-clock time in the business
+ * timezone into a UTC instant; null if unusable. Never interprets the
+ * customer's local time as UTC.
+ */
+function parseRequestedStart(dateStr: string | undefined, timeStr: string | undefined, timeZone: string): Date | null {
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
   const time = timeStr && /^\d{2}:\d{2}$/.test(timeStr) ? timeStr : "09:00";
-  const parsed = new Date(`${dateStr}T${time}:00Z`);
+  const [hour, minute] = time.split(":").map(Number);
+  const parsed = zonedWallClockToUtc(dateStr, hour ?? 9, minute ?? 0, timeZone);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -116,7 +122,8 @@ publicBookingRoutes.post("/booking/:slug", async (c) => {
     return errorResponse(c, phone.error, 422, "INVALID_PHONE");
   }
 
-  const requestedStart = parseRequestedStart(input.preferredDate, input.preferredTime);
+  const bookingTimeZone = normalizeTimeZone(business.profile?.timeZone);
+  const requestedStart = parseRequestedStart(input.preferredDate, input.preferredTime, bookingTimeZone);
   const startAt = requestedStart ?? new Date();
   const endAt = new Date(startAt.getTime() + 30 * 60 * 1000);
   const preferredText = [input.preferredDate, input.preferredTime].filter(Boolean).join(" ");
@@ -131,7 +138,7 @@ publicBookingRoutes.post("/booking/:slug", async (c) => {
       service: input.service || null,
       startAt,
       endAt,
-      timeZone: business.profile?.timeZone || null,
+      timeZone: bookingTimeZone,
       status: "REQUESTED",
       notes: [
         "Public booking form request.",

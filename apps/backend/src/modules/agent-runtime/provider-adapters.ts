@@ -1,5 +1,8 @@
+import { zonedWallClockToUtc, type ExecutionMode } from "@coreai/shared";
 import { env } from "../../config/env";
+import { classifyCalendarError } from "../architect/calendar-errors";
 import { listAvailableSlots } from "../architect/google-calendar-connector";
+import { createTestCalendarEvent } from "../architect/test-calendar-events";
 import { addDays, asRecord, asString, dateOnly, type AgentMessage, type AgentRuntimeMode } from "./runtime-context";
 
 /**
@@ -36,11 +39,29 @@ export type CalendarBookingInput = {
   customerPhone: string;
 };
 
+export type CalendarBookingEventDetails = {
+  /** TestCalendarEvent row id — used by the delete-test-event action. */
+  testEventId?: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  timeZone: string;
+  htmlLink: string | null;
+  /** SIMULATED = preview only, CREATED = real Google event. */
+  status: "SIMULATED" | "CREATED";
+  description?: string;
+};
+
 export type CalendarBookingResult = {
   status: "confirmed" | "failed";
   confirmationId: string;
   calendarEventId: string;
   note: string;
+  /** Structured event preview/details for the test UI. */
+  event?: CalendarBookingEventDetails;
+  /** Safe public error code when status is "failed". */
+  errorCode?: string;
+  remediation?: string;
 };
 
 export type SmsSendInput = {
@@ -150,66 +171,246 @@ async function openAiComplete(input: LlmCompleteInput): Promise<string | null> {
   }
 }
 
+/** Parse a runtime slot string ("2026-07-25 3:00 PM") into its UTC start in `timeZone`. */
+export function parseSlotStartUtc(slot: string, timeZone: string): Date | null {
+  const match = slot.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+
+  if (!match) return null;
+
+  const meridiem = (match[4] ?? "").toUpperCase();
+  let hour = Number(match[2]) % 12;
+  if (meridiem === "PM") hour += 12;
+  if (!meridiem) hour = Number(match[2]);
+
+  const parsed = zonedWallClockToUtc(match[1] ?? "", hour, Number(match[3]), timeZone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+type TestBookingIdentity = {
+  /** Calendar owner: the architect for dry runs, the business owner for business tests. */
+  ownerUserId: string;
+  executionMode: Extract<ExecutionMode, "ARCHITECT_DRY_RUN" | "BUSINESS_TEST">;
+  businessId?: string | null;
+  installedAgentId?: string | null;
+  workflowId?: string | null;
+  testSessionId?: string | null;
+  businessName: string;
+  /** false = simulate (no Google write). Business tests always write; architect
+   * dry runs write only when the architect opted into their test calendar. */
+  writeRealEvent: boolean;
+};
+
+async function bookTestAppointment(
+  identity: TestBookingIdentity,
+  input: CalendarBookingInput
+): Promise<CalendarBookingResult> {
+  const startAt = parseSlotStartUtc(input.slot, input.timeZone);
+
+  if (!startAt) {
+    return {
+      status: "failed",
+      confirmationId: "",
+      calendarEventId: "",
+      note: `Could not interpret the requested time "${input.slot}".`,
+      errorCode: "INVALID_APPOINTMENT_TIME",
+      remediation: "Provide the date and time again, e.g. \"July 25 at 3:00 PM\"."
+    };
+  }
+
+  const durationMinutes = 30;
+  const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+
+  const result = await createTestCalendarEvent({
+    executionMode: identity.executionMode,
+    ownerUserId: identity.ownerUserId,
+    businessId: identity.businessId,
+    installedAgentId: identity.installedAgentId,
+    workflowId: identity.workflowId,
+    testSessionId: identity.testSessionId,
+    serviceName: input.service,
+    customerName: input.customerName,
+    customerPhone: input.customerPhone,
+    startAt,
+    endAt,
+    timeZone: input.timeZone,
+    calendarId: input.calendarId,
+    businessName: identity.businessName,
+    simulate: !identity.writeRealEvent
+  });
+
+  if (!result.ok) {
+    return {
+      status: "failed",
+      confirmationId: "",
+      calendarEventId: "",
+      note: result.error.message,
+      errorCode: result.error.code,
+      remediation: result.error.remediation
+    };
+  }
+
+  const event = result.event;
+
+  return {
+    status: "confirmed",
+    confirmationId: event.testEventId,
+    calendarEventId: event.googleEventId ?? "",
+    note:
+      event.status === "CREATED"
+        ? `Created test calendar event "${event.title}" (${event.timeZone}).`
+        : `Simulated calendar event "${event.title}" (${event.timeZone}). No live calendar event was created.`,
+    event: {
+      testEventId: event.testEventId,
+      title: event.title,
+      startAt: event.startAt,
+      endAt: event.endAt,
+      timeZone: event.timeZone,
+      htmlLink: event.htmlLink,
+      status: event.status,
+      description: event.description
+    }
+  };
+}
+
+async function readCalendarAvailability(
+  ownerUserId: string,
+  ownerLabel: string,
+  input: CalendarAvailabilityInput
+): Promise<CalendarAvailabilityResult> {
+  try {
+    const availability = await listAvailableSlots({
+      userId: ownerUserId,
+      calendarId: input.calendarId,
+      timeZone: input.timeZone,
+      date: input.date,
+      bufferMinutes: input.bufferMinutes,
+      maxSlots: input.maxSlots,
+      openHour: input.openHour,
+      closeHour: input.closeHour,
+      durationMinutes: input.durationMinutes
+    });
+
+    if (availability.slots.length > 0) {
+      return {
+        slots: availability.slots.map((slot) => `${input.date} ${slot}`),
+        source: "calendar",
+        note: `Read availability from ${ownerLabel}.`
+      };
+    }
+
+    return {
+      slots: fallbackTestSlots(input),
+      source: "test",
+      note: "Calendar returned no open slots for that day. Used business-hours test slots instead."
+    };
+  } catch (error) {
+    const classified = classifyCalendarError(error, "availability");
+    return {
+      slots: fallbackTestSlots(input),
+      source: "test",
+      note: `${classified.userMessage} Used business-hours test slots. No live Google Calendar read was performed. (${classified.code})`
+    };
+  }
+}
+
+export type ArchitectTestProviderOptions = {
+  userId: string;
+  workflowId?: string;
+  testSessionId?: string;
+  businessName?: string;
+  /** Create real events in the architect's own connected test calendar. */
+  useTestCalendar?: boolean;
+};
+
 /**
- * Architect browser call test providers:
+ * Architect dry-run providers:
  * - Calendar availability reads the architect's connected Google Calendar when
  *   permission exists; otherwise clean test slots (noted in logs only).
- * - Booking and SMS are always dry runs. Telephony/Vapi are disabled.
+ * - Booking simulates by default (full preview) or, when the architect opted
+ *   in, creates a clearly-marked event in the architect's OWN calendar —
+ *   never a buyer's. SMS is always simulated; telephony/Vapi are disabled.
  */
-export function createArchitectTestProviders({ userId }: { userId: string }): AgentProviders {
+export function createArchitectTestProviders(options: ArchitectTestProviderOptions): AgentProviders {
+  const { userId } = options;
+
   return {
     mode: "architect_test",
     telephonyEnabled: false,
     calendar: {
-      async checkAvailability(input) {
-        try {
-          const availability = await listAvailableSlots({
-            userId,
-            calendarId: input.calendarId,
-            timeZone: input.timeZone,
-            date: input.date,
-            bufferMinutes: input.bufferMinutes,
-            maxSlots: input.maxSlots,
-            openHour: input.openHour,
-            closeHour: input.closeHour,
-            durationMinutes: input.durationMinutes
-          });
-
-          if (availability.slots.length > 0) {
-            return {
-              slots: availability.slots.map((slot) => `${input.date} ${slot}`),
-              source: "calendar",
-              note: "Read availability from the architect's connected Google Calendar."
-            };
-          }
-
-          return {
-            slots: fallbackTestSlots(input),
-            source: "test",
-            note: "Calendar returned no open slots for that day. Used business-hours test slots instead."
-          };
-        } catch {
-          return {
-            slots: fallbackTestSlots(input),
-            source: "test",
-            note: "Calendar permission missing. Used business-hours test slots. No live Google Calendar read was performed."
-          };
-        }
-      },
-      async bookAppointment(input) {
-        return {
-          status: "confirmed",
-          confirmationId: `test_appt_${Date.now()}`,
-          calendarEventId: "",
-          note: `Created a dry-run booking for ${input.slot}. No live calendar event was created.`
-        };
-      }
+      checkAvailability: (input) =>
+        readCalendarAvailability(userId, "the architect's connected Google Calendar", input),
+      bookAppointment: (input) =>
+        bookTestAppointment(
+          {
+            ownerUserId: userId,
+            executionMode: "ARCHITECT_DRY_RUN",
+            workflowId: options.workflowId,
+            testSessionId: options.testSessionId,
+            businessName: options.businessName ?? "Sample Business",
+            writeRealEvent: options.useTestCalendar === true
+          },
+          input
+        )
     },
     sms: {
       async send() {
         return {
           status: "simulated",
           note: "Created a test SMS result. No Twilio SMS was sent."
+        };
+      }
+    },
+    llm: {
+      complete: openAiComplete
+    }
+  };
+}
+
+export type BusinessTestProviderOptions = {
+  /** Business owner user id — the Google Calendar connection belongs to them. */
+  ownerUserId: string;
+  businessId: string;
+  installedAgentId?: string;
+  workflowId?: string;
+  testSessionId?: string;
+  businessName: string;
+};
+
+/**
+ * Business test providers:
+ * - Availability reads the business's own connected Google Calendar.
+ * - Booking creates a REAL, clearly-marked test event on the business calendar
+ *   so the owner can verify the integration end-to-end.
+ * - SMS is simulated (explicit test-recipient sends go through the dedicated
+ *   test-sms endpoint). Telephony/Vapi are disabled.
+ */
+export function createBusinessTestProviders(options: BusinessTestProviderOptions): AgentProviders {
+  return {
+    mode: "business_test",
+    telephonyEnabled: false,
+    calendar: {
+      checkAvailability: (input) =>
+        readCalendarAvailability(options.ownerUserId, "the business's connected Google Calendar", input),
+      bookAppointment: (input) =>
+        bookTestAppointment(
+          {
+            ownerUserId: options.ownerUserId,
+            executionMode: "BUSINESS_TEST",
+            businessId: options.businessId,
+            installedAgentId: options.installedAgentId,
+            workflowId: options.workflowId,
+            testSessionId: options.testSessionId,
+            businessName: options.businessName,
+            writeRealEvent: true
+          },
+          input
+        )
+    },
+    sms: {
+      async send() {
+        return {
+          status: "simulated",
+          note: "Business test: SMS simulated. No customer SMS was sent."
         };
       }
     },

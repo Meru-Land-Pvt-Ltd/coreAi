@@ -1,8 +1,10 @@
 /**
  * Shared agent runtime context. One runtime powers the Architect browser call
- * test, the future Business browser test, and the live Vapi/Twilio call flow —
+ * test, the Business browser test, and the live Vapi/Twilio call flow —
  * only the provider adapters differ per mode.
  */
+
+import { dateOnlyInZone, isValidTimeZone } from "@coreai/shared";
 
 export type AgentRuntimeMode = "architect_test" | "business_test" | "live";
 
@@ -158,8 +160,14 @@ export function addDays(date: Date, days: number): Date {
   return next;
 }
 
-/** "2026-07-06 10:00 AM" -> "tomorrow at 10:00 AM" (relative when possible). */
-export function humanSlotLabel(slot: string): string {
+/** "YYYY-MM-DD" for `date` in the execution timezone; UTC only when no valid zone. */
+export function dateOnlyInExecutionZone(date: Date, timeZone?: string): string {
+  const zone = (timeZone ?? "").trim();
+  return zone && isValidTimeZone(zone) ? dateOnlyInZone(date, zone) : dateOnly(date);
+}
+
+/** "2026-07-06 10:00 AM" -> "tomorrow at 10:00 AM" (relative in the execution timezone). */
+export function humanSlotLabel(slot: string, timeZone?: string): string {
   const match = slot.match(/^(\d{4}-\d{2}-\d{2})\s+(.+)$/);
 
   if (!match) return slot;
@@ -168,9 +176,11 @@ export function humanSlotLabel(slot: string): string {
   const timePart = (match[2] ?? "").replace(/^0(\d)/, "$1");
   const base = new Date();
 
-  if (datePart === dateOnly(base)) return `today at ${timePart}`;
-  if (datePart === dateOnly(addDays(base, 1))) return `tomorrow at ${timePart}`;
-  if (datePart === dateOnly(addDays(base, 2))) return `the day after tomorrow at ${timePart}`;
+  if (datePart === dateOnlyInExecutionZone(base, timeZone)) return `today at ${timePart}`;
+  if (datePart === dateOnlyInExecutionZone(addDays(base, 1), timeZone)) return `tomorrow at ${timePart}`;
+  if (datePart === dateOnlyInExecutionZone(addDays(base, 2), timeZone)) {
+    return `the day after tomorrow at ${timePart}`;
+  }
 
   const parsed = new Date(`${datePart}T00:00:00Z`);
 
@@ -186,8 +196,8 @@ export function humanSlotLabel(slot: string): string {
   return `${dayLabel} at ${timePart}`;
 }
 
-export function humanSlotList(slots: string[]): string {
-  const labels = slots.map(humanSlotLabel);
+export function humanSlotList(slots: string[], timeZone?: string): string {
+  const labels = slots.map((slot) => humanSlotLabel(slot, timeZone));
 
   if (labels.length === 0) return "";
   if (labels.length === 1) return labels[0] ?? "";
@@ -237,6 +247,23 @@ export function pickOfferedSlot(message: string, slots: string[]): string {
   if (/\b(afternoon|evening)\b/.test(text)) return slots.find((slot) => slot.includes("PM")) ?? "";
 
   return "";
+}
+
+/** "15:00" (24h form input) -> "3:00 PM"; "" when the value is not a valid HH:mm. */
+export function timeLabelFrom24h(value: string): string {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) return "";
+
+  const hour = Number(match[1]);
+  const minutes = match[2] ?? "00";
+
+  if (hour > 23 || Number(minutes) > 59) return "";
+
+  const meridiem = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+
+  return `${hour12}:${minutes} ${meridiem}`;
 }
 
 /** "at 9 am" -> "9:00 AM"; used when the caller states a time not in the offered list. */
@@ -374,7 +401,10 @@ export function inferConversationState(params: {
   let schedulingIntent = false;
   let smsRequested = false;
   let requestedService = "";
-  let requestedDate = dateOnly(addDays(new Date(), 1));
+  // "today"/"tomorrow" are the caller's words — interpret them in the business
+  // timezone, never the server's.
+  const zone = business.timezone;
+  let requestedDate = dateOnlyInExecutionZone(addDays(new Date(), 1), zone);
 
   for (const item of userMessages) {
     const name = extractName(item);
@@ -385,8 +415,8 @@ export function inferConversationState(params: {
     if (mentionsSpecificTime(item)) lastTimeMessage = item;
     if (wantsScheduling(item)) schedulingIntent = true;
     if (wantsSmsMessage(item)) smsRequested = true;
-    if (/\btoday\b/i.test(item)) requestedDate = dateOnly(new Date());
-    else if (/\btomorrow\b/i.test(item)) requestedDate = dateOnly(addDays(new Date(), 1));
+    if (/\btoday\b/i.test(item)) requestedDate = dateOnlyInExecutionZone(new Date(), zone);
+    else if (/\btomorrow\b/i.test(item)) requestedDate = dateOnlyInExecutionZone(addDays(new Date(), 1), zone);
 
     for (const service of business.services) {
       if (service && item.toLowerCase().includes(service.toLowerCase())) {

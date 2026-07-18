@@ -6,6 +6,7 @@ import {
   inferConversationState,
   isPureGreeting,
   stringVariable,
+  timeLabelFrom24h,
   type AgentBusinessContext,
   type AgentCallerContext,
   type AgentChannel,
@@ -231,7 +232,7 @@ function buildRuntimeSystemPrompt(params: {
   const { business, conversation, turn } = context;
   const slots = context.variables["calendar.available_slots"];
   const slotStrings = Array.isArray(slots) ? slots.filter((s): s is string => typeof s === "string") : [];
-  const slotList = humanSlotList(slotStrings);
+  const slotList = humanSlotList(slotStrings, business.timezone);
 
   const workflowMap = graph.executionOrder
     .map((node) => `- ${nodeLabel(node, node.id)} (${nodeCapability(node)})`)
@@ -243,9 +244,9 @@ function buildRuntimeSystemPrompt(params: {
 Current state this turn (internal — never read this aloud):
 - Caller name collected: ${conversation.collectedName || "NOT YET — ask before confirming any booking"}
 - Caller phone collected: ${conversation.collectedPhone || "NOT YET — ask before confirming any booking"}
-- Time chosen: ${stringVariable(context, "selected.slot") ? humanSlotLabel(stringVariable(context, "selected.slot")) : "not chosen yet"}
+- Time chosen: ${stringVariable(context, "selected.slot") ? humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone) : "not chosen yet"}
 - Requested service: ${stringVariable(context, "service") || business.appointmentService}
-- Booking completed THIS turn: ${turn.bookedThisTurn ? `YES — confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"))}. Confirm it naturally.${turn.smsThisTurn ? " Mention the details will be texted." : " Do not mention any text or SMS."}` : "NO — never say an appointment is booked or confirmed this turn."}
+- Booking completed THIS turn: ${turn.bookedThisTurn ? `YES — confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone)}. Confirm it naturally.${turn.smsThisTurn ? " Mention the details will be texted." : " Do not mention any text or SMS."}` : "NO — never say an appointment is booked or confirmed this turn."}
 ${slotStrings.length > 0 ? `- Available times returned by the calendar (offer only these; if there are many, mention about five and ask morning or afternoon): ${slotList}` : ""}
 ${turn.missingVariables.length > 0 ? `- Before the next step can happen you still need: ${describeMissingVariables(turn.missingVariables)}. Ask for exactly that now.` : ""}
 ${conversation.detailsComplaint ? "- The caller pointed out you did not collect their details. Apologize briefly and ask for their full name and phone number now." : ""}
@@ -395,7 +396,7 @@ function fallbackReply(params: {
     const name = conversation.collectedName.split(" ")[0] ?? "";
     const smsNote = turn.smsThisTurn ? " We'll text the details to you shortly." : "";
 
-    return `Perfect${name ? `, ${name}` : ""}, you're booked for ${humanSlotLabel(selectedSlot)}.${smsNote} Is there anything else I can help you with?`;
+    return `Perfect${name ? `, ${name}` : ""}, you're booked for ${humanSlotLabel(selectedSlot, business.timezone)}.${smsNote} Is there anything else I can help you with?`;
   }
 
   if (turn.smsThisTurn) {
@@ -411,14 +412,14 @@ function fallbackReply(params: {
     // voice-friendly: with many openings, mention a subset and narrow down.
     if (turn.slotsOffered && slotStrings.length > 0 && !selectedSlot) {
       if (slotStrings.length > 6) {
-        return `I have several openings, including ${humanSlotList(slotStrings.slice(0, 5))}. Would you prefer morning or afternoon?`;
+        return `I have several openings, including ${humanSlotList(slotStrings.slice(0, 5), business.timezone)}. Would you prefer morning or afternoon?`;
       }
 
-      return `Of course, I can help you with that. I have ${humanSlotList(slotStrings)} available. Which time works best for you?`;
+      return `Of course, I can help you with that. I have ${humanSlotList(slotStrings, business.timezone)} available. Which time works best for you?`;
     }
 
     if (turn.missingVariables.length > 0) {
-      return askForMissing(turn.missingVariables, selectedSlot ? humanSlotLabel(selectedSlot) : "");
+      return askForMissing(turn.missingVariables, selectedSlot ? humanSlotLabel(selectedSlot, business.timezone) : "");
     }
 
     if (canBook && !selectedSlot) {
@@ -487,6 +488,12 @@ export type AgentWorkflowInput = {
   history: AgentMessage[];
   business: AgentBusinessContext;
   caller: AgentCallerContext;
+  /** Test-form pre-selected appointment date ("YYYY-MM-DD"). Seeds the
+   * conversation so the tester need not repeat it in chat; anything the
+   * caller states in the conversation still wins. */
+  requestedDate?: string;
+  /** Test-form pre-selected appointment time ("HH:mm", 24h). */
+  requestedTime?: string;
 };
 
 export type AgentWorkflowResult = {
@@ -565,6 +572,20 @@ export async function runAgentWorkflow(params: {
     caller: input.caller,
     business
   });
+
+  // Test-form date/time seeding: the tester's selected values apply unless the
+  // conversation itself stated a date ("today"/"tomorrow") or a specific time.
+  if (input.requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(input.requestedDate)) {
+    const statedDate = [...input.history.map((item) => item.content), input.message].some((text) =>
+      /\b(today|tomorrow)\b/i.test(text)
+    );
+    if (!statedDate) conversation.requestedDate = input.requestedDate;
+  }
+
+  if (input.requestedTime && !conversation.lastTimeMessage) {
+    const label = timeLabelFrom24h(input.requestedTime);
+    if (label) conversation.lastTimeMessage = `at ${label.toLowerCase()}`;
+  }
 
   const context: AgentRuntimeContext = {
     mode,

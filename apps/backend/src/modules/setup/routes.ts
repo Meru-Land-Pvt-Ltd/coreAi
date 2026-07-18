@@ -8,7 +8,6 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { resolveTwilioSmsMode, sendTwilioSms, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
-import { claimAvailableInventoryNumber, autoProvisionPhoneNumber } from "../business/phone-provisioning";
 import {
   RECEPTIONIST_WORKFLOW_DESCRIPTION,
   RECEPTIONIST_WORKFLOW_NAME,
@@ -242,9 +241,11 @@ async function getActivePhone(businessId: string) {
 
 /**
  * Store the verified business phone. The verified number is the line the
- * business owner controls (forwardToPhone). A platform Twilio number is claimed
- * when one is available so missed-call routing has a number to publish.
- */async function persistVerifiedPhone(opts: {
+ * business owner controls (forwardToPhone). The Triven inbound number is NOT
+ * auto-purchased here anymore — the owner picks a location and confirms a
+ * specific number through /business/phone-numbers/search + /purchase.
+ */
+async function persistVerifiedPhone(opts: {
   businessId: string;
   installedAgentId: string;
   phone: string;
@@ -266,33 +267,34 @@ async function getActivePhone(businessId: string) {
     });
     return {
       phoneNumber: updatedMapping.phoneNumber,
-      platformPhoneNumberId: platform?.id ?? null
+      platformPhoneNumberId: platform?.id ?? null,
+      numberSelectionRequired: false
     };
   }
 
-  const business = await prisma.business.findUnique({
-    where: { id: opts.businessId },
-    select: { ownerId: true }
+  // No inbound number yet: remember the forwarding phone on the installed
+  // agent config so purchase can pick it up, and tell the wizard to run the
+  // location → search → select → confirm flow.
+  await prisma.installedAgent.update({
+    where: { id: opts.installedAgentId },
+    data: {
+      configJson: {
+        ...(await prisma.installedAgent
+          .findUnique({ where: { id: opts.installedAgentId }, select: { configJson: true } })
+          .then((row) =>
+            row?.configJson && typeof row.configJson === "object" && !Array.isArray(row.configJson)
+              ? (row.configJson as Record<string, unknown>)
+              : {}
+          )),
+        verifiedForwardToPhone: normalized
+      } as never
+    }
   });
-
-  if (!business) {
-    throw new Error("Business not found");
-  }
-
-  const provisioned = await autoProvisionPhoneNumber({
-    buyerUserId: business.ownerId,
-    businessId: opts.businessId,
-    installedAgentId: opts.installedAgentId,
-    forwardToPhone: normalized
-  });
-
-  if (!provisioned) {
-    throw new Error("No phone number could be provisioned.");
-  }
 
   return {
-    phoneNumber: provisioned.phoneNumber,
-    platformPhoneNumberId: provisioned.platformPhoneNumberId
+    phoneNumber: null,
+    platformPhoneNumberId: null,
+    numberSelectionRequired: true
   };
 }
 
@@ -494,6 +496,9 @@ setupRoutes.post("/verify-otp", async (c) => {
         verifiedPhone: entry.phone,
         platformNumber: result.phoneNumber,
         platformPhoneNumberId: result.platformPhoneNumberId,
+        // true → the wizard must run location → search → select → confirm
+        // (numbers are no longer auto-assigned here).
+        numberSelectionRequired: result.numberSelectionRequired,
         businessId: business.id,
         installedAgentId: agent.id
       },

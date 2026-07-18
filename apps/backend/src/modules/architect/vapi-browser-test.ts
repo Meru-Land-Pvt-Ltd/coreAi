@@ -438,6 +438,7 @@ Live call handling:
   const configJson = {
     purpose: ARCHITECT_TEST_PURPOSE,
     testMode: true,
+    executionMode: "ARCHITECT_DRY_RUN",
     browserTest: true,
     // Booking + SMS are dry-runs in the browser test; availability reads stay real.
     testDryRun: true,

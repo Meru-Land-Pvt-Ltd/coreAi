@@ -1,6 +1,8 @@
+import { COMMON_TIMEZONES, describeZonedTime, isValidTimeZone } from "@coreai/shared";
 import type {
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
+  ArchitectTestCalendarEvent,
   ArchitectTestDeploymentStatus,
   ArchitectVapiBrowserTestSession,
   WorkflowRunLog
@@ -46,6 +48,12 @@ export function TestPanel({
   calendarId,
   timeZone,
   appointmentService,
+  testDate = "",
+  testTime = "",
+  useTestCalendar = false,
+  conversationCalendarEvent = null,
+  conversationConfigError = null,
+  deletingTestEvent = false,
   testEmail = "",
   testDeployment,
   runLogs,
@@ -73,6 +81,10 @@ export function TestPanel({
   onCalendarIdChange,
   onTimeZoneChange,
   onAppointmentServiceChange,
+  onTestDateChange,
+  onTestTimeChange,
+  onUseTestCalendarChange,
+  onDeleteTestEvent,
   onTestEmailChange,
   onTriggerMessageChange,
   onTriggerAttachmentsChange
@@ -100,6 +112,12 @@ export function TestPanel({
   calendarId: string;
   timeZone: string;
   appointmentService: string;
+  testDate?: string;
+  testTime?: string;
+  useTestCalendar?: boolean;
+  conversationCalendarEvent?: ArchitectTestCalendarEvent | null;
+  conversationConfigError?: { code: string; message: string; remediation: string } | null;
+  deletingTestEvent?: boolean;
   testEmail?: string;
   testDeployment: ArchitectTestDeploymentStatus | null;
   runLogs: WorkflowRunLog[];
@@ -127,6 +145,10 @@ export function TestPanel({
   onCalendarIdChange: (value: string) => void;
   onTimeZoneChange: (value: string) => void;
   onAppointmentServiceChange: (value: string) => void;
+  onTestDateChange?: (value: string) => void;
+  onTestTimeChange?: (value: string) => void;
+  onUseTestCalendarChange?: (value: boolean) => void;
+  onDeleteTestEvent?: (testEventId: string) => void;
   onTestEmailChange?: (value: string) => void;
   onTriggerMessageChange: (value: string) => void;
   onTriggerAttachmentsChange: (value: AIAttachment[]) => void;
@@ -163,6 +185,28 @@ export function TestPanel({
   );
 
   const sandboxReady = testDeployment?.status === "READY";
+
+  // Exact interpreted date/time preview in the selected test timezone —
+  // computed with the same shared conversion the backend uses.
+  const interpretedTime = (() => {
+    if (!testDate || !isValidTimeZone(timeZone)) return null;
+    const [hourRaw, minuteRaw] = (testTime || "09:00").split(":");
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    try {
+      return describeZonedTime({ date: testDate, hour, minute, timeZone });
+    } catch {
+      return null;
+    }
+  })();
+
+  const timezoneOptions = (() => {
+    const known = COMMON_TIMEZONES.some((option) => option.value === timeZone);
+    return known || !timeZone
+      ? COMMON_TIMEZONES
+      : [{ value: timeZone, label: timeZone }, ...COMMON_TIMEZONES];
+  })();
   const subtitle = isVoiceWorkflow
     ? null
     : "Send a sample trigger through the workflow and watch each step run in real time.";
@@ -424,7 +468,68 @@ export function TestPanel({
                         placeholder="General Consultation"
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
                       />
+                      <span className="mt-1.5 block text-[11px] leading-4 text-slate-400" data-testid="builder-test-appointment-service-hint">
+                        The exact service name entered here is used in the conversation and calendar event.
+                      </span>
                     </label>
+                    <label data-testid="builder-test-timezone-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Test timezone</span>
+                      <select
+                        data-testid="builder-test-timezone-select"
+                        value={timeZone}
+                        onChange={(event) => onTimeZoneChange(event.target.value)}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      >
+                        {timezoneOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label data-testid="builder-test-date-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Requested date</span>
+                      <input data-testid="builder-test-date-input"
+                        type="date"
+                        value={testDate}
+                        onChange={(event) => onTestDateChange?.(event.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      />
+                    </label>
+                    <label data-testid="builder-test-time-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Requested time</span>
+                      <input data-testid="builder-test-time-input"
+                        type="time"
+                        value={testTime}
+                        onChange={(event) => onTestTimeChange?.(event.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      />
+                    </label>
+                    {interpretedTime ? (
+                      <p className="sm:col-span-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-slate-600" data-testid="builder-test-interpreted-time">
+                        Interpreted as {interpretedTime.displayDate} at {interpretedTime.displayTime} ({interpretedTime.timeZone}) — stored as {interpretedTime.startAtUtc} UTC.
+                      </p>
+                    ) : null}
+                    <label className="sm:col-span-2 flex items-start gap-2" data-testid="builder-test-calendar-mode-label">
+                      <input
+                        data-testid="builder-test-use-test-calendar"
+                        type="checkbox"
+                        checked={useTestCalendar}
+                        onChange={(event) => onUseTestCalendarChange?.(event.target.checked)}
+                        disabled={!calendarConnected}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
+                      />
+                      <span className="text-xs text-slate-600">
+                        <span className="font-semibold text-slate-700">Create real events in my test calendar.</span>{" "}
+                        {calendarConnected
+                          ? "Bookings create [TRIVEN ARCHITECT TEST] events on your own connected Google Calendar. Off = fully simulated with a full event preview."
+                          : "Connect your Google account to enable this. Until then bookings are fully simulated with a full event preview."}
+                      </span>
+                    </label>
+                    <p className="sm:col-span-2 flex items-center gap-2 text-[11px] font-semibold text-slate-500" data-testid="builder-test-execution-mode-badge">
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">ARCHITECT DRY RUN</span>
+                      Test only — never touches a buyer&apos;s calendar, sends no customer SMS/email, and is excluded from production data.
+                    </p>
                   </>
                 ) : null}
               </>
@@ -550,6 +655,66 @@ export function TestPanel({
             onSendConversationMessage={onSendConversationMessage}
             onResetConversationTest={onResetConversationTest}
           />
+        ) : null}
+
+        {conversationConfigError ? (
+          <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-5 shadow-sm" data-testid="builder-test-config-error">
+            <p className="text-sm font-bold text-rose-800" data-testid="builder-test-config-error-code">{conversationConfigError.code}</p>
+            <p className="mt-1 text-sm text-rose-700" data-testid="builder-test-config-error-message">{conversationConfigError.message}</p>
+            <p className="mt-1 text-xs font-semibold text-rose-600" data-testid="builder-test-config-error-remediation">{conversationConfigError.remediation}</p>
+          </div>
+        ) : null}
+
+        {conversationCalendarEvent ? (
+          <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="builder-test-event-result">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                {conversationCalendarEvent.status === "CREATED" ? "Test calendar event created" : "Simulated calendar event preview"}
+              </h3>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${conversationCalendarEvent.status === "CREATED" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
+                data-testid="builder-test-event-status"
+              >
+                {conversationCalendarEvent.status}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-slate-800" data-testid="builder-test-event-title">{conversationCalendarEvent.title}</p>
+            <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-event-start">
+              Starts: {new Date(conversationCalendarEvent.startAt).toLocaleString("en-US", { timeZone: conversationCalendarEvent.timeZone })} ({conversationCalendarEvent.timeZone})
+            </p>
+            <p className="mt-1 text-xs text-slate-500" data-testid="builder-test-event-end">
+              Ends: {new Date(conversationCalendarEvent.endAt).toLocaleString("en-US", { timeZone: conversationCalendarEvent.timeZone })}
+            </p>
+            {conversationCalendarEvent.description ? (
+              <p className="mt-2 whitespace-pre-line text-xs text-slate-500" data-testid="builder-test-event-description">
+                {conversationCalendarEvent.description}
+              </p>
+            ) : null}
+            <div className="mt-3 flex items-center gap-2">
+              {conversationCalendarEvent.htmlLink ? (
+                <a
+                  href={conversationCalendarEvent.htmlLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="builder-test-event-link"
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+                >
+                  Open in Google Calendar
+                </a>
+              ) : null}
+              {conversationCalendarEvent.testEventId ? (
+                <button
+                  type="button"
+                  onClick={() => onDeleteTestEvent?.(conversationCalendarEvent.testEventId!)}
+                  disabled={deletingTestEvent}
+                  data-testid="builder-test-event-delete"
+                  className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-60"
+                >
+                  {deletingTestEvent ? "Deleting..." : "Delete test event"}
+                </button>
+              ) : null}
+            </div>
+          </div>
         ) : null}
 
         <div className="mt-6 overflow-hidden rounded-2xl bg-slate-900 shadow-sm ring-1 ring-slate-900/5">

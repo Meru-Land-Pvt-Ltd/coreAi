@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { calendarEventTitleForMode } from "@coreai/shared";
 import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -64,6 +65,9 @@ type BusinessRuntimeContext = {
   escalationRules?: string;
   knowledge: string[];
   hours?: unknown;
+  /** LIVE by default; architect sandbox agents run as ARCHITECT_DRY_RUN so
+   * their bookings are marked as tests and excluded from production data. */
+  executionMode?: "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" | "LIVE";
 };
 
 type ResolvedAgent = {
@@ -256,16 +260,27 @@ function faqStrings(value: unknown): string[] {
 function buildBusinessContext(
   business: any,
   phoneNumber?: string | null,
-  installedAgent?: { id?: string; listingId?: string | null } | null
+  installedAgent?: { id?: string; listingId?: string | null; configJson?: unknown } | null
 ): BusinessRuntimeContext {
   const profile = business?.profile;
   const knowledgeBases = Array.isArray(business?.knowledgeBases) ? business.knowledgeBases : [];
+  const agentConfig =
+    installedAgent?.configJson && typeof installedAgent.configJson === "object" && !Array.isArray(installedAgent.configJson)
+      ? (installedAgent.configJson as Record<string, unknown>)
+      : {};
+  const executionMode: BusinessRuntimeContext["executionMode"] =
+    agentConfig.executionMode === "ARCHITECT_DRY_RUN" || agentConfig.executionMode === "BUSINESS_TEST"
+      ? agentConfig.executionMode
+      : agentConfig.testMode === true
+        ? "ARCHITECT_DRY_RUN"
+        : "LIVE";
 
   return {
     businessId: business?.id,
     ownerId: business?.ownerId,
     installedAgentId: installedAgent?.id,
     listingId: installedAgent?.listingId ?? undefined,
+    executionMode,
     businessName: business?.name ?? env.TWILIO_DEFAULT_BUSINESS_NAME ?? "the business",
     businessType: business?.type ?? undefined,
     businessPhoneNumber: phoneNumber ?? undefined,
@@ -663,6 +678,11 @@ async function createBusinessAppointment({
     throw new Error("Business is not fully configured for calendar booking.");
   }
 
+  // Test-mode agents (architect sandbox) create clearly-marked events and rows
+  // so nothing test-generated is mistaken for a real customer booking.
+  const executionMode = business.executionMode ?? "LIVE";
+  const isTestMode = executionMode !== "LIVE";
+
   const calendarEvent = await createGoogleCalendarAppointment({
     userId: business.ownerId,
     calendarId: business.calendarId,
@@ -673,9 +693,16 @@ async function createBusinessAppointment({
     service,
     startAt,
     endAt,
-    description:
-      description ??
-      `Booked by CORE AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
+    summaryOverride: isTestMode ? calendarEventTitleForMode(executionMode, service) : undefined,
+    description: isTestMode
+      ? [
+          executionMode === "ARCHITECT_DRY_RUN"
+            ? "Triven.ai architect sandbox test appointment."
+            : "Triven.ai business test appointment.",
+          "This is not a real customer booking.",
+          `Phone: ${customerPhone}`
+        ].join("\n")
+      : description ?? `Booked by CORE AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
   });
 
   const appointment = await prisma.appointment.create({
@@ -690,6 +717,7 @@ async function createBusinessAppointment({
       timeZone: calendarEvent.timeZone,
       calendarEventId: calendarEvent.id,
       calendarEventLink: calendarEvent.htmlLink ?? undefined,
+      executionMode,
       notes: notes ?? undefined
     }
   });
@@ -849,6 +877,8 @@ async function runMissedCallAgent({
     workflowId: agent.workflowId,
     workflowJson: agent.workflowJson,
     mode: "live",
+    // Sandbox/test agents keep their test classification even on real calls.
+    executionMode: agent.business?.executionMode ?? "LIVE",
     input: runInputFromContext({
       agent,
       callerNumber,
@@ -2371,7 +2401,12 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     return NEEDS_CUSTOMER_PHONE_RESULT;
   }
 
-  const service = argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) || "Consultation";
+  // The caller-stated service is kept verbatim; the buyer-configured booking
+  // label (never a dental-specific word) is the only fallback.
+  const service =
+    argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) ||
+    ctx.dental?.bookingLabel ||
+    "Appointment";
   const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
   const time =
     parseClockTime(argStr(args, ["time", "appointment_time"])) ?? parseClockTime(ctx.transcript) ?? { hour: 9, minute: 0 };

@@ -1097,7 +1097,7 @@ async function runGoogleCalendarConnectorNode({
   const businessName = context.business?.name ?? "the business";
   const calendarId = renderTemplate(node.data?.calendarId, context) || context.business?.calendarId || "primary";
   const timeZone = context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
-  const service = renderTemplate(node.data?.appointmentService, context) || asString(context.appointmentService, "Consultation");
+  const service = renderTemplate(node.data?.appointmentService, context) || asString(context.appointmentService, "Appointment");
   context.appointmentService = service;
   const defaultWindow = getDefaultAppointmentWindow(timeZone);
   const startAtRaw = renderTemplate(node.data?.appointmentStartAt, context) || asString(context.appointmentStartAt, defaultWindow.startAt.toISOString());
@@ -1900,6 +1900,7 @@ export async function runWorkflowTest({
   workflowJson,
   input,
   mode = "test",
+  executionMode,
   chainDepth = 0,
   chainVisited = []
 }: {
@@ -1908,6 +1909,8 @@ export async function runWorkflowTest({
   workflowJson: unknown;
   input?: WorkflowRunInput;
   mode?: WorkflowRunMode;
+  /** Explicit run classification stored on WorkflowRun (wins over `mode`). */
+  executionMode?: "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" | "LIVE";
   chainDepth?: number;
   chainVisited?: string[];
 }) {
@@ -1949,6 +1952,7 @@ export async function runWorkflowTest({
     businessId: input?.businessId,
     installedAgentId: input?.installedAgentId,
     mode,
+    executionMode,
     inputJson: input as Record<string, unknown> | undefined,
   });
 
