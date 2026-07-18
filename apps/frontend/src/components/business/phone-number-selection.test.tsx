@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PhoneNumberSelectionSection } from "./phone-number-selection";
 
 /**
- * The Triven AI number selection card: Country → State → City → search →
- * select → confirm. Search never purchases; purchase happens exactly once,
+ * The Triven AI number selection card: Country → State → City → one offered
+ * number → confirm. Search never purchases; purchase happens exactly once,
  * only on explicit confirmation, with a clientRequestId.
  */
 
@@ -46,23 +46,39 @@ const CA_CITIES = {
   data: { cities: ["Los Angeles", "San Diego"] }
 };
 
+const FIRST_NUMBER = {
+  phoneNumber: "+12135550123",
+  friendlyName: "(213) 555-0123",
+  country: "US",
+  region: "CA",
+  locality: "Los Angeles",
+  capabilities: { voice: true, sms: true, mms: false },
+  numberType: "LOCAL" as const,
+  feeCents: 500,
+  feeLabel: "AI Receptionist No.",
+  regulatoryNote: null,
+  checkedAt: "2026-07-18T00:00:00.000Z"
+};
+
+const SECOND_NUMBER = {
+  ...FIRST_NUMBER,
+  phoneNumber: "+12135550999",
+  friendlyName: "(213) 555-0999"
+};
+
+const SAN_DIEGO_NUMBER = {
+  ...FIRST_NUMBER,
+  phoneNumber: "+16195550111",
+  friendlyName: "(619) 555-0111",
+  locality: "San Diego"
+};
+
 const SEARCH_RESULT = {
   success: true as const,
   data: {
     numbers: [
-      {
-        phoneNumber: "+12135550123",
-        friendlyName: "(213) 555-0123",
-        country: "US",
-        region: "CA",
-        locality: "Los Angeles",
-        capabilities: { voice: true, sms: true, mms: false },
-        numberType: "LOCAL" as const,
-        feeCents: 500,
-        feeLabel: "AI Receptionist No.",
-        regulatoryNote: null,
-        checkedAt: "2026-07-18T00:00:00.000Z"
-      }
+      FIRST_NUMBER,
+      SECOND_NUMBER
     ],
     exactMatchAvailable: true,
     matchLevel: "EXACT_CITY" as const,
@@ -71,12 +87,22 @@ const SEARCH_RESULT = {
   }
 };
 
-async function selectLocationAndSearch() {
+const SAN_DIEGO_SEARCH_RESULT = {
+  ...SEARCH_RESULT,
+  data: {
+    ...SEARCH_RESULT.data,
+    numbers: [SAN_DIEGO_NUMBER]
+  }
+};
+
+async function selectLocationAndWaitForOffer() {
   const user = userEvent.setup();
   await user.selectOptions(await screen.findByTestId("business-setup-phone-country"), "US");
+  await screen.findByRole("option", { name: "California" });
   await user.selectOptions(screen.getByTestId("business-setup-phone-state"), "CA");
+  await screen.findByRole("option", { name: "Los Angeles" });
   await user.selectOptions(screen.getByTestId("business-setup-phone-city"), "Los Angeles");
-  await user.click(screen.getByTestId("business-setup-phone-search"));
+  await screen.findByTestId("business-setup-phone-result");
   return user;
 }
 
@@ -102,7 +128,7 @@ describe("PhoneNumberSelectionSection", () => {
     expect(screen.getByTestId("business-setup-phone-search")).toBeTruthy();
   });
 
-  it("loads states and cities lazily for ANY selected country (worldwide catalogue)", async () => {
+  it("loads states and cities lazily, then automatically searches the selected location", async () => {
     vi.mocked(getPhoneStates).mockResolvedValue({
       success: true,
       data: { states: [{ code: "UP", name: "Uttar Pradesh" }], supportsCityFilter: false }
@@ -119,8 +145,14 @@ describe("PhoneNumberSelectionSection", () => {
     await waitFor(() => expect(getPhoneCities).toHaveBeenCalledWith("IN", "UP"));
 
     await user.selectOptions(screen.getByTestId("business-setup-phone-city"), "Noida");
-    // Drilling down never searches or purchases anything.
-    expect(searchBusinessPhoneNumbers).not.toHaveBeenCalled();
+    await waitFor(() => expect(searchBusinessPhoneNumbers).toHaveBeenCalledWith({
+      installedAgentId: undefined,
+      listingId: "listing-1",
+      country: "IN",
+      state: "UP",
+      city: "Noida"
+    }));
+    // Finding the offer never purchases it.
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 
@@ -134,9 +166,9 @@ describe("PhoneNumberSelectionSection", () => {
     expect(screen.getByTestId("business-setup-phone-locations-retry")).toBeTruthy();
   });
 
-  it("search sends the location payload with listingId and NEVER purchases", async () => {
+  it("auto-search sends the location payload with listingId and NEVER purchases", async () => {
     render(<PhoneNumberSelectionSection installedAgentId="agent-1" listingId="listing-1" onProvisioned={vi.fn()} />);
-    await selectLocationAndSearch();
+    await selectLocationAndWaitForOffer();
 
     await waitFor(() => expect(searchBusinessPhoneNumbers).toHaveBeenCalledTimes(1));
     expect(vi.mocked(searchBusinessPhoneNumbers).mock.calls[0]?.[0]).toEqual({
@@ -149,14 +181,15 @@ describe("PhoneNumberSelectionSection", () => {
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 
-  it("selecting a result does not purchase until explicit confirmation", async () => {
+  it("shows only the first available number and waits for explicit confirmation", async () => {
     render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
-    const user = await selectLocationAndSearch();
+    await selectLocationAndWaitForOffer();
 
-    await user.click(await screen.findByTestId("business-setup-phone-result"));
+    expect(screen.getByText(FIRST_NUMBER.friendlyName)).toBeTruthy();
+    expect(screen.queryByText(SECOND_NUMBER.friendlyName)).toBeNull();
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
 
-    // The review + confirm affordance is now visible.
+    // The one offer is already selected, but buying still requires confirmation.
     expect(screen.getByTestId("business-setup-phone-confirm")).toBeTruthy();
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
@@ -164,9 +197,8 @@ describe("PhoneNumberSelectionSection", () => {
   it("confirm triggers exactly one purchase request with a clientRequestId", async () => {
     const onProvisioned = vi.fn();
     render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={onProvisioned} />);
-    const user = await selectLocationAndSearch();
+    const user = await selectLocationAndWaitForOffer();
 
-    await user.click(await screen.findByTestId("business-setup-phone-result"));
     await user.click(screen.getByTestId("business-setup-phone-confirm"));
 
     await waitFor(() => expect(purchaseBusinessPhoneNumber).toHaveBeenCalledTimes(1));
@@ -177,6 +209,69 @@ describe("PhoneNumberSelectionSection", () => {
     expect(onProvisioned).toHaveBeenCalledWith("+12135550123");
   });
 
+  it("ignores an older search response after the buyer changes city", async () => {
+    let resolveLosAngelesSearch: ((value: unknown) => void) | undefined;
+    vi.mocked(searchBusinessPhoneNumbers)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveLosAngelesSearch = resolve;
+      }) as never)
+      .mockResolvedValueOnce(SAN_DIEGO_SEARCH_RESULT as never);
+
+    render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.selectOptions(await screen.findByTestId("business-setup-phone-country"), "US");
+    await screen.findByRole("option", { name: "California" });
+    await user.selectOptions(screen.getByTestId("business-setup-phone-state"), "CA");
+    await screen.findByRole("option", { name: "Los Angeles" });
+    await user.selectOptions(screen.getByTestId("business-setup-phone-city"), "Los Angeles");
+    await waitFor(() => expect(searchBusinessPhoneNumbers).toHaveBeenCalledTimes(1));
+
+    await user.selectOptions(screen.getByTestId("business-setup-phone-city"), "San Diego");
+    await waitFor(() => expect(searchBusinessPhoneNumbers).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(SAN_DIEGO_NUMBER.friendlyName)).toBeTruthy();
+
+    await act(async () => {
+      resolveLosAngelesSearch?.(SEARCH_RESULT);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText(FIRST_NUMBER.friendlyName)).toBeNull();
+    expect(screen.getByText(SAN_DIEGO_NUMBER.friendlyName)).toBeTruthy();
+    expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
+  });
+
+  it("starts a fresh provisioning key when a new location produces a new offer", async () => {
+    vi.mocked(searchBusinessPhoneNumbers)
+      .mockResolvedValueOnce(SEARCH_RESULT as never)
+      .mockResolvedValueOnce(SAN_DIEGO_SEARCH_RESULT as never);
+    vi.mocked(purchaseBusinessPhoneNumber)
+      .mockResolvedValueOnce({
+        success: true,
+        data: { status: "FAILED", requestId: "req_1", phoneNumber: null, alreadyCompleted: false, errorCode: "ASSIGNMENT_FAILED", errorMessage: "Try again." }
+      } as never)
+      .mockResolvedValueOnce({
+        success: true,
+        data: { status: "ACTIVE", requestId: "req_2", phoneNumber: SAN_DIEGO_NUMBER.phoneNumber, alreadyCompleted: false, errorCode: null, errorMessage: null }
+      } as never);
+
+    render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
+    const user = await selectLocationAndWaitForOffer();
+
+    await user.click(screen.getByTestId("business-setup-phone-confirm"));
+    await waitFor(() => expect(purchaseBusinessPhoneNumber).toHaveBeenCalledTimes(1));
+
+    await user.selectOptions(screen.getByTestId("business-setup-phone-city"), "San Diego");
+    expect(await screen.findByText(SAN_DIEGO_NUMBER.friendlyName)).toBeTruthy();
+    await user.click(screen.getByTestId("business-setup-phone-confirm"));
+    await waitFor(() => expect(purchaseBusinessPhoneNumber).toHaveBeenCalledTimes(2));
+
+    const calls = vi.mocked(purchaseBusinessPhoneNumber).mock.calls;
+    expect((calls[0]?.[0] as { clientRequestId: string }).clientRequestId)
+      .not.toBe((calls[1]?.[0] as { clientRequestId: string }).clientRequestId);
+    expect((calls[1]?.[0] as { phoneNumber: string }).phoneNumber).toBe(SAN_DIEGO_NUMBER.phoneNumber);
+  });
+
   it("repeat confirmations reuse the same clientRequestId (idempotent, never a second number)", async () => {
     // First attempt fails transiently so the confirm button stays available.
     vi.mocked(purchaseBusinessPhoneNumber).mockResolvedValueOnce({
@@ -185,9 +280,8 @@ describe("PhoneNumberSelectionSection", () => {
     } as never);
 
     render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
-    const user = await selectLocationAndSearch();
+    const user = await selectLocationAndWaitForOffer();
 
-    await user.click(await screen.findByTestId("business-setup-phone-result"));
     await user.click(screen.getByTestId("business-setup-phone-confirm"));
     await waitFor(() => expect(purchaseBusinessPhoneNumber).toHaveBeenCalledTimes(1));
 

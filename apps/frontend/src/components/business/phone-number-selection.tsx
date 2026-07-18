@@ -52,6 +52,9 @@ export function PhoneNumberSelectionSection({
   // One idempotency key per confirmed selection — double clicks and retries
   // reuse it so two numbers can never be purchased for one confirmation.
   const clientRequestIdRef = useRef<string>("");
+  // A location can change while Twilio is still searching. Only the newest
+  // request may offer a number; older responses are ignored.
+  const searchRequestSequenceRef = useRef(0);
 
   const loadCatalogue = useCallback(() => {
     setCatalogueLoading(true);
@@ -114,10 +117,31 @@ export function PhoneNumberSelectionSection({
   const selectedCountry = countries.find((entry) => entry.code === country) ?? null;
   const selectedRegion = states.find((entry) => entry.code === state) ?? null;
 
-  const runSearch = async (overrides?: { state?: string; city?: string; fallback?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" }) => {
+  const resetOffer = useCallback(() => {
+    searchRequestSequenceRef.current += 1;
+    clientRequestIdRef.current = "";
+    setSearching(false);
+    setSearchResult(null);
+    setSelectedNumber(null);
+    setFallbackType(null);
+    setPurchaseError("");
+  }, []);
+
+  const runSearch = useCallback(async (overrides?: {
+    state?: string;
+    city?: string;
+    fallback?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE";
+  }) => {
     if (!country) return;
+
+    const requestSequence = searchRequestSequenceRef.current + 1;
+    searchRequestSequenceRef.current = requestSequence;
+    // Each search creates a new single offer. Confirmation retries without a
+    // new search continue to reuse the same provisioning request key.
+    clientRequestIdRef.current = "";
     setSearching(true);
     setPurchaseError("");
+    setSearchResult(null);
     setSelectedNumber(null);
     setFallbackType(overrides?.fallback ?? null);
 
@@ -129,15 +153,27 @@ export function PhoneNumberSelectionSection({
       city: overrides?.city !== undefined ? overrides.city || undefined : city || undefined
     });
 
+    if (searchRequestSequenceRef.current !== requestSequence) return;
+
     setSearching(false);
 
     if (res.success && res.data) {
       setSearchResult(res.data);
+      // Twilio can return several candidates, but setup deliberately offers
+      // only one. Nothing is purchased until the buyer confirms it below.
+      setSelectedNumber(res.data.numbers[0] ?? null);
     } else {
       setSearchResult(null);
       setPurchaseError(res.error ?? "Could not search available numbers.");
     }
-  };
+  }, [city, country, installedAgentId, listingId, state]);
+
+  // Once the complete location is known, immediately offer one exact-location
+  // number. The manual button remains for retries and country/state-only cases.
+  useEffect(() => {
+    if (!country || !city) return;
+    void runSearch();
+  }, [city, country, runSearch]);
 
   const confirmPurchase = async () => {
     if (!selectedNumber || purchasing) return;
@@ -224,12 +260,12 @@ export function PhoneNumberSelectionSection({
               data-testid="business-setup-phone-country"
               value={country}
               onChange={(event) => {
+                resetOffer();
                 setCountry(event.target.value);
                 setState("");
                 setCity("");
-                setSearchResult(null);
-                setSelectedNumber(null);
               }}
+              disabled={purchasing}
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
             >
               <option value="">Select country…</option>
@@ -246,12 +282,11 @@ export function PhoneNumberSelectionSection({
               data-testid="business-setup-phone-state"
               value={state}
               onChange={(event) => {
+                resetOffer();
                 setState(event.target.value);
                 setCity("");
-                setSearchResult(null);
-                setSelectedNumber(null);
               }}
-              disabled={!selectedCountry || statesLoading || (states.length === 0 && !statesLoading)}
+              disabled={purchasing || !selectedCountry || statesLoading || (states.length === 0 && !statesLoading)}
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
             >
               <option value="">
@@ -274,11 +309,10 @@ export function PhoneNumberSelectionSection({
               data-testid="business-setup-phone-city"
               value={city}
               onChange={(event) => {
+                resetOffer();
                 setCity(event.target.value);
-                setSearchResult(null);
-                setSelectedNumber(null);
               }}
-              disabled={citiesLoading || cities.length === 0}
+              disabled={purchasing || citiesLoading || cities.length === 0}
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
             >
               <option value="">
@@ -306,7 +340,7 @@ export function PhoneNumberSelectionSection({
           data-testid="business-setup-phone-search"
           className="mt-4 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
         >
-          {searching ? "Searching…" : "Search phone numbers"}
+          {searching ? "Searching…" : searchResult ? "Retry search" : "Find one available number"}
         </button>
 
         {searchResult && !searchResult.exactMatchAvailable && searchResult.fallbackOptions.length > 0 ? (
@@ -321,7 +355,10 @@ export function PhoneNumberSelectionSection({
               {searchResult.fallbackOptions.includes("NEARBY_CITY") ? (
                 <button
                   type="button"
-                  onClick={() => setCity("")}
+                  onClick={() => {
+                    resetOffer();
+                    setCity("");
+                  }}
                   data-testid="business-setup-phone-fallback-nearby"
                   className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
                 >
@@ -352,7 +389,7 @@ export function PhoneNumberSelectionSection({
           </div>
         ) : null}
 
-        {searchResult && searchResult.numbers.length > 0 ? (
+        {searchResult && selectedNumber ? (
           <div className="mt-4 space-y-2" data-testid="business-setup-phone-results">
             {searchResult.localityFilterSupported === false ? (
               <p className="text-xs font-semibold text-amber-700" data-testid="business-setup-phone-countrywide-note">
@@ -361,76 +398,56 @@ export function PhoneNumberSelectionSection({
             ) : null}
             {fallbackType ? (
               <p className="text-xs font-semibold text-amber-700" data-testid="business-setup-phone-fallback-note">
-                Showing {fallbackType === "SAME_STATE" ? "numbers from the whole state" : "nationwide numbers"} — confirm below to use one instead of an exact-city number.
+                This number is {fallbackType === "SAME_STATE" ? "from the selected state" : "from the selected country"}, not an exact-city match. Confirm below if you want to use it.
               </p>
             ) : null}
-            {searchResult.numbers.map((number) => (
-              <button
-                key={number.phoneNumber}
-                type="button"
-                onClick={() => {
-                  // Picking a (different) number starts a fresh purchase intent.
-                  if (selectedNumber?.phoneNumber !== number.phoneNumber) {
-                    clientRequestIdRef.current = "";
-                  }
-                  setSelectedNumber(number);
-                }}
-                data-testid="business-setup-phone-result"
-                className={`w-full rounded-xl border p-3 text-left transition ${
-                  selectedNumber?.phoneNumber === number.phoneNumber
-                    ? "border-amber-400 bg-amber-50"
-                    : "border-gray-200 bg-white hover:bg-gray-50"
-                }`}
-              >
-                <span className="block font-mono text-sm font-bold text-slate-900">{number.friendlyName || number.phoneNumber}</span>
+            <div
+              data-testid="business-setup-phone-review"
+              className="w-full rounded-xl border border-amber-400 bg-amber-50 p-4 text-left"
+            >
+              <div data-testid="business-setup-phone-result">
+                <span className="block text-[11px] font-semibold uppercase tracking-wider text-amber-700">Available number</span>
+                <span className="mt-1 block font-mono text-sm font-bold text-slate-900">{selectedNumber.friendlyName || selectedNumber.phoneNumber}</span>
                 <span className="mt-0.5 block text-xs text-slate-500">
-                  {[number.locality, number.region, number.country].filter(Boolean).join(", ")}
+                  {[selectedNumber.locality, selectedNumber.region, selectedNumber.country].filter(Boolean).join(", ")}
                   {" · "}
                   {[
-                    number.capabilities.voice ? "Voice" : null,
-                    number.capabilities.sms ? "SMS" : null,
-                    number.capabilities.mms ? "MMS" : null
+                    selectedNumber.capabilities.voice ? "Voice" : null,
+                    selectedNumber.capabilities.sms ? "SMS" : null,
+                    selectedNumber.capabilities.mms ? "MMS" : null
                   ]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
-                {number.feeCents > 0 ? (
+                {selectedNumber.feeCents > 0 ? (
                   <span className="mt-0.5 block text-xs text-slate-500">
-                    {number.feeLabel}: ${(number.feeCents / 100).toFixed(2)} (one-time)
+                    {selectedNumber.feeLabel}: ${(selectedNumber.feeCents / 100).toFixed(2)} (one-time)
                   </span>
                 ) : null}
-                {number.regulatoryNote ? (
-                  <span className="mt-0.5 block text-xs font-semibold text-amber-700">{number.regulatoryNote}</span>
+                {selectedNumber.regulatoryNote ? (
+                  <span className="mt-0.5 block text-xs font-semibold text-amber-700">{selectedNumber.regulatoryNote}</span>
                 ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void confirmPurchase()}
+                disabled={purchasing}
+                data-testid="business-setup-phone-confirm"
+                className="mt-3 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                {purchasing ? "Provisioning…" : "Confirm and provision this number"}
               </button>
-            ))}
+              {progressNote ? (
+                <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-progress">{progressNote}</p>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
-        {selectedNumber ? (
-          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-phone-review">
-            <p className="text-sm font-semibold text-slate-800">
-              Confirm: <span className="font-mono">{selectedNumber.friendlyName || selectedNumber.phoneNumber}</span>
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {[selectedNumber.locality, selectedNumber.region, selectedNumber.country].filter(Boolean).join(", ")}
-              {selectedNumber.feeCents > 0
-                ? ` · ${selectedNumber.feeLabel}: $${(selectedNumber.feeCents / 100).toFixed(2)} one-time`
-                : ""}
-            </p>
-            <button
-              type="button"
-              onClick={() => void confirmPurchase()}
-              disabled={purchasing}
-              data-testid="business-setup-phone-confirm"
-              className="mt-3 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {purchasing ? "Provisioning…" : "Confirm and provision this number"}
-            </button>
-            {progressNote ? (
-              <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-progress">{progressNote}</p>
-            ) : null}
-          </div>
+        {searchResult && searchResult.numbers.length === 0 && searchResult.fallbackOptions.length === 0 ? (
+          <p className="mt-4 text-sm font-semibold text-rose-600" data-testid="business-setup-phone-empty">
+            No phone number is currently available for this location. Choose another location or retry.
+          </p>
         ) : null}
 
         {purchaseError ? (

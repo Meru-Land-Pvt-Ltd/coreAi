@@ -300,7 +300,7 @@ type InstalledAgentAssistantPlan = {
 
 async function buildInstalledAgentAssistantPlan(
   businessId: string,
-  options?: { extraSections?: string[] }
+  options?: { extraSections?: string[]; installedAgentId?: string }
 ): Promise<InstalledAgentAssistantPlan | null> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -308,7 +308,12 @@ async function buildInstalledAgentAssistantPlan(
       profile: true,
       knowledgeBases: true,
       installedAgents: {
-        where: { status: "ACTIVE" },
+        // Setup deploys the exact row it just saved while it is still
+        // PROVISIONING. Other callers retain the runtime-safe default of the
+        // latest ACTIVE agent.
+        where: options?.installedAgentId
+          ? { id: options.installedAgentId }
+          : { status: "ACTIVE" },
         orderBy: { createdAt: "desc" },
         take: 1,
         include: { workflow: true }
@@ -464,11 +469,12 @@ async function buildInstalledAgentAssistantPlan(
 }
 
 export async function deployInstalledAgentVoiceAssistant(
-  businessId: string
+  businessId: string,
+  installedAgentId?: string
 ): Promise<{ assistantId: string; created: boolean } | null> {
   if (!isVapiConfigured()) return null;
 
-  const plan = await buildInstalledAgentAssistantPlan(businessId);
+  const plan = await buildInstalledAgentAssistantPlan(businessId, { installedAgentId });
   if (!plan) return null;
 
   const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
