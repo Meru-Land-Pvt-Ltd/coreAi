@@ -668,19 +668,6 @@ function formatBillingAddress(addressLine: string, zip: string, countryName: str
     return [addressLine.trim(), zip.trim(), countryName.trim()].filter(Boolean).join(", ");
 }
 
-// Stripe element styling matched to the existing `.field` inputs.
-const STRIPE_ELEMENT_STYLE = {
-    base: {
-        fontSize: "16px",
-        color: "#0f172a",
-        fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
-        "::placeholder": { color: "#9ca3af" }
-    },
-    invalid: { color: "#ef4444" }
-};
-
-type CardElementFieldState = { complete: boolean; error: string };
-
 function unpackSavedBillingAddress(
     savedAddress: string,
     savedPostalCode: string,
@@ -786,18 +773,6 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [cardNumber, setCardNumber] = useState("");
     const [expiry, setExpiry] = useState("");
     const [cvc, setCvc] = useState("");
-    // Stripe Elements state (stripeMode): completeness + inline errors come
-    // from the elements themselves; the card never touches our own state.
-    const [cardElementFields, setCardElementFields] = useState<{
-        number: CardElementFieldState;
-        expiry: CardElementFieldState;
-        cvc: CardElementFieldState;
-    }>({
-        number: { complete: false, error: "" },
-        expiry: { complete: false, error: "" },
-        cvc: { complete: false, error: "" }
-    });
-    const [elementBrand, setElementBrand] = useState<CardBrand>(null);
     const [primaryCard, setPrimaryCard] = useState<CheckoutBillingResponse["billing"]["paymentMethod"]>(null);
     const [usePrimaryCard, setUsePrimaryCard] = useState(false);
     const [cardName, setCardName] = useState("");
