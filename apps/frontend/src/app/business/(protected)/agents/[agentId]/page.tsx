@@ -483,7 +483,7 @@ export default function BusinessAgentDetailPage() {
     listing?.architect?.fullName ||
     listing?.architect?.architectProfile?.title ||
     listing?.architect?.email ||
-    "Core AI Architect";
+    "Triven AI Architect";
 
   const heroDescription =
     listing?.shortDescription ||

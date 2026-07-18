@@ -91,9 +91,9 @@ const listingIdBodySchema = z.object({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-type OwnedListing = NonNullable<Awaited<ReturnType<typeof loadOwnedListing>>>;
+export type OwnedListing = NonNullable<Awaited<ReturnType<typeof loadOwnedListing>>>;
 
-async function loadOwnedListing(userId: string, listingId: string) {
+export async function loadOwnedListing(userId: string, listingId: string) {
   // Centralized ownership: SUCCEEDED or in-window TRIALING payment, or an
   // already-installed agent (legacy). PENDING/FAILED payments grant nothing.
   const access = await canBusinessAccessListing({ userId, listingId });
@@ -145,12 +145,7 @@ async function resolveWorkflowId(ownerId: string, listingWorkflowId: string | nu
   return created.id;
 }
 
-/**
- * Ensure a Business + InstalledAgent row exists for this owner/listing so the
- * agent's setup is stored against the business id and agent id. Reuses the
- * existing business for the owner; creates the per-listing installed agent.
- */
-async function ensureBusinessAndAgent(opts: {
+export async function ensureBusinessAndAgent(opts: {
   ownerId: string;
   listing: OwnedListing;
   businessName?: string;

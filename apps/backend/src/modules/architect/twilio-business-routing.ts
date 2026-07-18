@@ -702,7 +702,7 @@ async function createBusinessAppointment({
           "This is not a real customer booking.",
           `Phone: ${customerPhone}`
         ].join("\n")
-      : description ?? `Booked by CORE AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
+      : description ?? `Booked by Triven AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
   });
 
   const appointment = await prisma.appointment.create({
@@ -1041,7 +1041,7 @@ function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: strin
 }
 
 /**
- * Read-only routing diagnostics for a CoreAI number — powers the buyer's
+ * Read-only routing diagnostics for a Triven AI number — powers the buyer's
  * "Test call routing" check. Runs the same resolver the live webhook uses.
  */
 export async function getCallRoutingDiagnostics(rawNumber: string) {

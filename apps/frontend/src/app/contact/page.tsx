@@ -111,7 +111,7 @@ const faqs: FaqItem[] = [
   },
   {
     id: "faq-5",
-    question: "Can I use CORE with multiple phone numbers?",
+    question: "Can I use Triven AI with multiple phone numbers?",
     answer:
       "Yes. You can connect multiple business phone numbers and assign different agents to each one. Go to Settings → Phone Numbers → Add Number. Each number can have its own agent with different messages and hours."
   },
@@ -125,7 +125,7 @@ const faqs: FaqItem[] = [
     id: "faq-7",
     question: "Is my patient data safe / HIPAA compliant?",
     answer:
-      "CORE is designed to protect sensitive data using encryption, access controls, and secure handling practices. For healthcare use cases, review the Security page and confirm whether a BAA is required for your workflow."
+      "Triven AI is designed to protect sensitive data using encryption, access controls, and secure handling practices. For healthcare use cases, review the Security page and confirm whether a BAA is required for your workflow."
   },
   {
     id: "faq-8",
@@ -179,7 +179,7 @@ const searchIndex: SearchItem[] = [
   {
     type: "faq",
     id: "faq-5",
-    title: "Can I use CORE with multiple phone numbers?",
+    title: "Can I use Triven AI with multiple phone numbers?",
     category: "Managing Your Agents",
     preview: "Yes — connect multiple numbers and assign a different agent to each.",
     keywords: ["multiple", "phone", "numbers", "many", "second", "add", "assign"]
@@ -197,7 +197,7 @@ const searchIndex: SearchItem[] = [
     id: "faq-7",
     title: "Is my patient data safe / HIPAA compliant?",
     category: "Account & Security",
-    preview: "Learn how CORE protects patient data, encryption, privacy, and compliance workflows.",
+    preview: "Learn how Triven AI protects patient data, encryption, privacy, and compliance workflows.",
     keywords: ["hipaa", "patient", "data", "safe", "secure", "privacy", "compliant", "encryption"]
   },
   {
@@ -277,7 +277,7 @@ const searchIndex: SearchItem[] = [
     id: "art-invoices",
     title: "Download invoices & receipts",
     category: "Billing & Payments",
-    preview: "Find, view, and download every CORE invoice.",
+    preview: "Find, view, and download every Triven AI invoice.",
     keywords: ["invoices", "invoice", "receipts", "download", "pdf", "billing", "statement"]
   },
   {

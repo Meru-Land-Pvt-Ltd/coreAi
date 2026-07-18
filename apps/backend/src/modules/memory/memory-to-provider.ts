@@ -73,7 +73,7 @@ function buildWorkflowLlmSystemPrompt(params: {
 }): string {
   const { bundle, legacySystemPrompt, outputFormat } = params;
   const sections = [
-    "You are executing one AI step inside a CoreAI workflow.",
+    "You are executing one AI step inside a Triven AI workflow.",
     "The workflow author may write rough, non-technical requirements. Convert those requirements into the best useful output for this step.",
     "Use the workflow context, previous-node memory, and any additional context provided with the request.",
     "Do not ask follow-up questions unless the workflow author explicitly asks you to ask one.",

@@ -53,6 +53,7 @@ import {
 } from "./deploy";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
 import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
+import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import {
   findBuyerPlatformNumber,
   workflowNeedsPhoneNumber
@@ -761,6 +762,28 @@ async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
   return business?.id ?? null;
 }
 
+/**
+ * Resolve the caller's business, bootstrapping the Business + InstalledAgent
+ * from a PURCHASED listing when none exists yet (first-time setup reaches the
+ * number step before the Configure step names the business). Ownership of the
+ * listing is verified through the central purchase-access check.
+ */
+async function resolveOrBootstrapBusiness(
+  ownerId: string,
+  listingId: string | undefined
+): Promise<{ businessId: string; bootstrappedAgentId: string | null } | null> {
+  const existing = await requireOwnedBusinessId(ownerId);
+  if (existing) return { businessId: existing, bootstrappedAgentId: null };
+
+  if (!listingId) return null;
+
+  const listing = await loadOwnedListing(ownerId, listingId);
+  if (!listing) return null;
+
+  const { business, agent } = await ensureBusinessAndAgent({ ownerId, listing });
+  return { businessId: business.id, bootstrappedAgentId: agent?.id ?? null };
+}
+
 /** Ownership guard: an installedAgentId from the client must belong to the caller. */
 async function resolveOwnedInstalledAgentId(
   ownerId: string,
@@ -784,6 +807,8 @@ businessRoutes.get("/phone-numbers/locations", async (c) => {
 
 const phoneSearchSchema = z.object({
   installedAgentId: z.string().trim().min(1).optional(),
+  /** Purchased listing id — bootstraps the business on first-time setup. */
+  listingId: z.string().trim().min(1).optional(),
   country: z.string().trim().min(2).max(2),
   state: z.string().trim().max(8).optional(),
   city: z.string().trim().max(80).optional()
@@ -797,20 +822,20 @@ businessRoutes.post("/phone-numbers/search", async (c) => {
     return errorResponse(c, "Invalid phone search payload", 422, "VALIDATION_ERROR");
   }
 
-  const businessId = await requireOwnedBusinessId(authUser.id);
-  if (!businessId) {
-    return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+  const resolved = await resolveOrBootstrapBusiness(authUser.id, parsed.data.listingId);
+  if (!resolved) {
+    return errorResponse(c, "Purchase an agent before choosing a number.", 404, "BUSINESS_NOT_FOUND");
   }
 
-  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, businessId, parsed.data.installedAgentId);
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, resolved.businessId, parsed.data.installedAgentId);
   if (installedAgentId === null) {
     return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
   }
 
   try {
     const outcome = await searchNumbersForBusiness({
-      businessId,
-      installedAgentId,
+      businessId: resolved.businessId,
+      installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
       country: parsed.data.country,
       state: parsed.data.state,
       city: parsed.data.city
@@ -827,12 +852,16 @@ businessRoutes.post("/phone-numbers/search", async (c) => {
 
 const phonePurchaseSchema = z.object({
   installedAgentId: z.string().trim().min(1).optional(),
+  /** Purchased listing id — bootstraps the business on first-time setup. */
+  listingId: z.string().trim().min(1).optional(),
   clientRequestId: z.string().trim().min(8).max(64),
   phoneNumber: z.string().trim().min(8).max(20),
   country: z.string().trim().min(2).max(2),
   state: z.string().trim().max(8).optional(),
   city: z.string().trim().max(80).optional(),
-  fallbackType: z.enum(["NEARBY_CITY", "SAME_STATE", "NATIONAL", "TOLL_FREE"]).optional()
+  fallbackType: z.enum(["NEARBY_CITY", "SAME_STATE", "NATIONAL", "TOLL_FREE"]).optional(),
+  /** The buyer's own business line — stored as the forwarding target. */
+  forwardToPhone: z.string().trim().max(24).optional()
 });
 
 businessRoutes.post("/phone-numbers/purchase", async (c) => {
@@ -843,27 +872,28 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
     return errorResponse(c, "Invalid phone purchase payload", 422, "VALIDATION_ERROR");
   }
 
-  const businessId = await requireOwnedBusinessId(authUser.id);
-  if (!businessId) {
-    return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+  const resolved = await resolveOrBootstrapBusiness(authUser.id, parsed.data.listingId);
+  if (!resolved) {
+    return errorResponse(c, "Purchase an agent before choosing a number.", 404, "BUSINESS_NOT_FOUND");
   }
 
-  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, businessId, parsed.data.installedAgentId);
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, resolved.businessId, parsed.data.installedAgentId);
   if (installedAgentId === null) {
     return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
   }
 
   try {
     const outcome = await purchaseNumberForBusiness({
-      businessId,
+      businessId: resolved.businessId,
       requestedByUserId: authUser.id,
-      installedAgentId,
+      installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
       clientRequestId: parsed.data.clientRequestId,
       phoneNumber: parsed.data.phoneNumber,
       country: parsed.data.country,
       state: parsed.data.state,
       city: parsed.data.city,
-      fallbackType: parsed.data.fallbackType ?? null
+      fallbackType: parsed.data.fallbackType ?? null,
+      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null
     });
     return successResponse(c, outcome);
   } catch (error) {

@@ -284,7 +284,7 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.architect?.fullName ||
       profile?.title ||
       listing.architect?.email ||
-      "Core Architect",
+      "Triven Architect",
     isNew: isRecentlyCreated(listing.createdAt),
     freeTrial: (listing.priceCents ?? 0) === 0 || listing.pricingModel === "FREE" || Boolean(listing.freeTrialEnabled),
     createdAt: listing.createdAt,

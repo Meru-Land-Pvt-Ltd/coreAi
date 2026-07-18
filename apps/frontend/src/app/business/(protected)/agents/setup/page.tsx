@@ -33,8 +33,6 @@ import {
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
-  sendPhoneOtp,
-  verifyPhoneOtp,
   type AvailablePhoneNumber,
   type BusinessChatTestMessage,
   type BusinessPreviewCallSession,
@@ -635,8 +633,6 @@ function SetupWizard() {
   const [selectedPhoneId, setSelectedPhoneId] = useState("");
   const [assignedNumber, setAssignedNumber] = useState<string | null>(null);
   // Location-based number selection (country → state → city → search → confirm).
-  const [numberSelectionRequired, setNumberSelectionRequired] = useState(false);
-  const [installedAgentIdForPhone, setInstalledAgentIdForPhone] = useState<string | null>(null);
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
   const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
@@ -648,15 +644,10 @@ function SetupWizard() {
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
-  // Phone Verification States
+  // Business phone (forwarding target). No OTP verification — the buyer simply
+  // enters their existing line, and the Triven AI number is chosen by location.
   const [existingPhoneNumber, setExistingPhoneNumber] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(""));
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [phoneConfirmed, setPhoneConfirmed] = useState(false);
 
   const [assistantName, setAssistantName] = useState(DEFAULT_ASSISTANT_NAME);
   const [voiceChoice, setVoiceChoice] = useState(PLATFORM_DEFAULT_VOICE_ID);
@@ -696,73 +687,28 @@ function SetupWizard() {
     });
   }, []);
 
-  // Cooldown effect for Resend code
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const timer = setInterval(() => {
-      setResendCooldown((prev) => prev - 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [resendCooldown]);
-
-  // Send OTP handler
-  const handleSendOtp = useCallback(async () => {
+  // Save the buyer's own business line as the forwarding target — no OTP.
+  const handleConfirmPhone = useCallback(() => {
     if (!existingPhoneNumber || existingPhoneNumber.trim().length < 5) {
       setError("Please enter a valid business phone number.");
       return;
     }
     setError("");
-    setIsSendingOtp(true);
-    try {
-      const res = await sendPhoneOtp(listingId, existingPhoneNumber);
-      if (res.success && res.data) {
-        setOtpSent(true);
-        setOtpDigits(Array(6).fill(""));
-        setResendCooldown(60);
-        if (res.data.devCode) {
-          setDevOtpCode(res.data.devCode);
-        } else {
-          setDevOtpCode(null);
-        }
-        setStatusMsg(res.data.sent ? "Verification code sent!" : "Verification code generated.");
-      } else {
-        setError(res.error ?? "Failed to send verification code.");
-      }
-    } catch (err) {
-      setError("Failed to send verification code. Please try again.");
-    } finally {
-      setIsSendingOtp(false);
-    }
-  }, [listingId, existingPhoneNumber, setError, setStatusMsg]);
+    setPhoneConfirmed(true);
+    setForwardToPhone(existingPhoneNumber);
+    setStatusMsg("Business number saved. Now choose your Triven AI number's location.");
+  }, [existingPhoneNumber, setError, setStatusMsg]);
 
-  // Verify OTP handler
-  const handleVerifyOtp = useCallback(async (code: string) => {
-    if (!code || code.length !== 6) return;
+  // Businesses without an existing line (AI answers everything) can skip —
+  // with nothing to forward, the AI answers directly on the Triven AI number.
+  const handleSkipPhone = useCallback(() => {
     setError("");
-    setIsVerifyingOtp(true);
-    try {
-      const res = await verifyPhoneOtp(listingId, existingPhoneNumber, code);
-      if (res.success && res.data) {
-        setPhoneVerified(true);
-        setAssignedNumber(res.data.platformNumber ?? null);
-        setSelectedPhoneId(res.data.platformPhoneNumberId ?? "");
-        setInstalledAgentIdForPhone(res.data.installedAgentId ?? null);
-        setNumberSelectionRequired(Boolean(res.data.numberSelectionRequired));
-        setForwardToPhone(existingPhoneNumber); // Keep forwarding to the verified number
-        setStatusMsg(
-          res.data.numberSelectionRequired
-            ? "Number verified! Now choose where your CORE number should be located."
-            : "Number verified successfully!"
-        );
-      } else {
-        setError(res.error ?? "Verification failed. Please check the code.");
-      }
-    } catch (err) {
-      setError("Verification failed. Please try again.");
-    } finally {
-      setIsVerifyingOtp(false);
-    }
-  }, [listingId, existingPhoneNumber, setError, setStatusMsg]);
+    setExistingPhoneNumber("");
+    setForwardToPhone("");
+    setAnsweringMode("AI_FIRST");
+    setPhoneConfirmed(true);
+    setStatusMsg("Skipped — the AI will answer calls directly on your Triven AI number.");
+  }, [setError, setStatusMsg]);
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
@@ -844,8 +790,8 @@ function SetupWizard() {
       if (data.phoneNumber) {
         setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
         setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
-        if (data.phoneNumber.phoneNumber) {
-          setPhoneVerified(true);
+        if (data.phoneNumber.phoneNumber || data.phoneNumber.forwardToPhone) {
+          setPhoneConfirmed(true);
           setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
         }
       }
@@ -1174,8 +1120,8 @@ function SetupWizard() {
   async function goNext() {
     setError("");
 
-    if (step === 1 && !phoneVerified) {
-      setError("Please verify your business phone number first.");
+    if (step === 1 && !phoneConfirmed) {
+      setError("Add your business phone number (or skip it) first.");
       return;
     }
 
@@ -1570,7 +1516,7 @@ function SetupWizard() {
               const active = entry.id === step;
               const done = stepDone[entry.id];
               const upcoming = step < entry.id && !done;
-              const clickable = phoneVerified || entry.id === 1;
+              const clickable = phoneConfirmed || entry.id === 1;
 
               return (
                 <div key={entry.id} className="flex items-center">
@@ -1584,8 +1530,8 @@ function SetupWizard() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (!phoneVerified && entry.id > 1) {
-                        setError("Please verify your business phone number first.");
+                      if (!phoneConfirmed && entry.id > 1) {
+                        setError("Add your business phone number (or skip it) first.");
                         return;
                       }
                       setError("");
@@ -1658,23 +1604,15 @@ function SetupWizard() {
               onTimeZone={setTimeZone}
               existingPhoneNumber={existingPhoneNumber}
               onExistingPhoneNumberChange={setExistingPhoneNumber}
-              otpSent={otpSent}
-              onOtpSentChange={setOtpSent}
-              onSendOtp={handleSendOtp}
-              otpDigits={otpDigits}
-              onOtpDigitsChange={setOtpDigits}
-              isSendingOtp={isSendingOtp}
-              isVerifyingOtp={isVerifyingOtp}
-              phoneVerified={phoneVerified}
-              onVerifyOtp={handleVerifyOtp}
-              devOtpCode={devOtpCode}
-              resendCooldown={resendCooldown}
-              setPhoneVerified={setPhoneVerified}
-              installedAgentIdForPhone={installedAgentIdForPhone ?? liveInstalledAgentId}
+              phoneConfirmed={phoneConfirmed}
+              onConfirmPhone={handleConfirmPhone}
+              onSkipPhone={handleSkipPhone}
+              onChangePhone={() => setPhoneConfirmed(false)}
+              listingId={listingId}
+              installedAgentIdForPhone={liveInstalledAgentId}
               onNumberProvisioned={(phoneNumber) => {
                 setAssignedNumber(phoneNumber);
-                setNumberSelectionRequired(false);
-                setStatusMsg("Your CORE number is ready!");
+                setStatusMsg("Your Triven AI number is ready!");
               }}
             />
           ) : null}
@@ -2641,18 +2579,11 @@ function StepConnect({
 
   existingPhoneNumber,
   onExistingPhoneNumberChange,
-  otpSent,
-  onOtpSentChange,
-  onSendOtp,
-  otpDigits,
-  onOtpDigitsChange,
-  isSendingOtp,
-  isVerifyingOtp,
-  phoneVerified,
-  onVerifyOtp,
-  devOtpCode,
-  resendCooldown,
-  setPhoneVerified,
+  phoneConfirmed,
+  onConfirmPhone,
+  onSkipPhone,
+  onChangePhone,
+  listingId,
   installedAgentIdForPhone,
   onNumberProvisioned
 }: {
@@ -2688,18 +2619,11 @@ function StepConnect({
 
   existingPhoneNumber: string;
   onExistingPhoneNumberChange: (v: string) => void;
-  otpSent: boolean;
-  onOtpSentChange: (v: boolean) => void;
-  onSendOtp: () => void;
-  otpDigits: string[];
-  onOtpDigitsChange: React.Dispatch<React.SetStateAction<string[]>>;
-  isSendingOtp: boolean;
-  isVerifyingOtp: boolean;
-  phoneVerified: boolean;
-  onVerifyOtp: (code: string) => void;
-  devOtpCode: string | null;
-  resendCooldown: number;
-  setPhoneVerified: React.Dispatch<React.SetStateAction<boolean>>;
+  phoneConfirmed: boolean;
+  onConfirmPhone: () => void;
+  onSkipPhone: () => void;
+  onChangePhone: () => void;
+  listingId: string;
   installedAgentIdForPhone: string | null;
   onNumberProvisioned: (phoneNumber: string) => void;
 }) {
@@ -2709,32 +2633,6 @@ function StepConnect({
 
   const routingMode = answeringMode === "AI_FIRST" ? "direct" : "forward";
   const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
-
-  const handleDigitChange = (index: number, value: string) => {
-    const val = value.replace(/\D/g, "").slice(-1);
-    const newDigits = [...otpDigits];
-    newDigits[index] = val;
-    onOtpDigitsChange(newDigits);
-
-    // Auto-focus next input
-    if (val && index < 5) {
-      const nextInput = document.getElementById(`otp-${index + 1}`);
-      nextInput?.focus();
-    }
-
-    // Auto verify if complete
-    const fullCode = newDigits.join("");
-    if (fullCode.length === 6 && /^\d{6}$/.test(fullCode)) {
-      onVerifyOtp(fullCode);
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
-      const prevInput = document.getElementById(`otp-${index - 1}`);
-      prevInput?.focus();
-    }
-  };
 
   const phoneValid = existingPhoneNumber.replace(/\D/g, "").length === 10;
 
@@ -2750,8 +2648,8 @@ function StepConnect({
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
       <p className="text-slate-500 text-base mt-2 max-w-md">
         {showCallForwarding
-          ? "Connect the number your customers call. We'll route it through your Triven agent automatically."
-          : "Verify your business number so your agent knows which SMS messages to handle."}
+          ? "Add the number your customers call today, then choose where your dedicated Triven AI number should be located."
+          : "Add your business number, then choose where your dedicated Triven AI number should be located."}
       </p>
       <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
@@ -2762,7 +2660,7 @@ function StepConnect({
       </span>
 
       {/* Phone number input block */}
-      {showPhone && !phoneVerified && !otpSent && (
+      {showPhone && !phoneConfirmed && (
         <div className="mt-4">
           <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">Business phone number</label>
 
@@ -2819,98 +2717,36 @@ function StepConnect({
             </span>
           </div>
 
-          <p className="text-xs text-slate-400 mt-2 font-semibold">We&apos;ll send a verification code to confirm this is your number.</p>
+          <p className="text-xs text-slate-400 mt-2 font-semibold">
+            {showCallForwarding
+              ? "Calls your agent can't take are forwarded to this number — keep giving it out as usual."
+              : "Your agent uses this number to reach your team when needed."}
+          </p>
 
           <button
             type="button"
-            disabled={isSendingOtp || !phoneValid}
-            onClick={onSendOtp}
+            disabled={!phoneValid}
+            onClick={onConfirmPhone}
+            data-testid="business-setup-phone-confirm-own"
             className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 inline-flex items-center justify-center gap-2 mt-4 w-full sm:w-auto"
           >
-            {isSendingOtp ? "Sending code…" : "Send verification code"}
+            Use this number
+          </button>
+          <button
+            type="button"
+            onClick={onSkipPhone}
+            data-testid="business-setup-phone-skip"
+            className="block text-sm text-slate-500 font-semibold hover:text-slate-700 transition-colors mt-3"
+          >
+            I don&apos;t have an existing business number — the AI answers everything
           </button>
         </div>
       )}
 
-      {/* Verification OTP Box */}
-      {showPhone && !phoneVerified && otpSent && (
-        <div id="verifyBlock" className="mt-6">
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-slate-600 flex items-start gap-3">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-amber-500 mt-0.5 shrink-0">
-              <rect x="2" y="4" width="20" height="16" rx="2"/>
-              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
-            </svg>
-            <span>
-              Enter the 6-digit code we sent to <strong className="text-slate-800">{existingPhoneNumber}</strong>.
-            </span>
-          </div>
-
-          <div className="flex gap-2 sm:gap-2.5 mt-4 justify-between" id="otp" role="group" aria-label="6-digit verification code">
-            {otpDigits.map((digit, idx) => (
-              <input
-                key={idx}
-                id={`otp-${idx}`}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleDigitChange(idx, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(idx, e)}
-                className={`otp-box ${digit ? "filled" : ""}`}
-                aria-label={`Digit ${idx + 1}`}
-              />
-            ))}
-          </div>
-
-          <div className="flex items-center gap-4 mt-4 text-sm">
-            {resendCooldown > 0 ? (
-              <span className="text-slate-400 font-semibold">Resend code in {resendCooldown}s</span>
-            ) : (
-              <button
-                type="button"
-                id="resend"
-                onClick={onSendOtp}
-                className="text-amber-600 font-semibold hover:text-amber-700 transition-colors"
-              >
-                Resend code
-              </button>
-            )}
-            <span className="text-slate-300">·</span>
-            <button
-              type="button"
-              id="diffNum"
-              onClick={() => {
-                onOtpSentChange(false);
-                onExistingPhoneNumberChange("");
-              }}
-              className="text-slate-500 font-semibold hover:text-slate-700 transition-colors"
-            >
-              Use a different number
-            </button>
-          </div>
-          {devOtpCode ? (
-            <p className="text-xs text-slate-500 font-semibold mt-2">
-              Dev OTP Code: <strong className="font-mono text-slate-800">{devOtpCode}</strong> (Automatically generated in testing)
-            </p>
-          ) : (
-            <p className="text-xs text-slate-300 mt-2 font-semibold">For this demo, any 6 digits will work.</p>
-          )}
-
-          {isVerifyingOtp && (
-            <div id="verifying" className="flex items-center gap-2 text-sm text-slate-500 mt-3 font-semibold">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="w-4 h-4 spin text-amber-500">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-              </svg>
-              Verifying…
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Success Block */}
-      {showPhone && phoneVerified && (
+      {showPhone && phoneConfirmed && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
-          {/* Row 1: Verified Banner */}
+          {/* Row 1: Business number banner */}
           <div id="phoneSuccess" className="flex items-center justify-between gap-3" role="status">
             <div className="flex items-center gap-3">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-green-600 shrink-0">
@@ -2918,16 +2754,17 @@ function StepConnect({
                 <path d="m9 12 2 2 4-4" />
               </svg>
               <p className="text-sm font-semibold text-slate-850">
-                Number verified. <span id="successNum" className="font-bold">{existingPhoneNumber}</span> is confirmed.
+                {existingPhoneNumber ? (
+                  <>Business number saved: <span id="successNum" className="font-bold">{existingPhoneNumber}</span></>
+                ) : (
+                  <>No existing business number — the AI answers directly on your Triven AI number.</>
+                )}
               </p>
             </div>
             <button
               type="button"
-              onClick={() => {
-                onExistingPhoneNumberChange("");
-                onOtpSentChange(false);
-                setPhoneVerified(false);
-              }}
+              onClick={onChangePhone}
+              data-testid="business-setup-phone-change"
               className="text-xs font-bold text-slate-500 hover:text-red-500 underline shrink-0 transition-colors"
             >
               Change
@@ -2937,20 +2774,22 @@ function StepConnect({
           {/* Divider */}
           <div className="-mx-6 border-t border-slate-200/80 my-5" />
 
-          {/* Row 2: CORE number — ready, or location-based selection */}
+          {/* Row 2: Triven AI number — ready, or location-based selection */}
           {assignedNumber ? (
             <div className="flex items-start gap-3.5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
               </svg>
               <div>
-                <p className="text-sm font-semibold text-slate-500">Your CORE number is ready:</p>
+                <p className="text-sm font-semibold text-slate-500">Your Triven AI number is ready:</p>
                 <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
               </div>
             </div>
           ) : (
             <PhoneNumberSelectionSection
               installedAgentId={installedAgentIdForPhone}
+              listingId={listingId}
+              forwardToPhone={existingPhoneNumber}
               onProvisioned={onNumberProvisioned}
             />
           )}
@@ -2978,7 +2817,7 @@ function StepConnect({
                     <span className="flex-1">
                       <span className="block text-sm font-bold text-slate-900">Forward my existing number</span>
                       <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                        Keep giving out {existingPhoneNumber}. Forward it to {assignedNumber || "your CORE number"} so calls reach your agent.
+                        Keep giving out {existingPhoneNumber || "your business number"}. Forward it to {assignedNumber || "your Triven AI number"} so calls reach your agent.
                       </span>
                     </span>
                   </button>
@@ -2997,9 +2836,9 @@ function StepConnect({
                       {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                     </span>
                     <span className="flex-1">
-                      <span className="block text-sm font-bold text-slate-900">Use the CORE number directly</span>
+                      <span className="block text-sm font-bold text-slate-900">Use the Triven AI number directly</span>
                       <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                        Give {assignedNumber || "your CORE number"} to customers as your main line. Calls go straight to your agent.
+                        Give {assignedNumber || "your Triven AI number"} to customers as your main line. Calls go straight to your agent.
                       </span>
                     </span>
                   </button>
@@ -3007,7 +2846,7 @@ function StepConnect({
               ) : (
                 /* Missed-call workflow: always uses forwarding, no mode selector needed */
                 <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-sm text-slate-600">
-                  <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your CORE number and the AI handles the rest.
+                  <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your Triven AI number and the AI handles the rest.
                 </div>
               )}
             </div>
@@ -3015,7 +2854,7 @@ function StepConnect({
         </div>
       )}
 
-      {showPhone && phoneVerified && showCallForwarding && showAnsweringMode && routingMode === "forward" ? (
+      {showPhone && phoneConfirmed && showCallForwarding && showAnsweringMode && routingMode === "forward" ? (
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Call handling</h3>
           <div>
@@ -3035,14 +2874,14 @@ function StepConnect({
               ))}
             </select>
             <p className="mt-2 text-xs text-slate-400 font-semibold">
-              Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber}.
+              Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
             </p>
           </div>
         </div>
       ) : null}
 
       {/* Calendar Connection block */}
-      {phoneVerified && showCalendar ? (
+      {phoneConfirmed && showCalendar ? (
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
@@ -3128,7 +2967,7 @@ function StepConnect({
         </div>
       ) : null}
 
-      {phoneVerified && showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
+      {phoneConfirmed && showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
     </div>
   );
 }
@@ -4601,15 +4440,21 @@ function StepGoLive({
   );
 }
 /* ------------------------------------------------------------------ */
-/* Location-based CORE number selection (country → state → city →      */
+/* Location-based Triven AI number selection (country → state → city →      */
 /* search → choose → confirm → provisioning progress)                  */
 /* ------------------------------------------------------------------ */
 
 function PhoneNumberSelectionSection({
   installedAgentId,
+  listingId,
+  forwardToPhone,
   onProvisioned
 }: {
   installedAgentId: string | null;
+  /** Bootstraps the business server-side on first-time setup. */
+  listingId?: string;
+  /** The buyer's own line — stored as the forwarding target at purchase. */
+  forwardToPhone?: string;
   onProvisioned: (phoneNumber: string) => void;
 }) {
   const [countries, setCountries] = useState<PhoneLocationCountry[]>([]);
@@ -4649,6 +4494,7 @@ function PhoneNumberSelectionSection({
 
     const res = await searchBusinessPhoneNumbers({
       installedAgentId: installedAgentId ?? undefined,
+      listingId: listingId || undefined,
       country,
       state: overrides?.state !== undefined ? overrides.state || undefined : state || undefined,
       city: overrides?.city !== undefined ? overrides.city || undefined : city || undefined
@@ -4676,12 +4522,14 @@ function PhoneNumberSelectionSection({
 
     const res = await purchaseBusinessPhoneNumber({
       installedAgentId: installedAgentId ?? undefined,
+      listingId: listingId || undefined,
       clientRequestId: clientRequestIdRef.current,
       phoneNumber: selectedNumber.phoneNumber,
       country,
       state: state || undefined,
       city: city || undefined,
-      fallbackType: fallbackType ?? undefined
+      fallbackType: fallbackType ?? undefined,
+      forwardToPhone: forwardToPhone?.trim() || undefined
     });
 
     setPurchasing(false);
@@ -4713,7 +4561,7 @@ function PhoneNumberSelectionSection({
         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
       </svg>
       <div className="w-full">
-        <p className="text-sm font-semibold text-slate-800">Choose where your CORE number should be located</p>
+        <p className="text-sm font-semibold text-slate-800">Choose where your Triven AI number should be located</p>
         <p className="mt-1 text-xs text-slate-500">
           {catalogueNote || "Number availability depends on Twilio inventory and local regulatory requirements."}
         </p>

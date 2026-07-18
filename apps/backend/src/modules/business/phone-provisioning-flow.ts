@@ -270,6 +270,8 @@ export async function purchaseNumberForBusiness(params: {
   state?: string | null;
   city?: string | null;
   fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" | null;
+  /** The buyer's own business line (already normalized) — forwarding target. */
+  forwardToPhone?: string | null;
 }): Promise<PurchaseOutcome> {
   const location = validatePhoneLocation(params);
   if (!location.ok) {
@@ -420,14 +422,14 @@ export async function purchaseNumberForBusiness(params: {
   }
 
   // Assignment (DB) — the number becomes this business's inbound line. The
-  // forwarding phone comes from an existing routing row or the OTP-verified
-  // phone remembered on the installed agent config.
+  // forwarding phone comes from the request itself, an existing routing row,
+  // or the phone remembered on the installed agent config.
   const existingRouting = await prisma.businessPhoneNumber.findFirst({
     where: { businessId: params.businessId },
     orderBy: { updatedAt: "desc" },
     select: { forwardToPhone: true }
   });
-  let forwardToPhone = existingRouting?.forwardToPhone ?? null;
+  let forwardToPhone = params.forwardToPhone?.trim() || existingRouting?.forwardToPhone || null;
   if (!forwardToPhone && params.installedAgentId) {
     const agentRow = await prisma.installedAgent.findUnique({
       where: { id: params.installedAgentId },

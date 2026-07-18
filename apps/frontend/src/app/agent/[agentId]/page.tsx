@@ -538,7 +538,7 @@ export default function PublicAgentDetailsPage() {
     listing?.architect?.fullName ||
     listing?.architect?.architectProfile?.title ||
     listing?.architect?.email ||
-    "Core AI Architect";
+    "Triven AI Architect";
 
   // Only apply pricing model / trial info AFTER listingAccess has loaded.
   // Do NOT default freeTrialEnabled=true or trialDays=7 to avoid showing
