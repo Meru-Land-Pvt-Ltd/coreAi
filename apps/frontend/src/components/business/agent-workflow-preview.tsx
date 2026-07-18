@@ -415,7 +415,7 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
 
               <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Automated by Triven · replied in 5s
+                Automated by Triven AI · replied in 5s
               </div>
             </div>
           </div>

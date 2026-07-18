@@ -294,6 +294,8 @@ export type PhoneNumberSearchResult = {
 
 export function searchBusinessPhoneNumbers(body: {
   installedAgentId?: string;
+  /** Purchased listing id — bootstraps the business on first-time setup. */
+  listingId?: string;
   country: string;
   state?: string;
   city?: string;
@@ -312,12 +314,16 @@ export type PhonePurchaseOutcome = {
 
 export function purchaseBusinessPhoneNumber(body: {
   installedAgentId?: string;
+  /** Purchased listing id — bootstraps the business on first-time setup. */
+  listingId?: string;
   clientRequestId: string;
   phoneNumber: string;
   country: string;
   state?: string;
   city?: string;
   fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE";
+  /** The buyer's own business line — stored as the forwarding target. */
+  forwardToPhone?: string;
 }) {
   return apiPost<PhonePurchaseOutcome>("/business/phone-numbers/purchase", body);
 }
@@ -326,7 +332,7 @@ export function getPhoneProvisioningStatus(clientRequestId: string) {
   return apiGet<PhonePurchaseOutcome>(`/business/phone-numbers/provisioning/${encodeURIComponent(clientRequestId)}`);
 }
 
-/** Available Triven/platform phone numbers the buyer can select (Step 2). */
+/** Available Triven AI/platform phone numbers the buyer can select (Step 2). */
 export function getBusinessPhoneNumbers() {
   return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");
 }

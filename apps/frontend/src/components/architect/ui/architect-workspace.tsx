@@ -217,7 +217,7 @@ export function ArchitectWorkspace() {
         <div className="flex items-center gap-3">
           <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-violet-600 to-orange-400" />
           <div>
-            <h1 className="font-bold" data-testid="architect-ui-architect-workspace-core-ai-studio-heading">Triven Studio</h1>
+            <h1 className="font-bold" data-testid="architect-ui-architect-workspace-core-ai-studio-heading">Triven AI Studio</h1>
             <p className="text-xs text-slate-500" data-testid="architect-ui-architect-workspace-architect-workspace-text">Architect Workspace</p>
           </div>
         </div>

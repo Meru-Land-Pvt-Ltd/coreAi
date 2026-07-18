@@ -177,7 +177,7 @@ function SidebarContent({
       <div className="flex items-center gap-2.5 px-5 py-5">
         <CoreMark />
         <div>
-          <span className="block text-lg font-black tracking-tight text-slate-950" data-testid="architect-ui-architect-shell-core-text">Triven</span>
+          <span className="block text-lg font-black tracking-tight text-slate-950" data-testid="architect-ui-architect-shell-core-text">Triven AI</span>
           <span className="block text-[10px] font-extrabold uppercase tracking-[0.22em] text-slate-400" data-testid="architect-ui-architect-shell-architect-studio-text-2">Architect Studio</span>
         </div>
       </div>

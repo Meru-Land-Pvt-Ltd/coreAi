@@ -382,7 +382,7 @@ export default function BusinessBillingUsagePage() {
 
     if (isLoading) {
         return (
-            <div className="billing-root w-full px-4 py-8 sm:px-6 lg:px-8">
+            <div className="billing-root w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
                 <div className="h-7 w-48 animate-pulse rounded bg-gray-200" />
                 <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
                     <div className="h-64 animate-pulse rounded-2xl bg-gray-100 lg:col-span-2" />
@@ -394,7 +394,7 @@ export default function BusinessBillingUsagePage() {
 
     if (apiError) {
         return (
-            <div className="billing-root w-full px-4 py-8 sm:px-6 lg:px-8">
+            <div className="billing-root w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
                 <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
                 <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-6 text-sm font-medium text-red-700">
                     {apiError}
@@ -407,7 +407,7 @@ export default function BusinessBillingUsagePage() {
         <div className="billing-root bg-gray-50 text-slate-900">
             <style dangerouslySetInnerHTML={{ __html: DOWNLOAD_STYLES }} />
 
-            <div className="w-full space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+            <div className="w-full space-y-4 overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
                 <div className="flex items-center justify-between gap-3">
                     <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
                     <button

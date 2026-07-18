@@ -25,6 +25,7 @@ type ApiPurchasedAgent = {
         shortDescription?: string | null;
         priceCents?: number | null;
         tags?: string[];
+        iconUrl?: string | null;
     };
 };
 
@@ -113,6 +114,7 @@ type Agent = {
     runs: string;
     cost: string;
     icon: IconName;
+    iconUrl?: string | null;
     purchaseStatus: string;
     isActive: boolean;
     installedAgentId?: string | null;
@@ -334,6 +336,7 @@ function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
         runs: String(runsThisMonth),
         cost: formatUsageCostUsd(costMicroUsd),
         icon: pickAgentIcon(listing.name, listing.tags ?? []),
+        iconUrl: listing.iconUrl?.trim() || null,
         purchaseStatus: entry.purchaseStatus,
         isActive: isActivePurchaseStatus(entry.purchaseStatus),
         installedAgentId: entry.installedAgentId ?? null,
@@ -503,11 +506,11 @@ export default function BusinessDashboardPage() {
     }
 
     return (
-        <main className="p-5 sm:p-8">
-            <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-                <div>
-                    <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900" data-testid="business-protected-dashboard-get-greeting-user-first-heading">
-                        {getGreeting()}, {userFirstName}
+        <main className="min-w-0 w-full max-w-full overflow-x-hidden p-3 sm:p-4 lg:p-5">
+            <div className="mb-6 flex flex-wrap items-start justify-between gap-3 sm:mb-8 sm:gap-4">
+                <div className="min-w-0 flex-1">
+                    <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl" data-testid="business-protected-dashboard-get-greeting-user-first-heading">
+                        <span className="min-w-0 truncate">{getGreeting()}, {userFirstName}</span>
                         <WaveIcon />
                     </h1>
 
@@ -516,7 +519,7 @@ export default function BusinessDashboardPage() {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                     <span className="hidden items-center gap-2 rounded-full border border-green-100 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 sm:inline-flex">
                         <span className="relative flex h-2 w-2">
                             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
@@ -531,35 +534,35 @@ export default function BusinessDashboardPage() {
                         </span>
                     ) : null}
 
-                    <button
-                        type="button"
+                    <Link
+                        href={BUSINESS_MARKETPLACE_PATH}
                         onClick={closeMenus}
                         data-testid="dashboard-add-agent"
-                        className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:bg-amber-600 hover:shadow-md"
+                        className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:bg-amber-600 hover:shadow-md sm:px-5"
                     >
                         <Icon name="plus" className="h-4 w-4" />
                         <span className="hidden sm:inline" data-testid="business-protected-dashboard-add-agent-text">Add Agent</span>
-                    </button>
+                    </Link>
                 </div>
             </div>
 
-            <section aria-label="Key metrics" className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            <section aria-label="Key metrics" className="mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
                 {dashboardMetrics.map((metric) => (
                     <MetricCard key={metric.label} metric={metric} />
                 ))}
             </section>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                <div className="space-y-6 xl:col-span-2">
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">
+                <div className="min-w-0 space-y-4 sm:space-y-6 xl:col-span-2">
                     <section
                         id="agents"
                         className="scroll-mt-24 overflow-visible rounded-2xl border border-gray-100 bg-white shadow-sm"
                     >
-                        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-                            <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agents-heading">My Agents</h2>
+                        <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-4 sm:px-6">
+                            <h2 className="text-base font-bold text-slate-900 sm:text-lg" data-testid="business-protected-dashboard-agents-heading">My Agents</h2>
                             <Link data-testid="dashboard-view-all-link"
                                 href={BUSINESS_AGENTS_PATH}
-                                className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 transition-colors hover:text-amber-700"
+                                className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-amber-600 transition-colors hover:text-amber-700"
                             >
                                 View all <span aria-hidden="true">→</span>
                             </Link>
@@ -619,9 +622,9 @@ export default function BusinessDashboardPage() {
                         className="scroll-mt-24 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
                         data-testid="dashboard-bookings-section"
                     >
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-4">
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-900" data-testid="dashboard-bookings-heading">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-4 sm:px-6">
+                            <div className="min-w-0">
+                                <h2 className="text-base font-bold text-slate-900 sm:text-lg" data-testid="dashboard-bookings-heading">
                                     Bookings{" "}
                                     <span className="font-medium text-slate-400" data-testid="dashboard-bookings-month-label">
                                         {formatBookingsMonth(overview?.bookings?.month)}
@@ -633,7 +636,7 @@ export default function BusinessDashboardPage() {
                                     </p>
                                 ) : null}
                             </div>
-                            <div className="flex items-center gap-4">
+                            <div className="flex shrink-0 items-center gap-4">
                                 <div className="text-right">
                                     <p className="text-2xl font-black tracking-tight text-slate-900" data-testid="dashboard-bookings-total">
                                         {overview?.bookings?.total ?? 0}
@@ -677,9 +680,9 @@ export default function BusinessDashboardPage() {
                         )}
                     </section>
 
-                    <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-                        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-                            <h2 className="text-lg font-bold text-slate-900" data-testid="business-protected-dashboard-agent-activity-last-30-days-heading">
+                    <section className="min-w-0 overflow-x-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-6">
+                            <h2 className="text-base font-bold text-slate-900 sm:text-lg" data-testid="business-protected-dashboard-agent-activity-last-30-days-heading">
                                 Agent Activity{" "}
                                 <span className="font-medium text-slate-400" data-testid="business-protected-dashboard-last-30-days-text">Last 30 days</span>
                             </h2>
@@ -704,14 +707,14 @@ export default function BusinessDashboardPage() {
                             </div>
                         </div>
 
-                        <div className="flex gap-3">
-                            <div className="flex h-64 w-12 flex-col justify-between py-0 text-right text-xs text-slate-400">
+                        <div className="flex min-w-0 gap-2 sm:gap-3">
+                            <div className="flex h-48 w-10 shrink-0 flex-col justify-between py-0 text-right text-[10px] text-slate-400 sm:h-64 sm:w-12 sm:text-xs">
                                 {yAxis.map((label, index) => (
                                     <span key={`${index}-${label}`} data-testid="business-protected-dashboard-label-text">{label}</span>
                                 ))}
                             </div>
 
-                            <div className="relative flex h-64 flex-1 items-end gap-1 border-b border-slate-100">
+                            <div className="relative flex h-48 min-w-0 flex-1 items-end gap-0.5 border-b border-slate-100 sm:h-64 sm:gap-1">
                                 <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full flex-col justify-between">
                                     {Array.from({ length: 5 }).map((_, index) => (
                                         <span key={index} className="h-px w-full bg-slate-100" />
@@ -741,9 +744,9 @@ export default function BusinessDashboardPage() {
                             </div>
                         </div>
 
-                        <div className="mt-2 flex gap-3">
-                            <div className="w-12" />
-                            <div className="flex flex-1 justify-between text-xs text-slate-400">
+                        <div className="mt-2 flex min-w-0 gap-2 sm:gap-3">
+                            <div className="w-10 shrink-0 sm:w-12" />
+                            <div className="flex min-w-0 flex-1 justify-between text-[10px] text-slate-400 sm:text-xs">
                                 {chartLabels.map((label, index) => (
                                     <span key={`${index}-${label}`} data-testid="business-protected-dashboard-label-text-2">{label}</span>
                                 ))}
@@ -753,12 +756,12 @@ export default function BusinessDashboardPage() {
                     </section>
                 </div>
 
-                <div className="space-y-6 xl:col-span-1">
+                <div className="min-w-0 space-y-4 sm:space-y-6 xl:col-span-1">
                     <section
                         id="activity"
                         className="scroll-mt-24 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
                     >
-                        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
+                        <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4 sm:px-5">
                             <h2 className="font-bold text-slate-900" data-testid="business-protected-dashboard-live-activity-heading">Live Activity</h2>
                             <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-green-600">
                                 <span className="relative flex h-2 w-2">
@@ -825,7 +828,7 @@ export default function BusinessDashboardPage() {
 
 function MetricCard({ metric }: { metric: MetricCard }) {
     return (
-        <article className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-shadow duration-300 hover:shadow-md">
+        <article className="min-w-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow duration-300 hover:shadow-md sm:p-6">
             <div className="flex items-start justify-between">
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-50 text-amber-600">
                     <Icon name={metric.icon} className="h-5 w-5" />
@@ -911,97 +914,137 @@ function AgentRow({
     }
 
     return (
-        <div className="group flex flex-wrap items-center gap-4 px-6 py-5 transition-colors hover:bg-gray-50">
-            <span
-                className="relative flex h-2.5 w-2.5 shrink-0"
-                title={agent.isActive ? "Active" : "Inactive"}
-                data-testid="business-protected-dashboard-active-text"
-            >
-                {agent.isActive ? (
-                    <>
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                    </>
-                ) : (
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-slate-300" />
-                )}
-            </span>
+        <div className="group flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-center sm:gap-4 sm:px-6 sm:py-5">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span
+                    className="relative flex h-2.5 w-2.5 shrink-0"
+                    title={agent.isActive ? "Active" : "Inactive"}
+                    data-testid="business-protected-dashboard-active-text"
+                >
+                    {agent.isActive ? (
+                        <>
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                        </>
+                    ) : (
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-slate-300" />
+                    )}
+                </span>
 
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-                <Icon name={agent.icon} className="h-5 w-5" />
-            </span>
+                <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-100 sm:h-11 sm:w-11">
+                    {agent.iconUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- listing icons may be remote or data URLs
+                        <img src={agent.iconUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                        <Icon name={agent.icon} className="h-5 w-5" />
+                    )}
+                </span>
 
-            <div className="min-w-0 flex-1">
-                <p className="font-semibold text-slate-900" data-testid="business-protected-dashboard-agent-text">{agent.name}</p>
-                <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-agent-since-text">{agent.since}</p>
+                <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-slate-900" data-testid="business-protected-dashboard-agent-text">{agent.name}</p>
+                    <p className="truncate text-xs text-slate-400" data-testid="business-protected-dashboard-agent-since-text">{agent.since}</p>
+                </div>
             </div>
 
-            <div className="flex items-center gap-8">
-                <div className="text-right">
+            <div className="flex items-center justify-between gap-4 pl-5 sm:justify-end sm:gap-6 sm:pl-0 md:gap-8">
+                <div className="text-left sm:text-right">
                     <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-runs-text">{agent.runs} runs</p>
                     <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-this-month-text">this month</p>
                 </div>
 
-                <div className="text-right">
+                <div className="text-left sm:text-right">
                     <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-cost-text">{agent.cost}</p>
                     <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-cost-text">cost</p>
                 </div>
-            </div>
 
-            <div ref={menuRef} className="relative">
-                <button
-                    type="button"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        setMenuError("");
-                        onToggle();
-                    }}
-                    data-testid={`dashboard-agent-menu-${agent.id}`}
-                    className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-600"
-                    aria-label={`Manage ${agent.name}`}
-                    aria-haspopup="true"
-                    aria-expanded={open}
-                >
-                    <Icon name="settings" className="h-5 w-5" />
-                </button>
+                <div ref={menuRef} className="relative shrink-0">
+                    <button
+                        type="button"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setMenuError("");
+                            onToggle();
+                        }}
+                        data-testid={`dashboard-agent-menu-${agent.id}`}
+                        className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-600"
+                        aria-label={`Manage ${agent.name}`}
+                        aria-haspopup="true"
+                        aria-expanded={open}
+                    >
+                        <Icon name="settings" className="h-5 w-5" />
+                    </button>
 
-                {open ? (
-                    <div className="absolute right-0 top-9 z-30 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg" onClick={(event) => event.stopPropagation()}>
-                        <AgentMenuButton
-                            icon="settings"
-                            label={setupCompleted ? "Edit Configuration" : "Continue Setup"}
-                            onClick={() => {
-                                onSetup();
-                                onToggle();
-                            }}
+                    {open ? (
+                        <AgentRowMenu
+                            setupCompleted={setupCompleted}
+                            paused={paused}
+                            pausing={pausing}
+                            menuError={menuError}
+                            onSetup={onSetup}
+                            onOpen={onOpen}
+                            onToggle={onToggle}
+                            onTogglePause={handleTogglePause}
                         />
-
-                        {setupCompleted ? (
-                            <AgentMenuButton
-                                icon="pause"
-                                label={pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
-                                disabled={pausing}
-                                onClick={handleTogglePause}
-                            />
-                        ) : null}
-
-                        <AgentMenuButton
-                            icon="bot"
-                            label="View details"
-                            onClick={() => {
-                                onOpen();
-                                onToggle();
-                            }}
-                        />
-
-                        {menuError ? (
-                            <p className="px-4 py-2 text-xs font-semibold text-red-600">
-                                {menuError}
-                            </p>
-                        ) : null}
-                    </div>
-                ) : null}
+                    ) : null}
+                </div>
             </div>
+        </div>
+    );
+}
+
+function AgentRowMenu({
+    setupCompleted,
+    paused,
+    pausing,
+    menuError,
+    onSetup,
+    onOpen,
+    onToggle,
+    onTogglePause
+}: {
+    setupCompleted: boolean;
+    paused: boolean;
+    pausing: boolean;
+    menuError: string;
+    onSetup: () => void;
+    onOpen: () => void;
+    onToggle: () => void;
+    onTogglePause: () => void;
+}) {
+    return (
+        <div className="absolute right-0 top-9 z-30 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg" onClick={(event) => event.stopPropagation()}>
+            <AgentMenuButton
+                icon="settings"
+                label={setupCompleted ? "Edit Configuration" : "Continue Setup"}
+                onClick={() => {
+                    onSetup();
+                    onToggle();
+                }}
+            />
+
+            {setupCompleted ? (
+                <AgentMenuButton
+                    icon="pause"
+                    label={pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
+                    disabled={pausing}
+                    onClick={onTogglePause}
+                />
+            ) : null}
+
+            <AgentMenuButton
+                icon="bot"
+                label="View details"
+                onClick={() => {
+                    onOpen();
+                    onToggle();
+                }}
+            />
+
+            {menuError ? (
+                <p className="px-4 py-2 text-xs font-semibold text-red-600">
+                    {menuError}
+                </p>
+            ) : null}
         </div>
     );
 }
@@ -1105,27 +1148,29 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
     const calendarUrl = booking.calendarEventLink || calendarDayUrl(booking.startAt, booking.timeZone);
 
     return (
-        <div className="flex flex-wrap items-center gap-4 px-6 py-4 transition-colors hover:bg-gray-50" data-testid={`dashboard-booking-row-${booking.id}`}>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-                <Icon name="calendar" className="h-5 w-5" />
-            </span>
+        <div className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-center sm:gap-4 sm:px-6" data-testid={`dashboard-booking-row-${booking.id}`}>
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                    <Icon name="calendar" className="h-5 w-5" />
+                </span>
 
-            <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-slate-900" data-testid="dashboard-booking-customer">
-                    {customer}
-                    {booking.service ? <span className="font-normal text-slate-500"> · {booking.service}</span> : null}
-                </p>
-                <p className="text-xs text-slate-500" data-testid="dashboard-booking-time">
-                    {formatBookingDate(booking.startAt, booking.timeZone)}
-                    {startClock ? ` · ${startClock}${endClock ? ` – ${endClock}` : ""}` : ""}
-                </p>
-                <p className="text-xs text-slate-400" data-testid="dashboard-booking-meta">
-                    {booking.customerName ? `${booking.customerPhone} · ` : ""}
-                    Booked {formatBookingDate(booking.createdAt, booking.timeZone)}
-                </p>
+                <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-slate-900" data-testid="dashboard-booking-customer">
+                        {customer}
+                        {booking.service ? <span className="font-normal text-slate-500"> · {booking.service}</span> : null}
+                    </p>
+                    <p className="text-xs text-slate-500" data-testid="dashboard-booking-time">
+                        {formatBookingDate(booking.startAt, booking.timeZone)}
+                        {startClock ? ` · ${startClock}${endClock ? ` – ${endClock}` : ""}` : ""}
+                    </p>
+                    <p className="truncate text-xs text-slate-400" data-testid="dashboard-booking-meta">
+                        {booking.customerName ? `${booking.customerPhone} · ` : ""}
+                        Booked {formatBookingDate(booking.createdAt, booking.timeZone)}
+                    </p>
+                </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 pl-12 sm:justify-end sm:pl-0">
                 {isUpcoming ? (
                     <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid="dashboard-booking-upcoming-badge">
                         Upcoming

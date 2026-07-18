@@ -1573,7 +1573,7 @@ async function runCoreConnectorNode({
     return;
   }
 
-  logs.push(createLog(node, "error", `Triven action "${action}" is not executable yet.`));
+  logs.push(createLog(node, "error", `Triven AI action "${action}" is not executable yet.`));
 }
 
 /** "Jul 14, 2026" + "3:00 PM" parts for email templates, in the business zone. */

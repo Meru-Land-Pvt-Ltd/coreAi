@@ -187,7 +187,7 @@ export function ArchitectWorkflowsView() {
               <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-600" data-testid="architect-ui-workflows-view-architect-studio-text">Architect Studio</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl" data-testid="architect-ui-workflows-view-agent-builder-heading">Agent Builder</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 sm:text-base sm:leading-7" data-testid="architect-ui-workflows-view-build-responsive-production-ready-agents-first-core-text">
-                Build responsive, production-ready agents. First Triven template: AI Receptionist Template — Customer Calls → Auto Text in 5 Seconds → Lead Captured.
+                Build responsive, production-ready agents. First Triven AI template: AI Receptionist Template — Customer Calls → Auto Text in 5 Seconds → Lead Captured.
               </p>
             </div>
           </div>

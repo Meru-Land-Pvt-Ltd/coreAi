@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
 import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
+import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import { purchaseNumberForBusiness } from "./phone-provisioning-flow";
 
 /**
@@ -134,6 +135,65 @@ describe("purchaseNumberForBusiness", () => {
     expect(outcome.status).toBe("ACTIVE");
     expect(outcome.phoneNumber).toBe("+15550003333");
   });
+});
+
+describe("first-time setup bootstrap (no OTP step)", () => {
+  it("a purchased listing bootstraps the Business + InstalledAgent before number selection", async () => {
+    if (!dbAvailable) return;
+
+    const buyer = await prisma.user.create({
+      data: { email: `${RUN}-boot@test.local`, role: "BUSINESS" }
+    });
+    const architect = await prisma.user.create({
+      data: { email: `${RUN}-boot-arch@test.local`, role: "ARCHITECT" }
+    });
+    const workflow = await prisma.workflowDefinition.create({
+      data: { name: `${RUN} boot wf`, workflowJson: { nodes: [], edges: [] }, architectUserId: architect.id }
+    });
+    const listing = await prisma.agentListing.create({
+      data: {
+        name: `${RUN} Boot Agent`,
+        shortDescription: "test",
+        architectUserId: architect.id,
+        workflowId: workflow.id
+      }
+    });
+    await prisma.payment.create({
+      data: { userId: buyer.id, listingId: listing.id, status: "SUCCEEDED", amountCents: 1000 }
+    });
+
+    try {
+      // Ownership is enforced: a stranger gets nothing.
+      const stranger = await prisma.user.create({
+        data: { email: `${RUN}-boot-stranger@test.local`, role: "BUSINESS" }
+      });
+      expect(await loadOwnedListing(stranger.id, listing.id)).toBeNull();
+      await prisma.user.delete({ where: { id: stranger.id } });
+
+      const owned = await loadOwnedListing(buyer.id, listing.id);
+      expect(owned).not.toBeNull();
+
+      // No Business row exists yet — bootstrap creates Business + InstalledAgent
+      // so the number step works before the Configure step names the business.
+      const { business, agent } = await ensureBusinessAndAgent({ ownerId: buyer.id, listing: owned! });
+      expect(business.ownerId).toBe(buyer.id);
+      expect(agent?.businessId).toBe(business.id);
+      expect(agent?.listingId).toBe(listing.id);
+
+      // Re-running reuses the same rows (idempotent).
+      const again = await ensureBusinessAndAgent({ ownerId: buyer.id, listing: owned! });
+      expect(again.business.id).toBe(business.id);
+      expect(again.agent?.id).toBe(agent?.id);
+
+      await prisma.installedAgent.deleteMany({ where: { businessId: business.id } });
+      await prisma.business.delete({ where: { id: business.id } });
+    } finally {
+      await prisma.payment.deleteMany({ where: { userId: buyer.id } });
+      await prisma.agentListing.delete({ where: { id: listing.id } });
+      await prisma.workflowDefinition.delete({ where: { id: workflow.id } });
+      await prisma.user.deleteMany({ where: { id: { in: [buyer.id, architect.id] } } });
+    }
+  }, 30000);
 });
 
 describe("test calendar event ownership", () => {

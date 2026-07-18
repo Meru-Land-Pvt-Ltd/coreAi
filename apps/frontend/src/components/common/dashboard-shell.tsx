@@ -43,7 +43,7 @@ export function DashboardShell({ role, title, subtitle, children }: Props) {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link data-testid="dashboard-shell-home-link" href={"/" as Route} className="flex items-center gap-3">
             <div className="brand-ring" />
-            <span className="font-bold" data-testid="common-dashboard-shell-core-ai-marketplace-text">Triven Marketplace</span>
+            <span className="font-bold" data-testid="common-dashboard-shell-core-ai-marketplace-text">Triven AI Marketplace</span>
           </Link>
 
           <div className="flex items-center gap-4">

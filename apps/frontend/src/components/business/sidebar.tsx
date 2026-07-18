@@ -103,7 +103,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 text-slate-900">
+        <div className="min-h-screen w-full overflow-x-hidden bg-gray-50 text-slate-900">
             {sidebarOpen ? (
                 <button
                     type="button"
@@ -115,21 +115,26 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
             ) : null}
 
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 flex-col border-r border-gray-100 bg-white transition-transform duration-300 ease-out lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+                className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col overflow-x-hidden border-r border-gray-100 bg-white transition-transform duration-300 ease-out lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
                     }`}
                 aria-label="Primary"
             >
-                <div className="flex items-center gap-3 p-6">
-                    <a href="/business/dashboard" className="flex items-center gap-2.5" aria-label="Triven home">
+                <div className="flex min-w-0 items-center gap-3 border-b border-gray-100 px-4 py-4">
+                    <a
+                        href="/business/dashboard"
+                        className="flex min-w-0 items-center  gap-0.5"
+                        aria-label="Triven home"
+                        data-testid="business-sidebar-brand"
+                    >
                         <Image
                             src={TRIVEN_LOGO_SRC}
-                            alt="Triven"
-                            width={150}
-                            height={44}
+                            alt="Triven logo"
+                            width={36}
+                            height={36}
                             priority
-                            className="h-10 w-auto object-contain"
+                            className="h-9 w-9 shrink-0 object-contain"
                         />
-                        <span className="text-xl font-extrabold tracking-tight text-amber-500">
+                        <span className="truncate text-xl font-extrabold tracking-tight text-amber-500">
                             Triven.ai
                         </span>
                     </a>
@@ -139,7 +144,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             type="button"
                             onClick={closeSidebar}
                             data-testid="business-sidebar-close"
-                            className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
+                            className="ml-auto shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
                             aria-label="Close menu"
                         >
                             <Icon name="close" className="h-5 w-5" />
@@ -190,7 +195,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 </div>
 
                 <div className="mt-auto border-t border-gray-100 p-4">
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                         <ProfileAvatar
                             photoUrl={currentUser?.profilePhotoUrl}
                             initials={initials}
@@ -206,7 +211,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             <p className="truncate text-xs text-slate-500" data-testid="business-sidebar-subtitle-text">{subtitle}</p>
                         </div>
 
-                        <div className="relative">
+                        <div className="relative shrink-0">
                             <button
                                 type="button"
                                 onClick={() => setAccountMenuOpen((open) => !open)}
@@ -236,37 +241,47 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 </div>
             </aside>
 
-            <div className="min-h-screen lg:ml-64">
-                <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 px-5 py-3 backdrop-blur lg:hidden">
+            <div className="min-h-screen min-w-0 w-full overflow-x-hidden lg:pl-64">
+                <div className="sticky top-0 z-30 flex w-full min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-gray-100 bg-gray-50/90 px-2 py-2.5 backdrop-blur lg:hidden">
                     {!sidebarOpen ? (
                         <button
                             type="button"
                             onClick={() => setSidebarOpen(true)}
                             data-testid="business-sidebar-open"
-                            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
+                            className="shrink-0 rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
                             aria-label="Open menu"
                         >
                             <Icon name="menu" className="h-6 w-6" />
                         </button>
                     ) : (
-                        <span className="h-10 w-10" aria-hidden="true" />
+                        <span className="hidden h-10 w-10 shrink-0 lg:block" aria-hidden="true" />
                     )}
 
-                    <Image
-                        src={TRIVEN_LOGO_SRC}
-                        alt="Triven"
-                        width={120}
-                        height={36}
-                        priority
-                        className="h-8 w-auto object-contain"
-                    />
+                    <a
+                        href="/business/dashboard"
+                        className="flex min-w-0 items-center justify-center mr-4 gap-0.5"
+                        aria-label="Triven home"
+                        data-testid="business-mobile-brand"
+                    >
+                        <Image
+                            src={TRIVEN_LOGO_SRC}
+                            alt="Triven logo"
+                            width={36}
+                            height={36}
+                            priority
+                            className="h-9 w-9 shrink-0 object-contain"
+                        />
+                        <span className="truncate text-xl font-extrabold tracking-tight text-amber-500">
+                            Triven.ai
+                        </span>
+                    </a>
 
-                    <span className="text-xl font-extrabold tracking-tight text-amber-500">
-                        Triven.ai
-                    </span>
+                    
                 </div>
 
-                {children}
+                <div className="min-w-0 w-full max-w-full overflow-x-hidden">
+                    {children}
+                </div>
             </div>
         </div>
     );

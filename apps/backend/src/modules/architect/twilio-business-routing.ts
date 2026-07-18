@@ -1041,7 +1041,7 @@ function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: strin
 }
 
 /**
- * Read-only routing diagnostics for a Triven number — powers the buyer's
+ * Read-only routing diagnostics for a Triven AI number — powers the buyer's
  * "Test call routing" check. Runs the same resolver the live webhook uses.
  */
 export async function getCallRoutingDiagnostics(rawNumber: string) {

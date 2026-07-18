@@ -750,7 +750,7 @@ const REQ = {
     connector: "vapi",
     label: "Vapi voice",
     ownedBy: "platform",
-    note: "Runs on the Triven Vapi platform — no buyer credential needed for MVP."
+    note: "Runs on the Triven AI Vapi platform — no buyer credential needed for MVP."
   },
   elevenlabs: {
     connector: "elevenlabs",
