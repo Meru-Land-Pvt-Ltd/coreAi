@@ -17,7 +17,7 @@ export async function computeArchitectPayoutSummary(architectUserId: string) {
       ? {
           bankName: payoutMethod.bankName ?? "Stripe bank account",
           accountHolderName: payoutMethod.accountHolderName ?? "",
-          accountLast4: payoutMethod.accountLast4 ?? payoutMethod.accountNumber?.slice(-4) ?? "",
+          accountLast4: payoutMethod.accountLast4 ?? "",
           country: payoutMethod.country,
           routingLabel: payoutMethod.country === "IN" ? "IFSC" : "ABA routing number",
           routingLast4: payoutMethod.routingLast4,

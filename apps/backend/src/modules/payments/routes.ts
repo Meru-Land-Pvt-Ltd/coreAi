@@ -70,7 +70,10 @@ const purchaseSchema = z.object({
   billingName: z.string().trim().min(2),
   billingEmail: z.string().trim().email(),
   billingAddress: z.string().trim().min(3),
-  billingPostalCode: z.string().trim().min(3).max(20).optional()
+  billingPostalCode: z.string().trim().min(3).max(20).optional(),
+  /// Per-attempt UUID from checkout — Stripe idempotency key so a retried
+  /// submit can never double-charge the buyer.
+  attemptId: z.string().trim().min(8).max(64).optional()
 });
 
 const billingPaymentMethodSchema = z.object({
@@ -175,7 +178,8 @@ async function chargeAgentOnce({
   listing,
   userId,
   amountCents,
-  phoneFeeCents
+  phoneFeeCents,
+  attemptId
 }: {
   stripe: NonNullable<ReturnType<typeof getStripeClient>>;
   customerId: string;
@@ -185,22 +189,29 @@ async function chargeAgentOnce({
   /** Total to charge — agent price plus any number fee. Defaults to the agent price. */
   amountCents?: number;
   phoneFeeCents?: number;
+  /** Checkout attempt UUID — deduplicates retried submits at Stripe. */
+  attemptId?: string;
 }) {
-  return stripe.paymentIntents.create({
-    amount: amountCents ?? listing.priceCents,
-    currency: "usd",
-    customer: customerId,
-    payment_method: paymentMethodId,
-    confirm: true,
-    off_session: true,
-    description: `One-time purchase of ${listing.name}`,
-    metadata: {
-      userId,
-      listingId: listing.id,
-      chargeType: "agent_purchase",
-      ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
-    }
-  });
+  return stripe.paymentIntents.create(
+    {
+      amount: amountCents ?? listing.priceCents,
+      currency: "usd",
+      customer: customerId,
+      payment_method: paymentMethodId,
+      confirm: true,
+      off_session: true,
+      description: `One-time purchase of ${listing.name}`,
+      metadata: {
+        userId,
+        listingId: listing.id,
+        chargeType: "agent_purchase",
+        ...(phoneFeeCents ? { phoneFeeCents: String(phoneFeeCents) } : {})
+      }
+    },
+    attemptId
+      ? { idempotencyKey: `agent-purchase:${userId}:${listing.id}:${attemptId}` }
+      : undefined
+  );
 }
 
 function paymentBillingData(billing: CheckoutBillingDetails) {
@@ -1157,7 +1168,7 @@ paymentRoutes.post("/purchase", async (c) => {
   }
 
   const authUser = c.get("authUser");
-  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode } = parsed.data;
+  const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode, attemptId } = parsed.data;
   const billingDetails: CheckoutBillingDetails = {
     billingName,
     billingEmail,
@@ -1341,7 +1352,8 @@ paymentRoutes.post("/purchase", async (c) => {
       listing,
       userId: authUser.id,
       amountCents: totalCents,
-      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
+      phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
+      attemptId
     });
     if (intent.status !== "succeeded") {
       return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");
@@ -1430,7 +1442,8 @@ paymentRoutes.post("/purchase", async (c) => {
     listing,
     userId: authUser.id,
     amountCents: totalCents,
-    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0
+    phoneFeeCents: unbilledPhoneFee?.fee.amountCents ?? 0,
+    attemptId
   });
   if (intent.status !== "succeeded") {
     return errorResponse(c, "Payment requires attention", 409, "PAYMENT_INCOMPLETE");

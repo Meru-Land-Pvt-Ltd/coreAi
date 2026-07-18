@@ -6,6 +6,8 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
 import { getStripeClient } from "../payments/stripe";
 import { recordAgentPurchaseFromIntent } from "../payments/purchase-finalize";
+import { applyDisputeToSettlement, applyRefundToSettlement, syncTransferReversalFromStripe } from "../payouts/settlements";
+import { claimStripeEvent, markEventFailed, markEventProcessed } from "../payouts/webhook-events";
 import { canBusinessDeployAgent } from "./deployment-access";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
@@ -187,6 +189,13 @@ export async function handleStripeWebhook(c: Context) {
     return errorResponse(c, "Invalid Stripe signature", 400, "INVALID_SIGNATURE");
   }
 
+  // Exactly-once processing: duplicate deliveries acknowledge without
+  // re-running side effects (double settlements, double adjustments).
+  const claim = await claimStripeEvent(event);
+  if (claim.duplicate) {
+    return c.json({ received: true, duplicate: true });
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
@@ -205,6 +214,49 @@ export async function handleStripeWebhook(c: Context) {
         // Backstop for marketplace agent purchases whose HTTP response was
         // lost after the charge — records the missing Payment row (idempotent).
         await recordAgentPurchaseFromIntent(event.data.object as StripeNS.PaymentIntent);
+        break;
+      }
+      case "charge.refunded": {
+        const charge = event.data.object as StripeNS.Charge;
+        const intentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+        if (intentId) {
+          const latestRefundId = charge.refunds?.data?.[0]?.id ?? `charge-refund:${charge.id}:${charge.amount_refunded}`;
+          await applyRefundToSettlement({
+            paymentIntentId: intentId,
+            refundId: latestRefundId,
+            cumulativeRefundedCents: charge.amount_refunded,
+            fullyRefunded: Boolean(charge.refunded),
+            stripeChargeId: charge.id
+          });
+        }
+        break;
+      }
+      case "charge.dispute.created":
+      case "charge.dispute.closed": {
+        const dispute = event.data.object as StripeNS.Dispute;
+        const intentId =
+          typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+        if (intentId) {
+          const phase =
+            event.type === "charge.dispute.created"
+              ? ("created" as const)
+              : dispute.status === "won"
+                ? ("won" as const)
+                : ("lost" as const);
+          await applyDisputeToSettlement({
+            paymentIntentId: intentId,
+            disputeId: dispute.id,
+            disputeAmountCents: dispute.amount,
+            phase
+          });
+        }
+        break;
+      }
+      case "transfer.reversed": {
+        // Reversals created outside the app (e.g. Stripe Dashboard) — keep the
+        // settlement ledger in sync with the actual reversed amount.
+        const transfer = event.data.object as StripeNS.Transfer;
+        await syncTransferReversalFromStripe(transfer);
         break;
       }
       case "customer.subscription.created":
@@ -228,8 +280,10 @@ export async function handleStripeWebhook(c: Context) {
     }
   } catch (error) {
     console.error("Stripe webhook handler error", error);
+    await markEventFailed(event.id, error instanceof Error ? error.message : "unknown");
     return errorResponse(c, "Webhook handling failed", 500, "WEBHOOK_HANDLER_FAILED");
   }
 
+  await markEventProcessed(event.id);
   return c.json({ received: true });
 }

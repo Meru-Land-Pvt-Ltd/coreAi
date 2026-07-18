@@ -32,6 +32,8 @@ model User {
   payoutMethod         ArchitectPayoutMethod?
   backupPayoutMethod   ArchitectBackupPayoutMethod?
   payouts              ArchitectPayout[]
+  earnings             ArchitectEarning[]
+  ledgerEntries        ArchitectLedgerEntry[]
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
 
@@ -555,9 +557,10 @@ model Payment {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  listing  AgentListing? @relation(fields: [listingId], references: [id])
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  listing  AgentListing?     @relation(fields: [listingId], references: [id])
+  earning  ArchitectEarning?
 
   @@index([userId])
   @@index([businessId])
@@ -608,27 +611,39 @@ model Country {
 }
 
 model ArchitectPayoutMethod {
-  id                      String   @id @default(cuid())
-  architectUserId         String   @unique
+  id                      String    @id @default(cuid())
+  architectUserId         String    @unique
   bankName                String?
   accountHolderName       String?
   accountNumber           String? // Legacy only. New Stripe Connect methods never store a full account number.
   ifscCode                String? // Legacy only. Stripe collects IFSC/ABA routing details directly.
-  country                 String   @default("IN")
-  currency                String   @default("inr")
+  country                 String    @default("IN")
+  currency                String    @default("inr")
   accountLast4            String?
   routingLast4            String?
-  stripeAccountId         String?  @unique
+  stripeAccountId         String?   @unique
   stripeExternalAccountId String?
-  verificationStatus      String   @default("PENDING")
-  payoutsEnabled          Boolean  @default(false)
-  detailsSubmitted        Boolean  @default(false)
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-  architect               User     @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  verificationStatus      String    @default("PENDING")
+  payoutsEnabled          Boolean   @default(false)
+  detailsSubmitted        Boolean   @default(false)
+  /// Which Stripe mode the connected account belongs to. A test-mode account
+  /// must never receive live transfers (and vice versa).
+  livemode                Boolean   @default(false)
+  /// Stripe capability status for "transfers" (active | pending | inactive).
+  transfersCapability     String?
+  /// account.requirements snapshot: { currentlyDue, eventuallyDue, pastDue,
+  /// pendingVerification, disabledReason } — safe field names only.
+  requirementsJson        Json?
+  disabledReason          String?
+  onboardingCompletedAt   DateTime?
+  lastSyncedAt            DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  architect               User      @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([country])
   @@index([verificationStatus])
+  @@index([livemode])
 }
 
 model ArchitectBackupPayoutMethod {
@@ -651,23 +666,49 @@ model ArchitectBackupPayoutMethod {
 }
 
 model ArchitectPayout {
-  id               String                @id @default(cuid())
-  architectUserId  String
-  amountCents      Int
-  currency         String                @default("usd")
-  status           ArchitectPayoutStatus @default(PENDING)
-  stripeTransferId String?               @unique
-  stripePayoutId   String?               @unique
-  arrivalDate      DateTime?
-  failureCode      String?
-  failureMessage   String?
-  deliveryMethod   String                @default("standard")
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-  architect        User                  @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  id                         String                @id @default(cuid())
+  architectUserId            String
+  amountCents                Int
+  /// Stripe payout fee (e.g. Instant Payout fee), from the balance transaction.
+  feeCents                   Int?
+  /// amountCents - feeCents once known.
+  netCents                   Int?
+  currency                   String                @default("usd")
+  status                     ArchitectPayoutStatus @default(PENDING)
+  stripeTransferId           String?               @unique
+  stripePayoutId             String?               @unique
+  stripeBalanceTransactionId String?
+  stripeConnectedAccountId   String?
+  livemode                   Boolean               @default(false)
+  /// MANUAL = requested in Triven; AUTOMATIC = created by the Stripe payout schedule.
+  origin                     ArchitectPayoutOrigin @default(MANUAL)
+  arrivalDate                DateTime?
+  failureCode                String?
+  /// Safe, user-displayable failure text only — never a raw Stripe exception.
+  failureMessage             String?
+  deliveryMethod             String                @default("standard")
+  destinationType            String?
+  destinationLast4           String?
+  /// Client-generated idempotency token; unique per architect+method+mode.
+  clientRequestId            String?
+  /// Deterministic Stripe idempotency key used for payouts.create.
+  idempotencyKey             String?
+  paidAt                     DateTime?
+  failedAt                   DateTime?
+  canceledAt                 DateTime?
+  reversedAt                 DateTime?
+  /// Stripe event.created of the last applied webhook — stale events are ignored.
+  lastStripeEventCreatedAt   DateTime?
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  architect                  User                  @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
+  @@unique([architectUserId, clientRequestId, deliveryMethod, livemode])
   @@index([architectUserId])
+  @@index([architectUserId, createdAt])
   @@index([status])
+  @@index([stripeConnectedAccountId])
+  @@index([livemode])
   @@index([createdAt])
 }
 
@@ -717,6 +758,103 @@ model ArchitectRefundSettlement {
 
   @@index([architectUserId])
   @@index([status])
+}
+
+/// Immutable per-purchase architect settlement. One row per eligible Payment.
+/// Gross/commission values are never rewritten after creation — refunds,
+/// disputes, reversals, and manual corrections land in the *Minor adjustment
+/// columns backed by append-only ArchitectLedgerEntry rows.
+model ArchitectEarning {
+  id                       String                 @id @default(cuid())
+  architectUserId          String
+  buyerUserId              String?
+  listingId                String?
+  paymentId                String                 @unique
+  currency                 String                 @default("usd")
+  grossAmountCents         Int
+  platformCommissionCents  Int
+  architectGrossCents      Int
+  refundCents              Int                    @default(0)
+  disputeCents             Int                    @default(0)
+  reversalCents            Int                    @default(0)
+  adjustmentCents          Int                    @default(0)
+  /// architectGrossCents - refundCents - disputeCents - reversalCents + adjustmentCents.
+  architectNetCents        Int
+  status                   ArchitectEarningState  @default(PAYMENT_SUCCEEDED)
+  /// Status the earning returns to if an open dispute is won.
+  statusBeforeDispute      ArchitectEarningState?
+  holdUntil                DateTime?
+  availableAt              DateTime?
+  transferredAt            DateTime?
+  livemode                 Boolean                @default(false)
+  stripePaymentIntentId    String?
+  stripeChargeId           String?
+  stripeTransferId         String?                @unique
+  stripeTransferReversalId String?
+  /// Version of the commission formula used at settlement time.
+  calculationVersion       Int                    @default(1)
+  /// Bumped on money-affecting changes; part of the transfer idempotency key.
+  settlementVersion        Int                    @default(1)
+  lastStripeEventCreatedAt DateTime?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  architect                User                   @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  payment                  Payment                @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  ledgerEntries            ArchitectLedgerEntry[]
+
+  @@index([architectUserId, status])
+  @@index([status, holdUntil])
+  @@index([listingId])
+  @@index([stripePaymentIntentId])
+  @@index([livemode])
+}
+
+/// Append-only money-adjustment journal. Rows are never updated or deleted.
+/// The (entryType, sourceId, earningId) unique key makes duplicate webhook
+/// deliveries idempotent.
+model ArchitectLedgerEntry {
+  id              String                   @id @default(cuid())
+  earningId       String?
+  architectUserId String
+  entryType       ArchitectLedgerEntryType
+  /// Signed amount in minor units. Negative reduces the architect's earning.
+  amountCents     Int
+  currency        String                   @default("usd")
+  reason          String
+  /// stripe_webhook | admin | reconciliation | system
+  source          String
+  /// Stripe object/event id or admin user id that produced this entry.
+  sourceId        String?
+  createdByUserId String?
+  createdAt       DateTime                 @default(now())
+  earning         ArchitectEarning?        @relation(fields: [earningId], references: [id], onDelete: SetNull)
+  architect       User                     @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@unique([entryType, sourceId, earningId])
+  @@index([earningId])
+  @@index([architectUserId, createdAt])
+}
+
+/// Stripe webhook receipt log — exactly-once processing and replay protection
+/// for both the platform and the Connect webhook endpoints.
+model StripeWebhookEvent {
+  id                 String                        @id @default(cuid())
+  stripeEventId      String                        @unique
+  eventType          String
+  connectedAccountId String?
+  livemode           Boolean                       @default(false)
+  objectId           String?
+  eventCreatedAt     DateTime
+  processingStatus   StripeWebhookProcessingStatus @default(RECEIVED)
+  attemptCount       Int                           @default(1)
+  lastErrorCode      String?
+  processedAt        DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+
+  @@index([eventType, createdAt])
+  @@index([objectId])
+  @@index([processingStatus])
 }
 
 enum UserRole {
@@ -779,10 +917,57 @@ enum PricingModel {
 }
 
 enum ArchitectPayoutStatus {
+  /// Legacy value — new manual requests start at RESERVED.
   PENDING
+  /// Balance reserved locally; Stripe payout not yet confirmed created.
+  RESERVED
   PROCESSING
+  IN_TRANSIT
+  /// Legacy terminal-success value (kept for historic rows). New rows use PAID.
   COMPLETED
+  PAID
   FAILED
+  CANCELED
+  REVERSED
+}
+
+enum ArchitectPayoutOrigin {
+  MANUAL
+  AUTOMATIC
+}
+
+enum ArchitectEarningState {
+  PAYMENT_PENDING
+  PAYMENT_SUCCEEDED
+  HELD
+  AVAILABLE_FOR_TRANSFER
+  TRANSFER_PROCESSING
+  TRANSFERRED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  DISPUTED
+  REVERSAL_PENDING
+  REVERSED
+  NEGATIVE_ADJUSTMENT
+  FAILED
+}
+
+enum ArchitectLedgerEntryType {
+  REFUND_ADJUSTMENT
+  DISPUTE_HOLD
+  DISPUTE_RELEASE
+  DISPUTE_LOSS
+  TRANSFER_REVERSAL
+  MANUAL_ADJUSTMENT
+  CORRECTION
+}
+
+enum StripeWebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  SKIPPED_DUPLICATE
+  SKIPPED_STALE
 }
 
 enum LoginHistoryStatus {

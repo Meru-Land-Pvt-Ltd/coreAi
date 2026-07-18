@@ -11,6 +11,7 @@ import {
   sumApprovedEarningsCents,
   sumPendingEarningsCents
 } from "../architect/payout-earnings";
+import { releaseEligibleEarnings, transitionEarning } from "../payouts/settlements";
 
 export const adminPayoutRoutes = new Hono();
 
@@ -49,7 +50,6 @@ async function loadAdminPayoutSales(options?: {
                 select: {
                   bankName: true,
                   accountHolderName: true,
-                  accountNumber: true,
                   accountLast4: true,
                   country: true,
                   routingLast4: true,
@@ -149,7 +149,7 @@ async function loadAdminPayoutSales(options?: {
           ? {
               bankName: payoutMethod.bankName ?? "Stripe bank account",
               accountHolderName: payoutMethod.accountHolderName ?? "",
-              accountLast4: payoutMethod.accountLast4 ?? payoutMethod.accountNumber?.slice(-4) ?? "",
+              accountLast4: payoutMethod.accountLast4 ?? "",
               country: payoutMethod.country,
               routingLabel: payoutMethod.country === "IN" ? "IFSC" : "ABA routing number",
               routingLast4: payoutMethod.routingLast4,
@@ -270,6 +270,27 @@ adminPayoutRoutes.patch("/sales/:paymentId/status", async (c) => {
         architectEarningReviewedByUserId: authUser.id
       }
     });
+
+    // Keep the settlement ledger in step with the review decision: approval
+    // releases the earning once its hold expires; rejection retires it.
+    try {
+      if (input.status === "APPROVED") {
+        await releaseEligibleEarnings(payment.listing.architectUserId);
+      } else {
+        const earning = await prisma.architectEarning.findUnique({ where: { paymentId } });
+        if (earning) {
+          await transitionEarning({
+            earningId: earning.id,
+            to: "FAILED",
+            source: "admin",
+            sourceId: authUser.id,
+            reason: "Earning rejected by admin review"
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[admin-payouts] settlement sync after review failed", { paymentId, error });
+    }
 
     const architectSales = await loadArchitectEarnings(payment.listing.architectUserId);
     const sale = architectSales.find((item) => item.paymentId === paymentId);

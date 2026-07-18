@@ -578,9 +578,11 @@ export function getArchitectPayoutTransactions(params?: {
   }>(`/architect/payouts/transactions${query ? `?${query}` : ""}`);
 }
 
-export function requestArchitectPayout(body?: {
+export function requestArchitectPayout(body: {
   amountCents?: number;
   deliveryMethod?: "standard" | "instant";
+  /** Per-request UUID — the backend deduplicates retries/double-clicks on it. */
+  clientRequestId: string;
 }) {
   return apiPost<{
     payout: {
@@ -588,10 +590,16 @@ export function requestArchitectPayout(body?: {
       amountCents: number;
       deliveryMethod: "standard" | "instant";
       status: string;
+      expectedArrival?: string | null;
+      duplicate?: boolean;
       createdAt: string;
-    };
+    } | null;
     summary: ArchitectPayoutSummary;
-  }>("/architect/payouts/request", body ?? {});
+  }>("/architect/payouts/request", body);
+}
+
+export function getArchitectStripeDashboardLink() {
+  return apiPost<{ url: string }>("/architect/payouts/connect/dashboard-link", {});
 }
 
 export function getArchitectProjects() {

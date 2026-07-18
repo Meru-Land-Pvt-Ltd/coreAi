@@ -23,6 +23,8 @@
     "prisma:generate": "npm run prisma:generate --workspace=@coreai/backend",
     "prisma:migrate": "npm run prisma:migrate --workspace=@coreai/backend",
     "prisma:studio": "npm run prisma:studio --workspace=@coreai/backend",
+    "reconcile:payouts": "npm run reconcile:payouts --workspace=@coreai/backend --",
+    "backfill:architect-earnings": "npm run backfill:architect-earnings --workspace=@coreai/backend --",
     "clean": "rm -rf node_modules package-lock.json apps/frontend/node_modules apps/backend/node_modules apps/frontend/.next apps/backend/dist",
     "clean:apple": "find . -name '._*' -delete",
     "reinstall": "npm run clean && npm install",
