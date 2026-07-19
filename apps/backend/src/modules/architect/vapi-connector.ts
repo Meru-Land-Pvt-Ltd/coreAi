@@ -612,6 +612,30 @@ function genericAssistantTools() {
       messages: [
         {
           type: "request-start",
+          content: "Let me look that up for you."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.lookupKnowledge,
+        description:
+          "Search this business's uploaded documents and knowledge base for specific details (policies, pricing, services, hours, procedures). ALWAYS call this with the caller's question before saying you don't know a business detail.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "The caller's question or the specific topic to look up, in plain words."
+            }
+          },
+          required: ["query"]
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
           content: "Let me check our calendar for available times."
         }
       ],
@@ -888,6 +912,7 @@ export type DeployVapiAssistantInput = {
   metadata?: Record<string, unknown>;
   /** Restrict attached tools to the connected workflow's capabilities. */
   includeTools?: {
+    knowledgeLookup?: boolean;
     checkAvailability?: boolean;
     bookAppointment?: boolean;
     sendNotification?: boolean;
@@ -956,6 +981,9 @@ export async function deployVapiAssistant({
           if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
           // Consent capture only matters where SMS can be sent at all.
           if (name === VOICE_TOOL_NAMES.recordSmsConsent) return includeTools.sendNotification !== false;
+          // Knowledge lookup is read-only business context — on unless the
+          // caller is a sandboxed surface with no business (marketplace demo).
+          if (name === VOICE_TOOL_NAMES.lookupKnowledge) return includeTools.knowledgeLookup !== false;
           return true;
         })
         : []

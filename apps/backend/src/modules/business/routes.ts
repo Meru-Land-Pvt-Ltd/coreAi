@@ -63,6 +63,7 @@ import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-de
 import {
   buildInstalledAgentChatTestSetup,
   deployInstalledAgentVoiceAssistant,
+  refreshLiveAssistantKnowledge,
   SetupPreviewCallError,
   startInstalledAgentPreviewCall
 } from "./deploy";
@@ -769,6 +770,22 @@ async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string
 // The businessId is ALWAYS derived from the authenticated owner — a
 // browser-supplied businessId is never accepted for phone provisioning.
 async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
+  // Prefer the newest business that actually carries a buyer installed agent
+  // (excluding architect test sandboxes) — uploads, demo tests, and setup then
+  // always target the SAME business the live phone number was purchased for,
+  // even when stray/placeholder Business rows exist for the owner.
+  const withAgent = await prisma.business.findFirst({
+    where: {
+      ownerId,
+      installedAgents: {
+        some: { NOT: { configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" } } }
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  if (withAgent) return withAgent.id;
+
   const business = await prisma.business.findFirst({
     where: { ownerId },
     orderBy: { createdAt: "desc" },
@@ -1109,6 +1126,11 @@ businessRoutes.post("/setup/knowledge-files", async (c) => {
       installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
       files: uploads
     });
+    // A live assistant's prompt is baked at deploy — refresh it so future
+    // live calls answer from the new documents. Best-effort, never blocking.
+    if (results.some((file) => file.status === "PROCESSED")) {
+      void refreshLiveAssistantKnowledge(resolved.businessId);
+    }
     return successResponse(c, { files: results });
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);
@@ -1130,6 +1152,7 @@ businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
 
   try {
     await deleteKnowledgeFile(businessId, c.req.param("id"));
+    void refreshLiveAssistantKnowledge(businessId);
     return successResponse(c, { deleted: true });
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);
@@ -1143,6 +1166,7 @@ businessRoutes.post("/setup/knowledge-files/:id/reprocess", async (c) => {
 
   try {
     const file = await reprocessKnowledgeFile(businessId, c.req.param("id"));
+    if (file.status === "PROCESSED") void refreshLiveAssistantKnowledge(businessId);
     return successResponse(c, { file });
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);

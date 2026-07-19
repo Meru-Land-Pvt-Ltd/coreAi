@@ -327,7 +327,7 @@ export async function startMarketplaceDemoCall(
     existingAssistantId,
     metadata: { purpose: MARKETPLACE_DEMO_PURPOSE, listingId: listing.id },
     // The demo converses only: no booking, no SMS, no notifications.
-    includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false },
+    includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false, knowledgeLookup: false },
     silenceTimeoutSeconds: 30,
     maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
     recordingEnabled: false

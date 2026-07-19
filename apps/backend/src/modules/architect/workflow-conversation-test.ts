@@ -4,6 +4,7 @@ import {
   type ExecutionMode
 } from "@coreai/shared";
 import { runAgentWorkflow } from "../agent-runtime/graph-runner";
+import { retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import {
   createArchitectTestProviders,
   createBusinessTestProviders,
@@ -13,12 +14,6 @@ import {
 import type { AgentMessage } from "../agent-runtime/runtime-context";
 import { calendarError, publicCalendarError } from "./calendar-errors";
 
-/**
- * Conversation test — a thin wrapper over the shared agent runtime, used by
- * BOTH the Architect dry run and the Business installed-agent test. The same
- * runtime (graph runner + node handlers) powers the live call flow; only the
- * provider adapters differ per execution mode.
- */
 
 export type ArchitectConversationRole = "user" | "assistant";
 
@@ -257,6 +252,27 @@ export async function runArchitectConversationTest({
   if (executionMode === "BUSINESS_TEST") {
     if (!businessIdentity?.businessId) {
       throw new Error("BUSINESS_TEST requires businessIdentity.businessId");
+    }
+
+    if (!isCallStart && cleanMessage) {
+      try {
+        const retrieved = await retrieveRelevantKnowledge({
+          businessId: businessIdentity.businessId,
+          query: cleanMessage
+        });
+        if (retrieved.length > 0) {
+          const retrievedEntries = retrieved.map((section) =>
+            `${section.title}: ${section.content}`
+          );
+          const baseline = Array.isArray(business.knowledge) ? business.knowledge : [];
+          business.knowledge = [
+            ...retrievedEntries,
+            ...baseline.filter((entry) => !retrievedEntries.includes(entry))
+          ];
+        }
+      } catch (error) {
+        console.error("[conversation-test] knowledge retrieval failed (non-fatal)", error);
+      }
     }
 
     providers = createBusinessTestProviders({

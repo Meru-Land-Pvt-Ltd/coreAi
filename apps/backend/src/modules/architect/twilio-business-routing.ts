@@ -7,7 +7,7 @@ import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { DuplicateWorkflowRunError } from "../memory/work-flow-run-service";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
-import { formatKnowledgeEntries } from "../business/agent-knowledge";
+import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
@@ -3294,6 +3294,41 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   };
 }
 
+async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  const query = argStr(args, ["query", "question", "topic", "search"]) || ctx.transcript.slice(-300);
+  const businessId = ctx.business?.businessId;
+
+  if (!businessId || !query.trim()) {
+    return {
+      found: false,
+      sections: [],
+      message: "No business documents are available. Use the fallback response instead of inventing details."
+    };
+  }
+
+  const sections = await retrieveRelevantKnowledge({ businessId, query });
+
+  if (sections.length === 0) {
+    return {
+      found: false,
+      sections: [],
+      message:
+        "Nothing in the business documents matches this question. Do not invent an answer — use the configured fallback response."
+    };
+  }
+
+  console.log("[vapi-tool] lookup_knowledge", { businessId, terms: query.slice(0, 60), sections: sections.length });
+  return {
+    found: true,
+    sections: sections.map((section) => ({
+      title: section.title,
+      content: section.content,
+      source: section.sourceFilename
+    })),
+    message: "Answer using ONLY these sections. If they do not cover the question, say you will have the team confirm."
+  };
+}
+
 async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { success: false, error: "business_not_resolved", consent_recorded: false };
@@ -3729,21 +3764,29 @@ function authorizeVapiWebhook(
   return { authorized: false, reason: "missing or invalid webhook secret" };
 }
 
-/** Whether the resolved business is an architect test sandbox (never a live buyer business). */
-function isArchitectSandboxBusiness(business: unknown): boolean {
-  const config = (business as { configJson?: unknown } | null)?.configJson;
-  if (!config || typeof config !== "object" || Array.isArray(config)) return false;
-  return (config as Record<string, unknown>).purpose === "ARCHITECT_TEST";
+/**
+ * Whether the resolved business is an architect test sandbox (never a live
+ * buyer business). The sandbox marker lives on InstalledAgent.configJson
+ * (same predicate findSandboxBusiness uses) — Business has no configJson.
+ */
+async function isArchitectSandboxBusiness(business: unknown): Promise<boolean> {
+  const businessId = (business as { id?: unknown } | null)?.id;
+  if (typeof businessId !== "string" || !businessId) return false;
+  const sandboxAgent = await prisma.installedAgent.findFirst({
+    where: { businessId, configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" } },
+    select: { id: true }
+  });
+  return Boolean(sandboxAgent);
 }
 
 function resolveVapiCallExecutionMode(
   metadata: Record<string, unknown>,
-  business: unknown
+  isSandboxBusiness: boolean
 ): "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" {
   const purpose = typeof metadata.purpose === "string" ? metadata.purpose : "";
   if (purpose === "ARCHITECT_TEST") return "ARCHITECT_DRY_RUN";
   if (purpose === "BUYER_SETUP_PREVIEW" || purpose === "MARKETPLACE_DEMO") return "BUSINESS_TEST";
-  if (isArchitectSandboxBusiness(business)) return "ARCHITECT_DRY_RUN";
+  if (isSandboxBusiness) return "ARCHITECT_DRY_RUN";
   return "LIVE";
 }
 
@@ -3774,13 +3817,14 @@ export async function handleVapiWebhook(c: Context) {
 
     // The body-supplied ARCHITECT_TEST purpose only authorizes requests that
     // resolve to a real architect sandbox business — never a live buyer.
-    if (auth.requiresArchitectSandbox && !isArchitectSandboxBusiness(business)) {
+    if (auth.requiresArchitectSandbox && !(business && (await isArchitectSandboxBusiness(business)))) {
       console.log("[vapi-webhook] response status", 401, "(architect-test purpose without sandbox business)");
       return c.json({ success: false, error: "Unauthorized", code: "VAPI_WEBHOOK_UNAUTHORIZED" }, 401);
     }
 
     const businessContext = business ? buildBusinessContext(business) : null;
-    const executionMode = resolveVapiCallExecutionMode(metadata, business);
+    const sandboxBusiness = business ? await isArchitectSandboxBusiness(business) : false;
+    const executionMode = resolveVapiCallExecutionMode(metadata, sandboxBusiness);
     const callId = firstNestedString(body, [["message", "call", "id"], ["call", "id"], ["id"]]);
     const customerPhone =
       firstNestedString(body, [["message", "call", "customer", "number"], ["call", "customer", "number"]]) ||
@@ -3920,11 +3964,12 @@ export async function handleVapiWebhook(c: Context) {
     for (const toolCall of toolCalls) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
       const isConsent = fnName.includes("consent");
-      const isCancel = !isConsent && fnName.includes("cancel");
-      const isReschedule = !isConsent && !isCancel && fnName.includes("resched");
-      const isCheck = !isConsent && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
-      const isBook = !isConsent && !isCancel && !isReschedule && fnName.startsWith("book");
-      const isNotify = !isConsent && !isCancel && !isReschedule && (fnName.startsWith("send") || fnName.includes("notif"));
+      const isLookup = !isConsent && (fnName.includes("knowledge") || fnName.startsWith("lookup"));
+      const isCancel = !isConsent && !isLookup && fnName.includes("cancel");
+      const isReschedule = !isConsent && !isLookup && !isCancel && fnName.includes("resched");
+      const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
+      const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && fnName.startsWith("book");
+      const isNotify = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("send") || fnName.includes("notif"));
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -3933,6 +3978,7 @@ export async function handleVapiWebhook(c: Context) {
       let payload: unknown;
       try {
         if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
+        else if (isLookup) payload = await runLookupKnowledgeTool(toolCall.parameters, ctx);
         else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
         else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
         else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
@@ -3941,7 +3987,9 @@ export async function handleVapiWebhook(c: Context) {
         else payload = { ok: true };
       } catch (error) {
         console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
-        payload = isCheck
+        payload = isLookup
+          ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
+          : isCheck
           ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
           : isBook
             ? { success: false, message: "Could not complete the booking right now. Please try again." }

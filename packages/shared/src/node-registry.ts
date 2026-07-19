@@ -97,7 +97,8 @@ export const VOICE_TOOL_NAMES = {
   cancelAppointment: "cancel_appointment",
   rescheduleAppointment: "reschedule_appointment",
   sendNotification: "send_notification",
-  recordSmsConsent: "record_sms_consent"
+  recordSmsConsent: "record_sms_consent",
+  lookupKnowledge: "lookup_knowledge"
 } as const;
 
 export const DEFAULT_VOICE_PROVIDER = "11labs";

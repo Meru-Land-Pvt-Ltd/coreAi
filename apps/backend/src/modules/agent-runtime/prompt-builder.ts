@@ -91,6 +91,8 @@ export type AgentPromptInput = {
   services: string[];
   faqs: string[];
   knowledge?: string[];
+  /** Vapi assistants have the lookup_knowledge tool; chat runtimes do not. */
+  hasKnowledgeLookupTool?: boolean;
   address?: string;
   businessHours?: string;
   /** Timezone text — a literal value, or a {{timeZone}} placeholder for live Vapi substitution. */
@@ -234,7 +236,9 @@ FAQs:
 ${faqsList}
 
 Additional knowledge:
-${knowledgeList}`.trim());
+${knowledgeList}${input.hasKnowledgeLookupTool
+    ? "\n\nIf the caller asks about a business detail not covered above, call the lookup_knowledge tool with their exact question BEFORE saying you don't know. Answer only from what it returns; if it returns nothing relevant, use the fallback response — never invent details."
+    : ""}`.trim());
 
   const customFieldLines = (input.customFields ?? [])
     .map((field) => ({ label: clean(field.label), value: clean(field.value) }))

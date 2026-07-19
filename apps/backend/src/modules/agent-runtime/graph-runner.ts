@@ -622,6 +622,15 @@ export async function runAgentWorkflow(params: {
       message: input.message
     });
 
+    if (!llmReply) {
+      context.toolCalls.push({
+        name: "ai.reply_fallback",
+        status: "skipped",
+        message:
+          "AI reply engine is not configured (no LLM key) — a scripted fallback reply was used. It cannot answer from business knowledge or uploaded documents."
+      });
+    }
+
     reply = llmReply || fallbackReply({ context, tools, nodeInstructions, firstMessage });
   } catch (error) {
     context.executedNodes.push({
@@ -634,8 +643,6 @@ export async function runAgentWorkflow(params: {
     reply = fallbackReply({ context, tools, nodeInstructions, firstMessage });
   }
 
-  // Anti-loop guard: never say the exact same thing twice in a row. If the
-  // computed reply matches the previous assistant turn, clarify instead.
   const lastAssistantReply = [...input.history].reverse().find((item) => item.role === "assistant")?.content ?? "";
 
   if (reply.trim() === lastAssistantReply.trim()) {

@@ -383,6 +383,7 @@ async function buildInstalledAgentAssistantPlan(
     services,
     faqs: faqs.length ? faqs : [],
     knowledge,
+    hasKnowledgeLookupTool: true,
     address: cleanString(business.profile?.serviceArea),
     businessHours,
     // Vapi substitutes these {{...}} variables with live values at call time.
@@ -599,6 +600,33 @@ async function findLatestTestableInstalledAgent(businessId: string): Promise<{ i
     orderBy: { createdAt: "desc" },
     select: { id: true }
   });
+}
+
+/**
+ * Refresh the LIVE assistant's baked-in prompt after knowledge changes.
+ * No-op before Go-live (no vapiAssistantId / no ACTIVE agent) and never
+ * fails the calling mutation — the next deploy would pick knowledge up anyway.
+ */
+export async function refreshLiveAssistantKnowledge(businessId: string): Promise<void> {
+  try {
+    if (!isVapiConfigured()) return;
+    const profile = await prisma.businessProfile.findUnique({
+      where: { businessId },
+      select: { vapiAssistantId: true }
+    });
+    if (!profile?.vapiAssistantId) return;
+
+    const result = await deployInstalledAgentVoiceAssistant(businessId);
+    console.log("[knowledge] live assistant prompt refreshed", {
+      businessId,
+      assistantId: result?.assistantId ?? null
+    });
+  } catch (error) {
+    console.error("[knowledge] live assistant refresh failed (non-fatal)", {
+      businessId,
+      error: error instanceof Error ? error.message : error
+    });
+  }
 }
 
 export async function startInstalledAgentPreviewCall(businessId: string): Promise<SetupPreviewCallSession> {
