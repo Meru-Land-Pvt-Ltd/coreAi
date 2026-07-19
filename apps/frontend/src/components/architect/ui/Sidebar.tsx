@@ -7,12 +7,27 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
-import { AUTH_USER_UPDATED_EVENT, getAuthUser, logout, type AuthUser } from "@/lib/auth";
+import {
+  AUTH_USER_UPDATED_EVENT,
+  getAuthUser,
+  hasAuthRole,
+  logout,
+  setActiveWorkspace,
+  type AuthUser
+} from "@/lib/auth";
+import { ensureBusinessWorkspaceAccess } from "@/lib/business-workspace";
 import { ARCHITECT_SETTINGS_PATH } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
-type IconName = "dashboard" | "agents" | "builder" | "templates" | "payouts" | "settings";
+type IconName =
+  | "dashboard"
+  | "agents"
+  | "builder"
+  | "templates"
+  | "payouts"
+  | "settings"
+  | "workspace";
 
 type NavItem = {
   label: string;
@@ -119,6 +134,16 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
     );
   }
 
+  if (name === "workspace") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l1.5-4.5A2 2 0 0 1 6.4 3h11.2a2 2 0 0 1 1.9 1.5L21 9" />
+        <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
+        <path d="M9 20v-5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5" />
+      </svg>
+    );
+  }
+
   if (name === "settings") {
     return (
       <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,6 +164,43 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
 
 
 
+
+/**
+ * Switch into the Business (buyer) workspace with the SAME account/session.
+ * Activates the BUSINESS capability server-side on first use; the auth token
+ * and architect access are preserved.
+ */
+function BusinessWorkspaceSwitch({ onNavigate }: { onNavigate?: () => void }) {
+  const router = useRouter();
+  const [switching, setSwitching] = useState(false);
+
+  return (
+    <button
+      type="button"
+      data-testid="architect-sidebar-switch-business-workspace"
+      disabled={switching}
+      onClick={() => {
+        setSwitching(true);
+        void ensureBusinessWorkspaceAccess().then((access) => {
+          setSwitching(false);
+          if (access === "authed") {
+            onNavigate?.();
+            router.push("/business/dashboard" as Route);
+          }
+        });
+      }}
+      className={cn(
+        "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900",
+        switching && "opacity-60"
+      )}
+    >
+      <Icon name="workspace" className="text-slate-400 group-hover:text-slate-600" />
+      <span className="min-w-0 flex-1 truncate text-left" data-testid="architect-sidebar-switch-business-workspace-label">
+        {switching ? "Opening Business Workspace..." : "Business Workspace"}
+      </span>
+    </button>
+  );
+}
 
 function SidebarContent({
   user,
@@ -218,6 +280,13 @@ function SidebarContent({
             );
           })}
         </ul>
+
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Workspaces
+          </p>
+          <BusinessWorkspaceSwitch onNavigate={onNavigate} />
+        </div>
       </nav>
 
       <div className="border-t border-gray-100 p-3">
@@ -294,10 +363,13 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const authUser = getAuthUser();
-    if (!authUser || authUser.role !== "ARCHITECT") {
+    // Capability check: a dual-role account (ARCHITECT + BUSINESS) keeps
+    // architect access no matter which legacy role its row carries.
+    if (!authUser || !hasAuthRole(authUser, "ARCHITECT")) {
       router.replace("/architect/login" as Route);
       return;
     }
+    setActiveWorkspace("ARCHITECT");
     setUser(authUser);
     setReady(true);
   }, [router]);

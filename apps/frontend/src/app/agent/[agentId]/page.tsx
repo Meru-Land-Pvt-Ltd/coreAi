@@ -10,7 +10,7 @@ import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
 import { ExpandableText } from "@/components/common/expandable-text";
 import { BusinessSidebarLayout } from "@/components/business/sidebar";
-import { getAuthToken, getAuthUser } from "@/lib/auth";
+import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
 import {
   BUSINESS_MARKETPLACE_PATH,
   MARKETPLACE_PATH,
@@ -430,7 +430,7 @@ export default function PublicAgentDetailsPage() {
   useEffect(() => {
     const token = getAuthToken();
     const user = getAuthUser();
-    setIsBusinessAuthed(Boolean(token && user?.role === "BUSINESS"));
+    setIsBusinessAuthed(Boolean(token && hasAuthRole(user, "BUSINESS")));
   }, []);
 
   useEffect(() => {

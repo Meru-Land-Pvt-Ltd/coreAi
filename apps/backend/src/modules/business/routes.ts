@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   isBuyerAnswerEmpty,
@@ -51,6 +51,14 @@ import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
+import {
+  KnowledgeFileError,
+  MAX_FILE_BYTES,
+  deleteKnowledgeFile,
+  ingestKnowledgeFiles,
+  listKnowledgeFiles,
+  reprocessKnowledgeFile
+} from "./knowledge-files";
 import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
 import {
   buildInstalledAgentChatTestSetup,
@@ -1020,6 +1028,112 @@ businessRoutes.get("/setup/phone-numbers", async (c) => {
   const { availablePhoneNumbers } = await loadPhoneOptions(business?.id ?? null);
 
   return successResponse(c, { numbers: availablePhoneNumbers });
+});
+
+/* ----------------------- Buyer knowledge documents ----------------------- */
+
+function knowledgeFileErrorResponse(c: Context, error: unknown) {
+  if (error instanceof KnowledgeFileError) {
+    return errorResponse(c, error.message, apiErrorStatus(error.status, 422), error.code);
+  }
+  console.error("[knowledge-files] failed", error);
+  return errorResponse(c, "The document could not be processed.", 500, "KNOWLEDGE_FILE_FAILED");
+}
+
+// Multipart upload: PDF/DOCX/TXT documents become agent knowledge. Business
+// ownership always comes from the authenticated user — any client-supplied
+// businessId is ignored.
+businessRoutes.post("/setup/knowledge-files", async (c) => {
+  const authUser = c.get("authUser");
+
+  // Early oversize guard before buffering the multipart body.
+  const contentLength = Number(c.req.header("content-length") ?? 0);
+  if (contentLength > MAX_FILE_BYTES * 5 + 1024 * 1024) {
+    return errorResponse(c, "Upload too large. Files can be at most 10 MB each.", 422, "UPLOAD_TOO_LARGE");
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.parseBody({ all: true });
+  } catch {
+    return errorResponse(c, "Could not read the uploaded files.", 400, "INVALID_MULTIPART_BODY");
+  }
+
+  const listingId = typeof body.listingId === "string" ? body.listingId.trim() : undefined;
+  const requestedAgentId = typeof body.installedAgentId === "string" ? body.installedAgentId.trim() : undefined;
+
+  const resolved = await resolveOrBootstrapBusiness(authUser.id, listingId);
+  if (!resolved) {
+    return errorResponse(c, "Purchase an agent before uploading documents.", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, resolved.businessId, requestedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  const rawFiles = body.files ?? body["files[]"];
+  const fileList = (Array.isArray(rawFiles) ? rawFiles : [rawFiles]).filter(
+    (item): item is File => typeof File !== "undefined" && item instanceof File
+  );
+
+  if (fileList.length === 0) {
+    return errorResponse(c, "Attach at least one PDF, DOCX, or TXT document.", 400, "NO_FILES");
+  }
+
+  try {
+    const uploads = [] as Array<{ filename: string; mimeType: string; bytes: Buffer }>;
+    for (const file of fileList) {
+      uploads.push({
+        filename: file.name,
+        mimeType: file.type,
+        bytes: Buffer.from(await file.arrayBuffer())
+      });
+    }
+
+    const results = await ingestKnowledgeFiles({
+      businessId: resolved.businessId,
+      installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
+      files: uploads
+    });
+    return successResponse(c, { files: results });
+  } catch (error) {
+    return knowledgeFileErrorResponse(c, error);
+  }
+});
+
+businessRoutes.get("/setup/knowledge-files", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return successResponse(c, { files: [] });
+
+  return successResponse(c, { files: await listKnowledgeFiles(businessId) });
+});
+
+businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  try {
+    await deleteKnowledgeFile(businessId, c.req.param("id"));
+    return successResponse(c, { deleted: true });
+  } catch (error) {
+    return knowledgeFileErrorResponse(c, error);
+  }
+});
+
+businessRoutes.post("/setup/knowledge-files/:id/reprocess", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  try {
+    const file = await reprocessKnowledgeFile(businessId, c.req.param("id"));
+    return successResponse(c, { file });
+  } catch (error) {
+    return knowledgeFileErrorResponse(c, error);
+  }
 });
 
 function isPublicHttpsUrl(url: string): boolean {

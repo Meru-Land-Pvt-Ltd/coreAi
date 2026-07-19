@@ -1,5 +1,41 @@
+import axios from "axios";
 import type { BuyerSetupField } from "@coreai/shared";
-import { apiClient, apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
+import { apiClient, apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from "@/lib/api";
+
+/**
+ * POST multipart/form-data through the shared authenticated axios client.
+ * The Content-Type header is intentionally NOT set here — axios drops the
+ * instance-level JSON header for FormData bodies so the browser can set the
+ * multipart boundary itself. Errors are normalized to the same ApiResponse
+ * shape the JSON helpers in lib/api return.
+ */
+async function apiPostFormData<T>(path: string, form: FormData): Promise<ApiResponse<T>> {
+  try {
+    const response = await apiClient.post<ApiResponse<T>>(path, form);
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const payload = error.response?.data as Partial<ApiResponse<T>> | undefined;
+      const serverError =
+        typeof payload?.error === "string" && payload.error.trim() ? payload.error.trim() : undefined;
+      const serverMessage =
+        typeof payload?.message === "string" && payload.message.trim() ? payload.message.trim() : undefined;
+
+      return {
+        success: false,
+        error: serverError ?? serverMessage ?? error.message ?? "Something went wrong while connecting to server",
+        code: typeof payload?.code === "string" && payload.code.trim() ? payload.code.trim() : "API_ERROR",
+        status: error.response?.status
+      };
+    }
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unexpected error occurred",
+      code: "UNKNOWN_ERROR"
+    };
+  }
+}
 
 export type BusinessFaq = {
   question: string;
@@ -365,6 +401,57 @@ export function getPhoneProvisioningStatus(clientRequestId: string) {
 /** Available Triven AI/platform phone numbers the buyer can select (Step 2). */
 export function getBusinessPhoneNumbers() {
   return apiGet<{ numbers: PlatformPhoneOption[] }>("/business/setup/phone-numbers");
+}
+
+/* ---- Knowledge documents (buyer-uploaded PDF/DOCX/TXT for the agent) ---- */
+
+export type KnowledgeFileSummary = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: string; // "PROCESSING" | "PROCESSED" | "FAILED"
+  extractedChars: number;
+  chunkCount: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeFileUploadResult = KnowledgeFileSummary & { alreadyExisted: boolean };
+
+/** Upload one or more knowledge documents (multipart). Both ids are optional. */
+export function uploadBusinessKnowledgeFiles(
+  files: File[],
+  opts: { listingId?: string; installedAgentId?: string } = {}
+) {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file, file.name);
+  }
+  if (opts.listingId) form.append("listingId", opts.listingId);
+  if (opts.installedAgentId) form.append("installedAgentId", opts.installedAgentId);
+
+  return apiPostFormData<{ files: KnowledgeFileUploadResult[] }>("/business/setup/knowledge-files", form);
+}
+
+/** List the business's persisted knowledge documents. */
+export function getBusinessKnowledgeFiles() {
+  return apiGet<{ files: KnowledgeFileSummary[] }>("/business/setup/knowledge-files");
+}
+
+/** Delete one knowledge document (and its extracted knowledge). */
+export function deleteBusinessKnowledgeFile(id: string) {
+  return apiDelete<{ deleted: true }>(`/business/setup/knowledge-files/${encodeURIComponent(id)}`);
+}
+
+/** Re-run extraction for a FAILED knowledge document. */
+export function reprocessBusinessKnowledgeFile(id: string) {
+  return apiPost<{ file: KnowledgeFileSummary }>(
+    `/business/setup/knowledge-files/${encodeURIComponent(id)}/reprocess`,
+    {}
+  );
 }
 
 export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPhoneNumberId?: string }) {

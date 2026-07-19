@@ -79,8 +79,33 @@ export async function hasLegacyActiveSubscription(userId: string): Promise<boole
 }
 
 export type ListingAccess =
-  | { allowed: true; payment: Payment | null; grandfathered: boolean }
+  | { allowed: true; payment: Payment | null; grandfathered: boolean; selfTest?: boolean }
   | { allowed: false; reason: "PURCHASE_REQUIRED" };
+
+/** Listing statuses an architect may self-install for testing. DRAFT,
+ *  REJECTED and SUSPENDED listings stay uninstallable even for their owner. */
+const SELF_TEST_LISTING_STATUSES = ["APPROVED", "PENDING_REVIEW"];
+
+/**
+ * True when the listing belongs to this user (architect self-test): the
+ * architect may install their own published listing without a purchase —
+ * no Stripe charge, no earnings, no payout obligations.
+ */
+export async function isArchitectSelfTestListing(params: {
+  userId: string;
+  listingId: string;
+}): Promise<boolean> {
+  const listing = await prisma.agentListing.findUnique({
+    where: { id: params.listingId },
+    select: { architectUserId: true, status: true }
+  });
+
+  return (
+    !!listing &&
+    listing.architectUserId === params.userId &&
+    SELF_TEST_LISTING_STATUSES.includes(listing.status)
+  );
+}
 
 export async function canBusinessAccessListing(params: {
   userId: string;
@@ -99,6 +124,10 @@ export async function canBusinessAccessListing(params: {
 
   if (installed) {
     return { allowed: true, payment: null, grandfathered: true };
+  }
+
+  if (await isArchitectSelfTestListing(params)) {
+    return { allowed: true, payment: null, grandfathered: false, selfTest: true };
   }
 
   return { allowed: false, reason: "PURCHASE_REQUIRED" };

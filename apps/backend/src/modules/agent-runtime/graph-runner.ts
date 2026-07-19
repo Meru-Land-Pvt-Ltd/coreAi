@@ -264,6 +264,7 @@ ${workflowMap}
     businessType: business.type,
     services: business.services,
     faqs: business.faqs,
+    knowledge: business.knowledge,
     timezoneText: business.timezone,
     currentDateTimeText: now.toLocaleString("en-US", { timeZone: business.timezone }),
     currentDateText: dateInZone(now, business.timezone),

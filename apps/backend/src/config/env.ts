@@ -96,6 +96,13 @@ const envSchema = z.object({
   TWILIO_DEFAULT_TEAM_PHONE: z.string().optional(),
   TWILIO_NUMBER_POOL: z.string().optional(),
 
+  /** Buyer knowledge documents: max stored files per business. */
+  KNOWLEDGE_MAX_FILES_PER_BUSINESS: z.coerce.number().int().positive().default(20),
+  /** Buyer knowledge documents: max extracted characters per document. */
+  KNOWLEDGE_MAX_EXTRACTED_CHARS: z.coerce.number().int().positive().default(200_000),
+  /** Buyer knowledge documents: max pages parsed from one PDF. */
+  KNOWLEDGE_MAX_PDF_PAGES: z.coerce.number().int().positive().default(150),
+
   VAPI_API_KEY: z.string().optional(),
   /** Shared secret Vapi sends back on webhook calls (Bearer or X-Vapi-Secret). */
   VAPI_WEBHOOK_SECRET: z.string().optional(),

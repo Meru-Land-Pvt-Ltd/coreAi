@@ -16,10 +16,14 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/components/business/features/api", () => ({
   checkMailAliasAvailability: vi.fn().mockResolvedValue({ success: true, data: { available: true } }),
+  deleteBusinessKnowledgeFile: vi.fn().mockResolvedValue({ success: true, data: { deleted: true } }),
   deleteBusinessTestEvent: vi.fn().mockResolvedValue({ success: true, data: { outcome: "deleted" } }),
   disconnectBusinessCalendar: vi.fn().mockResolvedValue({ success: true }),
   getBusinessCalendarOAuthUrl: vi.fn().mockResolvedValue({ success: true, data: { url: "" } }),
+  getBusinessKnowledgeFiles: vi.fn().mockResolvedValue({ success: true, data: { files: [] } }),
   getBusinessMailSetup: vi.fn().mockResolvedValue({ success: true, data: { alias: null } }),
+  reprocessBusinessKnowledgeFile: vi.fn().mockResolvedValue({ success: true, data: { file: null } }),
+  uploadBusinessKnowledgeFiles: vi.fn().mockResolvedValue({ success: true, data: { files: [] } }),
   getBusinessPhoneAssignment: vi.fn().mockResolvedValue({ success: true, data: { assigned: false } }),
   getBusinessSetup: vi.fn(),
   getMarketplaceListing: vi.fn().mockResolvedValue({ success: true, data: { listing: null } }),

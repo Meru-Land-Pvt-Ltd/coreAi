@@ -3,11 +3,15 @@ import { prisma } from "../lib/prisma";
 import { verifyAuthToken, type JwtUserRole } from "../lib/jwt";
 import { errorResponse } from "../lib/api-response";
 import { assertActiveSession } from "../lib/user-session";
+import { mergeRoles } from "../lib/roles";
 
 export type AuthUser = {
   id: string;
   email: string;
+  /** Legacy/primary role — kept for display and compatibility only. */
   role: JwtUserRole;
+  /** Every role this account holds (role memberships ∪ legacy role). */
+  roles: JwtUserRole[];
   fullName: string | null;
 };
 
@@ -38,7 +42,8 @@ export async function requireAuth(c: Context, next: Next) {
         email: true,
         role: true,
         fullName: true,
-        isSuspended: true
+        isSuspended: true,
+        roleMemberships: { select: { role: true } }
       }
     });
 
@@ -59,6 +64,7 @@ export async function requireAuth(c: Context, next: Next) {
       id: user.id,
       email: user.email,
       role: user.role as JwtUserRole,
+      roles: mergeRoles(user.role, user.roleMemberships) as JwtUserRole[],
       fullName: user.fullName
     });
 
@@ -79,7 +85,11 @@ export function requireRole(
       return errorResponse(c, "Unauthorized", 401, "UNAUTHORIZED");
     }
 
-    if (!roles.includes(authUser.role)) {
+    // Membership-based: a dual-role account (e.g. ARCHITECT + BUSINESS)
+    // passes whenever ANY of its roles is accepted — user.role alone no
+    // longer decides access.
+    const heldRoles = authUser.roles ?? [authUser.role];
+    if (!roles.some((role) => heldRoles.includes(role))) {
       return errorResponse(c, denied?.message ?? "Forbidden", 403, denied?.code ?? "FORBIDDEN");
     }
 

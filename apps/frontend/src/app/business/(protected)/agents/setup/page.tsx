@@ -18,12 +18,15 @@ import {
 import { PhoneNumberSelectionSection } from "@/components/business/phone-number-selection";
 import {
   checkMailAliasAvailability,
+  deleteBusinessKnowledgeFile,
   deleteBusinessTestEvent,
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
+  getBusinessKnowledgeFiles,
   getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
+  reprocessBusinessKnowledgeFile,
   runBusinessSetupChatTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
@@ -31,6 +34,7 @@ import {
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
+  uploadBusinessKnowledgeFiles,
   type BusinessChatTestMessage,
   type BusinessChatTestResult,
   type BusinessChatTestToolCall,
@@ -44,6 +48,7 @@ import {
   type BuyerCustomFieldValue,
   type BuyerSetupFieldDef,
   type CallRoutingResult,
+  type KnowledgeFileSummary,
   type PlatformPhoneOption,
   type TestSmsResult
 } from "@/components/business/features/api";
@@ -1609,6 +1614,8 @@ function SetupWizard() {
                 onAssistantName={setAssistantName}
                 onVoiceChoice={setVoiceChoice}
                 onCustomVoiceId={setCustomVoiceId}
+                listingId={listingId}
+                installedAgentId={liveInstalledAgentId}
               />
 
               {/* {showMail ? (
@@ -1788,6 +1795,21 @@ function ChecklistSummary({ checklist }: { checklist: ChecklistRow[] }) {
 }
 /* --------------------- Configure step: business card --------------------- */
 
+const KNOWLEDGE_MAX_FILE_BYTES = 10 * 1024 * 1024; // matches backend MAX_FILE_BYTES
+const KNOWLEDGE_ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
+
+function formatKnowledgeFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function knowledgeStatusPill(status: string): { label: string; pill: string } {
+  if (status === "PROCESSED") return { label: "Processed", pill: "bg-green-100 text-green-700" };
+  if (status === "FAILED") return { label: "Failed", pill: "bg-rose-100 text-rose-700" };
+  return { label: "Processing", pill: "bg-amber-100 text-amber-700" };
+}
+
 function StepBusiness({
   businessName,
   businessType,
@@ -1820,7 +1842,9 @@ function StepBusiness({
   onAssistantName,
   onVoiceChoice,
   onCustomVoiceId,
-  showVoice
+  showVoice,
+  listingId,
+  installedAgentId
 }: {
   businessName: string;
   businessType: string;
@@ -1854,6 +1878,8 @@ function StepBusiness({
   onVoiceChoice: (v: string) => void;
   onCustomVoiceId: (v: string) => void;
   showVoice: boolean;
+  listingId?: string;
+  installedAgentId?: string | null;
 }) {
   const [selectedServices, setSelectedServices] = useState<string[]>(() =>
     servicesText
@@ -1863,8 +1889,23 @@ function StepBusiness({
   );
   const [customServiceInput, setCustomServiceInput] = useState("");
   const [voicePlaying, setVoicePlaying] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  // Knowledge documents live on the server (BusinessKnowledgeFile) — React
+  // state only mirrors server records plus transient client-side upload rows.
+  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
+  const [pendingUploads, setPendingUploads] = useState<{ key: string; name: string; size: number }[]>([]);
+  const [uploadError, setUploadError] = useState("");
+  const [busyFileIds, setBusyFileIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const refreshKnowledgeFiles = useCallback(async () => {
+    const res = await getBusinessKnowledgeFiles();
+    if (res.success && res.data) setKnowledgeFiles(res.data.files);
+  }, []);
+
+  // Previously uploaded documents must survive a refresh — load them on mount.
+  useEffect(() => {
+    void refreshKnowledgeFiles();
+  }, [refreshKnowledgeFiles]);
 
   // Sync selected services → servicesText state
   useEffect(() => {
@@ -1893,19 +1934,83 @@ function StepBusiness({
     setTimeout(() => setVoicePlaying(false), 1800);
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = Array.from(e.target.files ?? []);
+  async function uploadPickedFiles(picked: File[]) {
     if (picked.length === 0) return;
-    setUploadedFiles((prev) => {
-      const existing = new Set(prev.map((f) => f.name));
-      return [...prev, ...picked.filter((f) => !existing.has(f.name))];
+
+    // Client-side pre-checks: unsupported types and oversize files never hit the API.
+    const rejected: string[] = [];
+    const accepted: File[] = [];
+    for (const file of picked) {
+      const dot = file.name.lastIndexOf(".");
+      const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+      if (!KNOWLEDGE_ALLOWED_EXTENSIONS.includes(ext)) {
+        rejected.push(`${file.name} is not a supported type (use PDF, DOCX, or TXT)`);
+      } else if (file.size > KNOWLEDGE_MAX_FILE_BYTES) {
+        rejected.push(`${file.name} is larger than 10 MB`);
+      } else {
+        accepted.push(file);
+      }
+    }
+    setUploadError(rejected.join(" · "));
+    if (accepted.length === 0) return;
+
+    const pendingKeys = accepted.map((file, idx) => `${Date.now()}-${idx}-${file.name}`);
+    setPendingUploads((prev) => [
+      ...prev,
+      ...accepted.map((file, idx) => ({ key: pendingKeys[idx], name: file.name, size: file.size }))
+    ]);
+
+    const res = await uploadBusinessKnowledgeFiles(accepted, {
+      ...(listingId ? { listingId } : {}),
+      ...(installedAgentId ? { installedAgentId } : {})
     });
-    // Reset input so the same file can be re-selected after removal
-    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setPendingUploads((prev) => prev.filter((row) => !pendingKeys.includes(row.key)));
+
+    if (res.success && res.data) {
+      const returned = res.data.files;
+      // Merge server records in immediately, then re-fetch the canonical list.
+      setKnowledgeFiles((prev) => {
+        const byId = new Map(prev.map((file) => [file.id, file]));
+        for (const file of returned) byId.set(file.id, file);
+        return Array.from(byId.values());
+      });
+      void refreshKnowledgeFiles();
+    } else {
+      setUploadError(res.error ?? "Upload failed. Please try again.");
+    }
   }
 
-  function handleRemoveFile(idx: number) {
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    // Reset input so the same file can be re-selected after removal
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    void uploadPickedFiles(picked);
+  }
+
+  async function handleRemoveFile(id: string) {
+    setBusyFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    const res = await deleteBusinessKnowledgeFile(id);
+    setBusyFileIds((prev) => prev.filter((busyId) => busyId !== id));
+    if (res.success) {
+      setKnowledgeFiles((prev) => prev.filter((file) => file.id !== id));
+      void refreshKnowledgeFiles();
+    } else {
+      setUploadError(res.error ?? "Could not remove the document. Please try again.");
+    }
+  }
+
+  async function handleRetryFile(id: string) {
+    setBusyFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    const res = await reprocessBusinessKnowledgeFile(id);
+    setBusyFileIds((prev) => prev.filter((busyId) => busyId !== id));
+    if (res.success && res.data) {
+      const updated = res.data.file;
+      setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
+      void refreshKnowledgeFiles();
+    } else {
+      setUploadError(res.error ?? "Could not reprocess the document. Please try again.");
+    }
   }
 
   const businessInitials = (name: string): string => {
@@ -2175,6 +2280,11 @@ function StepBusiness({
         <label
           htmlFor="file-input"
           className="dropzone rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-2.5 mt-4 border-2 border-dashed border-gray-200 cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-colors"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            void uploadPickedFiles(Array.from(e.dataTransfer?.files ?? []));
+          }}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-slate-400">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -2184,26 +2294,36 @@ function StepBusiness({
           <span className="text-sm text-slate-600">
             <span className="font-semibold text-amber-600">Click to upload</span> or drag and drop documents
           </span>
-          <span className="text-xs text-slate-400 font-semibold">PDF, DOC, or TXT · up to 10 MB each · multiple allowed</span>
+          <span className="text-xs text-slate-400 font-semibold">PDF, DOCX, or TXT · up to 10 MB each · multiple allowed</span>
           <input
             ref={fileInputRef}
             id="file-input"
             type="file"
-            accept=".pdf,.doc,.docx,.txt"
+            accept=".pdf,.docx,.txt"
             multiple
             className="sr-only"
             onChange={handleFileChange}
           />
         </label>
 
-        {/* Uploaded files list */}
-        {uploadedFiles.length > 0 ? (
+        {uploadError ? (
+          <p
+            className="mt-3 rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-600"
+            role="alert"
+            data-testid="business-setup-knowledge-upload-error"
+          >
+            {uploadError}
+          </p>
+        ) : null}
+
+        {/* Uploaded files list — server records plus in-flight uploads */}
+        {knowledgeFiles.length > 0 || pendingUploads.length > 0 ? (
           <div className="mt-3 space-y-2" data-testid="business-setup-uploaded-files">
-            {uploadedFiles.map((file, idx) => (
+            {pendingUploads.map((row) => (
               <div
-                key={`${file.name}-${idx}`}
+                key={row.key}
                 className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 group transition-colors hover:border-slate-200"
-                data-testid="business-setup-file-chip"
+                data-testid="business-setup-knowledge-file"
               >
                 <span className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
@@ -2211,23 +2331,80 @@ function StepBusiness({
                     <polyline points="14 2 14 8 20 8" />
                   </svg>
                 </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                  <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</p>
+                <div className="flex-1 min-w-0" data-testid="business-setup-file-chip">
+                  <p className="text-sm font-medium text-slate-700 truncate">{row.name}</p>
+                  <p className="text-xs text-slate-400">{formatKnowledgeFileSize(row.size)}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveFile(idx)}
-                  className="text-slate-300 hover:text-red-500 shrink-0 transition-colors"
-                  aria-label={`Remove ${file.name}`}
+                <span
+                  className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600"
+                  data-testid="business-setup-knowledge-file-status"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                  Uploading…
+                </span>
               </div>
             ))}
+
+            {knowledgeFiles.map((file) => {
+              const status = knowledgeStatusPill(file.status);
+              const busy = busyFileIds.includes(file.id);
+
+              return (
+                <div
+                  key={file.id}
+                  className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 group transition-colors hover:border-slate-200"
+                  data-testid="business-setup-knowledge-file"
+                >
+                  <span className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  </span>
+                  <div className="flex-1 min-w-0" data-testid="business-setup-file-chip">
+                    <p className="text-sm font-medium text-slate-700 truncate">{file.filename}</p>
+                    <p className="text-xs text-slate-400">
+                      {formatKnowledgeFileSize(file.sizeBytes)}
+                      {file.status === "PROCESSED"
+                        ? ` · ${file.extractedChars.toLocaleString()} characters · ${file.chunkCount} knowledge section${file.chunkCount === 1 ? "" : "s"}`
+                        : ""}
+                    </p>
+                    {file.status === "FAILED" && file.errorMessage ? (
+                      <p className="text-xs text-rose-600 mt-0.5">{file.errorMessage}</p>
+                    ) : null}
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${status.pill}`}
+                    data-testid="business-setup-knowledge-file-status"
+                  >
+                    {status.label}
+                  </span>
+                  {file.status === "FAILED" ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleRetryFile(file.id)}
+                      className="shrink-0 text-xs font-semibold text-amber-600 hover:text-amber-700 transition-colors disabled:opacity-50"
+                      data-testid="business-setup-knowledge-file-retry"
+                    >
+                      {busy ? "Retrying…" : "Retry"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleRemoveFile(file.id)}
+                    className="text-slate-300 hover:text-red-500 shrink-0 transition-colors disabled:opacity-50"
+                    aria-label={`Remove ${file.filename}`}
+                    data-testid="business-setup-knowledge-file-remove"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </div>
@@ -4261,6 +4438,22 @@ function StepTest({
   const [calendarOutcome, setCalendarOutcome] = useState<"created" | "simulated" | "failed" | null>(null);
   const [smsOutcome, setSmsOutcome] = useState<"sent" | "simulated" | "failed" | null>(null);
 
+  // Knowledge documents the test agent can draw on (uploaded in the Setup step).
+  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getBusinessKnowledgeFiles().then((res) => {
+      if (!cancelled && res.success && res.data) setKnowledgeFiles(res.data.files);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const processedKnowledge = knowledgeFiles.filter((file) => file.status === "PROCESSED");
+  const knowledgeSectionCount = processedKnowledge.reduce((sum, file) => sum + file.chunkCount, 0);
+
   const handleChatResult = useCallback((result: BusinessChatTestResult) => {
     setChatSummary(result);
     if (result.calendarError) {
@@ -4358,6 +4551,25 @@ function StepTest({
             </div>
           ) : null}
         </dl>
+
+        <div className="mt-3 text-sm" data-testid="business-test-knowledge-summary">
+          {processedKnowledge.length > 0 ? (
+            <>
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="shrink-0 text-slate-500">Knowledge loaded</span>
+                <span className="min-w-0 text-right font-semibold text-slate-800">
+                  {processedKnowledge.length} document{processedKnowledge.length === 1 ? "" : "s"} ·{" "}
+                  {knowledgeSectionCount} knowledge section{knowledgeSectionCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-400 truncate" data-testid="business-test-knowledge-docs">
+                {processedKnowledge.map((file) => file.filename).join(", ")}
+              </p>
+            </>
+          ) : (
+            <span className="text-slate-400">Knowledge loaded: none — upload documents in the Setup step</span>
+          )}
+        </div>
 
         <p className="mt-3 text-xs text-slate-400">
           Everything on this page runs in Business Test mode — nothing reaches your customers.

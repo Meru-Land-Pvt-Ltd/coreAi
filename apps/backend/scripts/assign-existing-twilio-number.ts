@@ -1,6 +1,7 @@
 import "dotenv/config";
 import twilio from "twilio";
 import { prisma } from "../src/lib/prisma";
+import { userHasBusinessCapability } from "../src/lib/roles";
 
 type Args = {
   installedAgentId?: string;
@@ -84,7 +85,12 @@ async function resolveAssignmentTarget(installedAgentId: string | undefined) {
             select: {
               id: true,
               email: true,
-              role: true
+              role: true,
+              roleMemberships: {
+                select: {
+                  role: true
+                }
+              }
             }
           }
         }
@@ -113,10 +119,13 @@ async function resolveAssignmentTarget(installedAgentId: string | undefined) {
     );
   }
 
-  if (installedAgent.business.owner.role !== "BUSINESS") {
+  // Capability check, not identity: dual-role owners (e.g. an ARCHITECT who
+  // self-installed their own listing) qualify through their BUSINESS role
+  // membership.
+  if (!userHasBusinessCapability(installedAgent.business.owner)) {
     fail(
       "INVALID_BUSINESS_OWNER",
-      "The InstalledAgent owner is not a BUSINESS buyer."
+      "The InstalledAgent owner does not have the BUSINESS capability (role or role membership)."
     );
   }
 

@@ -25,6 +25,8 @@ export type AgentBusinessContext = {
   appointmentService: string;
   services: string[];
   faqs: string[];
+  /** Business knowledge entries (manual + document-derived, shared format). */
+  knowledge?: string[];
 };
 
 export type AgentCallerContext = {

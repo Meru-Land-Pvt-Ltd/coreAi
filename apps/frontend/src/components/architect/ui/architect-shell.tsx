@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { CoreMark, cn } from "@/components/architect/ui/architect-ui";
-import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
+import { getAuthUser, hasAuthRole, logout, type AuthUser } from "@/lib/auth";
 
 type IconName =
   | "agents"
@@ -246,7 +246,7 @@ export function ArchitectShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const authUser = getAuthUser();
-    if (!authUser || authUser.role !== "ARCHITECT") {
+    if (!authUser || !hasAuthRole(authUser, "ARCHITECT")) {
       router.replace("/architect/login" as Route);
       return;
     }

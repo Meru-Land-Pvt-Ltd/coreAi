@@ -15,7 +15,10 @@ vi.mock("../../lib/prisma", () => ({
     businessProfile: {
       update: mocks.updateProfile,
       create: mocks.createProfile
-    }
+    },
+    // Shared knowledge loader reads these; empty is fine for target selection.
+    businessKnowledgeBase: { findMany: vi.fn().mockResolvedValue([]) },
+    businessKnowledgeFile: { findMany: vi.fn().mockResolvedValue([]) }
   }
 }));
 

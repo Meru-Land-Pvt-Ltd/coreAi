@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
-import { getAuthToken, getAuthUser } from "@/lib/auth";
+import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
@@ -275,7 +275,7 @@ export default function BusinessMyAgentsPage() {
         const token = getAuthToken();
         const user = getAuthUser();
 
-        if (!token || user?.role !== "BUSINESS") {
+        if (!token || !hasAuthRole(user, "BUSINESS")) {
             router.replace(BUSINESS_LOGIN_PATH);
             return;
         }

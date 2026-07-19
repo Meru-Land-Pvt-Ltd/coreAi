@@ -13,7 +13,9 @@ import {
   RECEPTIONIST_WORKFLOW_NAME,
   buildReceptionistWorkflowJson
 } from "../business/receptionist-template";
-import { canBusinessAccessListing } from "../business/purchase-access";
+import { canBusinessAccessListing, findActiveListingPurchase } from "../business/purchase-access";
+import { grantRole } from "../../lib/roles";
+import type { InstallSource } from "@prisma/client";
 
 export const setupRoutes = new Hono();
 
@@ -145,11 +147,34 @@ async function resolveWorkflowId(ownerId: string, listingWorkflowId: string | nu
   return created.id;
 }
 
+/**
+ * How this install was acquired. The architect installing their own listing
+ * is a self-test — it must never create a Payment, earning, commission or
+ * payout obligation.
+ */
+async function resolveInstallSource(
+  ownerId: string,
+  listing: OwnedListing
+): Promise<InstallSource> {
+  if (listing.architectUserId === ownerId) return "ARCHITECT_SELF_TEST";
+  if (listing.pricingModel === "FREE" || listing.priceCents === 0) return "FREE_INSTALL";
+
+  const payment = await findActiveListingPurchase(ownerId, listing.id);
+  if (payment?.status === "TRIALING") return "TRIAL";
+
+  return "MARKETPLACE_PURCHASE";
+}
+
 export async function ensureBusinessAndAgent(opts: {
   ownerId: string;
   listing: OwnedListing;
   businessName?: string;
 }) {
+  // Installing an agent is an intentional buyer action — make sure the owner
+  // holds the BUSINESS capability (idempotent; an ARCHITECT self-installing
+  // keeps architect access and additionally becomes a buyer).
+  await grantRole(opts.ownerId, "BUSINESS");
+
   let business = await prisma.business.findFirst({
     where: { ownerId: opts.ownerId },
     orderBy: { createdAt: "desc" }
@@ -177,6 +202,7 @@ export async function ensureBusinessAndAgent(opts: {
 
   if (!agent) {
     const workflowId = await resolveWorkflowId(opts.ownerId, opts.listing.workflowId);
+    const installSource = await resolveInstallSource(opts.ownerId, opts.listing);
 
     try {
       agent = await prisma.installedAgent.create({
@@ -186,6 +212,7 @@ export async function ensureBusinessAndAgent(opts: {
           listingId: opts.listing.id,
           name: opts.listing.name,
           status: "PROVISIONING",
+          installSource,
           configJson: {} as never
         }
       });

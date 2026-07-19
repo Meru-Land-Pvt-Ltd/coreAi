@@ -36,10 +36,25 @@ model User {
   ledgerEntries        ArchitectLedgerEntry[]
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
+  roleMemberships      UserRoleMembership[]
 
   @@unique([email, role])
   @@index([role])
   @@index([createdAt])
+}
+
+/// Capability grants: one row per (user, role). `User.role` is kept only as
+/// the legacy/primary role for compatibility — authorization checks read this
+/// table, so a single account can be ARCHITECT and BUSINESS at once.
+model UserRoleMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  role      UserRole
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
 }
 
 model ArchitectProfile {
@@ -239,6 +254,7 @@ model Business {
   appointments    Appointment[]
   owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   knowledgeBases  BusinessKnowledgeBase[]
+  knowledgeFiles  BusinessKnowledgeFile[]
   phoneNumbers    BusinessPhoneNumber[]
   profile         BusinessProfile?
   conversations   Conversation[]
@@ -302,20 +318,22 @@ model BusinessPhoneNumber {
 }
 
 model InstalledAgent {
-  id           String                @id @default(cuid())
-  businessId   String
-  workflowId   String
-  listingId    String?
-  name         String
-  status       String                @default("ACTIVE")
-  configJson   Json?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  phoneNumbers BusinessPhoneNumber[]
-  business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  listing      AgentListing?         @relation(fields: [listingId], references: [id])
-  workflow     WorkflowDefinition    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  workflowRuns WorkflowRun[]
+  id             String                  @id @default(cuid())
+  businessId     String
+  workflowId     String
+  listingId      String?
+  name           String
+  status         String                  @default("ACTIVE")
+  installSource  InstallSource           @default(MARKETPLACE_PURCHASE)
+  configJson     Json?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  phoneNumbers   BusinessPhoneNumber[]
+  knowledgeFiles BusinessKnowledgeFile[]
+  business       Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  listing        AgentListing?           @relation(fields: [listingId], references: [id])
+  workflow       WorkflowDefinition      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowRuns   WorkflowRun[]
 
   @@unique([businessId, listingId])
   @@index([businessId])
@@ -325,16 +343,56 @@ model InstalledAgent {
 }
 
 model BusinessKnowledgeBase {
-  id          String   @id @default(cuid())
-  businessId  String
-  title       String
-  content     String
-  contentJson Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id            String                 @id @default(cuid())
+  businessId    String
+  title         String
+  content       String
+  contentJson   Json?
+  /// Set when this entry was extracted from an uploaded document — deleting
+  /// the file cascades away every chunk derived from it.
+  sourceFileId  String?
+  /// Deterministic chunk position within the source document (0-based).
+  chunkIndex    Int?
+  /// Page/section label when the extractor could attribute one.
+  sourceSection String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  business      Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceFile    BusinessKnowledgeFile? @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
+  @@index([sourceFileId])
+}
+
+/// A buyer-uploaded knowledge document (PDF/DOCX/TXT). Raw bytes are kept so
+/// reprocessing works without external storage; list APIs never return them.
+model BusinessKnowledgeFile {
+  id               String                  @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  filename         String
+  mimeType         String
+  sizeBytes        Int
+  /// Reserved for future object-storage moves; bytes currently live in contentBytes.
+  storageKey       String?
+  contentBytes     Bytes
+  /// sha256 of the raw bytes — re-uploading the same document is idempotent.
+  contentHash      String
+  /// UPLOADING | PROCESSING | PROCESSED | FAILED
+  status           String                  @default("PROCESSING")
+  extractedChars   Int                     @default(0)
+  chunkCount       Int                     @default(0)
+  errorCode        String?
+  errorMessage     String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  business         Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent   InstalledAgent?         @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  knowledgeChunks  BusinessKnowledgeBase[]
+
+  @@unique([businessId, contentHash])
+  @@index([businessId])
+  @@index([installedAgentId])
 }
 
 model Conversation {
@@ -867,6 +925,14 @@ enum UserRole {
   ARCHITECT
 }
 
+enum InstallSource {
+  MARKETPLACE_PURCHASE
+  FREE_INSTALL
+  TRIAL
+  ARCHITECT_SELF_TEST
+  ADMIN_ASSIGNMENT
+}
+
 enum ArchitectStatus {
   PENDING
   APPROVED
@@ -1066,6 +1132,7 @@ enum ArchitectEarningStatus {
   APPROVED
   REJECTED
 }
+
 enum WorkflowRunMode {
   TEST
   ARCHITECT_DRY_RUN

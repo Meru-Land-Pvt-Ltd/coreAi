@@ -43,6 +43,8 @@ export type ArchitectConversationTestContext = {
   requestedTime?: string;
   services?: string[];
   faqs?: string[];
+  /** Business knowledge entries (manual + document-derived, shared format). */
+  knowledge?: string[];
 };
 
 export type ArchitectConversationToolCall = {
@@ -224,7 +226,8 @@ export async function runArchitectConversationTest({
     faqs:
       Array.isArray(testContext?.faqs) && testContext.faqs.length > 0
         ? testContext.faqs
-        : ["Pricing depends on the selected service.", "Urgent requests should be escalated to the team."]
+        : ["Pricing depends on the selected service.", "Urgent requests should be escalated to the team."],
+    knowledge: Array.isArray(testContext?.knowledge) ? testContext.knowledge : []
   };
 
   const caller = {

@@ -19,6 +19,7 @@ import {
   sanitizeLegacyFallbacks
 } from "../agent-runtime/prompt-builder";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
+import { loadBusinessAgentKnowledge } from "./agent-knowledge";
 import { deployVapiAssistant, isVapiConfigured } from "../architect/vapi-connector";
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
@@ -331,17 +332,9 @@ async function buildInstalledAgentAssistantPlan(
   const profileFaqs = faqStrings(business.profile?.faqsJson);
   const faqs = buyer.faqs.length ? buyer.faqs : profileFaqs;
 
-  const knowledge =
-    Array.isArray(business.knowledgeBases) && business.knowledgeBases.length
-      ? business.knowledgeBases
-          .map((item) => {
-            const title = cleanString(item.title);
-            const content = cleanString(item.content);
-            if (!content) return "";
-            return title ? `${title}: ${content}` : content;
-          })
-          .filter(Boolean)
-      : [];
+  // Shared knowledge source of truth: manual entries + document chunks, in
+  // the same order and format every other agent runtime uses.
+  const { knowledge } = await loadBusinessAgentKnowledge({ businessId: business.id });
 
   const customInstructions = (
     buyer.customInstructions ||
@@ -521,6 +514,7 @@ export type InstalledAgentChatTestSetup = {
     appointmentService?: string;
     services?: string[];
     faqs?: string[];
+    knowledge?: string[];
   };
   workflowJson: unknown;
 };
@@ -547,6 +541,9 @@ export async function buildInstalledAgentChatTestSetup(
   const buyer = readBuyerConfig(installedAgent.configJson);
   const services = buyer.services.length ? buyer.services : stringArray(business.profile?.services);
   const faqs = buyer.faqs.length ? buyer.faqs : faqStrings(business.profile?.faqsJson);
+  // Same knowledge loader as the deployed assistant — browser tests and live
+  // calls answer from the same source set.
+  const { knowledge } = await loadBusinessAgentKnowledge({ businessId: business.id });
 
   return {
     workflowId: installedAgent.workflowId,
@@ -560,7 +557,8 @@ export async function buildInstalledAgentChatTestSetup(
       timeZone: cleanString(business.profile?.timeZone),
       appointmentService: readBookingLabel(installedAgent.configJson),
       services,
-      faqs
+      faqs,
+      knowledge
     }
   };
 }

@@ -7,6 +7,7 @@ import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { DuplicateWorkflowRunError } from "../memory/work-flow-run-service";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
+import { formatKnowledgeEntries } from "../business/agent-knowledge";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
@@ -292,9 +293,9 @@ function buildBusinessContext(
     tone: profile?.tone ?? "friendly",
     escalationRules: profile?.escalationRules ?? undefined,
     hours: profile?.hoursJson ?? undefined,
-    knowledge: knowledgeBases
-      .map((item: any) => `${item.title ? `${item.title}: ` : ""}${item.content ?? ""}`.trim())
-      .filter(Boolean)
+    // Shared formatter — the live tool context reads the same knowledge set
+    // (manual + document chunks) as the deployed prompt and browser tests.
+    knowledge: formatKnowledgeEntries(knowledgeBases)
   };
 }
 

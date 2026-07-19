@@ -14,7 +14,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { apiGet, apiPost } from "@/lib/api";
-import { getAuthToken, getAuthUser } from "@/lib/auth";
+import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
@@ -862,12 +862,12 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
         const token = getAuthToken();
         const user = getAuthUser();
 
-        if (!token || user?.role !== "BUSINESS") {
+        if (!token || !hasAuthRole(user, "BUSINESS")) {
             router.replace(BUSINESS_LOGIN_PATH);
             return;
         }
 
-        setEmail(user.email || "");
+        setEmail(user?.email || "");
         setAuthReady(true);
     }, [router]);
 
