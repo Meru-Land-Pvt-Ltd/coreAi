@@ -969,8 +969,18 @@ export async function deployVapiAssistant({
           content: systemPrompt
         }
       ],
-      tools: env.VAPI_ENABLE_BOOKING_TOOLS
-        ? genericAssistantTools().filter((tool) => {
+      // The knowledge-lookup tool is independent of the booking-tools flag —
+      // PDF retrieval must never be silently disabled by an unrelated env
+      // toggle while the prompt still advertises the tool.
+      tools: genericAssistantTools()
+        .filter((tool) => {
+          const toolName = tool.function.name;
+          if (toolName === VOICE_TOOL_NAMES.lookupKnowledge) {
+            return includeTools?.knowledgeLookup !== false;
+          }
+          return env.VAPI_ENABLE_BOOKING_TOOLS;
+        })
+        .filter((tool) => {
           if (!includeTools) return true;
           const name = tool.function.name;
           if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
@@ -981,12 +991,9 @@ export async function deployVapiAssistant({
           if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
           // Consent capture only matters where SMS can be sent at all.
           if (name === VOICE_TOOL_NAMES.recordSmsConsent) return includeTools.sendNotification !== false;
-          // Knowledge lookup is read-only business context — on unless the
-          // caller is a sandboxed surface with no business (marketplace demo).
-          if (name === VOICE_TOOL_NAMES.lookupKnowledge) return includeTools.knowledgeLookup !== false;
+          if (name === VOICE_TOOL_NAMES.lookupKnowledge) return true;
           return true;
         })
-        : []
     },
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,

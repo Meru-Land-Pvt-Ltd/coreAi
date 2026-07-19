@@ -343,25 +343,27 @@ model InstalledAgent {
 }
 
 model BusinessKnowledgeBase {
-  id            String                 @id @default(cuid())
-  businessId    String
-  title         String
-  content       String
-  contentJson   Json?
+  id               String                 @id @default(cuid())
+  businessId       String
+  title            String
+  content          String
+  contentJson      Json?
   /// Set when this entry was extracted from an uploaded document — deleting
   /// the file cascades away every chunk derived from it.
-  sourceFileId  String?
+  sourceFileId     String?
   /// Deterministic chunk position within the source document (0-based).
-  chunkIndex    Int?
+  chunkIndex       Int?
   /// Page/section label when the extractor could attribute one.
-  sourceSection String?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  business      Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sourceFile    BusinessKnowledgeFile? @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  sourceSection    String?
+  installedAgentId String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  business         Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceFile       BusinessKnowledgeFile? @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([sourceFileId])
+  @@index([businessId, installedAgentId])
 }
 
 /// A buyer-uploaded knowledge document (PDF/DOCX/TXT). Raw bytes are kept so
@@ -390,7 +392,7 @@ model BusinessKnowledgeFile {
   installedAgent   InstalledAgent?         @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
   knowledgeChunks  BusinessKnowledgeBase[]
 
-  @@unique([businessId, contentHash])
+  @@unique([businessId, installedAgentId, contentHash])
   @@index([businessId])
   @@index([installedAgentId])
 }

@@ -56,6 +56,7 @@ import {
   MAX_FILE_BYTES,
   deleteKnowledgeFile,
   ingestKnowledgeFiles,
+  replaceManualKnowledge,
   listKnowledgeFiles,
   reprocessKnowledgeFile
 } from "./knowledge-files";
@@ -1126,12 +1127,12 @@ businessRoutes.post("/setup/knowledge-files", async (c) => {
       installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
       files: uploads
     });
-    // A live assistant's prompt is baked at deploy — refresh it so future
-    // live calls answer from the new documents. Best-effort, never blocking.
-    if (results.some((file) => file.status === "PROCESSED")) {
-      void refreshLiveAssistantKnowledge(resolved.businessId);
-    }
-    return successResponse(c, { files: results });
+    // A live assistant's prompt is baked at deploy — synchronize it and
+    // REPORT the result: upload success must never hide a stale live agent.
+    const liveSync = results.some((file) => file.status === "PROCESSED")
+      ? await refreshLiveAssistantKnowledge(resolved.businessId)
+      : { attempted: false, ok: true, assistantId: null, error: null };
+    return successResponse(c, { files: results, liveSync });
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);
   }
@@ -1152,11 +1153,21 @@ businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
 
   try {
     await deleteKnowledgeFile(businessId, c.req.param("id"));
-    void refreshLiveAssistantKnowledge(businessId);
-    return successResponse(c, { deleted: true });
+    const liveSync = await refreshLiveAssistantKnowledge(businessId);
+    return successResponse(c, { deleted: true, liveSync });
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);
   }
+});
+
+// Retry synchronizing the live assistant with the current knowledge set.
+businessRoutes.post("/setup/knowledge-files/sync", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  const liveSync = await refreshLiveAssistantKnowledge(businessId);
+  return successResponse(c, { liveSync });
 });
 
 businessRoutes.post("/setup/knowledge-files/:id/reprocess", async (c) => {
@@ -1166,8 +1177,11 @@ businessRoutes.post("/setup/knowledge-files/:id/reprocess", async (c) => {
 
   try {
     const file = await reprocessKnowledgeFile(businessId, c.req.param("id"));
-    if (file.status === "PROCESSED") void refreshLiveAssistantKnowledge(businessId);
-    return successResponse(c, { file });
+    const liveSync =
+      file.status === "PROCESSED"
+        ? await refreshLiveAssistantKnowledge(businessId)
+        : { attempted: false, ok: true, assistantId: null, error: null };
+    return successResponse(c, { file, liveSync });
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);
   }
@@ -1819,10 +1833,12 @@ function serializeSetup(
       : null,
     assistantName,
     knowledge:
-      business?.knowledgeBases?.map((item) => ({
-        title: item.title,
-        content: item.content
-      })) ?? [],
+      business?.knowledgeBases
+        ?.filter((item) => !item.sourceFileId)
+        .map((item) => ({
+          title: item.title,
+          content: item.content
+        })) ?? [],
     calendar: { connected: calendar.connected, email: calendar.email },
     webhooks: phone ? buildWebhookUrls() : null,
     requiredConnectors: readiness.requiredConnectors,
@@ -2214,17 +2230,12 @@ businessRoutes.post("/setup", async (c) => {
       create: { businessId: business.id, ...profileData }
     });
 
-    await prisma.businessKnowledgeBase.deleteMany({ where: { businessId: business.id } });
-
-    if (input.knowledge.length > 0) {
-      await prisma.businessKnowledgeBase.createMany({
-        data: input.knowledge.map((item) => ({
-          businessId: business.id,
-          title: item.title,
-          content: item.content
-        }))
-      });
-    }
+    // Manual knowledge only — document chunks are owned by the uploaded-file
+    // pipeline and survive every setup save.
+    await replaceManualKnowledge(
+      business.id,
+      input.knowledge.map((item) => ({ title: item.title, content: item.content }))
+    );
 
     const configJson = {
       connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],

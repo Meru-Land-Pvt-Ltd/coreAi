@@ -309,6 +309,26 @@ export async function processKnowledgeFile(fileId: string): Promise<KnowledgeFil
   const file = await prisma.businessKnowledgeFile.findUnique({ where: { id: fileId } });
   if (!file) throw new KnowledgeFileError("Document not found.", 404, "KNOWLEDGE_FILE_NOT_FOUND");
 
+  // Source bytes gone (should not happen — bytes live in the row): the file
+  // can never be shown as ready; the buyer must upload it again.
+  if (!file.contentBytes || file.contentBytes.length === 0) {
+    const [, updated] = await prisma.$transaction([
+      prisma.businessKnowledgeBase.deleteMany({ where: { sourceFileId: file.id } }),
+      prisma.businessKnowledgeFile.update({
+        where: { id: file.id },
+        data: {
+          status: "REUPLOAD_REQUIRED",
+          errorCode: "SOURCE_FILE_MISSING",
+          errorMessage: "The original document is no longer stored. Please upload it again.",
+          extractedChars: 0,
+          chunkCount: 0
+        },
+        select: SUMMARY_SELECT
+      })
+    ]);
+    return toSummary(updated);
+  }
+
   const kind = ALLOWED_EXTENSIONS[extensionOf(file.filename)] ?? sniffFileKind(Buffer.from(file.contentBytes));
   const fail = async (code: string, message: string): Promise<KnowledgeFileSummary> => {
     const [, updated] = await prisma.$transaction([
@@ -357,6 +377,7 @@ export async function processKnowledgeFile(fileId: string): Promise<KnowledgeFil
     prisma.businessKnowledgeBase.createMany({
       data: chunks.map((chunk) => ({
         businessId: file.businessId,
+        installedAgentId: file.installedAgentId,
         title: chunk.title,
         content: chunk.content,
         sourceFileId: file.id,
@@ -410,8 +431,12 @@ export async function ingestKnowledgeFiles(params: {
 
     // Idempotent re-upload: the same bytes map to the same record. A failed
     // record gets another processing attempt instead of a duplicate row.
-    const existing = await prisma.businessKnowledgeFile.findUnique({
-      where: { businessId_contentHash: { businessId: params.businessId, contentHash } },
+    const existing = await prisma.businessKnowledgeFile.findFirst({
+      where: {
+        businessId: params.businessId,
+        installedAgentId: params.installedAgentId ?? null,
+        contentHash
+      },
       select: SUMMARY_SELECT
     });
     if (existing) {
@@ -447,13 +472,37 @@ export async function ingestKnowledgeFiles(params: {
   return results;
 }
 
-export async function listKnowledgeFiles(businessId: string): Promise<KnowledgeFileSummary[]> {
+export type VerifiedKnowledgeFileSummary = KnowledgeFileSummary & {
+  /** Chunks actually present in the knowledge base for this file. */
+  actualChunkCount: number;
+  /** True only when PROCESSED, chunks exist, and counts agree — the ONLY
+   * state the UI may present as "Ready". */
+  ready: boolean;
+};
+
+export async function listKnowledgeFiles(businessId: string): Promise<VerifiedKnowledgeFileSummary[]> {
   const rows = await prisma.businessKnowledgeFile.findMany({
     where: { businessId },
     orderBy: { createdAt: "asc" },
     select: SUMMARY_SELECT
   });
-  return rows.map(toSummary);
+  if (rows.length === 0) return [];
+
+  const chunkCounts = await prisma.businessKnowledgeBase.groupBy({
+    by: ["sourceFileId"],
+    where: { businessId, sourceFileId: { in: rows.map((row) => row.id) } },
+    _count: { _all: true }
+  });
+  const countByFile = new Map(chunkCounts.map((entry) => [entry.sourceFileId, entry._count._all]));
+
+  return rows.map((row) => {
+    const actualChunkCount = countByFile.get(row.id) ?? 0;
+    return {
+      ...toSummary(row),
+      actualChunkCount,
+      ready: row.status === "PROCESSED" && actualChunkCount > 0 && actualChunkCount === row.chunkCount
+    };
+  });
 }
 
 /** Delete a document and (via cascade) every knowledge chunk derived from it. */
@@ -465,6 +514,156 @@ export async function deleteKnowledgeFile(businessId: string, fileId: string): P
   if (!file) throw new KnowledgeFileError("Document not found.", 404, "KNOWLEDGE_FILE_NOT_FOUND");
 
   await prisma.businessKnowledgeFile.delete({ where: { id: file.id } });
+}
+
+/**
+ * Replace the buyer's MANUALLY entered knowledge. Document-derived chunks
+ * (sourceFileId set) are never touched — setup saves must not erase PDFs.
+ */
+export async function replaceManualKnowledge(
+  businessId: string,
+  entries: Array<{ title: string; content: string; contentJson?: unknown }>
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.businessKnowledgeBase.deleteMany({
+      where: { businessId, sourceFileId: null }
+    }),
+    ...(entries.length > 0
+      ? [
+          prisma.businessKnowledgeBase.createMany({
+            data: entries.map((item) => ({
+              businessId,
+              title: item.title,
+              content: item.content,
+              contentJson: item.contentJson as never
+            }))
+          })
+        ]
+      : [])
+  ]);
+}
+
+export type KnowledgeRepairAction = "ok" | "reprocessed" | "reupload_required" | "would_reprocess" | "would_mark_reupload";
+
+export type KnowledgeRepairReport = {
+  fileId: string;
+  businessId: string;
+  installedAgentId: string | null;
+  filename: string;
+  status: string;
+  recordedChunkCount: number;
+  actualChunkCount: number;
+  misScopedChunks: number;
+  hasSourceBytes: boolean;
+  action: KnowledgeRepairAction;
+  error?: string;
+};
+
+/**
+ * Verify and repair stored knowledge documents. For every PROCESSED file:
+ * source bytes must exist, chunks must exist, belong to the file's business +
+ * installed agent, and match the recorded count. Broken files are re-extracted
+ * from the stored bytes (never re-uploaded); files without bytes are marked
+ * REUPLOAD_REQUIRED. Idempotent — a healthy corpus is a no-op. Dry-run unless
+ * apply is true. Never touches unrelated records.
+ */
+export async function repairKnowledgeFiles(options: {
+  apply: boolean;
+  businessId?: string;
+}): Promise<KnowledgeRepairReport[]> {
+  const files = await prisma.businessKnowledgeFile.findMany({
+    where: {
+      ...(options.businessId ? { businessId: options.businessId } : {}),
+      status: { in: ["PROCESSED", "PROCESSING", "REUPLOAD_REQUIRED"] }
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      businessId: true,
+      installedAgentId: true,
+      filename: true,
+      status: true,
+      chunkCount: true,
+      sizeBytes: true,
+      contentBytes: true
+    }
+  });
+
+  const reports: KnowledgeRepairReport[] = [];
+
+  for (const file of files) {
+    const chunks = await prisma.businessKnowledgeBase.findMany({
+      where: { sourceFileId: file.id },
+      select: { businessId: true, installedAgentId: true }
+    });
+    const misScoped = chunks.filter(
+      (chunk) =>
+        chunk.businessId !== file.businessId ||
+        (chunk.installedAgentId ?? null) !== (file.installedAgentId ?? null)
+    ).length;
+    const hasBytes = Boolean(file.contentBytes && file.contentBytes.length > 0);
+    const healthy =
+      file.status === "PROCESSED" &&
+      hasBytes &&
+      misScoped === 0 &&
+      chunks.length > 0 &&
+      chunks.length === file.chunkCount;
+
+    const report: KnowledgeRepairReport = {
+      fileId: file.id,
+      businessId: file.businessId,
+      installedAgentId: file.installedAgentId,
+      filename: file.filename,
+      status: file.status,
+      recordedChunkCount: file.chunkCount,
+      actualChunkCount: chunks.length,
+      misScopedChunks: misScoped,
+      hasSourceBytes: hasBytes,
+      action: "ok"
+    };
+
+    if (healthy || (file.status === "REUPLOAD_REQUIRED" && !hasBytes)) {
+      reports.push(report);
+      continue;
+    }
+
+    if (!hasBytes) {
+      report.action = options.apply ? "reupload_required" : "would_mark_reupload";
+      if (options.apply) {
+        await prisma.$transaction([
+          prisma.businessKnowledgeBase.deleteMany({ where: { sourceFileId: file.id } }),
+          prisma.businessKnowledgeFile.update({
+            where: { id: file.id },
+            data: {
+              status: "REUPLOAD_REQUIRED",
+              errorCode: "SOURCE_FILE_MISSING",
+              errorMessage: "The original document is no longer stored. Please upload it again.",
+              extractedChars: 0,
+              chunkCount: 0
+            }
+          })
+        ]);
+      }
+      reports.push(report);
+      continue;
+    }
+
+    report.action = options.apply ? "reprocessed" : "would_reprocess";
+    if (options.apply) {
+      try {
+        const result = await processKnowledgeFile(file.id);
+        report.status = result.status;
+        report.actualChunkCount = result.chunkCount;
+        report.recordedChunkCount = result.chunkCount;
+        if (result.status !== "PROCESSED") report.error = result.errorMessage ?? result.errorCode ?? "processing failed";
+      } catch (error) {
+        report.error = error instanceof Error ? error.message : "repair failed";
+      }
+    }
+    reports.push(report);
+  }
+
+  return reports;
 }
 
 export async function reprocessKnowledgeFile(

@@ -258,6 +258,7 @@ export async function runArchitectConversationTest({
       try {
         const retrieved = await retrieveRelevantKnowledge({
           businessId: businessIdentity.businessId,
+          installedAgentId: businessIdentity.installedAgentId,
           query: cleanMessage
         });
         if (retrieved.length > 0) {

@@ -69,19 +69,37 @@ function budgetKnowledgeForPrompt(entries: string[], budgetChars: number): strin
   return included;
 }
 
+/**
+ * Agent-scope filter: an installed agent sees business-wide rows (manual
+ * entries, legacy chunks with no attribution) plus ONLY its own document
+ * chunks — never another agent's. Omit installedAgentId for business-wide
+ * loading (single-agent live paths resolve their agent where known).
+ */
+function agentScopeFilter(installedAgentId?: string | null) {
+  if (installedAgentId === undefined) return {};
+  return { OR: [{ installedAgentId: null }, { installedAgentId }] };
+}
+
 export async function loadBusinessAgentKnowledge(params: {
   businessId: string;
+  installedAgentId?: string | null;
   /** Prompt budget in characters; pass Infinity to disable budgeting. */
   promptBudgetChars?: number;
 }): Promise<BusinessAgentKnowledge> {
   const [rows, documents] = await Promise.all([
     prisma.businessKnowledgeBase.findMany({
-      where: { businessId: params.businessId },
+      where: { businessId: params.businessId, ...agentScopeFilter(params.installedAgentId) },
       select: { title: true, content: true, sourceFileId: true, chunkIndex: true, createdAt: true },
       orderBy: { createdAt: "asc" }
     }),
     prisma.businessKnowledgeFile.findMany({
-      where: { businessId: params.businessId, status: "PROCESSED" },
+      where: {
+        businessId: params.businessId,
+        status: "PROCESSED",
+        ...(params.installedAgentId === undefined
+          ? {}
+          : { OR: [{ installedAgentId: null }, { installedAgentId: params.installedAgentId }] })
+      },
       select: { id: true, filename: true, chunkCount: true },
       orderBy: { createdAt: "asc" }
     })
@@ -131,6 +149,7 @@ export type RetrievedKnowledgeSection = {
 
 export async function retrieveRelevantKnowledge(params: {
   businessId: string;
+  installedAgentId?: string | null;
   query: string;
   limit?: number;
   maxSectionChars?: number;
@@ -139,7 +158,7 @@ export async function retrieveRelevantKnowledge(params: {
   if (terms.length === 0) return [];
 
   const rows = await prisma.businessKnowledgeBase.findMany({
-    where: { businessId: params.businessId },
+    where: { businessId: params.businessId, ...agentScopeFilter(params.installedAgentId) },
     select: {
       title: true,
       content: true,

@@ -417,9 +417,13 @@ export type KnowledgeFileSummary = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
-  status: string; // "PROCESSING" | "PROCESSED" | "FAILED"
+  status: string; // "PROCESSING" | "PROCESSED" | "FAILED" | "REUPLOAD_REQUIRED"
   extractedChars: number;
   chunkCount: number;
+  /** Verified count of knowledge chunks actually stored for this file. */
+  actualChunkCount: number;
+  /** True only when the file's knowledge is verifiably stored and usable. */
+  ready: boolean;
   errorCode: string | null;
   errorMessage: string | null;
   createdAt: string;
@@ -427,6 +431,18 @@ export type KnowledgeFileSummary = {
 };
 
 export type KnowledgeFileUploadResult = KnowledgeFileSummary & { alreadyExisted: boolean };
+
+/**
+ * Result of synchronizing knowledge documents to the live assistant.
+ * attempted=false means there is no live assistant yet (pre-Go-live) — fine,
+ * no warning needed.
+ */
+export type KnowledgeLiveSync = {
+  attempted: boolean;
+  ok: boolean;
+  assistantId: string | null;
+  error: string | null;
+};
 
 /** Upload one or more knowledge documents (multipart). Both ids are optional. */
 export function uploadBusinessKnowledgeFiles(
@@ -440,7 +456,10 @@ export function uploadBusinessKnowledgeFiles(
   if (opts.listingId) form.append("listingId", opts.listingId);
   if (opts.installedAgentId) form.append("installedAgentId", opts.installedAgentId);
 
-  return apiPostFormData<{ files: KnowledgeFileUploadResult[] }>("/business/setup/knowledge-files", form);
+  return apiPostFormData<{ files: KnowledgeFileUploadResult[]; liveSync: KnowledgeLiveSync }>(
+    "/business/setup/knowledge-files",
+    form
+  );
 }
 
 /**
@@ -459,15 +478,22 @@ export function getBusinessKnowledgeFiles() {
 
 /** Delete one knowledge document (and its extracted knowledge). */
 export function deleteBusinessKnowledgeFile(id: string) {
-  return apiDelete<{ deleted: true }>(`/business/setup/knowledge-files/${encodeURIComponent(id)}`);
+  return apiDelete<{ deleted: true; liveSync: KnowledgeLiveSync }>(
+    `/business/setup/knowledge-files/${encodeURIComponent(id)}`
+  );
 }
 
 /** Re-run extraction for a FAILED knowledge document. */
 export function reprocessBusinessKnowledgeFile(id: string) {
-  return apiPost<{ file: KnowledgeFileSummary }>(
+  return apiPost<{ file: KnowledgeFileSummary; liveSync: KnowledgeLiveSync }>(
     `/business/setup/knowledge-files/${encodeURIComponent(id)}/reprocess`,
     {}
   );
+}
+
+/** Retry live-assistant knowledge synchronization (after a failed liveSync). */
+export function syncBusinessKnowledge() {
+  return apiPost<{ liveSync: KnowledgeLiveSync }>("/business/setup/knowledge-files/sync", {});
 }
 
 export function testCallRouting(body: { phoneNumber?: string; selectedPlatformPhoneNumberId?: string }) {

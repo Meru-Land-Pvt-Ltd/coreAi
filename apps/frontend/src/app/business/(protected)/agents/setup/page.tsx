@@ -35,6 +35,7 @@ import {
   sendBusinessTestSms,
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
+  syncBusinessKnowledge,
   testCallRouting,
   uploadBusinessKnowledgeFiles,
   type BusinessChatTestMessage,
@@ -51,6 +52,7 @@ import {
   type BuyerSetupFieldDef,
   type CallRoutingResult,
   type KnowledgeFileSummary,
+  type KnowledgeLiveSync,
   type PlatformPhoneOption,
   type TestSmsResult
 } from "@/components/business/features/api";
@@ -1820,9 +1822,17 @@ function formatKnowledgeFileSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-function knowledgeStatusPill(status: string): { label: string; pill: string } {
-  if (status === "PROCESSED") return { label: "Processed", pill: "bg-green-100 text-green-700" };
-  if (status === "FAILED") return { label: "Failed", pill: "bg-rose-100 text-rose-700" };
+function knowledgeStatusPill(file: Pick<KnowledgeFileSummary, "status" | "ready">): {
+  label: string;
+  pill: string;
+} {
+  // "Ready" is only shown when the stored knowledge is verified (ready flag),
+  // never from the raw status alone.
+  if (file.ready) return { label: "Ready", pill: "bg-green-100 text-green-700" };
+  if (file.status === "PROCESSED") return { label: "Needs repair", pill: "bg-amber-100 text-amber-700" };
+  if (file.status === "REUPLOAD_REQUIRED")
+    return { label: "Re-upload required", pill: "bg-rose-100 text-rose-700" };
+  if (file.status === "FAILED") return { label: "Failed", pill: "bg-rose-100 text-rose-700" };
   return { label: "Processing", pill: "bg-amber-100 text-amber-700" };
 }
 
@@ -1912,7 +1922,41 @@ function StepBusiness({
   const [pendingUploads, setPendingUploads] = useState<{ key: string; name: string; size: number }[]>([]);
   const [uploadError, setUploadError] = useState("");
   const [busyFileIds, setBusyFileIds] = useState<string[]>([]);
+  // Live-assistant sync feedback: null = no warning; string = warning shown
+  // (the server error text, possibly empty).
+  const [liveSyncWarning, setLiveSyncWarning] = useState<string | null>(null);
+  const [liveSyncOk, setLiveSyncOk] = useState(false);
+  const [syncRetrying, setSyncRetrying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function applyLiveSync(sync: KnowledgeLiveSync | undefined) {
+    if (!sync) return;
+    if (!sync.attempted) {
+      // No live assistant yet (pre-Go-live) — nothing to warn about.
+      setLiveSyncWarning(null);
+      setLiveSyncOk(false);
+      return;
+    }
+    if (sync.ok) {
+      setLiveSyncWarning(null);
+      setLiveSyncOk(true);
+    } else {
+      setLiveSyncOk(false);
+      setLiveSyncWarning(sync.error ?? "");
+    }
+  }
+
+  async function handleSyncRetry() {
+    setSyncRetrying(true);
+    setLiveSyncOk(false);
+    const res = await syncBusinessKnowledge();
+    setSyncRetrying(false);
+    if (res.success && res.data) {
+      applyLiveSync(res.data.liveSync);
+    } else {
+      setLiveSyncWarning(res.error ?? "Live agent sync failed. Please try again.");
+    }
+  }
 
   const refreshKnowledgeFiles = useCallback(async () => {
     const res = await getBusinessKnowledgeFiles();
@@ -2005,6 +2049,7 @@ function StepBusiness({
     }
     setUploadError(rejected.join(" · "));
     if (accepted.length === 0) return;
+    setLiveSyncOk(false);
 
     const pendingKeys = accepted.map((file, idx) => `${Date.now()}-${idx}-${file.name}`);
     setPendingUploads((prev) => [
@@ -2027,6 +2072,7 @@ function StepBusiness({
         for (const file of returned) byId.set(file.id, file);
         return Array.from(byId.values());
       });
+      applyLiveSync(res.data.liveSync);
       void refreshKnowledgeFiles();
     } else {
       setUploadError(res.error ?? "Upload failed. Please try again.");
@@ -2042,10 +2088,12 @@ function StepBusiness({
 
   async function handleRemoveFile(id: string) {
     setBusyFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setLiveSyncOk(false);
     const res = await deleteBusinessKnowledgeFile(id);
     setBusyFileIds((prev) => prev.filter((busyId) => busyId !== id));
     if (res.success) {
       setKnowledgeFiles((prev) => prev.filter((file) => file.id !== id));
+      applyLiveSync(res.data?.liveSync);
       void refreshKnowledgeFiles();
     } else {
       setUploadError(res.error ?? "Could not remove the document. Please try again.");
@@ -2054,11 +2102,13 @@ function StepBusiness({
 
   async function handleRetryFile(id: string) {
     setBusyFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setLiveSyncOk(false);
     const res = await reprocessBusinessKnowledgeFile(id);
     setBusyFileIds((prev) => prev.filter((busyId) => busyId !== id));
     if (res.success && res.data) {
       const updated = res.data.file;
       setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
+      applyLiveSync(res.data.liveSync);
       void refreshKnowledgeFiles();
     } else {
       setUploadError(res.error ?? "Could not reprocess the document. Please try again.");
@@ -2405,8 +2455,9 @@ function StepBusiness({
             ))}
 
             {knowledgeFiles.map((file) => {
-              const status = knowledgeStatusPill(file.status);
+              const status = knowledgeStatusPill(file);
               const busy = busyFileIds.includes(file.id);
+              const needsRepair = file.status === "PROCESSED" && !file.ready;
 
               return (
                 <div
@@ -2424,11 +2475,16 @@ function StepBusiness({
                     <p className="text-sm font-medium text-slate-700 truncate">{file.filename}</p>
                     <p className="text-xs text-slate-400">
                       {formatKnowledgeFileSize(file.sizeBytes)}
-                      {file.status === "PROCESSED"
-                        ? ` · ${file.extractedChars.toLocaleString()} characters · ${file.chunkCount} knowledge section${file.chunkCount === 1 ? "" : "s"}`
+                      {file.ready
+                        ? ` · ${file.extractedChars.toLocaleString()} characters · ${file.actualChunkCount} knowledge section${file.actualChunkCount === 1 ? "" : "s"}`
                         : ""}
                     </p>
-                    {file.status === "FAILED" && file.errorMessage ? (
+                    {needsRepair ? (
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Processed record doesn&rsquo;t match stored knowledge — retry processing.
+                      </p>
+                    ) : null}
+                    {(file.status === "FAILED" || file.status === "REUPLOAD_REQUIRED") && file.errorMessage ? (
                       <p className="text-xs text-rose-600 mt-0.5">{file.errorMessage}</p>
                     ) : null}
                   </div>
@@ -2438,7 +2494,7 @@ function StepBusiness({
                   >
                     {status.label}
                   </span>
-                  {file.status === "FAILED" ? (
+                  {file.status === "FAILED" || needsRepair ? (
                     <button
                       type="button"
                       disabled={busy}
@@ -2466,6 +2522,31 @@ function StepBusiness({
               );
             })}
           </div>
+        ) : null}
+
+        {/* Live-assistant sync feedback — only after a sync was actually attempted */}
+        {liveSyncWarning !== null ? (
+          <div
+            className="mt-3 rounded-xl bg-amber-50 border border-amber-100 px-4 py-2.5 text-sm text-amber-700"
+            role="alert"
+            data-testid="business-setup-knowledge-sync-warning"
+          >
+            <p>Documents saved, but your live agent wasn&rsquo;t updated yet.</p>
+            {liveSyncWarning ? <p className="mt-0.5 text-xs text-amber-600">{liveSyncWarning}</p> : null}
+            <button
+              type="button"
+              disabled={syncRetrying}
+              onClick={() => void handleSyncRetry()}
+              className="mt-1.5 text-xs font-semibold text-amber-700 underline hover:text-amber-800 transition-colors disabled:opacity-50"
+              data-testid="business-setup-knowledge-sync-retry"
+            >
+              {syncRetrying ? "Retrying sync…" : "Retry sync"}
+            </button>
+          </div>
+        ) : liveSyncOk ? (
+          <p className="mt-2 text-xs text-green-600" data-testid="business-setup-knowledge-sync-ok">
+            Live agent updated.
+          </p>
         ) : null}
       </div>
 
@@ -4560,8 +4641,10 @@ function StepTest({
     };
   }, []);
 
-  const processedKnowledge = knowledgeFiles.filter((file) => file.status === "PROCESSED");
-  const knowledgeSectionCount = processedKnowledge.reduce((sum, file) => sum + file.chunkCount, 0);
+  // Only verified-ready files count — a PROCESSED record whose stored knowledge
+  // is missing (ready=false) must not be presented as loaded.
+  const readyKnowledge = knowledgeFiles.filter((file) => file.ready);
+  const knowledgeSectionCount = readyKnowledge.reduce((sum, file) => sum + file.actualChunkCount, 0);
 
   const handleChatResult = useCallback((result: BusinessChatTestResult) => {
     setChatSummary(result);
@@ -4662,17 +4745,17 @@ function StepTest({
         </dl>
 
         <div className="mt-3 text-sm" data-testid="business-test-knowledge-summary">
-          {processedKnowledge.length > 0 ? (
+          {readyKnowledge.length > 0 ? (
             <>
               <div className="flex items-baseline justify-between gap-4">
                 <span className="shrink-0 text-slate-500">Knowledge loaded</span>
                 <span className="min-w-0 text-right font-semibold text-slate-800">
-                  {processedKnowledge.length} document{processedKnowledge.length === 1 ? "" : "s"} ·{" "}
+                  {readyKnowledge.length} document{readyKnowledge.length === 1 ? "" : "s"} ·{" "}
                   {knowledgeSectionCount} knowledge section{knowledgeSectionCount === 1 ? "" : "s"}
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-400 truncate" data-testid="business-test-knowledge-docs">
-                {processedKnowledge.map((file) => file.filename).join(", ")}
+                {readyKnowledge.map((file) => file.filename).join(", ")}
               </p>
             </>
           ) : (

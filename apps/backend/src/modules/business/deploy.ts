@@ -334,7 +334,10 @@ async function buildInstalledAgentAssistantPlan(
 
   // Shared knowledge source of truth: manual entries + document chunks, in
   // the same order and format every other agent runtime uses.
-  const { knowledge } = await loadBusinessAgentKnowledge({ businessId: business.id });
+  const { knowledge } = await loadBusinessAgentKnowledge({
+    businessId: business.id,
+    installedAgentId: installedAgent.id
+  });
 
   const customInstructions = (
     buyer.customInstructions ||
@@ -479,6 +482,7 @@ export async function deployInstalledAgentVoiceAssistant(
     speakingSpeed: cleanString(plan.voiceNode.speakingSpeed),
     serverUrl: webhookUrl,
     existingAssistantId,
+    metadata: { businessId: plan.businessId, installedAgentId: plan.installedAgentId },
     recordingEnabled: endFlowRecordingEnabled(plan.workflowJson),
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,
@@ -542,7 +546,10 @@ export async function buildInstalledAgentChatTestSetup(
   const buyer = readBuyerConfig(installedAgent.configJson);
   const services = buyer.services.length ? buyer.services : stringArray(business.profile?.services);
   const faqs = buyer.faqs.length ? buyer.faqs : faqStrings(business.profile?.faqsJson);
-  const { knowledge } = await loadBusinessAgentKnowledge({ businessId: business.id });
+  const { knowledge } = await loadBusinessAgentKnowledge({
+    businessId: business.id,
+    installedAgentId: installedAgent.id
+  });
 
   return {
     workflowId: installedAgent.workflowId,
@@ -607,25 +614,49 @@ async function findLatestTestableInstalledAgent(businessId: string): Promise<{ i
  * No-op before Go-live (no vapiAssistantId / no ACTIVE agent) and never
  * fails the calling mutation — the next deploy would pick knowledge up anyway.
  */
-export async function refreshLiveAssistantKnowledge(businessId: string): Promise<void> {
+export type LiveKnowledgeSyncResult = {
+  /** False when there is no live assistant yet (pre-Go-live) — nothing to sync. */
+  attempted: boolean;
+  ok: boolean;
+  assistantId: string | null;
+  error: string | null;
+};
+
+export async function refreshLiveAssistantKnowledge(businessId: string): Promise<LiveKnowledgeSyncResult> {
   try {
-    if (!isVapiConfigured()) return;
+    if (!isVapiConfigured()) {
+      return { attempted: false, ok: true, assistantId: null, error: null };
+    }
     const profile = await prisma.businessProfile.findUnique({
       where: { businessId },
       select: { vapiAssistantId: true }
     });
-    if (!profile?.vapiAssistantId) return;
+    if (!profile?.vapiAssistantId) {
+      return { attempted: false, ok: true, assistantId: null, error: null };
+    }
 
     const result = await deployInstalledAgentVoiceAssistant(businessId);
-    console.log("[knowledge] live assistant prompt refreshed", {
-      businessId,
-      assistantId: result?.assistantId ?? null
-    });
+    if (!result?.assistantId) {
+      return {
+        attempted: true,
+        ok: false,
+        assistantId: null,
+        error: "The live assistant could not be updated. Retry the sync, or redeploy from the Go live step."
+      };
+    }
+    console.log("[knowledge] live assistant prompt refreshed", { businessId, assistantId: result.assistantId });
+    return { attempted: true, ok: true, assistantId: result.assistantId, error: null };
   } catch (error) {
-    console.error("[knowledge] live assistant refresh failed (non-fatal)", {
+    console.error("[knowledge] live assistant refresh failed", {
       businessId,
       error: error instanceof Error ? error.message : error
     });
+    return {
+      attempted: true,
+      ok: false,
+      assistantId: null,
+      error: "The live assistant could not be updated. Retry the sync, or redeploy from the Go live step."
+    };
   }
 }
 

@@ -2189,6 +2189,9 @@ type VapiToolContext = {
   /** Resolved from trusted call metadata: BUSINESS_TEST for buyer browser
    * tests — booking then writes marked test events, never live appointments. */
   executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
+  /** Installed agent this call belongs to (assistant metadata) — scopes
+   * knowledge retrieval so agents never see each other's documents. */
+  installedAgentId?: string;
 };
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -3306,7 +3309,15 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
-  const sections = await retrieveRelevantKnowledge({ businessId, query });
+  const sections = await retrieveRelevantKnowledge({
+    businessId,
+    // Scope to the calling agent when the assistant reported its identity.
+    // Legacy assistants (deployed before metadata) stay business-wide so their
+    // existing documents keep working; the next knowledge sync re-deploys
+    // them WITH identity and tightens the scope.
+    installedAgentId: ctx.installedAgentId,
+    query
+  });
 
   if (sections.length === 0) {
     return {
@@ -3956,7 +3967,8 @@ export async function handleVapiWebhook(c: Context) {
       callId: callId || undefined,
       summary,
       transcript,
-      executionMode
+      executionMode,
+      installedAgentId: metadataInstalledAgentId
     };
 
     // Run every tool call in the request; return one result per toolCallId.
