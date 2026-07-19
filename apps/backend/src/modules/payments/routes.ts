@@ -479,8 +479,6 @@ paymentRoutes.get("/billing", async (c) => {
 
   const invoices = buildBillingInvoices(payments);
 
-  // Resolve the business name and billing address from the owner's business
-  // profile so the billing/invoice UI shows real details instead of "NA".
   const business = await prisma.business.findFirst({
     where: { ownerId: authUser.id },
     orderBy: { createdAt: "asc" },
@@ -652,9 +650,6 @@ paymentRoutes.post("/billing/payment-method/primary", async (c) => {
   }
 });
 
-// GET /payments/my-agents — the agents this business has purchased.
-// Backed by the Payment ledger (keyed to the business owner), so each business
-// effectively has its own array of purchased agents.
 paymentRoutes.get("/my-agents", async (c) => {
   const authUser = c.get("authUser");
 
@@ -938,10 +933,6 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
 
   const activePayment = resolveActivePayment(payments);
   const anyPayment = payments.length > 0;
-  // An install with NO payment history is a payment-less acquisition (free
-  // install / architect self-test) and counts as access. When payments exist,
-  // the payment state stays authoritative so an expired trial still reads as
-  // "pay to continue" even though the trial auto-installed the agent.
   const paymentlessInstall = Boolean(installedAgent) && !anyPayment;
   const purchaseStatus = activePayment?.status ?? payments[0]?.status ?? null;
   const isTrialing = purchaseStatus === PaymentStatus.TRIALING;
@@ -958,8 +949,6 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     .filter((service) => service.unit === "PER_MINUTE")
     .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);
 
-  // One-time number fee billed with the agent price when this agent's
-  // workflow needs a dedicated phone number.
   const needsPhone = await listingNeedsPhoneNumber(listing.id);
   const phoneFee = needsPhone ? await getPhoneNumberFee() : null;
 
@@ -970,7 +959,7 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     pricingModel: listing.pricingModel,
     freeTrialEnabled: listing.freeTrialEnabled,
     trialDays: listing.trialDays,
-    phoneNumberFee: phoneFee
+    phoneNumberFee: phoneFee && phoneFee.amountCents > 0
       ? { label: phoneFee.label, amountCents: phoneFee.amountCents }
       : null,
     currency: "usd",
@@ -1069,9 +1058,6 @@ paymentRoutes.post("/start-trial", async (c) => {
     return errorResponse(c, "Free trial is not enabled for this agent", 400, "TRIAL_NOT_ENABLED");
   }
 
-  // Scoped by (userId, listingId) — the same key every access check uses —
-  // so a buyer can never restart a trial by acquiring a different/new
-  // Business row. Any prior payment (even expired/canceled) burns the trial.
   const existingPayments = await prisma.payment.findMany({
     where: {
       userId: authUser.id,
@@ -1130,8 +1116,6 @@ paymentRoutes.post("/start-trial", async (c) => {
     customerId = customer.id;
   }
 
-  // Attaching a test token (e.g. pm_card_visa) returns a concrete PaymentMethod
-  // whose id differs from the token, so use the attached method's id afterwards.
   const attachedPaymentMethod = await attachOrReusePaymentMethod(stripe, paymentMethodId, customerId);
 
   const attachedPaymentMethodId = attachedPaymentMethod.id;
@@ -1146,10 +1130,6 @@ paymentRoutes.post("/start-trial", async (c) => {
 
   const trialDays = listing.trialDays || 7;
 
-  // Advisory-locked create: two concurrent trial submits (double-click,
-  // duplicate tab) both pass the read above — the lock serializes them and
-  // the recheck makes the loser reuse the winner's row instead of creating
-  // a second TRIALING payment.
   const trialCreate = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-trial:${authUser.id}:${listing.id}`}))`;
 
@@ -1290,11 +1270,6 @@ paymentRoutes.post("/purchase", async (c) => {
     return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
   }
 
-  // FREE agents install immediately: no charge and no Payment record. The
-  // entitlement is intrinsic to the FREE listing (purchase-access), and the
-  // InstalledAgent row is created right here so the agent shows up on
-  // My Agents at once. The unique (businessId, listingId) constraint absorbs
-  // double-clicks and retries — repeats reuse the same install.
   if (listing.pricingModel === "FREE") {
     const [existingPayments, existingInstall] = await Promise.all([
       prisma.payment.findMany({
@@ -1365,10 +1340,6 @@ paymentRoutes.post("/purchase", async (c) => {
 
   const priorTrialPaymentId = activePayment?.status === "TRIALING" ? activePayment.id : null;
 
-  // No number is acquired at checkout: the buyer selects and explicitly
-  // purchases their Triven AI number during agent setup (country → state →
-  // city → confirm). If they already provisioned one there, its one-time fee
-  // is billed with this charge below (resolveUnbilledPhoneFee).
   const unbilledPhoneFee = await resolveUnbilledPhoneFee({
     buyerUserId: authUser.id,
     businessId
