@@ -16,13 +16,17 @@ import {
   type WorkflowTriggerKind
 } from "@coreai/shared";
 import { PhoneNumberSelectionSection } from "@/components/business/phone-number-selection";
+import { BusinessHoursSection, BusinessHoursSummary } from "@/components/business/business-hours-section";
+import { BusinessAddressSection } from "@/components/business/business-settings-view";
 import { businessSetupPath } from "@/lib/routes";
 import {
   checkMailAliasAvailability,
   deleteBusinessKnowledgeFile,
   deleteBusinessTestEvent,
   disconnectBusinessCalendar,
+  getAppointmentSchedule,
   getBusinessCalendarOAuthUrl,
+  getBusinessFacts,
   getBusinessKnowledgeFiles,
   getVoiceSamplePreview,
   getBusinessMailSetup,
@@ -38,12 +42,16 @@ import {
   syncBusinessKnowledge,
   testCallRouting,
   uploadBusinessKnowledgeFiles,
+  type AppointmentDayHours,
+  type AppointmentScheduleData,
+  type AppointmentWeekday,
   type BusinessChatTestMessage,
   type BusinessChatTestResult,
   type BusinessChatTestToolCall,
   type BusinessTestExecutedNode,
   type BusinessPreviewCallSession,
   type BusinessEmailAliasData,
+  type BusinessFactsData,
   type BusinessFaq,
   type BusinessHoursItem,
   type BusinessKnowledgeItem,
@@ -120,6 +128,54 @@ const DEFAULT_HOURS_DAYS: Record<string, boolean> = {
   Friday: true,
   Saturday: false,
   Sunday: false
+};
+
+/** Appointment-schedule day grid rows, rendered Monday → Sunday. */
+const APPT_WEEKDAYS: { key: AppointmentWeekday; label: string }[] = [
+  { key: "monday", label: "Monday" },
+  { key: "tuesday", label: "Tuesday" },
+  { key: "wednesday", label: "Wednesday" },
+  { key: "thursday", label: "Thursday" },
+  { key: "friday", label: "Friday" },
+  { key: "saturday", label: "Saturday" },
+  { key: "sunday", label: "Sunday" }
+];
+
+const DEFAULT_APPT_DAYS: Record<AppointmentWeekday, AppointmentDayHours> = {
+  monday: { open: "09:00", close: "17:00", closed: false },
+  tuesday: { open: "09:00", close: "17:00", closed: false },
+  wednesday: { open: "09:00", close: "17:00", closed: false },
+  thursday: { open: "09:00", close: "17:00", closed: false },
+  friday: { open: "09:00", close: "17:00", closed: false },
+  saturday: { open: "09:00", close: "17:00", closed: true },
+  sunday: { open: "09:00", close: "17:00", closed: true }
+};
+
+type ApptNumberField =
+  | "defaultDurationMinutes"
+  | "bufferMinutes"
+  | "slotIntervalMinutes"
+  | "minNoticeMinutes"
+  | "maxAdvanceDays"
+  | "maxSpokenSuggestions";
+
+const APPT_NUMBER_FIELDS: { key: ApptNumberField; label: string; min: number }[] = [
+  { key: "defaultDurationMinutes", label: "Default duration (min)", min: 5 },
+  { key: "bufferMinutes", label: "Buffer (min)", min: 0 },
+  { key: "slotIntervalMinutes", label: "Slot interval (min)", min: 5 },
+  { key: "minNoticeMinutes", label: "Min notice (min)", min: 0 },
+  { key: "maxAdvanceDays", label: "Max advance (days)", min: 1 },
+  { key: "maxSpokenSuggestions", label: "Spoken suggestions", min: 1 }
+];
+
+/** Loaded appointment-schedule state shown in the Setup step section. */
+type AppointmentSectionState = {
+  source: "configured" | "business_hours" | "defaults";
+  days: Record<AppointmentWeekday, AppointmentDayHours>;
+  fields: Record<ApptNumberField, number>;
+  confirmed: boolean;
+  dirty: boolean;
+  suggestion: AppointmentScheduleData["documentSuggestion"];
 };
 
 const ANSWERING_MODES: { value: string; label: string }[] = [
@@ -625,6 +681,26 @@ function SetupWizard() {
   const [hoursStart, setHoursStart] = useState("09:00");
   const [hoursEnd, setHoursEnd] = useState("18:00");
   const [hoursDays, setHoursDays] = useState<Record<string, boolean>>(DEFAULT_HOURS_DAYS);
+
+  // Appointment schedule (booking hours + slot config). Loaded from its own
+  // endpoint; only included in the save payload once loaded so an unloaded
+  // section never clobbers the server-side config with empty defaults.
+  const [apptLoaded, setApptLoaded] = useState(false);
+  const [apptDays, setApptDays] = useState<Record<AppointmentWeekday, AppointmentDayHours>>(DEFAULT_APPT_DAYS);
+  const [apptFields, setApptFields] = useState<Record<ApptNumberField, number>>({
+    defaultDurationMinutes: 30,
+    bufferMinutes: 0,
+    slotIntervalMinutes: 30,
+    minNoticeMinutes: 0,
+    maxAdvanceDays: 30,
+    maxSpokenSuggestions: 3
+  });
+  const [apptConfirmed, setApptConfirmed] = useState(false);
+  const [apptSource, setApptSource] = useState<AppointmentSectionState["source"]>("defaults");
+  const [apptNeedsConfirmation, setApptNeedsConfirmation] = useState(false);
+  const [apptSuggestion, setApptSuggestion] = useState<AppointmentScheduleData["documentSuggestion"]>(null);
+  const [apptDirty, setApptDirty] = useState(false);
+
   const [knowledge, setKnowledge] = useState<BusinessKnowledgeItem[]>([]);
   const [confetti, setConfetti] = useState<
     { id: number; left: string; size: number; color: string; delay: string; duration: string }[]
@@ -738,13 +814,19 @@ function SetupWizard() {
           setFaqs(data.profile.faqs);
         }
 
-        const savedHours = data.profile.hours;
-        if (Array.isArray(savedHours) && savedHours.length > 0) {
+        // AI ANSWERING schedule (phoneRouting.answeringHours) — separate from
+        // the structured Business Hours, which have their own editor + API.
+        const savedAnsweringHours = data.answeringHours;
+        if (
+          data.answeringMode === "CUSTOM_HOURS" &&
+          Array.isArray(savedAnsweringHours) &&
+          savedAnsweringHours.length > 0
+        ) {
           setHoursMode("custom");
           const dayFlags: Record<string, boolean> = { ...DEFAULT_HOURS_DAYS };
           let start = "09:00";
           let end = "18:00";
-          for (const item of savedHours) {
+          for (const item of savedAnsweringHours) {
             const match = HOURS_DAYS.find((entry) => entry.day.toLowerCase() === (item.day ?? "").toLowerCase());
             if (!match) continue;
             dayFlags[match.day] = !item.closed;
@@ -908,6 +990,73 @@ function SetupWizard() {
     void loadSetup();
   }, [loadSetup]);
 
+  // Appointment schedule loads once on mount — independent of the main setup
+  // payload so a failure here never blocks the wizard.
+  useEffect(() => {
+    let cancelled = false;
+
+    void getAppointmentSchedule().then((res) => {
+      if (cancelled || !res.success || !res.data) return;
+
+      const { schedule, needsConfirmation, documentSuggestion } = res.data;
+
+      setApptDays({ ...DEFAULT_APPT_DAYS, ...schedule.days });
+      setApptFields({
+        defaultDurationMinutes: schedule.defaultDurationMinutes,
+        bufferMinutes: schedule.bufferMinutes,
+        slotIntervalMinutes: schedule.slotIntervalMinutes,
+        minNoticeMinutes: schedule.minNoticeMinutes,
+        maxAdvanceDays: schedule.maxAdvanceDays,
+        maxSpokenSuggestions: schedule.maxSpokenSuggestions
+      });
+      setApptConfirmed(schedule.confirmed);
+      setApptSource(schedule.source);
+      setApptNeedsConfirmation(needsConfirmation);
+      setApptSuggestion(documentSuggestion);
+      setApptDirty(false);
+      setApptLoaded(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateApptDay = useCallback((day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => {
+    setApptDays((current) => ({ ...current, [day]: { ...current[day], ...patch } }));
+    setApptDirty(true);
+  }, []);
+
+  const updateApptField = useCallback((field: ApptNumberField, value: number) => {
+    setApptFields((current) => ({ ...current, [field]: value }));
+    setApptDirty(true);
+  }, []);
+
+  const updateApptConfirmed = useCallback((value: boolean) => {
+    setApptConfirmed(value);
+    setApptDirty(true);
+  }, []);
+
+  const applyApptSuggestion = useCallback(() => {
+    if (!apptSuggestion) return;
+
+    const suggestedDays = apptSuggestion.days;
+    setApptDays((current) => {
+      const next = { ...current };
+      for (const { key } of APPT_WEEKDAYS) {
+        const suggested = suggestedDays[key];
+        if (suggested) next[key] = { ...suggested };
+      }
+      return next;
+    });
+    setApptDirty(true);
+    setApptSuggestion(null);
+  }, [apptSuggestion]);
+
+  const dismissApptSuggestion = useCallback(() => {
+    setApptSuggestion(null);
+  }, []);
+
   // Auto-dismiss the status toast.
   useEffect(() => {
     if (!statusMsg) return;
@@ -986,14 +1135,19 @@ function SetupWizard() {
       faqs: faqs
         .filter((faq) => faq.question.trim() && faq.answer.trim())
         .map((faq) => ({ question: faq.question.trim(), answer: faq.answer.trim() })),
-      hours: buildHours(),
+      // Structured Business Hours are owned by the Business Hours editor
+      // (PUT /business/hours) — setup saves never overwrite them. The
+      // "when should the agent respond" toggle below is the AI ANSWERING
+      // schedule, stored separately on phoneRouting.answeringHours.
+      hours: [],
+      answeringHours: buildHours(),
       knowledge: knowledge
         .filter((item) => item.title.trim() && item.content.trim())
         .map((item) => ({ title: item.title.trim(), content: item.content.trim() })),
       voice: voiceFields.voice,
       voiceProvider: voiceFields.voiceProvider,
       voiceId: voiceFields.voiceId,
-      answeringMode,
+      answeringMode: hoursMode === "custom" ? "CUSTOM_HOURS" : answeringMode === "CUSTOM_HOURS" ? "AI_FIRST" : answeringMode,
       contactName: contactName.trim(),
       customInstructions: customInstructions.trim(),
       silenceRepromptCount,
@@ -1014,6 +1168,22 @@ function SetupWizard() {
         ),
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
+      // Only sent after the GET has loaded — never clobbers the saved
+      // schedule with unloaded empty state.
+      ...(apptLoaded
+        ? {
+          appointmentSchedule: {
+            days: apptDays,
+            defaultDurationMinutes: apptFields.defaultDurationMinutes,
+            bufferMinutes: apptFields.bufferMinutes,
+            slotIntervalMinutes: apptFields.slotIntervalMinutes,
+            minNoticeMinutes: apptFields.minNoticeMinutes,
+            maxAdvanceDays: apptFields.maxAdvanceDays,
+            maxSpokenSuggestions: apptFields.maxSpokenSuggestions,
+            confirmed: apptConfirmed
+          }
+        }
+        : {}),
       ...(needsMail
         ? {
           emailRecipients: {
@@ -1057,6 +1227,13 @@ function SetupWizard() {
 
     if (typeof data.selectedPlatformPhoneNumberId === "string") {
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId);
+    }
+
+    if (apptLoaded) {
+      // The saved schedule is now the source of truth server-side.
+      setApptDirty(false);
+      setApptNeedsConfirmation(!apptConfirmed);
+      setApptSource("configured");
     }
 
     setCalendar(data.calendar ?? calendar);
@@ -1634,6 +1811,23 @@ function SetupWizard() {
                 onCustomVoiceId={setCustomVoiceId}
                 listingId={listingId}
                 installedAgentId={liveInstalledAgentId}
+                appt={
+                  apptLoaded
+                    ? {
+                      source: apptSource,
+                      days: apptDays,
+                      fields: apptFields,
+                      confirmed: apptConfirmed,
+                      dirty: apptDirty,
+                      suggestion: apptSuggestion
+                    }
+                    : null
+                }
+                onApptDay={updateApptDay}
+                onApptField={updateApptField}
+                onApptConfirmed={updateApptConfirmed}
+                onApptApplySuggestion={applyApptSuggestion}
+                onApptDismissSuggestion={dismissApptSuggestion}
               />
 
               {/* {showMail ? (
@@ -1699,6 +1893,7 @@ function SetupWizard() {
               blockers={blockers}
               readyToDeploy={readyToDeploy}
               assignedNumber={assignedNumber}
+              apptNeedsConfirmation={apptLoaded && apptNeedsConfirmation}
             />
           ) : null}
 
@@ -1870,7 +2065,13 @@ function StepBusiness({
   onCustomVoiceId,
   showVoice,
   listingId,
-  installedAgentId
+  installedAgentId,
+  appt,
+  onApptDay,
+  onApptField,
+  onApptConfirmed,
+  onApptApplySuggestion,
+  onApptDismissSuggestion
 }: {
   businessName: string;
   businessType: string;
@@ -1906,6 +2107,13 @@ function StepBusiness({
   showVoice: boolean;
   listingId?: string;
   installedAgentId?: string | null;
+  /** Loaded appointment-schedule state; null until the GET resolves. */
+  appt: AppointmentSectionState | null;
+  onApptDay: (day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => void;
+  onApptField: (field: ApptNumberField, value: number) => void;
+  onApptConfirmed: (v: boolean) => void;
+  onApptApplySuggestion: () => void;
+  onApptDismissSuggestion: () => void;
 }) {
   const [selectedServices, setSelectedServices] = useState<string[]>(() =>
     servicesText
@@ -2204,6 +2412,11 @@ function StepBusiness({
             ))}
           </select>
         </div>
+      </div>
+
+      {/* Structured business address — the same record as Business Settings */}
+      <div className="mt-6">
+        <BusinessAddressSection />
       </div>
 
       {/* Services offered */}
@@ -2550,6 +2763,13 @@ function StepBusiness({
         ) : null}
       </div>
 
+      {/* Structured Business Hours — the buyer-confirmed weekly schedule the
+          agent answers open/closed questions from. Saves directly through
+          PUT /business/hours (works even after go-live) with live-sync status. */}
+      <div className="mt-7" data-testid="business-setup-business-hours">
+        <BusinessHoursSection title="Business Hours" />
+      </div>
+
       {/* Availability */}
       <div className="mt-7" data-testid="business-setup-hours">
         <span className="block text-sm font-medium text-slate-700 mb-2">When should the agent respond?</span>
@@ -2648,6 +2868,18 @@ function StepBusiness({
         </div>
       </div>
 
+      {/* Appointment schedule (booking hours + slot config) */}
+      {appt ? (
+        <AppointmentScheduleSection
+          appt={appt}
+          onDay={onApptDay}
+          onField={onApptField}
+          onConfirmed={onApptConfirmed}
+          onApplySuggestion={onApptApplySuggestion}
+          onDismissSuggestion={onApptDismissSuggestion}
+        />
+      ) : null}
+
       {/* Agent-specific custom fields */}
       {setupFields.length > 0 ? (
         <div className="mt-7 pt-7 border-t border-gray-100" data-testid="business-setup-custom-fields">
@@ -2675,6 +2907,151 @@ function StepBusiness({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/* --------------------------- Appointment schedule --------------------------- */
+
+const APPT_SOURCE_COPY: Record<AppointmentSectionState["source"], string> = {
+  business_hours: "Using your business hours — review and confirm below.",
+  configured: "Custom appointment hours configured.",
+  defaults: "Using default hours — please review."
+};
+
+function AppointmentScheduleSection({
+  appt,
+  onDay,
+  onField,
+  onConfirmed,
+  onApplySuggestion,
+  onDismissSuggestion
+}: {
+  appt: AppointmentSectionState;
+  onDay: (day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => void;
+  onField: (field: ApptNumberField, value: number) => void;
+  onConfirmed: (v: boolean) => void;
+  onApplySuggestion: () => void;
+  onDismissSuggestion: () => void;
+}) {
+  return (
+    <div className="mt-7" data-testid="business-setup-appt-schedule">
+      <span className="block text-sm font-medium text-slate-700 mb-1">Appointment schedule</span>
+      <p className="text-xs text-slate-500 mb-3" data-testid="business-setup-appt-source">
+        {APPT_SOURCE_COPY[appt.source]}
+      </p>
+
+      {appt.suggestion ? (
+        <div
+          className="mb-3 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-800 flex items-start justify-between gap-3 flex-wrap"
+          data-testid="business-setup-appt-suggestion"
+        >
+          <p className="flex-1 min-w-[12rem]">
+            We found opening hours in{" "}
+            <span className="font-semibold">
+              {appt.suggestion.sourceFilename ?? "your uploaded document"}
+            </span>{" "}
+            — Review &amp; apply
+          </p>
+          <span className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={onApplySuggestion}
+              data-testid="business-setup-appt-suggestion-apply"
+              className="text-xs font-semibold text-amber-700 underline hover:text-amber-800 transition-colors"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={onDismissSuggestion}
+              data-testid="business-setup-appt-suggestion-dismiss"
+              className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              Dismiss
+            </button>
+          </span>
+        </div>
+      ) : null}
+
+      <div className="rounded-xl border border-gray-100 bg-slate-50 p-4">
+        <div className="space-y-2">
+          {APPT_WEEKDAYS.map(({ key, label }) => {
+            const day = appt.days[key];
+            return (
+              <div key={key} className="flex items-center gap-3 flex-wrap" data-testid="business-setup-appt-day-row">
+                <span className="w-24 text-sm font-medium text-slate-700">{label}</span>
+                <input
+                  type="time"
+                  value={day.open}
+                  disabled={day.closed}
+                  aria-label={`${label} opening time`}
+                  onChange={(e) => onDay(key, { open: e.target.value })}
+                  data-testid="business-setup-appt-day-open"
+                  className="field border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white disabled:opacity-50"
+                />
+                <span className="text-slate-400" aria-hidden="true">→</span>
+                <input
+                  type="time"
+                  value={day.close}
+                  disabled={day.closed}
+                  aria-label={`${label} closing time`}
+                  onChange={(e) => onDay(key, { close: e.target.value })}
+                  data-testid="business-setup-appt-day-close"
+                  className="field border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white disabled:opacity-50"
+                />
+                <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={day.closed}
+                    aria-label={`${label} closed`}
+                    onChange={(e) => onDay(key, { closed: e.target.checked })}
+                    data-testid="business-setup-appt-day-closed"
+                    className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
+                  />
+                  Closed
+                </label>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 flex gap-3 flex-wrap">
+          {APPT_NUMBER_FIELDS.map(({ key, label, min }) => (
+            <div key={key}>
+              <label htmlFor={`appt-${key}`} className="block text-xs font-medium text-slate-500 mb-1">
+                {label}
+              </label>
+              <input
+                id={`appt-${key}`}
+                type="number"
+                min={min}
+                value={appt.fields[key]}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value);
+                  onField(key, Number.isFinite(parsed) ? parsed : 0);
+                }}
+                data-testid={`business-setup-appt-field-${key}`}
+                className="field w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white"
+              />
+            </div>
+          ))}
+        </div>
+
+        <label className="mt-4 flex items-center gap-2 text-sm font-medium text-slate-700">
+          <input
+            type="checkbox"
+            checked={appt.confirmed}
+            onChange={(e) => onConfirmed(e.target.checked)}
+            data-testid="business-setup-appt-confirm"
+            className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
+          />
+          Confirm these appointment hours
+          {appt.dirty ? (
+            <span className="text-[11px] font-semibold text-amber-600">Unsaved changes</span>
+          ) : null}
+        </label>
+      </div>
     </div>
   );
 }
@@ -4630,11 +5007,17 @@ function StepTest({
 
   // Knowledge documents the test agent can draw on (uploaded in the Setup step).
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
+  // Structured business facts (address) — shown so the buyer knows what the
+  // test agent will state to callers asking where the business is.
+  const [businessFacts, setBusinessFacts] = useState<BusinessFactsData | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void getBusinessKnowledgeFiles().then((res) => {
       if (!cancelled && res.success && res.data) setKnowledgeFiles(res.data.files);
+    });
+    void getBusinessFacts().then((res) => {
+      if (!cancelled && res.success && res.data) setBusinessFacts(res.data);
     });
     return () => {
       cancelled = true;
@@ -4728,6 +5111,19 @@ function StepTest({
               <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
             </div>
           ) : null}
+
+          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-address">
+            <dt className="shrink-0 text-slate-500">Business address</dt>
+            {businessFacts?.addressFormatted ? (
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                {businessFacts.addressFormatted}
+              </dd>
+            ) : (
+              <dd className="min-w-0 truncate text-right text-slate-400">
+                Not configured — add it in the Setup step
+              </dd>
+            )}
+          </div>
 
           {showCalendarTest && calendarId.trim() ? (
             <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-calendar">
@@ -4824,7 +5220,13 @@ function StepTest({
       ) : null}
 
       {showCallTest && labels.isVoice ? (
-        <div className={SECTION} data-testid="business-setup-test-routing">
+        <>
+          {/* Testing summary: the schedule your test conversations answer from. */}
+          <div className={SECTION} data-testid="business-setup-test-hours">
+            <BusinessHoursSummary testIdPrefix="business-setup-test-hours" />
+          </div>
+
+          <div className={SECTION} data-testid="business-setup-test-routing">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className={SECTION_TITLE}>Test call routing</h3>
@@ -4886,7 +5288,8 @@ function StepTest({
               </ul>
             </div>
           ) : null}
-        </div>
+          </div>
+        </>
       ) : null}
 
       {/* Test summary — a running record of what this step verified. */}
@@ -4964,12 +5367,15 @@ function StepGoLive({
   checklist,
   blockers,
   readyToDeploy,
-  assignedNumber
+  assignedNumber,
+  apptNeedsConfirmation
 }: {
   checklist: ChecklistRow[];
   blockers: string[];
   readyToDeploy: boolean;
   assignedNumber: string | null;
+  /** True when appointment hours are still unconfirmed — non-blocking nudge. */
+  apptNeedsConfirmation: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -5011,6 +5417,21 @@ function StepGoLive({
             All set — you can deploy your live agent.
           </div>
         )}
+
+        {/* Non-blocking nudge: unconfirmed appointment hours (sits just above the deploy button) */}
+        {apptNeedsConfirmation ? (
+          <p
+            className="mt-3 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-700"
+            data-testid="business-setup-appt-golive-note"
+          >
+            Review and confirm your appointment hours in the Setup step so callers are offered the right times.
+          </p>
+        ) : null}
+
+        {/* Go-live review: the exact weekly Business Hours the live agent will use. */}
+        <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4">
+          <BusinessHoursSummary testIdPrefix="business-setup-golive-hours" />
+        </div>
       </div>
     </div>
   );

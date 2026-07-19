@@ -8,6 +8,21 @@ import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
 import { DuplicateWorkflowRunError } from "../memory/work-flow-run-service";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import {
+  checkBusinessExactTime,
+  computeBusinessAvailability,
+  revalidateAndReserveSlot
+} from "../business/scheduling";
+import { detectFactIntents, loadBusinessFacts, lookupStructuredFacts } from "../business/business-facts";
+import { businessOpenStatusNow, specialEntriesFromRows } from "../business/business-hours-state";
+import {
+  addDaysToDate,
+  businessOpenStatus,
+  dateInTimeZone,
+  describeOpenStatus,
+  normalizeWeeklyHours,
+  type SpecialHoursEntry
+} from "@coreai/shared";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
@@ -81,6 +96,8 @@ type ResolvedAgent = {
   forwardToPhone?: string;
   /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
   routingMode?: string;
+  /** Optional CUSTOM_HOURS answering schedule (configJson.phoneRouting.answeringHours). */
+  answeringHours?: unknown;
   /** Buyer paused this agent — no AI answer, no text-back, no AI SMS replies. */
   agentPaused?: boolean;
   business?: BusinessRuntimeContext;
@@ -333,6 +350,7 @@ function toResolvedAgent(opts: {
     workflowJson: installedAgent.workflow?.workflowJson ?? null,
     forwardToPhone: opts.forwardToPhone ?? undefined,
     routingMode: readRoutingMode(installedAgent.configJson),
+    answeringHours: readAnsweringHours(installedAgent.configJson),
     agentPaused: installedAgent.status === "PAUSED",
     business: buildBusinessContext(business, phoneNumber, installedAgent),
     matchedBusinessPhoneNumberId: opts.matchedBusinessPhoneNumberId,
@@ -686,12 +704,12 @@ async function createBusinessAppointment({
     summaryOverride: isTestMode ? calendarEventTitleForMode(executionMode, service) : undefined,
     description: isTestMode
       ? [
-          executionMode === "ARCHITECT_DRY_RUN"
-            ? "Triven.ai architect sandbox test appointment."
-            : "Triven.ai business test appointment.",
-          "This is not a real customer booking.",
-          `Phone: ${customerPhone}`
-        ].join("\n")
+        executionMode === "ARCHITECT_DRY_RUN"
+          ? "Triven.ai architect sandbox test appointment."
+          : "Triven.ai business test appointment.",
+        "This is not a real customer booking.",
+        `Phone: ${customerPhone}`
+      ].join("\n")
       : description ?? `Booked by Triven AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
   });
 
@@ -995,47 +1013,84 @@ function readRoutingMode(configJson: unknown): string | undefined {
   return undefined;
 }
 
-function isWithinBusinessHours(hours: unknown, timeZone?: string): boolean | null {
-  if (!Array.isArray(hours) || hours.length === 0) return null;
+function readAnsweringHours(configJson: unknown): unknown {
+  const routing = (configJson as Record<string, unknown> | null)?.phoneRouting;
+  if (typeof routing === "object" && routing !== null) {
+    return (routing as Record<string, unknown>).answeringHours ?? undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Structured-hours open check (multiple periods, breaks, special-date
+ * overrides). null = hours not configured — callers must not treat that as
+ * either open or closed.
+ */
+function isWithinBusinessHours(
+  hours: unknown,
+  timeZone?: string,
+  special: SpecialHoursEntry[] = []
+): boolean | null {
+  const weekly = normalizeWeeklyHours(hours);
+  if (!weekly && special.length === 0) return null;
+
   const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
-  let dayName: string;
-  let nowHhmm: string;
   try {
-    dayName = new Date().toLocaleDateString("en-US", { timeZone: tz, weekday: "long" }).toLowerCase();
-    nowHhmm = new Date().toLocaleTimeString("en-GB", {
-      timeZone: tz,
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit"
-    });
+    const status = businessOpenStatus({ weekly, special, timeZone: tz });
+    return status.state === "unknown" ? null : status.state === "open";
   } catch {
     return null;
   }
-
-  const entry = hours.find((item) => {
-    if (typeof item !== "object" || item === null) return false;
-    const day = (item as Record<string, unknown>).day;
-    return typeof day === "string" && day.toLowerCase() === dayName;
-  }) as Record<string, unknown> | undefined;
-  if (!entry) return null;
-  if (entry.closed === true) return false;
-
-  const open = typeof entry.open === "string" ? entry.open.slice(0, 5) : "";
-  const close = typeof entry.close === "string" ? entry.close.slice(0, 5) : "";
-  if (!/^\d{2}:\d{2}$/.test(open) || !/^\d{2}:\d{2}$/.test(close)) return null;
-  return nowHhmm >= open && nowHhmm <= close;
 }
 
-function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: string): boolean {
+/** Today's + tomorrow's special-hours overrides for a business (may be empty). */
+async function loadSpecialHoursForRouting(
+  businessId: string | undefined,
+  timeZone?: string
+): Promise<SpecialHoursEntry[]> {
+  if (!businessId) return [];
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  try {
+    const today = dateInTimeZone(tz);
+    const rows = await prisma.businessSpecialHours.findMany({
+      where: { businessId, date: { in: [today, addDaysToDate(today, 1)] } },
+      select: { date: true, kind: true, closed: true, periodsJson: true, note: true }
+    });
+    return specialEntriesFromRows(rows);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Answering decision, honoring the buyer's mode. The AI answering schedule is
+ * separate from Business Hours: AFTER_HOURS / BUSINESS_HOURS consult the
+ * business schedule (with special dates); CUSTOM_HOURS consults ONLY the
+ * dedicated answeringHours schedule. Unknown hours never drop a call — the
+ * AI answers rather than sending callers to silence.
+ */
+async function shouldAnswerWithAiByMode(
+  mode: string,
+  agent: { business?: { businessId?: string; hours?: unknown; timeZone?: string }; answeringHours?: unknown }
+): Promise<boolean> {
   switch (mode) {
     case "AI_FIRST":
     case "NO_ANSWER":
     case "BUSY":
     case "UNREACHABLE":
       return true;
-    case "AFTER_HOURS":
+    case "AFTER_HOURS": {
+      const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
       // Answer when outside hours OR when hours are unknown; skip only when open.
-      return isWithinBusinessHours(hours, timeZone) !== true;
+      return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== true;
+    }
+    case "BUSINESS_HOURS": {
+      const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
+      // Answer only while open; unknown hours → answer (never drop calls).
+      return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== false;
+    }
+    case "CUSTOM_HOURS":
+      return isWithinBusinessHours(agent.answeringHours, agent.business?.timeZone) !== false;
     default:
       return true;
   }
@@ -1048,7 +1103,7 @@ export async function getCallRoutingDiagnostics(rawNumber: string) {
   const routingMode = agent?.routingMode;
   const aiWouldAnswer = agent
     ? routingMode
-      ? shouldAnswerWithAiByMode(routingMode, agent.business?.hours, agent.business?.timeZone)
+      ? await shouldAnswerWithAiByMode(routingMode, agent)
       : true
     : false;
 
@@ -1158,7 +1213,7 @@ export async function handleTwilioVoice(c: Context) {
 
   const hasDeployedAssistant = Boolean(assistantId && assistantId !== env.VAPI_DEFAULT_ASSISTANT_ID);
   const aiShouldAnswer = agent.routingMode
-    ? shouldAnswerWithAiByMode(agent.routingMode, agent.business?.hours, agent.business?.timeZone)
+    ? await shouldAnswerWithAiByMode(agent.routingMode, agent)
     : env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone;
 
   if (aiShouldAnswer) {
@@ -1391,7 +1446,7 @@ async function handleSharedSenderInboundSms(
     } catch (error) {
       console.error("[twilio.sms] keyword consent sync failed", error);
     }
-if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
+    if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
       return c.text(
         `<Response><Message>${escapeXml(smsHelpReplyText())}</Message></Response>`,
         200,
@@ -1429,7 +1484,7 @@ export async function handleTwilioInboundSms(c: Context) {
   const businessNumber = readBodyString(body, ["To", "to"]);
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
-const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
+  const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
 
   const sharedSender = normalizePhoneE164(env.TWILIO_SHARED_SMS_NUMBER ?? "");
   if (sharedSender && normalizePhoneE164(businessNumber) === sharedSender) {
@@ -1444,7 +1499,7 @@ const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
   if (!agent || !customerPhone || !incomingBody) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
-const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
+  const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   if (keyword) {
     await upsertConversation({
       businessId: agent.business?.businessId,
@@ -1517,7 +1572,7 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
- if (!workflowSupportsSmsReplies(agent.workflowJson)) {
+  if (!workflowSupportsSmsReplies(agent.workflowJson)) {
     await upsertConversation({
       businessId: agent.business?.businessId,
       customerPhone,
@@ -1552,9 +1607,9 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   const requestedSlot =
     smsWorkflowCanBook && agent.business?.businessId && agent.business?.ownerId
       ? parseRequestedAppointment(
-          incomingBody,
-          agent.business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
-        )
+        incomingBody,
+        agent.business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
+      )
       : null;
 
   if (requestedSlot && agent.business) {
@@ -1581,6 +1636,16 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
       console.error("Inbound SMS booking failed", error);
       replyBody = buildInboundSmsReply(agent, incomingBody, history);
     }
+  } else if (detectFactIntents(incomingBody).includes("hours") && agent.business?.businessId) {
+    // Hours questions answer from the confirmed structured schedule — the
+    // same source live calls and demos use. Never guessed.
+    const status = await businessOpenStatusNow(agent.business.businessId);
+    replyBody =
+      status.state === "unknown"
+        ? `${agent.business.businessName}: our operating hours haven't been confirmed yet — we'll have the team follow up with exact times. Anything else we can help with?`
+        : `${agent.business.businessName}: ${describeOpenStatus(status)}${
+            agent.business.bookingUrl ? ` Book anytime: ${agent.business.bookingUrl}` : ""
+          }`;
   } else {
     replyBody = buildInboundSmsReply(agent, incomingBody, history);
   }
@@ -2286,7 +2351,6 @@ function resolvePatientPhone(argPhone: string | undefined, callerPhone: string):
   return normalizePhoneE164(argPhone) || normalizePhoneE164(callerPhone) || callerPhone || "";
 }
 
-/** check_availability: validate date, then real Google Calendar slots or demo slots. */
 async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
     .filter(Boolean)
@@ -2294,52 +2358,152 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
-  const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
   const service = argStr(args, ["service_type", "service"]) || ctx.dental?.bookingLabel || "appointment";
-  const ownerId = ctx.business?.ownerId;
+  const businessId = ctx.business?.businessId;
 
-  if (!ownerId) {
-    console.log("[vapi-tool] check_availability calendar source", "demo (no calendar owner)");
-    return { available_slots: dryRunAvailabilitySlots(ctx.dental), date, service, duration: `${duration} minutes`, source: "demo", calendar_status: "not_connected" };
+  if (!businessId) {
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: "not_connected",
+      message: "No business calendar is configured — do not state availability. Offer to take the caller's preferred time as a request."
+    };
   }
 
-  try {
-    const availability = await withTimeout(listAvailableSlots({
-      userId: ownerId,
-      calendarId: ctx.business?.calendarId,
-      timeZone: ctx.timeZone,
+  const requestedTime = parseClockTime(argStr(args, ["time", "requested_time", "appointment_time"]));
+
+  // Exact-time question ("Is 5 PM available?") → direct truthful verdict.
+  if (requestedTime) {
+    const check = await checkBusinessExactTime({
+      businessId,
+      installedAgentId: ctx.installedAgentId ?? null,
       date,
-      openHour: ctx.dental?.openHour ?? 9,
-      closeHour: ctx.dental?.closeHour ?? 17,
-      durationMinutes: duration,
-      bufferMinutes: ctx.dental?.bufferMinutes ?? 10,
-      maxSlots: ctx.dental?.slotsToOffer ?? 6
-    }), 4500, "google-calendar availability read");
-    console.log("[vapi-tool] check_availability calendar source", "google_calendar", {
-      date,
-      count: availability.slots.length
+      hour: requestedTime.hour,
+      minute: requestedTime.minute,
+      serviceName: service
     });
-    return {
-      available_slots: availability.slots,
-      date,
-      service,
-      duration: `${duration} minutes`,
-      source: "google_calendar",
-      calendar_status: "connected"
+
+    const openNote = check.closeLabel ? `The business is open until ${check.closeLabel} that day.` : "";
+    const alternatives = check.alternatives.map((slot) => slot.label);
+    const messages: Record<string, string> = {
+      available: `${openNote} The requested time is FREE on the calendar — confirm it with the caller and book it.`,
+      occupied: `${openNote} That exact time is already taken on the calendar. Offer the alternatives instead — do NOT say the rest of the day is booked.`,
+      outside_hours: `${openNote} The requested time is outside appointment hours.`,
+      closed_day: "The business is closed that day. Offer another day.",
+      insufficient_time_before_closing: `${openNote} This ${check.durationMinutes}-minute service cannot finish before closing if it starts then. Offer the alternatives.`,
+      past: "That time is in the past. Ask for a future time.",
+      too_soon: "That time is too soon to book. Offer the alternatives.",
+      beyond_advance_limit: "That date is beyond the booking window. Offer an earlier date.",
+      invalid: "The time could not be understood. Ask the caller to repeat it."
     };
-  } catch (error) {
-    const status = calendarStatusFromError(error);
-    console.error(`[vapi-webhook] check_availability failed (${status}); falling back to dry-run slots`, error);
-    console.log("[vapi-tool] check_availability calendar source", "demo (calendar read failed)");
+
+    if (ctx.executionMode !== "ARCHITECT_DRY_RUN" && check.calendarStatus !== "connected") {
+      return {
+        date,
+        service,
+        requested_time: `${String(requestedTime.hour).padStart(2, "0")}:${String(requestedTime.minute).padStart(2, "0")}`,
+        verdict: "calendar_unavailable",
+        calendar_status: check.calendarStatus,
+        open_until: check.closeLabel,
+        message:
+          "Live calendar availability cannot be confirmed right now. Tell the caller honestly, take their preferred time as a REQUEST, and say the team will confirm."
+      };
+    }
+
+    console.log("[vapi-tool] check_availability exact-time", { date, time: requestedTime, verdict: check.verdict });
     return {
-      available_slots: dryRunAvailabilitySlots(ctx.dental),
       date,
       service,
-      duration: `${duration} minutes`,
-      source: "demo",
-      calendar_status: status === "error" ? "needs_reconnect" : status
+      requested_time: `${String(requestedTime.hour).padStart(2, "0")}:${String(requestedTime.minute).padStart(2, "0")}`,
+      verdict: check.verdict,
+      open_until: check.closeLabel,
+      alternatives,
+      calendar_status: check.calendarStatus,
+      message: messages[check.verdict] ?? "Checked."
     };
   }
+
+  // Full-day availability — computed WITHOUT any cap; the cap applies only to
+  // the spoken sample below.
+  const availability = await withTimeout(
+    computeBusinessAvailability({
+      businessId,
+      installedAgentId: ctx.installedAgentId ?? null,
+      date,
+      serviceName: service
+    }),
+    8000,
+    "availability computation"
+  ).catch((error) => {
+    console.error("[vapi-tool] check_availability failed", error);
+    return null;
+  });
+
+  if (!availability) {
+    if (ctx.executionMode === "ARCHITECT_DRY_RUN") {
+      return {
+        available_slots: dryRunAvailabilitySlots(ctx.dental),
+        date,
+        service,
+        source: "simulated",
+        calendar_status: "simulated",
+        message: "SIMULATED test slots (architect dry run) — clearly not a real calendar."
+      };
+    }
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: "error",
+      message:
+        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
+    };
+  }
+
+  if (availability.calendarStatus !== "connected" && ctx.executionMode !== "ARCHITECT_DRY_RUN") {
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: availability.calendarStatus,
+      open_until: availability.closeLabel,
+      message:
+        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
+    };
+  }
+
+  if (availability.closed) {
+    return {
+      available_slots: [],
+      date,
+      service,
+      closed: true,
+      calendar_status: availability.calendarStatus,
+      message: "The business is closed on that day. Offer another day."
+    };
+  }
+
+  console.log("[vapi-tool] check_availability full-day", {
+    date,
+    total: availability.totalFreeSlots,
+    spoken: availability.spokenSlots.length
+  });
+  return {
+    available_slots: availability.spokenSlots.map((slot) => slot.label),
+    total_free_slots: availability.totalFreeSlots,
+    date,
+    service,
+    duration: `${availability.durationMinutes} minutes`,
+    open_from: availability.openLabel,
+    open_until: availability.closeLabel,
+    source: "calendar",
+    calendar_status: availability.calendarStatus,
+    message:
+      availability.totalFreeSlots > availability.spokenSlots.length
+        ? `These are ${availability.spokenSlots.length} of ${availability.totalFreeSlots} free times across the day. If the caller asks about a specific time not listed, call check_availability again with the time parameter — NEVER assume unlisted times are booked.`
+        : "These are all the free times for that day."
+  };
 }
 
 /** book_appointment: validate date/time, then create a real Google Calendar event or a local record. */
@@ -2406,20 +2570,23 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const whenLabel = formatAppointmentTime(startAt.toISOString(), ctx.timeZone);
   const confirmation = ctx.dental?.confirmationMessage
     ? applyBracketTemplate(
-        ctx.dental.confirmationMessage,
-        bracketTemplateValues({
-          service,
-          customerName: patientName,
-          customerPhone: patientPhone,
-          teamName,
-          date: whenLabel,
-          time: whenLabel
-        })
-      )
+      ctx.dental.confirmationMessage,
+      bracketTemplateValues({
+        service,
+        customerName: patientName,
+        customerPhone: patientPhone,
+        teamName,
+        date: whenLabel,
+        time: whenLabel
+      })
+    )
     : `Perfect, ${patientName} — you're booked for ${service} on ${whenLabel}.`;
 
-  // Rich, validated calendar description.
+  // Rich, validated calendar description (confirmed address included so the
+  // calendar entry tells the patient where to arrive).
+  const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
   const eventDescription = [
+    ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
     `Customer: ${patientName}`,
     `Phone: ${patientPhone || "not provided"}`,
     `Service: ${service}`,
@@ -2506,6 +2673,30 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   if (ctx.executionMode === "BUSINESS_TEST") {
     const ownerUserId = ctx.business?.ownerId ?? null;
+
+    if (ctx.business?.businessId) {
+      const revalidation = await checkBusinessExactTime({
+        businessId: ctx.business.businessId,
+        installedAgentId: ctx.installedAgentId ?? null,
+        date,
+        hour: time.hour,
+        minute: time.minute,
+        serviceName: service
+      });
+      if (revalidation.verdict !== "available") {
+        return {
+          success: false,
+          business_test: true,
+          verdict: revalidation.verdict,
+          open_until: revalidation.closeLabel,
+          alternatives: revalidation.alternatives.map((slot) => slot.label),
+          message:
+            revalidation.verdict === "occupied"
+              ? "That time was just taken. Offer the alternatives — do not claim the whole day is booked."
+              : "That time cannot be booked (see verdict). Offer the alternatives."
+        };
+      }
+    }
 
     if (!ownerUserId) {
       return {
@@ -2647,17 +2838,43 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   if (ctx.business?.businessId && ctx.business.ownerId && patientPhone) {
     try {
-      const { calendarEvent, appointment } = await createBusinessAppointment({
-        business: ctx.business,
-        customerPhone: patientPhone,
-        customerName: patientName,
-        service,
-        startAt,
-        endAt,
-        conversationId: ctx.conversationId,
-        description: eventDescription,
-        notes: ctx.summary || ctx.transcript || null
+      const reservation = await revalidateAndReserveSlot({
+        businessId: ctx.business.businessId,
+        installedAgentId: ctx.installedAgentId ?? null,
+        date,
+        hour: time.hour,
+        minute: time.minute,
+        serviceName: service,
+        createBooking: () =>
+          createBusinessAppointment({
+            business: ctx.business!,
+            customerPhone: patientPhone,
+            customerName: patientName,
+            service,
+            startAt,
+            endAt,
+            conversationId: ctx.conversationId,
+            description: eventDescription,
+            notes: ctx.summary || ctx.transcript || null
+          })
       });
+
+      if (!reservation.ok) {
+        const check = reservation.result;
+        return {
+          success: false,
+          verdict: check.verdict,
+          open_until: check.closeLabel,
+          alternatives: check.alternatives.map((slot) => slot.label),
+          calendar_status: check.calendarStatus,
+          message:
+            check.verdict === "occupied"
+              ? "That time was just taken on the calendar. Offer the alternatives — do not claim the rest of the day is booked."
+              : "That time cannot be booked (see verdict). Offer the alternatives."
+        };
+      }
+
+      const { calendarEvent, appointment } = reservation.booking;
       await upsertConversation({
         businessId: ctx.business.businessId,
         customerPhone: patientPhone,
@@ -2783,9 +3000,9 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   const dayRange =
     dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)
       ? {
-          gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
-          lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
-        }
+        gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
+        lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
+      }
       : null;
 
   const eligible = await prisma.appointment.findMany({
@@ -3019,9 +3236,9 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   const dayRange =
     dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)
       ? {
-          gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
-          lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
-        }
+        gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
+        lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
+      }
       : null;
 
   const eligible = await prisma.appointment.findMany({
@@ -3148,7 +3365,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   const durationMs = Math.max(
     5 * 60 * 1000,
     target.endAt.getTime() - target.startAt.getTime() ||
-      (ctx.dental?.defaultDurationMinutes ?? 30) * 60 * 1000
+    (ctx.dental?.defaultDurationMinutes ?? 30) * 60 * 1000
   );
   const newStartAt = zonedWallClockToUtc(newDate, newTime.hour, newTime.minute, timeZone);
   const newEndAt = new Date(newStartAt.getTime() + durationMs);
@@ -3309,7 +3526,11 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
-  const sections = await retrieveRelevantKnowledge({
+  // Source priority: buyer-confirmed structured facts first (address, phone,
+  // website), then document knowledge. Structured configuration always beats
+  // conflicting document text.
+  const structured = await lookupStructuredFacts({ businessId, query });
+  const documents = await retrieveRelevantKnowledge({
     businessId,
     // Scope to the calling agent when the assistant reported its identity.
     // Legacy assistants (deployed before metadata) stay business-wide so their
@@ -3318,6 +3539,10 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
     installedAgentId: ctx.installedAgentId,
     query
   });
+  const sections = [
+    ...structured,
+    ...documents.filter((section) => !structured.some((fact) => fact.title === section.title))
+  ];
 
   if (sections.length === 0) {
     return {
@@ -3732,9 +3957,9 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     customer_sms_blocked_reason: customerSmsBlockedReason,
     ...(customerSmsBlockedReason
       ? {
-          message:
-            "Customer SMS was not sent: no SMS consent on record (or the customer opted out). Do not promise a text. The booking itself is unaffected."
-        }
+        message:
+          "Customer SMS was not sent: no SMS consent on record (or the customer opted out). Do not promise a text. The booking itself is unaffected."
+      }
       : {}),
     team_sms_sent: teamSmsSent,
     customer_email_sent: customerEmailSent,
@@ -3887,9 +4112,9 @@ export async function handleVapiWebhook(c: Context) {
       ) {
         const installedAgent = metadataInstalledAgentId
           ? await prisma.installedAgent.findFirst({
-              where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
-              select: { id: true, workflowId: true }
-            })
+            where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
+            select: { id: true, workflowId: true }
+          })
           : await latestActiveInstalledAgent(businessContext.businessId);
         recordVapiCallUsage({
           businessId: businessContext.businessId,
@@ -4002,16 +4227,16 @@ export async function handleVapiWebhook(c: Context) {
         payload = isLookup
           ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
           : isCheck
-          ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
-          : isBook
-            ? { success: false, message: "Could not complete the booking right now. Please try again." }
-            : isConsent
-              ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
-              : isCancel
-                ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
-                : isReschedule
-                  ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
-                  : { success: false };
+            ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
+            : isBook
+              ? { success: false, message: "Could not complete the booking right now. Please try again." }
+              : isConsent
+                ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
+                : isCancel
+                  ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
+                  : isReschedule
+                    ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
+                    : { success: false };
       }
 
       results.push({

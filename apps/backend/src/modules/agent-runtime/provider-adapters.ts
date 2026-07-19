@@ -1,15 +1,10 @@
 import { zonedWallClockToUtc, type ExecutionMode } from "@coreai/shared";
 import { env } from "../../config/env";
+import { checkBusinessExactTime, computeBusinessAvailability } from "../business/scheduling";
 import { classifyCalendarError } from "../architect/calendar-errors";
 import { listAvailableSlots } from "../architect/google-calendar-connector";
 import { createTestCalendarEvent } from "../architect/test-calendar-events";
 import { addDays, asRecord, asString, dateOnly, type AgentMessage, type AgentRuntimeMode } from "./runtime-context";
-
-/**
- * Provider adapters. The runtime is identical across modes — these adapters
- * are the only thing that changes between the Architect browser test, the
- * Business browser test, and the live Vapi/Twilio call flow.
- */
 
 export type CalendarAvailabilityInput = {
   calendarId: string;
@@ -20,14 +15,21 @@ export type CalendarAvailabilityInput = {
   openHour?: number;
   closeHour?: number;
   durationMinutes?: number;
+  /** Caller-requested service — drives service-specific durations. */
+  serviceName?: string;
 };
 
 export type CalendarAvailabilityResult = {
-  /** Date-prefixed labels, e.g. "2026-07-06 10:00 AM". */
+  /** Date-prefixed labels, e.g. "2026-07-06 10:00 AM" — the FULL day result. */
   slots: string[];
-  source: "calendar" | "test";
+  source: "calendar" | "test" | "unavailable";
   /** Internal note for logs/tool panel — never spoken. */
   note: string;
+  /** Balanced sample for conversation; slots stays complete. */
+  spoken?: string[];
+  totalFree?: number;
+  openUntil?: string | null;
+  closed?: boolean;
 };
 
 export type CalendarBookingInput = {
@@ -313,6 +315,61 @@ async function readCalendarAvailability(
   }
 }
 
+/**
+ * Business-test availability: the SAME scheduling service live calls use —
+ * full-day computation, per-weekday appointment hours, Triven + Google busy.
+ * Calendar failures are reported truthfully; no fabricated slots.
+ */
+async function readBusinessAvailability(
+  options: { businessId: string; installedAgentId?: string },
+  input: CalendarAvailabilityInput
+): Promise<CalendarAvailabilityResult> {
+  try {
+    const availability = await computeBusinessAvailability({
+      businessId: options.businessId,
+      installedAgentId: options.installedAgentId ?? null,
+      date: input.date,
+      serviceName: input.serviceName
+    });
+
+    if (availability.calendarStatus !== "connected") {
+      return {
+        slots: [],
+        source: "unavailable",
+        note: "Live Google Calendar availability could not be confirmed (connection problem). No slots were offered — reconnect the calendar.",
+        openUntil: availability.closeLabel
+      };
+    }
+
+    if (availability.closed) {
+      return {
+        slots: [],
+        source: "calendar",
+        note: "The business is closed on that day.",
+        closed: true,
+        totalFree: 0,
+        openUntil: null
+      };
+    }
+
+    return {
+      slots: availability.allSlots.map((slot) => `${input.date} ${slot.label}`),
+      spoken: availability.spokenSlots.map((slot) => `${input.date} ${slot.label}`),
+      totalFree: availability.totalFreeSlots,
+      openUntil: availability.closeLabel,
+      source: "calendar",
+      note: `Full-day availability: ${availability.totalFreeSlots} free ${availability.durationMinutes}-minute slots (calendar ${availability.calendarStatus}).`
+    };
+  } catch (error) {
+    const classified = classifyCalendarError(error, "availability");
+    return {
+      slots: [],
+      source: "unavailable",
+      note: `${classified.userMessage} No slots were offered — live availability must never be invented. (${classified.code})`
+    };
+  }
+}
+
 export type ArchitectTestProviderOptions = {
   userId: string;
   workflowId?: string;
@@ -389,10 +446,45 @@ export function createBusinessTestProviders(options: BusinessTestProviderOptions
     mode: "business_test",
     telephonyEnabled: false,
     calendar: {
-      checkAvailability: (input) =>
-        readCalendarAvailability(options.ownerUserId, "the business's connected Google Calendar", input),
-      bookAppointment: (input) =>
-        bookTestAppointment(
+      checkAvailability: (input) => readBusinessAvailability(options, input),
+      bookAppointment: async (input) => {
+        // Revalidate with the same rules availability uses before creating the
+        // test event — checking and booking can never disagree.
+        const startAt = parseSlotStartUtc(input.slot, input.timeZone);
+        if (startAt) {
+          const wall = new Intl.DateTimeFormat("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: input.timeZone
+          })
+            .format(startAt)
+            .split(":");
+          const dateInZone = new Intl.DateTimeFormat("en-CA", { timeZone: input.timeZone }).format(startAt);
+          const check = await checkBusinessExactTime({
+            businessId: options.businessId,
+            installedAgentId: options.installedAgentId ?? null,
+            date: dateInZone,
+            hour: Number(wall[0]),
+            minute: Number(wall[1]),
+            serviceName: input.service
+          });
+          if (check.verdict !== "available") {
+            return {
+              status: "failed",
+              confirmationId: "",
+              calendarEventId: "",
+              note: `Requested time is not bookable (${check.verdict}).`,
+              errorCode: "SLOT_UNAVAILABLE",
+              remediation:
+                check.alternatives.length > 0
+                  ? `Offer these free times instead: ${check.alternatives.map((slot) => slot.label).join(", ")}.`
+                  : "Offer another day or time."
+            };
+          }
+        }
+
+        return bookTestAppointment(
           {
             ownerUserId: options.ownerUserId,
             executionMode: "BUSINESS_TEST",
@@ -404,7 +496,8 @@ export function createBusinessTestProviders(options: BusinessTestProviderOptions
             writeRealEvent: true
           },
           input
-        )
+        );
+      }
     },
     sms: {
       async send() {

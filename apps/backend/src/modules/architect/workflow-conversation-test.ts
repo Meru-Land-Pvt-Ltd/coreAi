@@ -5,6 +5,7 @@ import {
 } from "@coreai/shared";
 import { runAgentWorkflow } from "../agent-runtime/graph-runner";
 import { retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import { lookupStructuredFacts } from "../business/business-facts";
 import {
   createArchitectTestProviders,
   createBusinessTestProviders,
@@ -40,6 +41,8 @@ export type ArchitectConversationTestContext = {
   faqs?: string[];
   /** Business knowledge entries (manual + document-derived, shared format). */
   knowledge?: string[];
+  address?: string;
+  factsLines?: string[];
 };
 
 export type ArchitectConversationToolCall = {
@@ -222,7 +225,9 @@ export async function runArchitectConversationTest({
       Array.isArray(testContext?.faqs) && testContext.faqs.length > 0
         ? testContext.faqs
         : ["Pricing depends on the selected service.", "Urgent requests should be escalated to the team."],
-    knowledge: Array.isArray(testContext?.knowledge) ? testContext.knowledge : []
+    knowledge: Array.isArray(testContext?.knowledge) ? testContext.knowledge : [],
+    address: testContext?.address?.trim() || undefined,
+    factsLines: Array.isArray(testContext?.factsLines) ? testContext.factsLines : []
   };
 
   const caller = {
@@ -256,11 +261,16 @@ export async function runArchitectConversationTest({
 
     if (!isCallStart && cleanMessage) {
       try {
-        const retrieved = await retrieveRelevantKnowledge({
+        const structuredFacts = await lookupStructuredFacts({
+          businessId: businessIdentity.businessId,
+          query: cleanMessage
+        });
+        const documents = await retrieveRelevantKnowledge({
           businessId: businessIdentity.businessId,
           installedAgentId: businessIdentity.installedAgentId,
           query: cleanMessage
         });
+        const retrieved = [...structuredFacts, ...documents];
         if (retrieved.length > 0) {
           const retrievedEntries = retrieved.map((section) =>
             `${section.title}: ${section.content}`

@@ -1,4 +1,5 @@
 export * from "./agent-configure";
+export * from "./business-hours";
 export * from "./execution-mode";
 export * from "./node-registry";
 export * from "./prompt-variables";

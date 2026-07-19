@@ -147,11 +147,38 @@ const handleCalendarAvailability: NodeHandler = async (node, context, providers)
     bufferMinutes: Number(node.data?.bufferMinutes) || 10,
     openHour: Number(node.data?.openHour) || undefined,
     closeHour: Number(node.data?.closeHour) || undefined,
-    durationMinutes: Number(node.data?.serviceDurationMinutes) || Number(node.data?.defaultDurationMinutes) || undefined
+    durationMinutes: Number(node.data?.serviceDurationMinutes) || Number(node.data?.defaultDurationMinutes) || undefined,
+    serviceName: stringVariable(context, "service") || conversation.requestedService || undefined
   });
+
+  // Calendar failure is reported honestly — the agent must never offer
+  // invented slots or claim times are booked when nothing was verified.
+  if (result.source === "unavailable") {
+    setVariables(context, {
+      "calendar.available_slots": [],
+      "calendar.status": "unavailable",
+      "calendar.requested_date": conversation.requestedDate,
+      "calendar.timezone": context.business.timezone
+    });
+    context.toolCalls.push({
+      name: "calendar.check_availability",
+      status: "error",
+      message: result.note,
+      input: { date: conversation.requestedDate },
+      output: { source: result.source }
+    });
+    log(context, node, "error", "Live calendar availability could not be confirmed — no slots offered.", {
+      note: result.note
+    });
+    return { status: "executed" };
+  }
 
   setVariables(context, {
     "calendar.available_slots": result.slots,
+    "calendar.spoken_slots": result.spoken ?? result.slots,
+    "calendar.total_free": result.totalFree ?? result.slots.length,
+    "calendar.open_until": result.openUntil ?? "",
+    "calendar.status": "ok",
     "calendar.requested_date": conversation.requestedDate,
     "calendar.timezone": context.business.timezone
   });

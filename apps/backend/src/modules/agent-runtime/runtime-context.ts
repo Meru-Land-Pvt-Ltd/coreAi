@@ -27,6 +27,12 @@ export type AgentBusinessContext = {
   faqs: string[];
   /** Business knowledge entries (manual + document-derived, shared format). */
   knowledge?: string[];
+  /** Confirmed structured address (one line) — foundational, never invented. */
+  address?: string;
+  /** Verified business facts lines for the prompt (address, phone, website…). */
+  factsLines?: string[];
+  /** Structured Business Hours block (or the never-guess instruction). */
+  businessHours?: string;
 };
 
 export type AgentCallerContext = {

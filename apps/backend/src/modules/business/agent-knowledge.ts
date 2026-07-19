@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma";
+import { detectFactIntents } from "./business-facts";
 
 export type KnowledgeEntryRow = {
   title?: string | null;
@@ -128,6 +129,40 @@ const STOP_WORDS = new Set([
   "please", "tell", "know", "want", "need", "like", "get", "got", "ok", "okay"
 ]);
 
+/**
+ * Hybrid retrieval: lexical term overlap PLUS query expansion over synonym
+ * groups, so a caller saying "where are you located" still retrieves the
+ * chunk that says "Address: …". Exact wording is never required.
+ */
+const SYNONYM_GROUPS: string[][] = [
+  ["address", "location", "located", "situated", "directions", "landmark", "map", "maps", "street", "arrive", "reach", "visit", "find"],
+  ["hours", "open", "opening", "closing", "close", "timing", "timings", "schedule"],
+  ["price", "prices", "pricing", "cost", "costs", "fee", "fees", "charge", "charges", "rate", "rates"],
+  ["parking", "park", "garage", "valet"],
+  ["insurance", "insurances", "coverage", "insurer", "plan", "plans", "ppo", "hmo"],
+  ["cancel", "cancellation", "reschedule", "rescheduling", "policy"],
+  ["doctor", "doctors", "dentist", "dentists", "physician", "specialist", "specialists", "specialty", "specialties", "team", "staff"],
+  ["emergency", "urgent", "same-day", "immediately", "pain"],
+  ["phone", "telephone", "call", "contact", "number"],
+  ["email", "mail", "e-mail"],
+  ["appointment", "appointments", "booking", "bookings", "visit", "slot"]
+];
+
+function expandTerms(terms: string[]): string[] {
+  const expanded = new Set(terms);
+  for (const term of terms) {
+    for (const group of SYNONYM_GROUPS) {
+      if (group.includes(term)) {
+        for (const synonym of group) expanded.add(synonym);
+      }
+    }
+  }
+  return [...expanded];
+}
+
+/** Section-heading cues that mark contact/address chunks. */
+const CONTACT_HEADING = /(^|\n)\s*(address|contact|location|visit us|find us|reach us|clinic information|office information|get in touch)\b/i;
+
 function queryTerms(query: string): string[] {
   return [
     ...new Set(
@@ -154,8 +189,17 @@ export async function retrieveRelevantKnowledge(params: {
   limit?: number;
   maxSectionChars?: number;
 }): Promise<RetrievedKnowledgeSection[]> {
-  const terms = queryTerms(params.query ?? "");
-  if (terms.length === 0) return [];
+  const baseTerms = queryTerms(params.query ?? "");
+  // Intent detection rescues questions whose meaning lives in stop-words
+  // ("Where should I come?") — the location anchor terms are injected even
+  // when no lexical term survives filtering.
+  const intents = detectFactIntents(params.query ?? "");
+  const intentTerms = intents.includes("address")
+    ? ["address", "location", "directions", "street", "landmark"]
+    : [];
+  if (baseTerms.length === 0 && intentTerms.length === 0) return [];
+  const terms = expandTerms([...new Set([...baseTerms, ...intentTerms])]);
+  const locationIntent = terms.includes("address") || terms.includes("location");
 
   const rows = await prisma.businessKnowledgeBase.findMany({
     where: { businessId: params.businessId, ...agentScopeFilter(params.installedAgentId) },
@@ -179,10 +223,16 @@ export async function retrieveRelevantKnowledge(params: {
       let score = 0;
       for (const term of terms) {
         if (!haystack.includes(term)) continue;
-        // Title hits weigh more than body hits; repeated terms add a little.
-        score += (row.title ?? "").toLowerCase().includes(term) ? 3 : 2;
+        // Direct caller terms outweigh expanded synonyms; title hits beat body.
+        const weight = baseTerms.includes(term) || intentTerms.includes(term) ? 1 : 0.5;
+        score += ((row.title ?? "").toLowerCase().includes(term) ? 3 : 2) * weight;
         const repeats = haystack.split(term).length - 1;
-        score += Math.min(repeats - 1, 3) * 0.5;
+        score += Math.min(repeats - 1, 3) * 0.5 * weight;
+      }
+      // Contact/address sections must never rank below unrelated chunks when
+      // the caller asks about location.
+      if (score > 0 && locationIntent && CONTACT_HEADING.test(`${row.title ?? ""}\n${row.content ?? ""}`)) {
+        score += 6;
       }
       return { row, score };
     })
@@ -194,6 +244,21 @@ export async function retrieveRelevantKnowledge(params: {
         (a.row.chunkIndex ?? 0) - (b.row.chunkIndex ?? 0)
     )
     .slice(0, limit);
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[knowledge-retrieval]", {
+      businessId: params.businessId,
+      installedAgentId: params.installedAgentId ?? null,
+      query: params.query.slice(0, 120),
+      baseTerms,
+      expandedCount: terms.length,
+      results: scored.slice(0, 3).map(({ row, score }) => ({
+        score: Number(score.toFixed(1)),
+        file: row.sourceFile?.filename ?? "manual",
+        chunk: row.chunkIndex
+      }))
+    });
+  }
 
   return scored.map(({ row, score }) => ({
     title: (row.title ?? "").trim() || "Business knowledge",

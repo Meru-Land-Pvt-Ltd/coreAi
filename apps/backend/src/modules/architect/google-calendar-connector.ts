@@ -51,12 +51,42 @@ export type AvailableSlotsInput = {
   maxSlots?: number;
 };
 
-/**
- * Compute open appointment slots on `date` from the business's Google Calendar:
- * walk the practice-hours window in (duration + buffer) steps and drop any slot
- * that overlaps an existing event or is in the past. Backs the Vapi
- * `check_availability` tool. Returns wall-clock labels like "10:00 AM".
- */
+export async function listCalendarBusyIntervals({
+  userId,
+  calendarId,
+  timeZone,
+  date
+}: {
+  userId: string;
+  calendarId?: string | null;
+  timeZone: string;
+  date: string;
+}): Promise<Array<{ start: number; end: number }>> {
+  const auth = await createAuthorizedGoogleOAuthClient(userId);
+  const calendar = google.calendar({ version: "v3", auth });
+  const safeCalendarId = calendarId?.trim() || env.GOOGLE_CALENDAR_ID || "primary";
+
+  const dayStart = zonedWallClockToUtc(date, 0, 0, timeZone);
+  const dayEnd = zonedWallClockToUtc(date, 23, 59, timeZone);
+
+  const events = await calendar.events.list({
+    calendarId: safeCalendarId,
+    timeMin: dayStart.toISOString(),
+    timeMax: dayEnd.toISOString(),
+    singleEvents: true,
+    orderBy: "startTime",
+    maxResults: 250
+  });
+
+  return (events.data.items ?? [])
+    .filter((event) => event.transparency !== "transparent" && event.status !== "cancelled")
+    .map((event) => ({
+      start: new Date(event.start?.dateTime ?? event.start?.date ?? 0).getTime(),
+      end: new Date(event.end?.dateTime ?? event.end?.date ?? 0).getTime()
+    }))
+    .filter((interval) => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start);
+}
+
 export async function listAvailableSlots({
   userId,
   calendarId,

@@ -61,6 +61,59 @@ export type BusinessHoursItem = {
   closed: boolean;
 };
 
+/* ---- Appointment schedule (booking hours + slot config) ---- */
+
+export type AppointmentWeekday =
+  | "sunday"
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday";
+
+/** "HH:mm" 24h open/close window for one weekday. */
+export type AppointmentDayHours = { open: string; close: string; closed: boolean };
+
+export type AppointmentSchedule = {
+  timeZone: string;
+  days: Record<AppointmentWeekday, AppointmentDayHours>;
+  defaultDurationMinutes: number;
+  serviceDurations: Record<string, number>;
+  bufferMinutes: number;
+  slotIntervalMinutes: number;
+  minNoticeMinutes: number;
+  maxAdvanceDays: number;
+  maxSpokenSuggestions: number;
+  calendarId: string;
+  source: "configured" | "business_hours" | "defaults";
+  confirmed: boolean;
+};
+
+export type AppointmentScheduleData = {
+  schedule: AppointmentSchedule;
+  installedAgentId: string | null;
+  needsConfirmation: boolean;
+  /** Opening hours extracted from an uploaded knowledge document, if any. */
+  documentSuggestion: {
+    days: Partial<Record<AppointmentWeekday, AppointmentDayHours>>;
+    sourceFilename: string | null;
+  } | null;
+};
+
+/** Partial appointment-schedule update sent with saveBusinessSetup. */
+export type AppointmentScheduleInput = {
+  days?: Partial<Record<AppointmentWeekday, AppointmentDayHours>>;
+  defaultDurationMinutes?: number;
+  serviceDurations?: Record<string, number>;
+  bufferMinutes?: number;
+  slotIntervalMinutes?: number;
+  minNoticeMinutes?: number;
+  maxAdvanceDays?: number;
+  maxSpokenSuggestions?: number;
+  confirmed?: boolean;
+};
+
 /** One architect-defined buyer setup field, as defined on the listing (shared shape). */
 export type BuyerSetupFieldDef = BuyerSetupField;
 
@@ -84,6 +137,8 @@ export type BusinessSetupInput = {
   services: string[];
   faqs: BusinessFaq[];
   hours: BusinessHoursItem[];
+  /** AI ANSWERING schedule (CUSTOM_HOURS mode) — separate from Business Hours. */
+  answeringHours?: BusinessHoursItem[];
   knowledge: BusinessKnowledgeItem[];
   vapiAssistantId?: string;
   vapiPhoneNumberId?: string;
@@ -117,6 +172,7 @@ export type BusinessSetupInput = {
   };
   selectedPlatformPhoneNumberId?: string;
   selectedPhoneNumber?: string;
+  appointmentSchedule?: AppointmentScheduleInput;
   /** true only on the final Deploy — incremental saves skip the Vapi assistant build. */
   deploy?: boolean;
   calendarId?: string;
@@ -198,6 +254,8 @@ export type BusinessSetupData = {
   voiceSelection?: { name: string | null; voiceId: string | null; provider: string | null } | null;
   /** Buyer's persisted answering mode (prefills the routing selector). */
   answeringMode?: string | null;
+  /** AI ANSWERING schedule rows (phoneRouting.answeringHours). */
+  answeringHours?: BusinessHoursItem[] | null;
   /** Buyer's persisted contact name + custom instructions + silence policy. */
   contactName?: string | null;
   customInstructions?: string | null;
@@ -272,6 +330,77 @@ export function getBusinessSetup(listingId?: string | null) {
 
 export function saveBusinessSetup(body: BusinessSetupInput) {
   return apiPost<BusinessSetupData>("/business/setup", body);
+}
+
+/** Current appointment schedule (booking hours, slot config, confirmation state). */
+export function getAppointmentSchedule() {
+  return apiGet<AppointmentScheduleData>("/business/setup/appointment-schedule");
+}
+
+/* ---- Business facts (structured Business Address shared by Setup + Settings) ---- */
+
+/** The one authoritative structured business address (all parts nullable). */
+export type BusinessAddress = {
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+  landmark: string | null;
+  directions: string | null;
+  mapsLink: string | null;
+  source: string | null;
+  confirmedAt: string | null;
+};
+
+export type BusinessFactsData = {
+  businessName: string | null;
+  address: BusinessAddress | null;
+  addressFormatted: string | null;
+  addressComplete: boolean;
+  addressConfirmed: boolean;
+  phone: string | null;
+  /** PDF-derived address suggestion — present when nothing confirmed yet or it conflicts. */
+  documentSuggestion: {
+    formatted: string;
+    line1: string;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    sourceFilename: string | null;
+  } | null;
+  /** True when a confirmed address AND a differing document-derived address both exist. */
+  conflict: boolean;
+};
+
+/** PUT body for the Business Address save (server validates line1/city/state-or-postal). */
+export type BusinessAddressInput = {
+  line1: string;
+  line2?: string;
+  city: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  landmark?: string;
+  directions?: string;
+  mapsLink?: string;
+  source: "manual" | "pdf_suggestion";
+  confirm: boolean;
+};
+
+/** Structured business facts (address, completeness, PDF suggestion, conflicts). */
+export function getBusinessFacts() {
+  return apiGet<BusinessFactsData>("/business/setup/business-facts");
+}
+
+/** Save + confirm the Business Address; the live assistant is re-synced server-side. */
+export function saveBusinessAddressApi(input: BusinessAddressInput) {
+  return apiPut<{
+    addressFormatted: string | null;
+    addressConfirmed: boolean;
+    liveSync: { attempted: boolean; ok: boolean; assistantId: string | null; error: string | null };
+  }>("/business/setup/business-address", input);
 }
 
 /**
@@ -687,6 +816,72 @@ export function getBusinessCalendarStatus() {
 export function getBusinessCalendarOAuthUrl(redirect?: string) {
   const query = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
   return apiGet<{ url: string }>(`/business/connectors/google-calendar/oauth-url${query}`);
+}
+
+/* ----------------------- structured Business Hours ----------------------- */
+
+export type BusinessHoursPeriod = { open: string; close: string };
+
+export type BusinessHoursWeekday =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
+export type BusinessHoursDayInput = {
+  day: BusinessHoursWeekday;
+  closed: boolean;
+  periods: BusinessHoursPeriod[];
+  note?: string;
+};
+
+export type BusinessSpecialHoursInput = {
+  date: string;
+  closed: boolean;
+  periods: BusinessHoursPeriod[];
+  note?: string;
+  kind: "holiday" | "special" | "closure";
+};
+
+export type BusinessHoursSyncStatus = {
+  status: "synced" | "failed" | "not_deployed";
+  error?: string;
+};
+
+export type BusinessHoursData = {
+  hours: BusinessHoursDayInput[] | null;
+  timeZone: string;
+  specialDates: BusinessSpecialHoursInput[];
+  source: string | null;
+  confirmedAt: string | null;
+  configured: boolean;
+  weeklySummary: string[] | null;
+  openStatus: { state: string; description: string };
+  suggestion: {
+    days: Record<string, { open: string; close: string; closed: boolean }>;
+    sourceFilename: string | null;
+  } | null;
+  liveAssistant: boolean;
+  sync?: BusinessHoursSyncStatus;
+};
+
+export function getBusinessHours() {
+  return apiGet<BusinessHoursData>("/business/hours");
+}
+
+export function putBusinessHours(body: {
+  hours: BusinessHoursDayInput[];
+  timeZone: string;
+  specialDates: BusinessSpecialHoursInput[];
+}) {
+  return apiPut<BusinessHoursData>("/business/hours", body);
+}
+
+export function syncBusinessHoursToLiveAgent() {
+  return apiPost<{ sync: BusinessHoursSyncStatus }>("/business/hours/sync", {});
 }
 
 export function disconnectBusinessCalendar() {

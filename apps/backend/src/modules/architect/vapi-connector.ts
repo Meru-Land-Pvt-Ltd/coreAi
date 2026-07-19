@@ -642,13 +642,17 @@ function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.checkAvailability,
         description:
-          "Check the connected business calendar for available appointment slots. Always call this before offering exact times.",
+          "Check the connected business calendar. Without a time it returns a SAMPLE of free times across the whole day plus the total count — unlisted times are NOT booked. When the caller asks about a specific time ('Is 5 PM available?', 'anything after 4?', 'the latest appointment'), call again WITH the time parameter for a direct truthful check.",
         parameters: {
           type: "object",
           properties: {
             date: {
               type: "string",
               description: "Appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
+            },
+            time: {
+              type: "string",
+              description: "Specific time the caller asked about, e.g. '5:00 PM' or '17:00'. When set, the tool verifies exactly this time instead of listing suggestions."
             },
             service_type: {
               type: "string",
@@ -1044,13 +1048,13 @@ export async function deployVapiAssistant({
   body.voice =
     voiceResolution.config.provider === "11labs"
       ? {
-          ...voiceResolution.config,
-          stability: typeof stability === "number" ? stability : 0.65,
-          similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
-          style: typeof style === "number" ? style : 0.0,
-          useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
-          ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
-        }
+        ...voiceResolution.config,
+        stability: typeof stability === "number" ? stability : 0.65,
+        similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
+        style: typeof style === "number" ? style : 0.0,
+        useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
+        ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
+      }
       : voiceResolution.config;
 
   const voiceIdSuffix = voiceResolution.config.voiceId.slice(-4);

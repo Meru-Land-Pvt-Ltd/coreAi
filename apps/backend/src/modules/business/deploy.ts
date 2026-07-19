@@ -20,6 +20,8 @@ import {
 } from "../agent-runtime/prompt-builder";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import { loadBusinessAgentKnowledge } from "./agent-knowledge";
+import { loadBusinessFacts } from "./business-facts";
+import { buildHoursPromptLines, loadBusinessHoursState } from "./business-hours-state";
 import { deployVapiAssistant, isVapiConfigured } from "../architect/vapi-connector";
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
@@ -339,13 +341,27 @@ async function buildInstalledAgentAssistantPlan(
     installedAgentId: installedAgent.id
   });
 
+  // Foundational verified facts (address, phone, website) live directly in
+  // the prompt — short critical answers never depend on a document lookup.
+  const facts = await loadBusinessFacts(business.id);
+  const factsSection =
+    facts && facts.promptLines.length > 0
+      ? `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${facts.promptLines.map((line) => `- ${line}`).join("\n")}`
+      : "";
+
   const customInstructions = (
     buyer.customInstructions ||
     cleanString(business.profile?.escalationRules) ||
     ""
   ).trim();
 
-  const businessHours = formatHours(business.profile?.hoursJson, "not provided");
+  // Structured Business Hours (weekly + special dates) are the source of
+  // truth; when unconfigured the prompt carries an explicit never-guess
+  // instruction instead of hardcoded/invented hours.
+  const hoursState = await loadBusinessHoursState(businessId);
+  const businessHours = hoursState.configured
+    ? buildHoursPromptLines(hoursState).join("\n  ")
+    : buildHoursPromptLines(hoursState)[0];
   const silencePolicy = buildSilencePolicy(buyer.silence);
   const capabilities = workflowCapabilities(installedAgent.workflow.workflowJson);
 
@@ -387,7 +403,7 @@ async function buildInstalledAgentAssistantPlan(
     faqs: faqs.length ? faqs : [],
     knowledge,
     hasKnowledgeLookupTool: true,
-    address: cleanString(business.profile?.serviceArea),
+    address: facts?.addressFormatted ?? cleanString(business.profile?.serviceArea),
     businessHours,
     // Vapi substitutes these {{...}} variables with live values at call time.
     timezoneText: "{{timeZone}}",
@@ -414,7 +430,7 @@ async function buildInstalledAgentAssistantPlan(
       : undefined,
     bookingLabel,
     customFields,
-    extraSections: options?.extraSections ?? [LIVE_TOOL_NOTES]
+    extraSections: [...(factsSection ? [factsSection] : []), ...(options?.extraSections ?? [LIVE_TOOL_NOTES])]
   });
 
   const firstMessage = buildAgentFirstMessage({
@@ -520,6 +536,9 @@ export type InstalledAgentChatTestSetup = {
     services?: string[];
     faqs?: string[];
     knowledge?: string[];
+    address?: string;
+    factsLines?: string[];
+    businessHours?: string;
   };
   workflowJson: unknown;
 };
@@ -550,6 +569,13 @@ export async function buildInstalledAgentChatTestSetup(
     businessId: business.id,
     installedAgentId: installedAgent.id
   });
+  const chatFacts = await loadBusinessFacts(business.id);
+  // Same structured Business Hours block the live assistant gets — the text
+  // demo and voice tests must answer hour questions identically to live calls.
+  const chatHoursState = await loadBusinessHoursState(business.id);
+  const chatBusinessHours = chatHoursState.configured
+    ? buildHoursPromptLines(chatHoursState).join("\n  ")
+    : buildHoursPromptLines(chatHoursState)[0];
 
   return {
     workflowId: installedAgent.workflowId,
@@ -564,7 +590,10 @@ export async function buildInstalledAgentChatTestSetup(
       appointmentService: readBookingLabel(installedAgent.configJson),
       services,
       faqs,
-      knowledge
+      knowledge,
+      address: chatFacts?.addressFormatted ?? undefined,
+      factsLines: chatFacts?.promptLines ?? [],
+      businessHours: chatBusinessHours
     }
   };
 }

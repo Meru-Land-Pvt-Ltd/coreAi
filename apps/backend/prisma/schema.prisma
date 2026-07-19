@@ -268,6 +268,7 @@ model Business {
   emailMessages   EmailMessage[]
   smsExecutions   SmsExecution[]
   smsConsents     SmsConsent[]
+  specialHours    BusinessSpecialHours[]
 
   @@index([ownerId])
   @@index([type])
@@ -294,7 +295,49 @@ model BusinessProfile {
   timeZone              String    @default("America/New_York")
   vapiAssistantId       String?
   vapiPhoneNumberId     String?
+  /// The ONE authoritative structured Business Address — Business Settings and
+  /// Agent Setup both read/write these columns, so they can never diverge.
+  addressLine1          String?
+  addressLine2          String?
+  addressCity           String?
+  addressState          String?
+  addressPostalCode     String?
+  addressCountry        String?
+  addressLandmark       String?
+  addressDirections     String?
+  addressMapsLink       String?
+  /// "manual" | "pdf_suggestion" — where the current value came from.
+  addressSource         String?
+  /// Set when the buyer explicitly confirmed the address.
+  addressConfirmedAt    DateTime?
+  /// "manual" | "pdf_suggestion" — where the weekly hours came from.
+  hoursSource           String?
+  /// Set when the buyer explicitly confirmed the weekly Business Hours.
+  /// While null, agents must say hours are not confirmed — never guess.
+  hoursConfirmedAt      DateTime?
   business              Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Date-specific overrides of the weekly Business Hours: holiday closures,
+/// one-day special hours, temporary closures. One row per (business, date);
+/// the date is a calendar date in the business timezone.
+model BusinessSpecialHours {
+  id          String   @id @default(cuid())
+  businessId  String
+  /// "YYYY-MM-DD" calendar date in the business timezone.
+  date        String
+  /// "holiday" | "special" | "closure"
+  kind        String   @default("special")
+  closed      Boolean  @default(true)
+  /// [{ open: "HH:mm", close: "HH:mm" }, …] when not closed.
+  periodsJson Json?
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, date])
+  @@index([businessId])
 }
 
 model BusinessPhoneNumber {

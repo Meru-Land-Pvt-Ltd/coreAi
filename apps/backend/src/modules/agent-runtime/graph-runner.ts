@@ -232,7 +232,16 @@ function buildRuntimeSystemPrompt(params: {
   const { business, conversation, turn } = context;
   const slots = context.variables["calendar.available_slots"];
   const slotStrings = Array.isArray(slots) ? slots.filter((s): s is string => typeof s === "string") : [];
-  const slotList = humanSlotList(slotStrings, business.timezone);
+  const spokenRaw = context.variables["calendar.spoken_slots"];
+  const spokenStrings = Array.isArray(spokenRaw)
+    ? spokenRaw.filter((s): s is string => typeof s === "string")
+    : slotStrings;
+  const totalFree = Number(context.variables["calendar.total_free"]) || slotStrings.length;
+  const openUntil = typeof context.variables["calendar.open_until"] === "string"
+    ? (context.variables["calendar.open_until"] as string)
+    : "";
+  const calendarUnavailable = context.variables["calendar.status"] === "unavailable";
+  const slotList = humanSlotList(spokenStrings, business.timezone);
 
   const workflowMap = graph.executionOrder
     .map((node) => `- ${nodeLabel(node, node.id)} (${nodeCapability(node)})`)
@@ -247,7 +256,8 @@ Current state this turn (internal — never read this aloud):
 - Time chosen: ${stringVariable(context, "selected.slot") ? humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone) : "not chosen yet"}
 - Requested service: ${stringVariable(context, "service") || business.appointmentService}
 - Booking completed THIS turn: ${turn.bookedThisTurn ? `YES — confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone)}. Confirm it naturally.${turn.smsThisTurn ? " Mention the details will be texted." : " Do not mention any text or SMS."}` : "NO — never say an appointment is booked or confirmed this turn."}
-${slotStrings.length > 0 ? `- Available times returned by the calendar (offer only these; if there are many, mention about five and ask morning or afternoon): ${slotList}` : ""}
+${slotStrings.length > 0 ? `- Free times on the calendar: ${totalFree} across the day${openUntil ? ` (bookable until close, ${openUntil})` : ""}. Suggest from this sample: ${slotList}. If the caller asks about a specific time NOT in the sample, it may still be free — the workflow verifies it when they choose it; NEVER claim unlisted times are booked.` : ""}
+${calendarUnavailable ? "- Live calendar availability could NOT be verified this turn. Say so honestly, offer to note the caller's preferred time as a request for the team, and never invent open or booked slots." : ""}
 ${turn.missingVariables.length > 0 ? `- Before the next step can happen you still need: ${describeMissingVariables(turn.missingVariables)}. Ask for exactly that now.` : ""}
 ${conversation.detailsComplaint ? "- The caller pointed out you did not collect their details. Apologize briefly and ask for their full name and phone number now." : ""}
 
@@ -265,6 +275,8 @@ ${workflowMap}
     services: business.services,
     faqs: business.faqs,
     knowledge: business.knowledge,
+    address: business.address,
+    businessHours: business.businessHours,
     timezoneText: business.timezone,
     currentDateTimeText: now.toLocaleString("en-US", { timeZone: business.timezone }),
     currentDateText: dateInZone(now, business.timezone),
@@ -275,7 +287,14 @@ ${workflowMap}
       canText: hasCapability(tools, "sms.send")
     },
     nodeInstructions,
-    extraSections: [turnState]
+    extraSections: [
+      ...(business.factsLines?.length
+        ? [
+            `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${business.factsLines.map((line) => `- ${line}`).join("\n")}`
+          ]
+        : []),
+      turnState
+    ]
   });
 }
 
