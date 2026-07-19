@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
 import { BUSINESS_LOGIN_PATH, BUSINESS_MARKETPLACE_PATH, BUSINESS_SETTINGS_PATH } from "@/lib/routes";
-import { AUTH_USER_UPDATED_EVENT, getAuthUser, hasAuthRole, setActiveWorkspace } from "@/lib/auth";
+import { AUTH_USER_UPDATED_EVENT, getAuthUser } from "@/lib/auth";
 
 const BUSINESS_DASHBOARD_ROUTE = "/business/dashboard" as Route;
 const TRIVEN_LOGO_SRC = encodeURI("/triven.ai word logo transparent bg.PNG");
@@ -67,14 +67,9 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
     const [currentUser, setCurrentUser] = useState<TrivenUser | null>(null);
-    const [architectCapable, setArchitectCapable] = useState(false);
 
     useEffect(() => {
-        const refreshUser = () => {
-            setCurrentUser(readTrivenUser());
-            // Dual-role accounts see a switch back to the Architect workspace.
-            setArchitectCapable(hasAuthRole(getAuthUser(), "ARCHITECT"));
-        };
+        const refreshUser = () => setCurrentUser(readTrivenUser());
         refreshUser();
         window.addEventListener(AUTH_USER_UPDATED_EVENT, refreshUser);
         return () => window.removeEventListener(AUTH_USER_UPDATED_EVENT, refreshUser);
@@ -197,22 +192,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         <span data-testid="business-sidebar-marketplace-text">Marketplace</span>
                         <Icon name="external" className="ml-auto h-3.5 w-3.5 text-slate-400" />
                     </Link>
-
-                    {architectCapable ? (
-                        <Link data-testid="business-sidebar-architect-workspace-link"
-                            href={"/architect/agents" as Route}
-                            onClick={() => {
-                                // Same account/session — only the active workspace changes.
-                                setActiveWorkspace("ARCHITECT");
-                                closeSidebar();
-                            }}
-                            className="flex items-center gap-3 rounded-r-lg border-l-[3px] border-transparent px-4 py-2.5 text-sm text-slate-500 transition-colors duration-300 hover:bg-gray-50 hover:text-slate-700"
-                        >
-                            <Icon name="bot" className="h-[18px] w-[18px]" />
-                            <span data-testid="business-sidebar-architect-workspace-text">Architect Workspace</span>
-                            <Icon name="external" className="ml-auto h-3.5 w-3.5 text-slate-400" />
-                        </Link>
-                    ) : null}
                 </div>
 
                 <div className="mt-auto border-t border-gray-100 p-4">

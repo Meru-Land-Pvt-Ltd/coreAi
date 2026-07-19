@@ -11,7 +11,14 @@ import { apiClient, apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from 
  */
 async function apiPostFormData<T>(path: string, form: FormData): Promise<ApiResponse<T>> {
   try {
-    const response = await apiClient.post<ApiResponse<T>>(path, form);
+    // The shared apiClient defaults Content-Type to application/json at the
+    // instance level, which axios keeps even for FormData bodies — the server
+    // then can't parse the multipart request. Overriding per-request with
+    // multipart/form-data makes axios hand the header to the browser, which
+    // sets the real boundary.
+    const response = await apiClient.post<ApiResponse<T>>(path, form, {
+      headers: { "Content-Type": "multipart/form-data" }
+    });
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
@@ -436,6 +443,15 @@ export function uploadBusinessKnowledgeFiles(
   return apiPostFormData<{ files: KnowledgeFileUploadResult[] }>("/business/setup/knowledge-files", form);
 }
 
+/**
+ * Real audio sample of an agent voice (ElevenLabs TTS via the platform).
+ * The preview endpoint is auth-only (not architect-gated), so buyers can hear
+ * the exact voice their agent will use.
+ */
+export function getVoiceSamplePreview(body: { presetId?: string; voiceId?: string; text?: string }) {
+  return apiPost<{ audioBase64: string; mimeType: string }>("/architect/voices/preview", body);
+}
+
 /** List the business's persisted knowledge documents. */
 export function getBusinessKnowledgeFiles() {
   return apiGet<{ files: KnowledgeFileSummary[] }>("/business/setup/knowledge-files");
@@ -638,8 +654,13 @@ export function getBusinessCalendarStatus() {
   return apiGet<BusinessCalendarStatus>("/business/connectors/google-calendar/status");
 }
 
-export function getBusinessCalendarOAuthUrl() {
-  return apiGet<{ url: string }>("/business/connectors/google-calendar/oauth-url");
+/**
+ * @param redirect In-app business path ("/business/...") the OAuth callback
+ * should return the browser to. Omitted → Business Settings integrations tab.
+ */
+export function getBusinessCalendarOAuthUrl(redirect?: string) {
+  const query = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
+  return apiGet<{ url: string }>(`/business/connectors/google-calendar/oauth-url${query}`);
 }
 
 export function disconnectBusinessCalendar() {

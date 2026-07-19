@@ -2518,10 +2518,28 @@ businessRoutes.get("/connectors/google-calendar/status", async (c) => {
   return successResponse(c, status);
 });
 
+function sanitizeGoogleReturnPath(raw: string | undefined): string {
+  const value = raw?.trim() ?? "";
+
+  if (
+    value.startsWith("/business/") &&
+    !value.includes("\\") &&
+    !value.includes("//") &&
+    value.length <= 512
+  ) {
+    return value;
+  }
+
+  return BUSINESS_SETTINGS_INTEGRATIONS_PATH;
+}
+
 businessRoutes.get("/connectors/google-calendar/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const url = createGmailOAuthUrl(authUser.id, BUSINESS_SETTINGS_INTEGRATIONS_PATH);
+    const url = createGmailOAuthUrl(
+      authUser.id,
+      sanitizeGoogleReturnPath(c.req.query("redirect"))
+    );
     return successResponse(c, { url });
   } catch (error) {
     return errorResponse(

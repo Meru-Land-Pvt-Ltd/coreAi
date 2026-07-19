@@ -1235,6 +1235,13 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                 return;
             }
 
+            // Free agents are installed immediately by the backend (no payment
+            // record) — skip the payment confirmation page and open Agent Setup.
+            if (isFree) {
+                router.push(businessSetupPath(listingId));
+                return;
+            }
+
             let paymentId = response.data?.payment?.id;
 
             // 3DS/SCA: complete the bank challenge, then let the backend verify

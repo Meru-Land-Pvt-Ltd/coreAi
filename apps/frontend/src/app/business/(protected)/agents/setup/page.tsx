@@ -16,6 +16,7 @@ import {
   type WorkflowTriggerKind
 } from "@coreai/shared";
 import { PhoneNumberSelectionSection } from "@/components/business/phone-number-selection";
+import { businessSetupPath } from "@/lib/routes";
 import {
   checkMailAliasAvailability,
   deleteBusinessKnowledgeFile,
@@ -23,6 +24,7 @@ import {
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
   getBusinessKnowledgeFiles,
+  getVoiceSamplePreview,
   getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
@@ -93,17 +95,11 @@ const BUSINESS_TYPE_OPTIONS = [
   { value: "other", label: "Other" }
 ];
 
-const VOICE_OPTIONS = [
-  { value: "aria", label: "Aria — Warm & friendly · Female" },
-  { value: "miles", label: "Miles — Calm & professional · Male" },
-  { value: "sana", label: "Sana — Bright & upbeat · Female" },
-  { value: "leo", label: "Leo — Confident & warm · Male" },
-  { value: "noor", label: "Noor — Soft & reassuring · Female" },
-  { value: "theo", label: "Theo — Crisp & efficient · Male" }
-];
+const VOICE_OPTIONS = VOICE_PRESETS.map((preset) => ({
+  value: preset.id,
+  label: `${preset.name} — ${preset.style}`
+}));
 
-// Day rows match the backend AFTER_HOURS parser:
-// [{ day: "Monday", open: "HH:mm", close: "HH:mm", closed: boolean }].
 const HOURS_DAYS = [
   { day: "Monday", short: "M" },
   { day: "Tuesday", short: "T" },
@@ -688,6 +684,21 @@ function SetupWizard() {
     });
   }, []);
 
+  useEffect(() => {
+    const gmailResult = searchParams.get("gmail");
+    if (!gmailResult) return;
+
+    if (gmailResult === "connected") {
+      setStatusMsg("Google Calendar connected");
+    } else if (gmailResult === "denied") {
+      setError("Google connection was cancelled — permission was not granted. You can retry anytime.");
+    } else {
+      setError("Google connection failed. Please try connecting again.");
+    }
+
+    router.replace(businessSetupPath(listingId || undefined));
+  }, [searchParams, router, listingId]);
+
   const loadSetup = useCallback(async () => {
     setLoading(true);
 
@@ -1074,7 +1085,12 @@ function SetupWizard() {
       }
     }
 
-    const res = await getBusinessCalendarOAuthUrl();
+    // Return to THIS setup page (same listing) after the Google consent
+    // screen — not to Business Settings. The wizard step is restored from
+    // sessionStorage and the form was just persisted above.
+    const res = await getBusinessCalendarOAuthUrl(
+      String(businessSetupPath(listingId || undefined))
+    );
 
     if (res.success && res.data?.url) {
       window.location.href = res.data.url;
@@ -1889,8 +1905,9 @@ function StepBusiness({
   );
   const [customServiceInput, setCustomServiceInput] = useState("");
   const [voicePlaying, setVoicePlaying] = useState(false);
-  // Knowledge documents live on the server (BusinessKnowledgeFile) — React
-  // state only mirrors server records plus transient client-side upload rows.
+  const [voicePreviewError, setVoicePreviewError] = useState("");
+  // data: URLs of already-generated samples, keyed by voice choice.
+  const voiceAudioCacheRef = useRef<Map<string, string>>(new Map());
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<{ key: string; name: string; size: number }[]>([]);
   const [uploadError, setUploadError] = useState("");
@@ -1928,10 +1945,44 @@ function StepBusiness({
     setSelectedServices((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  function handleVoicePlay() {
+  async function handleVoicePlay() {
     if (voicePlaying) return;
+    setVoicePreviewError("");
+
+    const isCustom = voiceChoice === "custom";
+    if (isCustom && !customVoiceId.trim()) {
+      setVoicePreviewError("Enter your custom voice ID first.");
+      return;
+    }
+    const cacheKey = isCustom ? `custom:${customVoiceId.trim()}` : voiceChoice;
     setVoicePlaying(true);
-    setTimeout(() => setVoicePlaying(false), 1800);
+
+    try {
+      let src = voiceAudioCacheRef.current.get(cacheKey);
+      if (!src) {
+        const preset = VOICE_PRESETS.find((entry) => entry.id === voiceChoice);
+        const res = await getVoiceSamplePreview({
+          presetId: isCustom ? undefined : voiceChoice,
+          voiceId: isCustom ? customVoiceId.trim() : undefined,
+          text: preset?.previewText
+        });
+        if (!res.success || !res.data?.audioBase64) {
+          throw new Error(res.error || "Voice preview is unavailable right now.");
+        }
+        src = `data:${res.data.mimeType || "audio/mpeg"};base64,${res.data.audioBase64}`;
+        voiceAudioCacheRef.current.set(cacheKey, src);
+      }
+
+      const audio = new Audio(src);
+      audio.onended = () => setVoicePlaying(false);
+      audio.onerror = () => setVoicePlaying(false);
+      await audio.play();
+    } catch (error) {
+      setVoicePlaying(false);
+      setVoicePreviewError(
+        error instanceof Error ? error.message : "Voice preview is unavailable right now."
+      );
+    }
   }
 
   async function uploadPickedFiles(picked: File[]) {
@@ -2172,6 +2223,9 @@ function StepBusiness({
               {VOICE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
+              {voiceChoice === "custom" ? (
+                <option value="custom">Custom voice (saved with this agent)</option>
+              ) : null}
             </select>
             <button
               type="button"
@@ -2194,6 +2248,11 @@ function StepBusiness({
               )}
             </button>
           </div>
+          {voicePreviewError ? (
+            <p className="mt-2 text-xs font-semibold text-rose-600" data-testid="business-setup-voice-preview-error">
+              {voicePreviewError}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -2970,6 +3029,55 @@ function StepConnect({
               <p className="mt-2 text-xs text-slate-400 font-semibold">
                 Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
               </p>
+
+              {/* How to actually turn on carrier forwarding — the buyer does
+                  this on their own phone/provider; without it, forwarded
+                  answering modes never reach the AI. */}
+              <div
+                className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-4"
+                data-testid="business-setup-forwarding-steps"
+              >
+                <p className="text-sm font-semibold text-slate-800">
+                  Set up call forwarding to your Triven AI number
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Your carrier forwards calls it can&apos;t complete to{" "}
+                  <span className="font-mono font-bold text-slate-700">{assignedNumber || "your Triven AI number"}</span>. Do this once from the phone that uses your existing business number:
+                </p>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs text-slate-600">
+                  <li>
+                    Dial the conditional-forwarding code for your carrier
+                    {assignedNumber ? (
+                      <>
+                        {" "}with your Triven number <span className="font-mono font-semibold">{assignedNumber.replace(/[^\d+]/g, "")}</span>:
+                      </>
+                    ) : (
+                      " with your Triven number (assigned in the step above):"
+                    )}
+                    <ul className="mt-1.5 list-disc space-y-1 pl-4 text-slate-500">
+                      <li>
+                        <span className="font-semibold text-slate-600">AT&amp;T, T-Mobile &amp; most GSM carriers:</span>{" "}
+                        <span className="font-mono">**61*number#</span> (no answer) · <span className="font-mono">**67*number#</span> (busy) · <span className="font-mono">**62*number#</span> (unreachable)
+                      </li>
+                      <li>
+                        <span className="font-semibold text-slate-600">Verizon &amp; many US carriers:</span>{" "}
+                        <span className="font-mono">*71number</span> (busy / no answer)
+                      </li>
+                      <li>
+                        <span className="font-semibold text-slate-600">Landline / VoIP:</span> turn on &ldquo;no-answer call forwarding&rdquo; to your Triven number in your provider&apos;s portal or app.
+                      </li>
+                    </ul>
+                  </li>
+                  <li>Wait for your carrier&apos;s confirmation tone or message — that means forwarding is active.</li>
+                  <li>
+                    Try it: call your business number from another phone and let it ring. Your AI agent should answer. The Test step&apos;s{" "}
+                    <span className="font-semibold text-slate-700">Test call routing</span> check verifies this too.
+                  </li>
+                </ol>
+                <p className="mt-3 text-[11px] text-slate-400">
+                  To turn forwarding off later: <span className="font-mono">##61#</span> / <span className="font-mono">##67#</span> / <span className="font-mono">##62#</span> (GSM) or <span className="font-mono">*73</span> (Verizon). Codes vary by carrier and country — if none work, ask your carrier to enable &ldquo;conditional call forwarding&rdquo; to your Triven number.
+                </p>
+              </div>
             </div>
           ) : null}
         </div>

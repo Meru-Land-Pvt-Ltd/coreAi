@@ -79,12 +79,18 @@ export async function hasLegacyActiveSubscription(userId: string): Promise<boole
 }
 
 export type ListingAccess =
-  | { allowed: true; payment: Payment | null; grandfathered: boolean; selfTest?: boolean }
+  | {
+      allowed: true;
+      payment: Payment | null;
+      grandfathered: boolean;
+      selfTest?: boolean;
+      freeListing?: boolean;
+    }
   | { allowed: false; reason: "PURCHASE_REQUIRED" };
 
-/** Listing statuses an architect may self-install for testing. DRAFT,
- *  REJECTED and SUSPENDED listings stay uninstallable even for their owner. */
-const SELF_TEST_LISTING_STATUSES = ["APPROVED", "PENDING_REVIEW"];
+/** Listing statuses that are installable at all. DRAFT, REJECTED and
+ *  SUSPENDED listings stay uninstallable even for their owner. */
+const OPEN_LISTING_STATUSES = ["APPROVED", "PENDING_REVIEW"];
 
 /**
  * True when the listing belongs to this user (architect self-test): the
@@ -103,7 +109,7 @@ export async function isArchitectSelfTestListing(params: {
   return (
     !!listing &&
     listing.architectUserId === params.userId &&
-    SELF_TEST_LISTING_STATUSES.includes(listing.status)
+    OPEN_LISTING_STATUSES.includes(listing.status)
   );
 }
 
@@ -126,8 +132,21 @@ export async function canBusinessAccessListing(params: {
     return { allowed: true, payment: null, grandfathered: true };
   }
 
-  if (await isArchitectSelfTestListing(params)) {
-    return { allowed: true, payment: null, grandfathered: false, selfTest: true };
+  const listing = await prisma.agentListing.findUnique({
+    where: { id: params.listingId },
+    select: { architectUserId: true, status: true, pricingModel: true }
+  });
+
+  if (listing && OPEN_LISTING_STATUSES.includes(listing.status)) {
+    if (listing.architectUserId === params.userId) {
+      return { allowed: true, payment: null, grandfathered: false, selfTest: true };
+    }
+
+    // FREE listings are intrinsically entitled — installing one never asks
+    // for payment and never records a Payment row.
+    if (listing.pricingModel === "FREE") {
+      return { allowed: true, payment: null, grandfathered: false, freeListing: true };
+    }
   }
 
   return { allowed: false, reason: "PURCHASE_REQUIRED" };

@@ -737,10 +737,20 @@ export function BusinessSettingsView() {
       setExpandedMobile(tab);
     }
 
-    if (params.get("gmail") === "connected") {
+    const gmailResult = params.get("gmail");
+    if (gmailResult === "connected") {
       showToast("Google Calendar connected");
-    } else if (params.get("gmail") === "failed") {
+    } else if (gmailResult === "denied") {
+      showToast("Google connection was cancelled — permission was not granted");
+    } else if (gmailResult === "failed") {
       showToast("Could not connect Google Calendar");
+    }
+
+    if (gmailResult) {
+      // Strip the one-shot result flag so a refresh doesn't re-toast.
+      params.delete("gmail");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
     }
   }, [showToast]);
 

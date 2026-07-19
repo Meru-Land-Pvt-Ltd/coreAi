@@ -30,6 +30,7 @@ import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-final
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
+import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 
 export const paymentRoutes = new Hono();
 
@@ -690,7 +691,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       select: {
         id: true,
         installedAgents: {
-          select: { id: true, listingId: true, status: true, createdAt: true }
+          select: { id: true, listingId: true, status: true, createdAt: true, installSource: true }
         }
       }
     })
@@ -777,6 +778,16 @@ paymentRoutes.get("/my-agents", async (c) => {
         statusToUse = mostRecentPayment.status;
         purchaseIdToUse = mostRecentPayment.id;
         purchasedAtToUse = mostRecentPayment.createdAt;
+      } else if (
+        installedAgent.installSource === "FREE_INSTALL" ||
+        installedAgent.installSource === "ARCHITECT_SELF_TEST" ||
+        installedAgent.installSource === "ADMIN_ASSIGNMENT"
+      ) {
+        // Payment-less by design: free installs, architect self-tests and
+        // admin assignments are valid acquisitions with no Payment row.
+        statusToUse = "SUCCEEDED";
+        purchaseIdToUse = `installed-${installedAgent.id}`;
+        purchasedAtToUse = installedAgent.createdAt;
       } else {
         // Installed but no payment record exists at all (e.g. legacy/subscription user)
         const hasSub = await hasLegacyActiveSubscription(authUser.id);
@@ -911,16 +922,27 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
   }
 
-  const payments = await prisma.payment.findMany({
-    where: {
-      userId: authUser.id,
-      listingId
-    },
-    orderBy: { createdAt: "desc" }
-  });
+  const [payments, installedAgent] = await Promise.all([
+    prisma.payment.findMany({
+      where: {
+        userId: authUser.id,
+        listingId
+      },
+      orderBy: { createdAt: "desc" }
+    }),
+    prisma.installedAgent.findFirst({
+      where: { listingId, business: { ownerId: authUser.id } },
+      select: { id: true, status: true, installSource: true }
+    })
+  ]);
 
   const activePayment = resolveActivePayment(payments);
   const anyPayment = payments.length > 0;
+  // An install with NO payment history is a payment-less acquisition (free
+  // install / architect self-test) and counts as access. When payments exist,
+  // the payment state stays authoritative so an expired trial still reads as
+  // "pay to continue" even though the trial auto-installed the agent.
+  const paymentlessInstall = Boolean(installedAgent) && !anyPayment;
   const purchaseStatus = activePayment?.status ?? payments[0]?.status ?? null;
   const isTrialing = purchaseStatus === PaymentStatus.TRIALING;
   const canPayNow =
@@ -961,11 +983,12 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
         unitPriceUsd: service.updatedCostMicroUsd / 1_000_000
       }))
     },
-    canStartTrial: listing.freeTrialEnabled && !anyPayment,
-    hasActiveAccess: Boolean(activePayment),
+    canStartTrial: listing.freeTrialEnabled && !anyPayment && !installedAgent,
+    hasActiveAccess: Boolean(activePayment) || paymentlessInstall,
     trialUsed: anyPayment,
     canPayNow,
-    purchaseStatus
+    purchaseStatus,
+    installedAgentId: installedAgent?.id ?? null
   });
 });
 
@@ -1046,10 +1069,12 @@ paymentRoutes.post("/start-trial", async (c) => {
     return errorResponse(c, "Free trial is not enabled for this agent", 400, "TRIAL_NOT_ENABLED");
   }
 
+  // Scoped by (userId, listingId) — the same key every access check uses —
+  // so a buyer can never restart a trial by acquiring a different/new
+  // Business row. Any prior payment (even expired/canceled) burns the trial.
   const existingPayments = await prisma.payment.findMany({
     where: {
       userId: authUser.id,
-      businessId,
       listingId
     },
     orderBy: { createdAt: "desc" }
@@ -1121,28 +1146,82 @@ paymentRoutes.post("/start-trial", async (c) => {
 
   const trialDays = listing.trialDays || 7;
 
-  const payment = await prisma.payment.create({
-    data: {
-      userId: authUser.id,
-      businessId,
-      listingId: listing.id,
-      amountCents: listing.priceCents,
-      currency: "usd",
-      status: "TRIALING",
-      stripeCustomerId: customerId,
-      stripePaymentId: attachedPaymentMethodId,
-      description: `${trialDays}-day trial for ${listing.name}`,
-      ...paymentBillingData(billingDetails)
-    },
-    include: {
-      listing: {
-        select: {
-          id: true,
-          name: true
+  // Advisory-locked create: two concurrent trial submits (double-click,
+  // duplicate tab) both pass the read above — the lock serializes them and
+  // the recheck makes the loser reuse the winner's row instead of creating
+  // a second TRIALING payment.
+  const trialCreate = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-trial:${authUser.id}:${listing.id}`}))`;
+
+    const concurrent = await tx.payment.findMany({
+      where: { userId: authUser.id, listingId: listing.id },
+      orderBy: { createdAt: "desc" },
+      include: { listing: { select: { id: true, name: true } } }
+    });
+
+    const concurrentActive = resolveActivePayment(concurrent);
+    if (concurrentActive) {
+      return { payment: concurrentActive, alreadyActive: true as const };
+    }
+    if (concurrent.length > 0) {
+      return { payment: null, alreadyActive: false as const };
+    }
+
+    const created = await tx.payment.create({
+      data: {
+        userId: authUser.id,
+        businessId,
+        listingId: listing.id,
+        amountCents: listing.priceCents,
+        currency: "usd",
+        status: "TRIALING",
+        stripeCustomerId: customerId,
+        stripePaymentId: attachedPaymentMethodId,
+        description: `${trialDays}-day trial for ${listing.name}`,
+        ...paymentBillingData(billingDetails)
+      },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            name: true
+          }
         }
       }
-    }
+    });
+
+    return { payment: created, alreadyActive: false as const };
   });
+
+  if (!trialCreate.payment) {
+    return errorResponse(
+      c,
+      "Free trial already used for this agent",
+      409,
+      "TRIAL_ALREADY_USED"
+    );
+  }
+
+  if (trialCreate.alreadyActive) {
+    return successResponse(c, {
+      payment: trialCreate.payment,
+      alreadyActive: true
+    });
+  }
+
+  const payment = trialCreate.payment;
+
+  // The trial IS the entitlement — install right away (installSource TRIAL)
+  // so the agent appears on My Agents and setup reuses this exact install.
+  // Best-effort: setup installs lazily if this ever fails.
+  try {
+    const owned = await loadOwnedListing(authUser.id, listing.id);
+    if (owned) {
+      await ensureBusinessAndAgent({ ownerId: authUser.id, listing: owned });
+    }
+  } catch (error) {
+    console.error("Trial auto-install failed (setup will install lazily)", error);
+  }
 
   // No number is acquired at trial start: the buyer selects and explicitly
   // purchases their Triven AI number during agent setup (country → state →
@@ -1211,75 +1290,53 @@ paymentRoutes.post("/purchase", async (c) => {
     return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
   }
 
-  // Bypass Stripe for FREE agent installations
+  // FREE agents install immediately: no charge and no Payment record. The
+  // entitlement is intrinsic to the FREE listing (purchase-access), and the
+  // InstalledAgent row is created right here so the agent shows up on
+  // My Agents at once. The unique (businessId, listingId) constraint absorbs
+  // double-clicks and retries — repeats reuse the same install.
   if (listing.pricingModel === "FREE") {
-    const existingPayments = await prisma.payment.findMany({
-      where: {
-        userId: authUser.id,
-        listingId
-      },
-      orderBy: { createdAt: "desc" }
-    });
+    const [existingPayments, existingInstall] = await Promise.all([
+      prisma.payment.findMany({
+        where: { userId: authUser.id, listingId },
+        orderBy: { createdAt: "desc" }
+      }),
+      prisma.installedAgent.findFirst({
+        where: { listingId, business: { ownerId: authUser.id } },
+        select: { id: true }
+      })
+    ]);
 
     const activePayment = resolveActivePayment(existingPayments);
 
-    if (activePayment?.status === "SUCCEEDED") {
-      return successResponse(c, {
-        payment: activePayment,
-        alreadyActive: true
-      });
+    const owned = await loadOwnedListing(authUser.id, listingId);
+    if (!owned) {
+      return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
     }
 
-    const payment = await prisma.payment.create({
-      data: {
-        userId: authUser.id,
-        businessId,
-        listingId: listing.id,
-        amountCents: 0,
-        currency: "usd",
-        status: "SUCCEEDED",
-        stripeCustomerId: null,
-        stripePaymentId: null,
-        description: `Free installation of ${listing.name}`,
-        lineItemsJson: [] as never,
-        ...paymentBillingData(billingDetails)
-      },
-      include: {
-        listing: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
-    });
+    const { agent } = await ensureBusinessAndAgent({ ownerId: authUser.id, listing: owned });
 
-    // No number is acquired at purchase — number selection happens in setup.
-    const assignedPhoneNumber: string | null = null;
+    const alreadyActive = Boolean(existingInstall) || Boolean(activePayment);
 
-    try {
-      const invoice = await buildInvoiceData(payment, authUser);
-      await sendPaymentSuccessEmail({
-        to: authUser.email,
-        name: invoice.businessName,
-        setupUrl: setupUrlForListing(listing.id),
-        invoice
-      });
-    } catch (error) {
-      console.error("Payment success email failed (non-fatal)", error);
+    // First-time install only — repeats stay silent for the architect.
+    if (!alreadyActive) {
+      await notifyArchitectOfNewSale({ listingId: listing.id, agentPriceCents: 0 });
     }
-
-    await notifyArchitectOfNewSale({ listingId: listing.id, agentPriceCents: 0 });
 
     return successResponse(
       c,
       {
-        payment,
+        free: true,
+        alreadyActive,
+        installedAgentId: agent?.id ?? null,
+        // Legacy free installs recorded a $0 payment — surface it when present
+        // so older clients keep working; new free installs have none.
+        payment: activePayment,
         subscriptionId: null,
-        assignedPhoneNumber
+        assignedPhoneNumber: null
       },
-      "Purchase completed",
-      201
+      alreadyActive ? "Agent already installed" : "Agent installed",
+      alreadyActive ? 200 : 201
     );
   }
 

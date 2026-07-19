@@ -181,12 +181,25 @@ export async function ensureBusinessAndAgent(opts: {
   });
 
   if (!business) {
-    business = await prisma.business.create({
-      data: {
-        ownerId: opts.ownerId,
-        name: opts.businessName?.trim() || opts.listing.name || "My Business",
-        type: "general"
-      }
+    // Advisory-locked create: concurrent first-time installs (double-click,
+    // purchase response + webhook) would otherwise both see "no business"
+    // and create two rows for the owner.
+    business = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ensure-business:${opts.ownerId}`}))`;
+
+      const existing = await tx.business.findFirst({
+        where: { ownerId: opts.ownerId },
+        orderBy: { createdAt: "desc" }
+      });
+      if (existing) return existing;
+
+      return tx.business.create({
+        data: {
+          ownerId: opts.ownerId,
+          name: opts.businessName?.trim() || opts.listing.name || "My Business",
+          type: "general"
+        }
+      });
     });
   } else if (opts.businessName?.trim() && opts.businessName.trim() !== business.name) {
     business = await prisma.business.update({

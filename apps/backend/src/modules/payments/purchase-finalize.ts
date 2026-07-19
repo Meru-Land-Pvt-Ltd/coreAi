@@ -17,6 +17,7 @@ import {
 import { resolveActivePayment } from "../business/purchase-access";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { createSettlementForPayment } from "../payouts/settlements";
+import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import { getStripeClient, isStripeConfigured } from "./stripe";
 
 
@@ -331,6 +332,22 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
   }
 
   const payment = createResult.payment;
+
+  // Auto-install the moment the payment is confirmed — the same code runs
+  // from the response path, the 3DS confirm, and the webhook backstop; the
+  // unique (businessId, listingId) constraint keeps repeated callbacks on
+  // one InstalledAgent. Best-effort: setup still installs lazily on failure.
+  try {
+    const owned = await loadOwnedListing(authUser.id, listing.id);
+    if (owned) {
+      await ensureBusinessAndAgent({ ownerId: authUser.id, listing: owned });
+    }
+  } catch (error) {
+    console.error("Post-purchase auto-install failed (setup will install lazily)", {
+      paymentId: payment.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   // Immutable architect settlement for this purchase (idempotent per payment).
   try {
