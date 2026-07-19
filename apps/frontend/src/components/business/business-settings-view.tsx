@@ -601,7 +601,19 @@ function addressDraftFromFacts(facts: BusinessFactsData | null): BusinessAddress
  * and save through PUT /business/setup/business-address, so they always show
  * identical values.
  */
-export function BusinessAddressSection() {
+export function BusinessAddressSection({
+  embedded = false,
+  onDirtyChange,
+  registerApi
+}: {
+  /**
+   * Embedded mode (Agent Setup): hides the internal Save button — the parent
+   * saves through registerApi as part of the page-level save experience.
+   */
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  registerApi?: (api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null) => void;
+} = {}) {
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [draft, setDraft] = useState<BusinessAddressDraft>(EMPTY_ADDRESS_DRAFT);
   const [source, setSource] = useState<"manual" | "pdf_suggestion">("manual");
@@ -611,6 +623,11 @@ export function BusinessAddressSection() {
   const [addressSaving, setAddressSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const [syncWarning, setSyncWarning] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const refreshFacts = useCallback(async () => {
     const res = await getBusinessFacts();
@@ -642,6 +659,7 @@ export function BusinessAddressSection() {
   function setAddressField(key: keyof BusinessAddressDraft, value: string) {
     setDraft((current) => ({ ...current, [key]: value }));
     setSavedOk(false);
+    setDirty(true);
   }
 
   function applySuggestion() {
@@ -655,13 +673,22 @@ export function BusinessAddressSection() {
     }));
     setSource("pdf_suggestion");
     setSavedOk(false);
+    setDirty(true);
     setFieldErrors({});
   }
 
-  async function handleAddressSave() {
+  async function performAddressSave(): Promise<{ ok: boolean; error?: string }> {
     setSavedOk(false);
     setServerError("");
     setSyncWarning(false);
+
+    // An entirely empty draft means "no address" — nothing to save, and it
+    // must never block the rest of the Configure page from saving.
+    const isEmpty = Object.values(draft).every((value) => !value.trim());
+    if (isEmpty) {
+      setFieldErrors({});
+      return { ok: true };
+    }
 
     const errors: { line1?: string; city?: string; statePostal?: string } = {};
     if (!draft.line1.trim()) errors.line1 = "Address line 1 is required.";
@@ -670,7 +697,9 @@ export function BusinessAddressSection() {
       errors.statePostal = "Provide at least a state/province or a postal code.";
     }
     setFieldErrors(errors);
-    if (Object.keys(errors).length > 0) return;
+    if (Object.keys(errors).length > 0) {
+      return { ok: false, error: Object.values(errors)[0] };
+    }
 
     setAddressSaving(true);
     const res = await saveBusinessAddressApi({
@@ -689,12 +718,14 @@ export function BusinessAddressSection() {
     setAddressSaving(false);
 
     if (!res.success || !res.data) {
-      setServerError(res.error ?? "Could not save the address. Please try again.");
-      return;
+      const message = res.error ?? "Could not save the address. Please try again.";
+      setServerError(message);
+      return { ok: false, error: message };
     }
 
     const saved = res.data;
     setSavedOk(true);
+    setDirty(false);
     if (saved.liveSync.attempted && !saved.liveSync.ok) setSyncWarning(true);
     setFacts((current) =>
       current
@@ -703,7 +734,29 @@ export function BusinessAddressSection() {
     );
     // Suggestion/conflict/completeness are server-derived — re-read the facts.
     void refreshFacts();
+    return { ok: true };
   }
+
+  async function handleAddressSave() {
+    await performAddressSave();
+  }
+
+  // Embedded mode: parent-orchestrated saving; ref refreshed each render so
+  // the registered functions always close over live state.
+  const embeddedAddressApiRef = useRef({
+    save: performAddressSave,
+    isDirty: () => dirty
+  });
+  embeddedAddressApiRef.current = { save: performAddressSave, isDirty: () => dirty };
+
+  useEffect(() => {
+    if (!registerApi) return;
+    registerApi({
+      save: () => embeddedAddressApiRef.current.save(),
+      isDirty: () => embeddedAddressApiRef.current.isDirty()
+    });
+    return () => registerApi(null);
+  }, [registerApi]);
 
   return (
     <div data-testid="business-address-section">
@@ -882,15 +935,17 @@ export function BusinessAddressSection() {
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          data-testid="business-address-save"
-          onClick={() => void handleAddressSave()}
-          disabled={addressSaving}
-          className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
-        >
-          {addressSaving ? "Saving..." : "Save address"}
-        </button>
+        {!embedded ? (
+          <button
+            type="button"
+            data-testid="business-address-save"
+            onClick={() => void handleAddressSave()}
+            disabled={addressSaving}
+            className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
+          >
+            {addressSaving ? "Saving..." : "Save address"}
+          </button>
+        ) : null}
         {savedOk ? <span className="text-sm font-semibold text-green-600">Confirmed ✓</span> : null}
       </div>
       {serverError ? (

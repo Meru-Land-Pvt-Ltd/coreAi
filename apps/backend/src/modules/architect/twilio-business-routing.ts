@@ -96,7 +96,9 @@ type ResolvedAgent = {
   forwardToPhone?: string;
   /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
   routingMode?: string;
-  /** Optional CUSTOM_HOURS answering schedule (configJson.phoneRouting.answeringHours). */
+  /** AI Call Coverage (configJson.phoneRouting.coverage): always | business_hours | custom. */
+  coverage?: string;
+  /** Optional custom AI answering schedule (configJson.phoneRouting.answeringHours). */
   answeringHours?: unknown;
   /** Buyer paused this agent — no AI answer, no text-back, no AI SMS replies. */
   agentPaused?: boolean;
@@ -111,13 +113,6 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/[^+\d]/g, "").trim();
 }
 
-/**
- * Whether the workflow graph opts into SMS conversations. AI SMS auto-replies
- * run only when the architect placed an SMS-capable node — the Inbound SMS
- * Trigger, a Send SMS action, or the Missed Call Trigger (whose text-back
- * conversation continues over SMS). Legacy installs without a graph keep the
- * previous always-reply behavior.
- */
 const SMS_CAPABLE_NODE_TYPES = new Set([
   "trigger.twilio_inbound_sms",
   "trigger.twilio_missed_call",
@@ -350,6 +345,7 @@ function toResolvedAgent(opts: {
     workflowJson: installedAgent.workflow?.workflowJson ?? null,
     forwardToPhone: opts.forwardToPhone ?? undefined,
     routingMode: readRoutingMode(installedAgent.configJson),
+    coverage: readCoverage(installedAgent.configJson),
     answeringHours: readAnsweringHours(installedAgent.configJson),
     agentPaused: installedAgent.status === "PAUSED",
     business: buildBusinessContext(business, phoneNumber, installedAgent),
@@ -1021,6 +1017,16 @@ function readAnsweringHours(configJson: unknown): unknown {
   return undefined;
 }
 
+/** AI Call Coverage (configJson.phoneRouting.coverage) — the buyer's answer-time window. */
+function readCoverage(configJson: unknown): string | undefined {
+  const routing = (configJson as Record<string, unknown> | null)?.phoneRouting;
+  if (typeof routing === "object" && routing !== null) {
+    const coverage = (routing as Record<string, unknown>).coverage;
+    if (typeof coverage === "string" && coverage.trim()) return coverage.trim().toLowerCase();
+  }
+  return undefined;
+}
+
 /**
  * Structured-hours open check (multiple periods, breaks, special-date
  * overrides). null = hours not configured — callers must not treat that as
@@ -1062,34 +1068,49 @@ async function loadSpecialHoursForRouting(
   }
 }
 
-/**
- * Answering decision, honoring the buyer's mode. The AI answering schedule is
- * separate from Business Hours: AFTER_HOURS / BUSINESS_HOURS consult the
- * business schedule (with special dates); CUSTOM_HOURS consults ONLY the
- * dedicated answeringHours schedule. Unknown hours never drop a call — the
- * AI answers rather than sending callers to silence.
- */
 async function shouldAnswerWithAiByMode(
   mode: string,
-  agent: { business?: { businessId?: string; hours?: unknown; timeZone?: string }; answeringHours?: unknown }
+  agent: {
+    business?: { businessId?: string; hours?: unknown; timeZone?: string };
+    coverage?: string;
+    answeringHours?: unknown;
+  }
 ): Promise<boolean> {
-  switch (mode) {
-    case "AI_FIRST":
-    case "NO_ANSWER":
-    case "BUSY":
-    case "UNREACHABLE":
-      return true;
-    case "AFTER_HOURS": {
-      const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
-      // Answer when outside hours OR when hours are unknown; skip only when open.
-      return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== true;
+  const modeAllows = await (async () => {
+    switch (mode) {
+      case "AI_FIRST":
+      case "NO_ANSWER":
+      case "BUSY":
+      case "UNREACHABLE":
+        return true;
+      case "AFTER_HOURS": {
+        const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
+        // Answer when outside hours OR when hours are unknown; skip only when open.
+        return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== true;
+      }
+      case "BUSINESS_HOURS": {
+        const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
+        // Answer only while open; unknown hours → answer (never drop calls).
+        return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== false;
+      }
+      case "CUSTOM_HOURS":
+        // Legacy combined mode (pre-coverage saves) — the schedule IS the gate.
+        return isWithinBusinessHours(agent.answeringHours, agent.business?.timeZone) !== false;
+      default:
+        return true;
     }
-    case "BUSINESS_HOURS": {
+  })();
+
+  if (!modeAllows) return false;
+
+  // AI Call Coverage is a second, independent time gate. Absent or "always"
+  // keeps the legacy behavior; unknown hours never drop a call.
+  switch (agent.coverage) {
+    case "business_hours": {
       const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
-      // Answer only while open; unknown hours → answer (never drop calls).
       return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== false;
     }
-    case "CUSTOM_HOURS":
+    case "custom":
       return isWithinBusinessHours(agent.answeringHours, agent.business?.timeZone) !== false;
     default:
       return true;
@@ -1115,6 +1136,7 @@ export async function getCallRoutingDiagnostics(rawNumber: string) {
     businessId: agent?.business?.businessId ?? null,
     installedAgentId: agent?.business?.installedAgentId ?? null,
     routingMode: routingMode ?? null,
+    aiCallCoverage: agent?.coverage ?? null,
     hasVapiAssistantId: isRealId(assistantId),
     hasVapiPhoneNumberId: isRealId(agent?.business?.vapiPhoneNumberId),
     aiWouldAnswer,

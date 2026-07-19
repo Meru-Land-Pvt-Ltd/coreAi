@@ -87,6 +87,8 @@ export type AppointmentSchedule = {
   maxSpokenSuggestions: number;
   calendarId: string;
   source: "configured" | "business_hours" | "defaults";
+  /** True when appointment days follow the structured Business Hours. */
+  useBusinessHours: boolean;
   confirmed: boolean;
 };
 
@@ -103,6 +105,8 @@ export type AppointmentScheduleData = {
 
 /** Partial appointment-schedule update sent with saveBusinessSetup. */
 export type AppointmentScheduleInput = {
+  /** True = follow Business Hours (days below kept only as a fallback). */
+  useBusinessHours?: boolean;
   days?: Partial<Record<AppointmentWeekday, AppointmentDayHours>>;
   defaultDurationMinutes?: number;
   serviceDurations?: Record<string, number>;
@@ -146,6 +150,11 @@ export type BusinessSetupInput = {
   voiceId?: string;
   voiceProvider?: string;
   answeringMode?: string;
+  /** AI Call Coverage — WHEN the AI answers; independent of answeringMode. */
+  aiCallCoverage?: {
+    kind: "always" | "business_hours" | "custom";
+    answeringHours?: BusinessHoursItem[];
+  };
   contactName?: string;
   customInstructions?: string;
   silenceRepromptCount?: number;
@@ -254,6 +263,8 @@ export type BusinessSetupData = {
   voiceSelection?: { name: string | null; voiceId: string | null; provider: string | null } | null;
   /** Buyer's persisted answering mode (prefills the routing selector). */
   answeringMode?: string | null;
+  /** AI Call Coverage kind — "always" | "business_hours" | "custom". */
+  aiCallCoverage?: string | null;
   /** AI ANSWERING schedule rows (phoneRouting.answeringHours). */
   answeringHours?: BusinessHoursItem[] | null;
   /** Buyer's persisted contact name + custom instructions + silence policy. */

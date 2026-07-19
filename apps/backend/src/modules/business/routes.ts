@@ -572,6 +572,7 @@ const dayHoursSchema = z.object({
 });
 
 const appointmentScheduleSchema = z.object({
+  useBusinessHours: z.boolean().optional(),
   days: z
     .object({
       sunday: dayHoursSchema.optional(),
@@ -615,7 +616,9 @@ const businessSetupSchema = z.object({
   forwardToPhone: z.string().trim().optional().or(z.literal("")),
   bookingUrl: z.string().trim().url().optional().or(z.literal("")),
   teamPhone: z.string().trim().optional().or(z.literal("")),
-  timeZone: z.string().trim().default("Asia/Kolkata"),
+  // Optional: the authoritative timezone editor is the Business Hours section
+  // (PUT /business/hours). A setup save without it preserves the saved value.
+  timeZone: z.string().trim().optional().or(z.literal("")),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
 
@@ -636,6 +639,15 @@ const businessSetupSchema = z.object({
   answeringMode: z.string().trim().optional().or(z.literal("")),
   /** CUSTOM_HOURS answering schedule — separate from Business Hours. */
   answeringHours: z.array(hoursItemSchema).optional(),
+  // AI Call Coverage: WHEN the AI answers calls. Orthogonal to answeringMode
+  // (the forward condition). "always" = 24/7; "business_hours" reuses the
+  // structured Business Hours; "custom" uses its own weekly schedule.
+  aiCallCoverage: z
+    .object({
+      kind: z.enum(["always", "business_hours", "custom"]),
+      answeringHours: z.array(hoursItemSchema).optional()
+    })
+    .optional(),
   contactName: z.string().trim().optional().or(z.literal("")),
   customInstructions: z.string().trim().optional().or(z.literal("")),
 
@@ -1874,8 +1886,6 @@ function buildSetupReadiness(
       blocker: profileComplete ? undefined : "Add your business name, type and services."
     },
     {
-      // Advisory, never blocking: agents without a physical location still
-      // deploy, but in-person businesses see this clearly before Go-live.
       key: "business_address",
       label: "Business address",
       required: false,
@@ -1884,6 +1894,15 @@ function buildSetupReadiness(
         profile?.addressLine1 && profile?.addressCity
           ? undefined
           : "Add your business address so the agent can tell callers where to come."
+    },
+    {
+      key: "business_hours",
+      label: "Business Hours",
+      required: false,
+      complete: Boolean(profile?.hoursConfirmedAt),
+      blocker: profile?.hoursConfirmedAt
+        ? undefined
+        : "Confirm your Business Hours so the agent can answer open/closed questions."
     },
     {
       key: "google_calendar",
@@ -2026,6 +2045,12 @@ function serializeSetup(
     answeringHours: Array.isArray(phoneRoutingConfig?.answeringHours)
       ? phoneRoutingConfig.answeringHours
       : null,
+    aiCallCoverage:
+      phoneRoutingConfig && typeof phoneRoutingConfig.coverage === "string"
+        ? phoneRoutingConfig.coverage
+        : phoneRoutingConfig?.mode === "CUSTOM_HOURS"
+          ? "custom"
+          : "always",
     contactName: typeof config?.contactName === "string" ? config.contactName : null,
     customInstructions: typeof config?.customInstructions === "string" ? config.customInstructions : null,
     customFields: Array.isArray(config?.customFields)
@@ -2229,6 +2254,7 @@ businessRoutes.post("/setup", async (c) => {
       where: { ownerId: authUser.id },
       orderBy: { createdAt: "desc" },
       include: {
+        profile: { select: { timeZone: true } },
         phoneNumbers: includeActivePhoneNumbers(),
         installedAgents: { orderBy: { createdAt: "desc" } }
       }
@@ -2367,25 +2393,23 @@ businessRoutes.post("/setup", async (c) => {
       };
     }
 
-    const timeZone = normalizeTimeZone(input.timeZone);
+    const timeZone = input.timeZone?.trim()
+      ? normalizeTimeZone(input.timeZone)
+      : normalizeTimeZone(existing?.profile?.timeZone || undefined);
     const assistantName = cleanAssistantName(input.assistantName);
-    const answeringMode = input.answeringMode || "AI_FIRST";
 
     const profileData = {
       bookingUrl: cleanOptional(input.bookingUrl),
       teamPhone: cleanOptional(input.teamPhone),
       calendarId: input.calendarId || "primary",
-      timeZone,
+      ...(input.timeZone?.trim() ? { timeZone } : {}),
       tone: input.tone,
       escalationRules: cleanOptional(input.escalationRules),
       services: input.services,
       faqsJson: input.faqs as never,
-      // Structured Business Hours are owned by PUT /business/hours (periods,
-      // breaks, notes, confirmation). A setup save without hours must NEVER
-      // wipe or downgrade a buyer-confirmed schedule.
       ...(input.hours.length > 0 ? { hoursJson: input.hours as never } : {}),
-      vapiAssistantId: cleanOptional(input.vapiAssistantId),
-      vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId)
+      ...(cleanOptional(input.vapiAssistantId) ? { vapiAssistantId: cleanOptional(input.vapiAssistantId) } : {}),
+      ...(cleanOptional(input.vapiPhoneNumberId) ? { vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId) } : {})
     };
 
     const business = existing
@@ -2429,10 +2453,30 @@ businessRoutes.post("/setup", async (c) => {
         ? (existingAgentRow.configJson as Record<string, unknown>)
         : {};
 
+    const existingPhoneRouting =
+      typeof existingAgentConfig.phoneRouting === "object" &&
+      existingAgentConfig.phoneRouting !== null &&
+      !Array.isArray(existingAgentConfig.phoneRouting)
+        ? (existingAgentConfig.phoneRouting as Record<string, unknown>)
+        : {};
+
+    const answeringMode =
+      input.answeringMode ||
+      (typeof existingPhoneRouting.mode === "string" && existingPhoneRouting.mode.trim()
+        ? existingPhoneRouting.mode
+        : "AI_FIRST");
+    const coverage = input.aiCallCoverage ?? null;
+    const coverageAnsweringHours =
+      coverage?.kind === "custom" && coverage.answeringHours?.length
+        ? coverage.answeringHours
+        : input.answeringHours?.length
+          ? input.answeringHours
+          : null;
     const configJson = {
+      ...existingAgentConfig,
       connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],
-      vapiAssistantId: cleanOptional(input.vapiAssistantId),
-      vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId),
+      ...(cleanOptional(input.vapiAssistantId) ? { vapiAssistantId: cleanOptional(input.vapiAssistantId) } : {}),
+      ...(cleanOptional(input.vapiPhoneNumberId) ? { vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId) } : {}),
       calendarId: input.calendarId || "primary",
       assistantName,
       calendar: {
@@ -2445,27 +2489,19 @@ businessRoutes.post("/setup", async (c) => {
         provider: cleanOptional(input.voiceProvider)
       },
       phoneRouting: {
+        ...existingPhoneRouting,
         mode: answeringMode,
-        // AI answering schedule (CUSTOM_HOURS) — kept separate from the
-        // structured Business Hours and from appointment hours.
-        ...(input.answeringHours?.length ? { answeringHours: input.answeringHours } : {})
+        ...(coverage ? { coverage: coverage.kind } : {}),
+        ...(coverageAnsweringHours ? { answeringHours: coverageAnsweringHours } : {})
       },
       contactName: cleanOptional(input.contactName),
       customInstructions: cleanOptional(input.customInstructions),
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
-      // Structured appointment schedule — the scheduling source of truth.
-      // Preserved from the existing config when this save doesn't send one.
-      ...(input.appointmentSchedule
-        ? { appointmentSchedule: input.appointmentSchedule }
-        : existingAgentConfig.appointmentSchedule
-          ? { appointmentSchedule: existingAgentConfig.appointmentSchedule }
-          : {}),
-      ...(input.customFields.length > 0
+      ...(input.appointmentSchedule ? { appointmentSchedule: input.appointmentSchedule } : {}),
+      ...(input.customFields.length > 0 || buyerSetupFields.length > 0
         ? { customFields: input.customFields.filter((field) => !isBuyerAnswerEmpty(field.value)) }
         : {}),
-      // Snapshot of the listing's buyer setup schema at save time, so the
-      // installed agent stays renderable/validatable even if the listing changes.
       ...(buyerSetupFields.length > 0 ? { buyerSetupSchema: buyerSetupFields } : {}),
       businessDetails: {
         assistantName,
@@ -2535,11 +2571,6 @@ businessRoutes.post("/setup", async (c) => {
     const forward = normalizePhoneNumber(input.forwardToPhone || "");
     let businessPhone: Awaited<ReturnType<typeof prisma.businessPhoneNumber.findFirst>> = null;
 
-    // Number adoption only: a number already reserved/assigned to this buyer
-    // is attached, but numbers are never silently purchased here anymore — the
-    // buyer selects a location and confirms a specific number through
-    // /business/phone-numbers/search + /purchase. The deploy checklist reports
-    // a missing number with that remediation.
     if (!targetPlatform && !existingPhone) {
       const adopted = await findBuyerPlatformNumber({
         buyerUserId: authUser.id,
@@ -2558,9 +2589,6 @@ businessRoutes.post("/setup", async (c) => {
     if (targetPlatform) {
       const targetNumber = normalizePhoneNumber(targetPlatform.phoneNumber);
 
-      // Guard against a mapping actively owned by another business. Inactive
-      // rows are history kept by unassignment (recycled pool numbers) and are
-      // safely taken over by the upsert below.
       const conflicting = await prisma.businessPhoneNumber.findUnique({
         where: { phoneNumber: targetNumber },
         select: { id: true, businessId: true, phoneNumber: true, isActive: true }

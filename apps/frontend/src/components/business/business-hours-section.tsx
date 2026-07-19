@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getBusinessHours,
   putBusinessHours,
@@ -121,14 +121,34 @@ function summarizeWeek(week: BusinessHoursDayInput[]): string[] {
 
 /* --------------------------------- editor --------------------------------- */
 
+/** Imperative handle for embedded (parent-orchestrated) saving. */
+export type EmbeddedSectionApi = {
+  save: () => Promise<{ ok: boolean; error?: string }>;
+  isDirty: () => boolean;
+};
+
 export function BusinessHoursSection({
   title = "Business Hours",
   compact = false,
-  onSaved
+  embedded = false,
+  onSaved,
+  onLoaded,
+  onDirtyChange,
+  registerApi
 }: {
   title?: string;
   compact?: boolean;
+  /**
+   * Embedded mode (Agent Setup): the internal Save button is hidden and the
+   * parent saves through registerApi — one page-level save experience.
+   * Standalone mode (Business Settings, onboarding) keeps its own button.
+   */
+  embedded?: boolean;
   onSaved?: (data: BusinessHoursData) => void;
+  /** Fires with the server state on initial load (summary for parent UIs). */
+  onLoaded?: (data: BusinessHoursData) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  registerApi?: (api: EmbeddedSectionApi | null) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -163,25 +183,35 @@ export function BusinessHoursSection({
     let mounted = true;
     getBusinessHours().then((response) => {
       if (!mounted) return;
-      if (response.success && response.data) applyServerData(response.data);
-      else setError(response.error ?? "Could not load Business Hours");
+      if (response.success && response.data) {
+        applyServerData(response.data);
+        onLoaded?.(response.data);
+      } else {
+        setError(response.error ?? "Could not load Business Hours");
+      }
       setLoading(false);
     });
     return () => {
       mounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, [applyServerData]);
 
-  // Unsaved-change warning on tab close / navigation away.
+  // Unsaved-change warning on tab close / navigation away. In embedded mode
+  // the parent page owns this warning (one warning, not two).
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || embedded) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  }, [dirty, embedded]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const dayErrors = useMemo(() => week.map(validateDay), [week]);
   const hasErrors = dayErrors.some(Boolean);
@@ -276,24 +306,27 @@ export function BusinessHoursSection({
     setDirty(true);
   }
 
-  async function handleSave() {
+  async function performSave(): Promise<{ ok: boolean; error?: string }> {
     setError("");
     setStatusMsg("");
 
     if (hasErrors) {
-      setError("Fix the highlighted day rows before saving.");
-      return;
+      const message = "Fix the highlighted day rows before saving.";
+      setError(message);
+      return { ok: false, error: message };
     }
     const dates = specialDates.filter((entry) => entry.date.trim());
     const seen = new Set<string>();
     for (const entry of dates) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) {
-        setError(`Special date "${entry.date}" must use YYYY-MM-DD.`);
-        return;
+        const message = `Special date "${entry.date}" must use YYYY-MM-DD.`;
+        setError(message);
+        return { ok: false, error: message };
       }
       if (seen.has(entry.date)) {
-        setError(`Special date ${entry.date} is listed twice.`);
-        return;
+        const message = `Special date ${entry.date} is listed twice.`;
+        setError(message);
+        return { ok: false, error: message };
       }
       seen.add(entry.date);
     }
@@ -303,8 +336,9 @@ export function BusinessHoursSection({
     setSaving(false);
 
     if (!response.success || !response.data) {
-      setError(response.error ?? "Could not save Business Hours");
-      return;
+      const message = response.error ?? "Could not save Business Hours";
+      setError(message);
+      return { ok: false, error: message };
     }
 
     applyServerData(response.data);
@@ -314,7 +348,29 @@ export function BusinessHoursSection({
         ? "Hours saved, but the live agent was NOT updated — retry the sync below."
         : "Business Hours saved."
     );
+    return { ok: true };
   }
+
+  async function handleSave() {
+    await performSave();
+  }
+
+  // Embedded mode: the parent page saves through this handle. The ref is
+  // refreshed every render so the registered functions always see live state.
+  const embeddedApiRef = useRef<EmbeddedSectionApi>({
+    save: async () => ({ ok: true }),
+    isDirty: () => false
+  });
+  embeddedApiRef.current = { save: performSave, isDirty: () => dirty };
+
+  useEffect(() => {
+    if (!registerApi) return;
+    registerApi({
+      save: () => embeddedApiRef.current.save(),
+      isDirty: () => embeddedApiRef.current.isDirty()
+    });
+    return () => registerApi(null);
+  }, [registerApi]);
 
   async function handleRetrySync() {
     setSyncing(true);
@@ -651,15 +707,17 @@ export function BusinessHoursSection({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          data-testid="business-hours-save"
-          onClick={handleSave}
-          disabled={saving || hasErrors}
-          className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? "Saving…" : "Save Business Hours"}
-        </button>
+        {!embedded ? (
+          <button
+            type="button"
+            data-testid="business-hours-save"
+            onClick={handleSave}
+            disabled={saving || hasErrors}
+            className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save Business Hours"}
+          </button>
+        ) : null}
 
         {dirty ? (
           <span className="text-xs font-semibold text-amber-600" data-testid="business-hours-unsaved">

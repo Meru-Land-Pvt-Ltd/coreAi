@@ -20,6 +20,14 @@ export type DayHours = {
   closed: boolean;
 };
 
+export type SpecialDateOverride = {
+  /** "YYYY-MM-DD" in the schedule's timezone. */
+  date: string;
+  closed: boolean;
+  open?: string;
+  close?: string;
+};
+
 export type AppointmentSchedule = {
   timeZone: string;
   days: Record<Weekday, DayHours>;
@@ -36,6 +44,9 @@ export type AppointmentSchedule = {
   calendarId: string;
   /** Where the hours came from — shown to the buyer for review. */
   source: "configured" | "business_hours" | "defaults";
+  useBusinessHours: boolean;
+  /** Special-date overrides — only populated when useBusinessHours. */
+  specialDates?: SpecialDateOverride[];
   /** Buyer explicitly confirmed the appointment hours. */
   confirmed: boolean;
 };
@@ -192,6 +203,9 @@ export function resolveAppointmentSchedule(input: {
   const hasStructuredDays = WEEKDAYS.some((day) => record(structuredDays[day]).open !== undefined);
   const hasBusinessHours = Object.keys(fromBusinessHours).length > 0;
 
+  const inheritsBusinessHours = structured.useBusinessHours === true;
+  const useStructuredDays = hasStructuredDays && !inheritsBusinessHours;
+
   // Legacy single open/close (configJson.scheduling.openHour/closeHour) only
   // applies when neither structured days nor business hours exist.
   const legacyOpenHour = clampInt(legacyScheduling.openHour, 9, 0, 23);
@@ -200,7 +214,7 @@ export function resolveAppointmentSchedule(input: {
   const days = {} as Record<Weekday, DayHours>;
   for (const day of WEEKDAYS) {
     const structuredDay = record(structuredDays[day]);
-    if (hasStructuredDays) {
+    if (useStructuredDays) {
       const open = parseHHmm(structuredDay.open) ? String(structuredDay.open) : DEFAULTS.open;
       const close = parseHHmm(structuredDay.close) ? String(structuredDay.close) : DEFAULTS.close;
       days[day] = { open, close, closed: structuredDay.closed === true };
@@ -245,8 +259,21 @@ export function resolveAppointmentSchedule(input: {
       10
     ),
     calendarId: (input.calendarId ?? "").trim() || "primary",
-    source: hasStructuredDays ? "configured" : hasBusinessHours ? "business_hours" : "defaults",
+    source: useStructuredDays ? "configured" : hasBusinessHours ? "business_hours" : "defaults",
+    useBusinessHours: !useStructuredDays,
     confirmed: structured.confirmed === true
+  };
+}
+
+export function effectiveScheduleDayHours(schedule: AppointmentSchedule, date: string): DayHours {
+  const base = schedule.days[weekdayOf(date, schedule.timeZone)];
+  const special = schedule.specialDates?.find((entry) => entry.date === date);
+  if (!special) return base;
+  if (special.closed) return { ...base, closed: true };
+  return {
+    open: special.open ?? base.open,
+    close: special.close ?? base.close,
+    closed: false
   };
 }
 
@@ -278,8 +305,7 @@ export function computeDayAvailability(input: {
 }): DayAvailability {
   const { schedule, date, busy } = input;
   const now = input.now ?? new Date();
-  const weekday = weekdayOf(date, schedule.timeZone);
-  const hours = schedule.days[weekday];
+  const hours = effectiveScheduleDayHours(schedule, date);
   const durationMinutes = serviceDurationFor(schedule, input.serviceName);
 
   const base: DayAvailability = {
@@ -360,8 +386,7 @@ export function checkExactTime(input: {
     return { verdict: "invalid", startAt: null, closeLabel: null, durationMinutes };
   }
 
-  const weekday = weekdayOf(date, schedule.timeZone);
-  const hours = schedule.days[weekday];
+  const hours = effectiveScheduleDayHours(schedule, date);
   const closeLabel = hours.closed ? null : hourLabel(hours.close, date, schedule.timeZone);
 
   if (hours.closed) return { verdict: "closed_day", startAt: null, closeLabel, durationMinutes };
@@ -470,6 +495,28 @@ export async function resolveScheduleForBusiness(input: {
     timeZone: business?.profile?.timeZone ?? null,
     calendarId: business?.profile?.calendarId ?? null
   });
+
+  if (schedule.useBusinessHours) {
+    const specialRows = await prisma.businessSpecialHours.findMany({
+      where: { businessId: input.businessId },
+      select: { date: true, closed: true, periodsJson: true }
+    });
+    if (specialRows.length > 0) {
+      schedule.specialDates = specialRows.map((row) => {
+        const periods = Array.isArray(row.periodsJson)
+          ? (row.periodsJson as Array<{ open?: unknown; close?: unknown }>)
+          : [];
+        const first = periods[0];
+        const last = periods[periods.length - 1];
+        return {
+          date: row.date,
+          closed: row.closed,
+          ...(!row.closed && parseHHmm(first?.open) ? { open: String(first!.open) } : {}),
+          ...(!row.closed && parseHHmm(last?.close) ? { close: String(last!.close) } : {})
+        };
+      });
+    }
+  }
 
   return { schedule, installedAgentId: agent?.id ?? null, ownerUserId: business?.ownerId ?? null };
 }

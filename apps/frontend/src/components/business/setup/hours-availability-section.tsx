@@ -1,0 +1,119 @@
+"use client";
+
+import {
+  BusinessHoursSection,
+  type EmbeddedSectionApi
+} from "@/components/business/business-hours-section";
+import type {
+  AppointmentDayHours,
+  AppointmentWeekday,
+  BusinessHoursData
+} from "@/components/business/features/api";
+import { AppointmentHoursEditor, type ApptNumberField } from "./appointment-hours-editor";
+import {
+  AiCallCoverageEditor,
+  type AiCoverageKind,
+  type AnsweringDayRow
+} from "./ai-call-coverage-editor";
+
+/**
+ * Hours & Availability — ONE section, three clearly separated concepts:
+ *
+ *   A. Business Hours       — when the business is open (THE editor; also the
+ *                             one place the business timezone is edited).
+ *   B. Appointment Hours    — when bookings can happen; follows Business
+ *                             Hours by default, weekly editor only for custom.
+ *   C. AI Call Coverage     — when the AI answers calls; never labeled
+ *                             "Business Hours".
+ *
+ * Only the Business Hours editor renders a weekly grid by default — the other
+ * two show compact summaries until the buyer explicitly opts into custom.
+ */
+export function HoursAvailabilitySection({
+  onBusinessHoursLoaded,
+  onBusinessHoursSaved,
+  onBusinessHoursDirtyChange,
+  registerBusinessHoursApi,
+  businessHoursSummary,
+  businessHoursConfigured,
+  apptUseBusinessHours,
+  onApptUseBusinessHours,
+  apptDays,
+  onApptDay,
+  apptFields,
+  onApptField,
+  apptConfirmed,
+  onApptConfirmed,
+  apptLoaded,
+  coverageKind,
+  onCoverageKind,
+  answeringDays,
+  onAnsweringDay
+}: {
+  onBusinessHoursLoaded: (data: BusinessHoursData) => void;
+  onBusinessHoursSaved: (data: BusinessHoursData) => void;
+  onBusinessHoursDirtyChange: (dirty: boolean) => void;
+  registerBusinessHoursApi: (api: EmbeddedSectionApi | null) => void;
+  businessHoursSummary: string[] | null;
+  businessHoursConfigured: boolean;
+  apptUseBusinessHours: boolean;
+  onApptUseBusinessHours: (value: boolean) => void;
+  apptDays: Record<AppointmentWeekday, AppointmentDayHours>;
+  onApptDay: (day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => void;
+  apptFields: Record<ApptNumberField, number>;
+  onApptField: (field: ApptNumberField, value: number) => void;
+  apptConfirmed: boolean;
+  onApptConfirmed: (value: boolean) => void;
+  /** False until GET /setup/appointment-schedule resolves — editor hidden so an unloaded section can never clobber. */
+  apptLoaded: boolean;
+  coverageKind: AiCoverageKind;
+  onCoverageKind: (kind: AiCoverageKind) => void;
+  answeringDays: AnsweringDayRow[];
+  onAnsweringDay: (day: string, patch: Partial<AnsweringDayRow>) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      {/* A. Business Hours — the ONLY weekly Business Hours editor. */}
+      <div data-testid="business-setup-business-hours">
+        <BusinessHoursSection
+          title="Business Hours"
+          embedded
+          onLoaded={onBusinessHoursLoaded}
+          onSaved={onBusinessHoursSaved}
+          onDirtyChange={onBusinessHoursDirtyChange}
+          registerApi={registerBusinessHoursApi}
+        />
+      </div>
+
+      {/* B. Appointment Hours — inherits Business Hours unless custom. */}
+      {apptLoaded ? (
+        <div className="border-t border-gray-100 pt-6">
+          <AppointmentHoursEditor
+            useBusinessHours={apptUseBusinessHours}
+            onUseBusinessHours={onApptUseBusinessHours}
+            businessHoursSummary={businessHoursSummary}
+            businessHoursConfigured={businessHoursConfigured}
+            days={apptDays}
+            onDay={onApptDay}
+            fields={apptFields}
+            onField={onApptField}
+            confirmed={apptConfirmed}
+            onConfirmed={onApptConfirmed}
+          />
+        </div>
+      ) : null}
+
+      {/* C. AI Call Coverage — when the AI answers. */}
+      <div className="border-t border-gray-100 pt-6">
+        <AiCallCoverageEditor
+          kind={coverageKind}
+          onKind={onCoverageKind}
+          answeringDays={answeringDays}
+          onAnsweringDay={onAnsweringDay}
+          businessHoursSummary={businessHoursSummary}
+          businessHoursConfigured={businessHoursConfigured}
+        />
+      </div>
+    </div>
+  );
+}
