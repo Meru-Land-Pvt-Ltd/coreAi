@@ -56,7 +56,7 @@ export type ArchitectConversationToolCall = {
 export type ArchitectConversationNodeLog = {
   nodeId: string;
   label: string;
-  status: "success" | "waiting" | "error";
+  status: "success" | "waiting" | "error" | "skipped";
   message: string;
   output?: unknown;
 };

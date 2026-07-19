@@ -200,6 +200,7 @@ export async function loadArchitectAgentAnalytics(params: {
       ? prisma.vapiCall.findMany({
           where: {
             installedAgentId: { in: installedAgentIds },
+            executionMode: "LIVE",
             startedAt: { gte: activityQueryStart }
           },
           orderBy: { startedAt: "desc" },

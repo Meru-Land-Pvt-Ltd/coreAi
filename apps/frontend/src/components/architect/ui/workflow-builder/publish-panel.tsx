@@ -103,7 +103,7 @@ export function PublishPanel({
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
-      <div className="mx-auto w-full max-w-full px-6 py-8">
+      <div className="mx-auto w-full max-w-6xl px-6 py-8">
         <h2 className="text-xl font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-publish-to-marketplace-heading">Publish to marketplace</h2>
         <p className="mt-1 text-sm text-slate-500" data-testid="architect-ui-workflow-builder-publish-panel-review-your-listing-and-readiness-then-submit-text">Review your listing and readiness, then submit for approval. Most agents are reviewed within 24 hours.</p>
         {!testRunCompleted ? (

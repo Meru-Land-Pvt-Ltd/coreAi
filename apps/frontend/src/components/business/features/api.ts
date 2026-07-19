@@ -281,6 +281,7 @@ export function getPhoneCities(country: string, state: string) {
   );
 }
 
+/** Buyer-safe number shape — never carries provider/wholesale cost fields. */
 export type AvailablePhoneNumber = {
   phoneNumber: string;
   friendlyName: string;
@@ -289,8 +290,6 @@ export type AvailablePhoneNumber = {
   locality: string | null;
   capabilities: { voice: boolean; sms: boolean; mms: boolean };
   numberType: "LOCAL";
-  feeCents: number;
-  feeLabel: string;
   regulatoryNote: string | null;
   checkedAt: string;
 };
@@ -303,7 +302,25 @@ export type PhoneNumberSearchResult = {
   smsRequired: boolean;
   /** False when Twilio cannot filter this country by state/city (country-wide search). */
   localityFilterSupported?: boolean;
+  alreadyAssigned?: BusinessPhoneAssignment | null;
 };
+
+/** The business's one active Triven AI number (no provider cost fields). */
+export type BusinessPhoneAssignment = {
+  assigned: true;
+  phoneNumber: string;
+  status: "ACTIVE";
+  country: string | null;
+  region: string | null;
+  locality: string | null;
+  capabilities: { voice: boolean; sms: boolean };
+  assignedAt: string | null;
+  installedAgentId: string | null;
+};
+
+export function getBusinessPhoneAssignment() {
+  return apiGet<BusinessPhoneAssignment | { assigned: false }>("/business/phone-numbers/assignment");
+}
 
 export function searchBusinessPhoneNumbers(body: {
   installedAgentId?: string;
@@ -337,8 +354,6 @@ export function purchaseBusinessPhoneNumber(body: {
   fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE";
   /** The buyer's own business line — stored as the forwarding target. */
   forwardToPhone?: string;
-  /** Change-number flow: swap only after the new number is fully configured. */
-  replaceExisting?: boolean;
 }) {
   return apiPost<PhonePurchaseOutcome>("/business/phone-numbers/purchase", body);
 }
@@ -403,16 +418,30 @@ export type BusinessChatTestToolCall = {
   name: string;
   status: "simulated" | "skipped" | "error";
   message: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+};
+
+/** One node the graph runner executed this turn, in graph execution order. */
+export type BusinessTestExecutedNode = {
+  nodeId: string;
+  label: string;
+  status: "success" | "waiting" | "error" | "skipped";
+  message: string;
+  output?: unknown;
 };
 
 export type BusinessTestCalendarEvent = {
   testEventId?: string;
   title: string;
+  /** Booked service name when the workflow captured one. */
+  serviceName?: string | null;
   startAt: string;
   endAt: string;
   timeZone: string;
   htmlLink: string | null;
   status: "SIMULATED" | "CREATED";
+  googleEventId?: string | null;
   description?: string;
 };
 
@@ -420,6 +449,10 @@ export type BusinessChatTestResult = {
   reply: string;
   transcript: BusinessChatTestMessage[];
   toolCalls: BusinessChatTestToolCall[];
+  /** Node execution timeline for this turn, in graph execution order. */
+  executedNodes?: BusinessTestExecutedNode[];
+  /** Final output of the last executed node this turn. */
+  finalOutput?: unknown;
   simulated: true;
   executionMode?: "BUSINESS_TEST";
   timeZone?: string | null;
@@ -431,8 +464,6 @@ export type BusinessChatTestResult = {
   configError?: { code: string; message: string; remediation: string } | null;
 };
 
-/** One turn of the setup chat test — real agent logic; bookings create marked
- * [TRIVEN BUSINESS TEST] events on the connected business calendar. */
 export function runBusinessSetupChatTest(body: {
   message: string;
   history?: BusinessChatTestMessage[];

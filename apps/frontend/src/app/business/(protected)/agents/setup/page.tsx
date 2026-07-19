@@ -32,6 +32,9 @@ import {
   startBusinessSetupPreviewCall,
   testCallRouting,
   type BusinessChatTestMessage,
+  type BusinessChatTestResult,
+  type BusinessChatTestToolCall,
+  type BusinessTestExecutedNode,
   type BusinessPreviewCallSession,
   type BusinessEmailAliasData,
   type BusinessFaq,
@@ -1415,7 +1418,7 @@ function SetupWizard() {
                     <li key={cap} className="flex items-center gap-3 text-sm text-slate-700">
                       <span className="text-green-500 shrink-0">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                          <polyline points="20 6 9 17 4 12"/>
+                          <polyline points="20 6 9 17 4 12" />
                         </svg>
                       </span>
                       <span>{cap}</span>
@@ -1448,8 +1451,8 @@ function SetupWizard() {
               <div className="mt-8 bg-blue-50 rounded-xl p-4 border border-blue-100 text-left max-w-sm mx-auto flex items-start gap-3">
                 <span className="text-blue-500 shrink-0 mt-0.5">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <path d="M9 18h6M10 22h4"/>
-                    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>
+                    <path d="M9 18h6M10 22h4" />
+                    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
                   </svg>
                 </span>
                 <p className="text-sm text-blue-900">
@@ -1470,7 +1473,7 @@ function SetupWizard() {
 
       <header className="bg-white border-b border-gray-100 py-4 px-4 sm:px-8 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-         <div className="flex items-center gap-3 sm:gap-4"></div>
+          <div className="flex items-center gap-3 sm:gap-4"></div>
 
           {/* Step indicator */}
           <nav className="progress" aria-label="Setup progress" data-testid="business-setup-progress-dots">
@@ -1520,8 +1523,8 @@ function SetupWizard() {
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
               ~3 min setup
             </span>
@@ -1573,42 +1576,42 @@ function SetupWizard() {
 
           {step === 2 ? (
             <div className="space-y-6">
-            <StepBusiness
-              businessName={businessName}
-              businessType={businessType}
-              contactName={contactName}
-              servicesText={servicesText}
-              faqs={faqs}
-              checklist={checklist}
-              setupFields={buyerSetupFields}
-              setupInstructions={buyerSetupInstructions}
-              customValues={customFieldValues}
-              tone={tone}
-              hoursMode={hoursMode}
-              hoursStart={hoursStart}
-              hoursEnd={hoursEnd}
-              hoursDays={hoursDays}
-              assistantName={assistantName}
-              voiceChoice={voiceChoice}
-              customVoiceId={customVoiceId}
-              showVoice={showVoice}
-              onBusinessName={setBusinessName}
-              onBusinessType={setBusinessType}
-              onContactName={setContactName}
-              onServices={setServicesText}
-              onFaqs={setFaqs}
-              onCustomField={setCustomFieldValue}
-              onTone={setTone}
-              onHoursMode={setHoursMode}
-              onHoursStart={setHoursStart}
-              onHoursEnd={setHoursEnd}
-              onToggleDay={(day) => setHoursDays((current) => ({ ...current, [day]: !current[day] }))}
-              onAssistantName={setAssistantName}
-              onVoiceChoice={setVoiceChoice}
-              onCustomVoiceId={setCustomVoiceId}
-            />
+              <StepBusiness
+                businessName={businessName}
+                businessType={businessType}
+                contactName={contactName}
+                servicesText={servicesText}
+                faqs={faqs}
+                checklist={checklist}
+                setupFields={buyerSetupFields}
+                setupInstructions={buyerSetupInstructions}
+                customValues={customFieldValues}
+                tone={tone}
+                hoursMode={hoursMode}
+                hoursStart={hoursStart}
+                hoursEnd={hoursEnd}
+                hoursDays={hoursDays}
+                assistantName={assistantName}
+                voiceChoice={voiceChoice}
+                customVoiceId={customVoiceId}
+                showVoice={showVoice}
+                onBusinessName={setBusinessName}
+                onBusinessType={setBusinessType}
+                onContactName={setContactName}
+                onServices={setServicesText}
+                onFaqs={setFaqs}
+                onCustomField={setCustomFieldValue}
+                onTone={setTone}
+                onHoursMode={setHoursMode}
+                onHoursStart={setHoursStart}
+                onHoursEnd={setHoursEnd}
+                onToggleDay={(day) => setHoursDays((current) => ({ ...current, [day]: !current[day] }))}
+                onAssistantName={setAssistantName}
+                onVoiceChoice={setVoiceChoice}
+                onCustomVoiceId={setCustomVoiceId}
+              />
 
-            {/* {showMail ? (
+              {/* {showMail ? (
               <EmailRecipientsSection
                 recipientType={emailRecipientType}
                 customRecipient={emailCustomRecipient}
@@ -1621,20 +1624,20 @@ function SetupWizard() {
               />
             ) : null} */}
 
-            <StepVoice
-              title={voiceTitle}
-              showVoice={showVoice}
-              customInstructions={customInstructions}
-              silenceRepromptCount={silenceRepromptCount}
-              silenceMessage1={silenceMessage1}
-              silenceMessage2={silenceMessage2}
-              goodbyeMessage={goodbyeMessage}
-              onCustomInstructions={setCustomInstructions}
-              onSilenceCount={setSilenceRepromptCount}
-              onSilence1={setSilenceMessage1}
-              onSilence2={setSilenceMessage2}
-              onGoodbye={setGoodbyeMessage}
-            />
+              <StepVoice
+                title={voiceTitle}
+                showVoice={showVoice}
+                customInstructions={customInstructions}
+                silenceRepromptCount={silenceRepromptCount}
+                silenceMessage1={silenceMessage1}
+                silenceMessage2={silenceMessage2}
+                goodbyeMessage={goodbyeMessage}
+                onCustomInstructions={setCustomInstructions}
+                onSilenceCount={setSilenceRepromptCount}
+                onSilence1={setSilenceMessage1}
+                onSilence2={setSilenceMessage2}
+                onGoodbye={setGoodbyeMessage}
+              />
             </div>
           ) : null}
 
@@ -1654,6 +1657,14 @@ function SetupWizard() {
               showCalendarTest={showCalendar}
               calendarConnected={calendar.connected}
               timeZone={timeZone}
+              agentName={(typeof listing?.name === "string" ? listing.name : "") || assistantName}
+              calendarId={calendarId}
+              serviceName={
+                servicesText
+                  .split(/\r?\n/)
+                  .map((item) => item.trim())
+                  .filter(Boolean)[0] ?? ""
+              }
             />
           ) : null}
 
@@ -1963,7 +1974,7 @@ function StepBusiness({
               {businessName.trim() && (
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <polyline points="20 6 9 17 4 12"/>
+                    <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </span>
               )}
@@ -2233,9 +2244,8 @@ function StepBusiness({
             onClick={() => onHoursMode("247")}
             className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left ${hoursMode === "247" ? "selected" : "border-gray-200 bg-white"}`}
           >
-            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-              hoursMode === "247" ? "border-amber-500" : "border-slate-300"
-            }`}>
+            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${hoursMode === "247" ? "border-amber-500" : "border-slate-300"
+              }`}>
               {hoursMode === "247" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
             </span>
             <span className="flex-1">
@@ -2255,9 +2265,8 @@ function StepBusiness({
             onClick={() => onHoursMode("custom")}
             className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left ${hoursMode === "custom" ? "selected" : "border-gray-200 bg-white"}`}
           >
-            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-              hoursMode === "custom" ? "border-amber-500" : "border-slate-300"
-            }`}>
+            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${hoursMode === "custom" ? "border-amber-500" : "border-slate-300"
+              }`}>
               {hoursMode === "custom" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
             </span>
             <span className="flex-1">
@@ -2307,9 +2316,8 @@ function StepBusiness({
                         aria-label={entry.day}
                         data-testid={`business-setup-hours-day-${entry.day.toLowerCase()}`}
                         onClick={() => onToggleDay(entry.day)}
-                        className={`day w-10 h-10 grid place-items-center rounded-lg border text-sm font-semibold transition-colors ${
-                          on ? "border-amber-500 bg-amber-500 text-white" : "border-gray-200 bg-white text-slate-600"
-                        }`}
+                        className={`day w-10 h-10 grid place-items-center rounded-lg border text-sm font-semibold transition-colors ${on ? "border-amber-500 bg-amber-500 text-white" : "border-gray-200 bg-white text-slate-600"
+                          }`}
                       >
                         {entry.short}
                       </button>
@@ -2576,7 +2584,6 @@ function StepConnect({
   const [countryFlag, setCountryFlag] = useState("🇺🇸");
   const [countryCode, setCountryCode] = useState("+1");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
-  const [changingNumber, setChangingNumber] = useState(false);
 
   const routingMode = answeringMode === "AI_FIRST" ? "direct" : "forward";
   const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
@@ -2611,54 +2618,38 @@ function StepConnect({
           verification, or any other setup section. */}
       {showPhone && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-number-card">
-          {assignedNumber && !changingNumber ? (
+          {assignedNumber ? (
             <div className="flex items-start justify-between gap-3.5">
               <div className="flex items-start gap-3.5">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
                 </svg>
                 <div>
-                  <p className="text-sm font-semibold text-slate-500">Your Triven AI number</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-500">Your Triven AI number</p>
+                    <span
+                      className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-green-700"
+                      data-testid="business-setup-assigned-number-status"
+                    >
+                      Active
+                    </span>
+                  </div>
                   <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Included with your Triven AI setup. To replace this number, contact Triven support.
+                  </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setChangingNumber(true)}
-                data-testid="business-setup-phone-change-number"
-                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-amber-300"
-              >
-                Change number
-              </button>
             </div>
           ) : (
-            <>
-              {assignedNumber ? (
-                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
-                  <p className="text-sm text-slate-700">
-                    Your current number <span className="font-mono font-bold">{assignedNumber}</span> stays active until the replacement is purchased and configured.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setChangingNumber(false)}
-                    data-testid="business-setup-phone-change-cancel"
-                    className="text-xs font-bold text-slate-500 hover:text-slate-700 underline shrink-0"
-                  >
-                    Keep current number
-                  </button>
-                </div>
-              ) : null}
-              <PhoneNumberSelectionSection
-                installedAgentId={installedAgentIdForPhone}
-                listingId={listingId}
-                forwardToPhone={routingMode === "forward" ? existingPhoneNumber : ""}
-                replaceExisting={Boolean(assignedNumber)}
-                onProvisioned={(phoneNumber) => {
-                  setChangingNumber(false);
-                  onNumberProvisioned(phoneNumber);
-                }}
-              />
-            </>
+            <PhoneNumberSelectionSection
+              installedAgentId={installedAgentIdForPhone}
+              listingId={listingId}
+              forwardToPhone={routingMode === "forward" ? existingPhoneNumber : ""}
+              onProvisioned={(phoneNumber) => {
+                onNumberProvisioned(phoneNumber);
+              }}
+            />
           )}
         </div>
       )}
@@ -2673,15 +2664,13 @@ function StepConnect({
               <button
                 type="button"
                 onClick={() => onAnsweringMode("AI_FIRST")}
-                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
-                  answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-                }`}
+                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                  }`}
                 style={answeringMode === "AI_FIRST" ? { boxShadow: "none" } : undefined}
                 data-testid="business-setup-routing-direct"
               >
-                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                  answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-                }`}>
+                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                  }`}>
                   {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                 </span>
                 <span className="flex-1">
@@ -2695,15 +2684,13 @@ function StepConnect({
               <button
                 type="button"
                 onClick={() => onAnsweringMode("NO_ANSWER")}
-                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
-                  answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-                }`}
+                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                  }`}
                 style={answeringMode !== "AI_FIRST" ? { boxShadow: "none" } : undefined}
                 data-testid="business-setup-routing-forward"
               >
-                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                  answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-                }`}>
+                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                  }`}>
                   {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                 </span>
                 <span className="flex-1">
@@ -2738,7 +2725,7 @@ function StepConnect({
                     <span className="text-lg leading-none">{countryFlag}</span>
                     <span className="text-slate-700">{countryCode}</span>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-slate-400">
-                      <polyline points="6 9 12 15 18 9"/>
+                      <polyline points="6 9 12 15 18 9" />
                     </svg>
                   </button>
                   {countryMenuOpen && (
@@ -2775,7 +2762,7 @@ function StepConnect({
                 {/* Check icon */}
                 <span className="phone-check absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true" style={{ opacity: phoneValid ? 1 : 0, transform: phoneValid ? "scale(1)" : "scale(0.6)" }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <polyline points="20 6 9 17 4 12"/>
+                    <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </span>
               </div>
@@ -2816,16 +2803,15 @@ function StepConnect({
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
-          <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${
-            calendar.connected 
-              ? "border-green-100 bg-green-50/30" 
+          <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${calendar.connected
+              ? "border-green-100 bg-green-50/30"
               : "border-gray-100 bg-slate-50"
-          }`}>
+            }`}>
             <div className="flex items-center gap-3">
               {/* Google Calendar Icon */}
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm-5-8h-4v4h4v-4z"/>
+                  <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm-5-8h-4v4h4v-4z" />
                 </svg>
               </div>
 
@@ -2834,8 +2820,8 @@ function StepConnect({
                   {calendar.connected ? "Google Calendar connected" : "Google Calendar"}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {calendar.connected 
-                    ? `Connected as ${calendar.email || "your account"}` 
+                  {calendar.connected
+                    ? `Connected as ${calendar.email || "your account"}`
                     : "Not connected. Connect so the agent can book appointments."}
                 </p>
               </div>
@@ -3357,75 +3343,75 @@ function StepVoice({
       </div>
 
       {showVoice ? (
-      <div className={SECTION} data-testid="business-setup-silence">
-        <h3 className={SECTION_TITLE}>Silence &amp; no-answer handling</h3>
-        <p className="mt-0.5 text-sm text-slate-500">If the caller goes quiet, the AI re-prompts warmly, then ends the call politely.</p>
+        <div className={SECTION} data-testid="business-setup-silence">
+          <h3 className={SECTION_TITLE}>Silence &amp; no-answer handling</h3>
+          <p className="mt-0.5 text-sm text-slate-500">If the caller goes quiet, the AI re-prompts warmly, then ends the call politely.</p>
 
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className={LABEL} htmlFor="silence-count">
-              Re-prompt attempts
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={LABEL} htmlFor="silence-count">
+                Re-prompt attempts
+              </label>
+
+              <select
+                data-testid="business-setup-input-silence-count"
+                id="silence-count"
+                value={String(silenceRepromptCount)}
+                onChange={(e) => onSilenceCount(Number(e.target.value))}
+                className={FIELD}
+              >
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <label className={LABEL} htmlFor="silence-1">
+              1st silence re-prompt
             </label>
 
-            <select
-              data-testid="business-setup-input-silence-count"
-              id="silence-count"
-              value={String(silenceRepromptCount)}
-              onChange={(e) => onSilenceCount(Number(e.target.value))}
+            <input
+              data-testid="business-setup-input-silence1"
+              id="silence-1"
+              value={silenceMessage1}
+              onChange={(e) => onSilence1(e.target.value)}
+              placeholder={DEFAULT_SILENCE.reprompt1}
               className={FIELD}
-            >
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-            </select>
+            />
+          </div>
+
+          <div className="mt-4">
+            <label className={LABEL} htmlFor="silence-2">
+              2nd silence re-prompt
+            </label>
+
+            <input
+              data-testid="business-setup-input-silence2"
+              id="silence-2"
+              value={silenceMessage2}
+              onChange={(e) => onSilence2(e.target.value)}
+              placeholder={DEFAULT_SILENCE.reprompt2}
+              className={FIELD}
+            />
+          </div>
+
+          <div className="mt-4">
+            <label className={LABEL} htmlFor="goodbye">
+              Goodbye message
+            </label>
+
+            <input
+              data-testid="business-setup-input-goodbye"
+              id="goodbye"
+              value={goodbyeMessage}
+              onChange={(e) => onGoodbye(e.target.value)}
+              placeholder={DEFAULT_SILENCE.goodbye}
+              className={FIELD}
+            />
           </div>
         </div>
-
-        <div className="mt-4">
-          <label className={LABEL} htmlFor="silence-1">
-            1st silence re-prompt
-          </label>
-
-          <input
-            data-testid="business-setup-input-silence1"
-            id="silence-1"
-            value={silenceMessage1}
-            onChange={(e) => onSilence1(e.target.value)}
-            placeholder={DEFAULT_SILENCE.reprompt1}
-            className={FIELD}
-          />
-        </div>
-
-        <div className="mt-4">
-          <label className={LABEL} htmlFor="silence-2">
-            2nd silence re-prompt
-          </label>
-
-          <input
-            data-testid="business-setup-input-silence2"
-            id="silence-2"
-            value={silenceMessage2}
-            onChange={(e) => onSilence2(e.target.value)}
-            placeholder={DEFAULT_SILENCE.reprompt2}
-            className={FIELD}
-          />
-        </div>
-
-        <div className="mt-4">
-          <label className={LABEL} htmlFor="goodbye">
-            Goodbye message
-          </label>
-
-          <input
-            data-testid="business-setup-input-goodbye"
-            id="goodbye"
-            value={goodbyeMessage}
-            onChange={(e) => onGoodbye(e.target.value)}
-            placeholder={DEFAULT_SILENCE.goodbye}
-            className={FIELD}
-          />
-        </div>
-      </div>
       ) : null}
     </div>
   );
@@ -3438,6 +3424,8 @@ type PreviewVapiEventName = "call-start" | "call-end" | "speech-start" | "speech
 type PreviewVapiClient = {
   start: (assistantId: string, overrides?: Record<string, unknown>) => Promise<unknown>;
   stop: () => void;
+  setMuted?: (muted: boolean) => void;
+  isMuted?: () => boolean;
   on: (event: PreviewVapiEventName, listener: (payload?: unknown) => void) => unknown;
   off?: (event: PreviewVapiEventName, listener: (payload?: unknown) => void) => unknown;
   removeAllListeners?: (event?: PreviewVapiEventName) => unknown;
@@ -3485,6 +3473,8 @@ function PreviewCallSection() {
   const [error, setError] = useState("");
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [micMuted, setMicMuted] = useState(false);
   const [transcript, setTranscript] = useState<PreviewTranscriptEntry[]>([]);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
 
@@ -3526,7 +3516,34 @@ function PreviewCallSection() {
     }
 
     setAgentSpeaking(false);
+    setMicMuted(false);
     setState("ended");
+  }
+
+  /** Clears this section's local transcript/error state back to a fresh test. */
+  function resetPreview() {
+    if (state === "starting" || state === "live") return;
+    setTranscript([]);
+    setError("");
+    setSecondsLeft(0);
+    setElapsedSeconds(0);
+    setMicMuted(false);
+    setSession(null);
+    setState("idle");
+  }
+
+  function toggleMute() {
+    const client = clientRef.current;
+    if (!client?.setMuted || state !== "live") return;
+
+    const next = !(client.isMuted?.() ?? micMuted);
+
+    try {
+      client.setMuted(next);
+      setMicMuted(next);
+    } catch {
+      // mute is best-effort — the call keeps going either way
+    }
   }
 
   async function startPreview() {
@@ -3535,6 +3552,8 @@ function PreviewCallSection() {
     startInFlightRef.current = true;
     setError("");
     setTranscript([]);
+    setElapsedSeconds(0);
+    setMicMuted(false);
     setState("starting");
 
     try {
@@ -3555,8 +3574,16 @@ function PreviewCallSection() {
       const onCallStart = () => {
         setState("live");
         setSecondsLeft(nextSession.maxDurationSeconds);
+        setElapsedSeconds(0);
+        setMicMuted(false);
+        try {
+          clientRef.current?.setMuted?.(false);
+        } catch {
+          // best-effort — a fresh call starts unmuted anyway
+        }
         stopTimer();
         timerRef.current = setInterval(() => {
+          setElapsedSeconds((current) => current + 1);
           setSecondsLeft((current) => {
             if (current <= 1) {
               endPreview();
@@ -3630,61 +3657,100 @@ function PreviewCallSection() {
         <div>
           <h3 className={SECTION_TITLE}>Talk to your agent</h3>
           <p className="mt-0.5 text-sm text-slate-500">
-            A live browser preview — it answers with your business details, FAQs, and voice, exactly like the live
-            agent. Booking and texting are disabled during preview.
+            A live browser call — it answers with your business details, FAQs, and voice, exactly like the live agent.
+            If your workflow includes booking, it can create a clearly-marked test event on your calendar during this
+            call. SMS and email stay disabled.
           </p>
         </div>
 
         {state === "live" ? (
-          <span className="shrink-0 font-mono text-sm font-bold text-slate-700" data-testid="business-setup-preview-timer">
-            {formatSeconds(secondsLeft)}
+          <span className="shrink-0 text-right">
+            <span className="block font-mono text-sm font-bold text-slate-700" data-testid="business-setup-preview-timer">
+              {formatSeconds(secondsLeft)}
+            </span>
+            <span className="block font-mono text-[11px] font-semibold text-slate-400" data-testid="business-test-call-duration">
+              {formatSeconds(elapsedSeconds)} elapsed
+            </span>
+          </span>
+        ) : state === "ended" && elapsedSeconds > 0 ? (
+          <span className="shrink-0 font-mono text-[11px] font-semibold text-slate-400" data-testid="business-test-call-duration">
+            Call length {formatSeconds(elapsedSeconds)}
           </span>
         ) : null}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {state === "live" ? (
-          <button
-            type="button"
-            data-testid="business-setup-preview-end"
-            onClick={() => endPreview()}
-            className="btn rounded-full bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
-          >
-            End call
-          </button>
+          <>
+            <button
+              type="button"
+              data-testid="business-setup-preview-end"
+              onClick={() => endPreview()}
+              className="btn rounded-full bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
+            >
+              End call
+            </button>
+
+            <button
+              type="button"
+              data-testid="business-test-call-mute"
+              aria-pressed={micMuted}
+              onClick={toggleMute}
+              className={`btn rounded-full border px-4 py-2.5 text-sm font-bold ${micMuted
+                  ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  : "border-gray-200 bg-white text-slate-700 hover:border-amber-300"
+                }`}
+            >
+              {micMuted ? "Unmute mic" : "Mute mic"}
+            </button>
+          </>
         ) : (
-          <button
-            type="button"
-            data-testid="business-setup-preview-start"
-            disabled={state === "starting"}
-            onClick={() => void startPreview()}
-            className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-          >
-            {state === "starting" ? "Connecting…" : state === "ended" ? "Call again" : "Start preview call"}
-          </button>
+          <>
+            <button
+              type="button"
+              data-testid="business-setup-preview-start"
+              disabled={state === "starting"}
+              onClick={() => void startPreview()}
+              className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
+            >
+              {state === "starting" ? "Connecting…" : state === "ended" ? "Call again" : "Start test call"}
+            </button>
+
+            {state === "ended" || transcript.length > 0 || error ? (
+              <button
+                type="button"
+                data-testid="business-test-call-reset"
+                disabled={state === "starting"}
+                onClick={resetPreview}
+                className="btn rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
+              >
+                Reset test
+              </button>
+            ) : null}
+          </>
         )}
 
         <span
           data-testid="business-setup-preview-status"
-          className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
-            state === "live" ? (agentSpeaking ? "text-violet-600" : "text-green-600") : "text-slate-400"
-          }`}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold ${state === "live" ? (agentSpeaking ? "text-violet-600" : "text-green-600") : "text-slate-400"
+            }`}
         >
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              state === "live"
+            className={`h-1.5 w-1.5 rounded-full ${state === "live"
                 ? agentSpeaking
                   ? "bg-violet-500"
                   : "bg-green-500"
                 : state === "starting"
                   ? "bg-amber-400"
                   : "bg-slate-300"
-            }`}
+              }`}
           />
           {state === "live"
             ? agentSpeaking
               ? "Agent speaking…"
-              : "Listening — just talk"
+              : micMuted
+                ? "Mic muted — the agent can't hear you"
+                : "Listening — just talk"
             : state === "starting"
               ? "Connecting…"
               : state === "ended"
@@ -3888,12 +3954,15 @@ function MissedCallSimulationSection({
   businessName,
   tone,
   answeringMode,
-  listing
+  listing,
+  onOutcome
 }: {
   businessName: string;
   tone: string;
   answeringMode: string;
   listing?: any;
+  /** Reports the latest SMS test outcome to the step-level test summary. */
+  onOutcome?: (outcome: "sent" | "simulated" | "failed") => void;
 }) {
   const [phone, setPhone] = useState("");
   const [stage, setStage] = useState<SimulationStage>("idle");
@@ -3965,9 +4034,11 @@ function MissedCallSimulationSection({
       setResult(res.data);
       setSentAt(nowTimeLabel());
       setStage("sent");
+      onOutcome?.(res.data.simulated || res.data.testCredentials ? "simulated" : "sent");
     } else {
       setError(res.error ?? "Could not send the test SMS.");
       setStage("failed");
+      onOutcome?.("failed");
     }
   }
 
@@ -3979,9 +4050,8 @@ function MissedCallSimulationSection({
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-semibold text-slate-700">Live agent feed</span>
         <span
-          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
-            stage === "idle" ? "text-slate-400 bg-slate-50" : badge.text
-          }`}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${stage === "idle" ? "text-slate-400 bg-slate-50" : badge.text
+            }`}
           data-testid="business-setup-simulate-badge"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${badge.dot} ${running ? "animate-pulse" : ""}`} />
@@ -4114,6 +4184,7 @@ function MissedCallSimulationSection({
           {stage === "sent" && !testConfirmed && (
             <button
               type="button"
+              data-testid="business-test-sms-received-confirm"
               onClick={() => setTestConfirmed(true)}
               className="btn bg-green-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-green-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
             >
@@ -4160,7 +4231,10 @@ function StepTest({
   listing,
   showCalendarTest = false,
   calendarConnected = false,
-  timeZone = ""
+  timeZone = "",
+  agentName = "",
+  calendarId = "",
+  serviceName = ""
 }: {
   showPreview: boolean;
   showCallTest: boolean;
@@ -4176,8 +4250,50 @@ function StepTest({
   showCalendarTest?: boolean;
   calendarConnected?: boolean;
   timeZone?: string;
+  agentName?: string;
+  calendarId?: string;
+  serviceName?: string;
 }) {
   const labels = getAnsweringLabels(answeringMode, listing, assignedNumber);
+
+  // Step-level test summary state, fed by the chat test + SMS simulation.
+  const [chatSummary, setChatSummary] = useState<BusinessChatTestResult | null>(null);
+  const [calendarOutcome, setCalendarOutcome] = useState<"created" | "simulated" | "failed" | null>(null);
+  const [smsOutcome, setSmsOutcome] = useState<"sent" | "simulated" | "failed" | null>(null);
+
+  const handleChatResult = useCallback((result: BusinessChatTestResult) => {
+    setChatSummary(result);
+    if (result.calendarError) {
+      setCalendarOutcome("failed");
+    } else if (result.calendarEvent) {
+      setCalendarOutcome(result.calendarEvent.status === "CREATED" ? "created" : "simulated");
+    }
+  }, []);
+
+  const summaryNodes = chatSummary?.executedNodes ?? [];
+  const nodeCounts = {
+    completed: summaryNodes.filter((node) => node.status === "success").length,
+    skipped: summaryNodes.filter((node) => node.status === "skipped").length,
+    failed: summaryNodes.filter((node) => node.status === "error").length
+  };
+
+  const calendarSummary =
+    calendarOutcome === "created"
+      ? { label: "Created", pill: "bg-green-100 text-green-700" }
+      : calendarOutcome === "simulated"
+        ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
+        : calendarOutcome === "failed"
+          ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+          : { label: "Not tested", pill: "bg-slate-100 text-slate-500" };
+
+  const smsSummary =
+    smsOutcome === "sent"
+      ? { label: "Sent", pill: "bg-green-100 text-green-700" }
+      : smsOutcome === "simulated"
+        ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
+        : smsOutcome === "failed"
+          ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+          : { label: "Not tested", pill: "bg-slate-100 text-slate-500" };
 
   return (
     <div className="space-y-6">
@@ -4199,6 +4315,54 @@ function StepTest({
         </svg>
         ~60 seconds
       </span>
+
+      {/* Test details — what this test run is wired to. Rows render only when
+          the setup actually has the data; nothing here is a placeholder. */}
+      <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-5" data-testid="business-test-details">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className={SECTION_TITLE}>Test details</h3>
+          <span
+            className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700"
+            data-testid="business-test-details-mode"
+          >
+            Test Mode
+          </span>
+        </div>
+
+        <dl className="mt-3 space-y-2">
+          {agentName.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-agent">
+              <dt className="shrink-0 text-slate-500">Agent</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{agentName.trim()}</dd>
+            </div>
+          ) : null}
+
+          {timeZone.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-timezone">
+              <dt className="shrink-0 text-slate-500">Business timezone</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
+            </div>
+          ) : null}
+
+          {showCalendarTest && calendarId.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-calendar">
+              <dt className="shrink-0 text-slate-500">Calendar</dt>
+              <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-800">{calendarId.trim()}</dd>
+            </div>
+          ) : null}
+
+          {serviceName.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-service">
+              <dt className="shrink-0 text-slate-500">Service</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{serviceName.trim()}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <p className="mt-3 text-xs text-slate-400">
+          Everything on this page runs in Business Test mode — nothing reaches your customers.
+        </p>
+      </div>
 
       {/* Numbered instructions */}
       {showCallTest ? (
@@ -4234,80 +4398,157 @@ function StepTest({
         </div>
       ) : null}
 
-      {showCallTest ? <MissedCallSimulationSection businessName={businessName} tone={tone} answeringMode={answeringMode} listing={listing} /> : null}
+      {showCallTest ? (
+        <MissedCallSimulationSection
+          businessName={businessName}
+          tone={tone}
+          answeringMode={answeringMode}
+          listing={listing}
+          onOutcome={setSmsOutcome}
+        />
+      ) : null}
 
 
       {showPreview ? <PreviewCallSection /> : null}
 
       {showCalendarTest ? (
-        <BusinessCalendarTestSection calendarConnected={calendarConnected} timeZone={timeZone} />
+        <BusinessCalendarTestSection
+          calendarConnected={calendarConnected}
+          timeZone={timeZone}
+          onResult={handleChatResult}
+        />
       ) : null}
 
       {showCallTest && labels.isVoice ? (
-      <div className={SECTION} data-testid="business-setup-test-routing">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className={SECTION_TITLE}>Test call routing</h3>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Confirm an inbound call to your Triven number will reach this deployed agent.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            data-testid="business-setup-test-routing-run"
-            disabled={testing}
-            onClick={onTestCallRouting}
-            className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
-          >
-            {testing ? "Testing…" : "Test call routing"}
-          </button>
-        </div>
-
-        {testResult ? (
-          <div className="mt-4">
-            <div
-              className={`rounded-xl px-4 py-3 text-sm font-semibold ${testResult.readyForCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
-                }`}
-              data-testid="business-setup-test-routing-summary"
-            >
-              {testResult.readyForCall
-                ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
-                : "Not ready yet — resolve the failing checks below, then re-test."}
+        <div className={SECTION} data-testid="business-setup-test-routing">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className={SECTION_TITLE}>Test call routing</h3>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Confirm an inbound call to your Triven number will reach this deployed agent.
+              </p>
             </div>
 
-            <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
-              {testResult.checks.map((check) => (
-                <li
-                  key={check.key}
-                  data-testid={`business-setup-test-routing-check-${check.key}`}
-                  className="flex items-center gap-2.5 text-sm"
-                >
-                  <span
-                    className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
-                      }`}
-                  >
-                    {check.ok ? "✓" : "✕"}
-                  </span>
-
-                  <span className="min-w-0">
-                    <span className="block font-semibold text-slate-800">{check.label}</span>
-
-                    {check.message ? (
-                      <span className="block break-all text-xs text-slate-400">{check.message}</span>
-                    ) : null}
-                  </span>
-
-                  <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
-                    {check.ok ? "Pass" : "Fail"}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <button
+              type="button"
+              data-testid="business-setup-test-routing-run"
+              disabled={testing}
+              onClick={onTestCallRouting}
+              className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
+            >
+              {testing ? "Testing…" : "Test call routing"}
+            </button>
           </div>
-        ) : null}
-      </div>
+
+          {testResult ? (
+            <div className="mt-4">
+              <div
+                className={`rounded-xl px-4 py-3 text-sm font-semibold ${testResult.readyForCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
+                  }`}
+                data-testid="business-setup-test-routing-summary"
+              >
+                {testResult.readyForCall
+                  ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
+                  : "Not ready yet — resolve the failing checks below, then re-test."}
+              </div>
+
+              <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
+                {testResult.checks.map((check) => (
+                  <li
+                    key={check.key}
+                    data-testid={`business-setup-test-routing-check-${check.key}`}
+                    className="flex items-center gap-2.5 text-sm"
+                  >
+                    <span
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
+                        }`}
+                    >
+                      {check.ok ? "✓" : "✕"}
+                    </span>
+
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-slate-800">{check.label}</span>
+
+                      {check.message ? (
+                        <span className="block break-all text-xs text-slate-400">{check.message}</span>
+                      ) : null}
+                    </span>
+
+                    <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
+                      {check.ok ? "Pass" : "Fail"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       ) : null}
+
+      {/* Test summary — a running record of what this step verified. */}
+      <div className={SECTION} data-testid="business-test-summary">
+        <h3 className={SECTION_TITLE}>Test summary</h3>
+        <p className="mt-0.5 text-sm text-slate-500">What you&rsquo;ve verified so far in this test session.</p>
+
+        <dl className="mt-4 space-y-2.5">
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-mode">
+            <dt className="text-slate-500">Execution mode</dt>
+            <dd className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-700">
+              Business test
+            </dd>
+          </div>
+
+          {chatSummary?.testSessionId ? (
+            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-session">
+              <dt className="text-slate-500">Test session</dt>
+              <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-700">
+                {chatSummary.testSessionId}
+              </dd>
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-nodes">
+            <dt className="text-slate-500">Workflow nodes</dt>
+            <dd className="text-right font-semibold text-slate-800">
+              {summaryNodes.length > 0 ? (
+                <>
+                  <span className="text-green-700">{nodeCounts.completed} completed</span>
+                  <span className="text-slate-400"> · </span>
+                  <span className="text-slate-600">{nodeCounts.skipped} skipped</span>
+                  <span className="text-slate-400"> · </span>
+                  <span className={nodeCounts.failed > 0 ? "text-rose-600" : "text-slate-600"}>
+                    {nodeCounts.failed} failed
+                  </span>
+                </>
+              ) : (
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Not tested</span>
+              )}
+            </dd>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-calendar">
+            <dt className="text-slate-500">Calendar booking</dt>
+            <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${calendarSummary.pill}`}>
+              {calendarSummary.label}
+            </dd>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-sms">
+            <dt className="text-slate-500">Text-back SMS</dt>
+            <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${smsSummary.pill}`}>
+              {smsSummary.label}
+            </dd>
+          </div>
+
+          <div
+            className="flex items-center justify-between gap-4 border-t border-slate-100 pt-2.5 text-sm"
+            data-testid="business-test-summary-side-effects"
+          >
+            <dt className="text-slate-500">Production side effects</dt>
+            <dd className="font-semibold text-slate-800">None</dd>
+          </div>
+        </dl>
+      </div>
 
     </div>
   );
@@ -4376,19 +4617,48 @@ function StepGoLive({
 /* business calendar. Never counts as production activity.             */
 /* ------------------------------------------------------------------ */
 
+/** Visual meta for the per-turn node execution timeline. */
+const NODE_STATUS_META: Record<BusinessTestExecutedNode["status"], { label: string; pill: string; dot: string }> = {
+  success: { label: "Completed", pill: "bg-green-100 text-green-700", dot: "bg-green-500" },
+  waiting: { label: "Waiting", pill: "bg-amber-100 text-amber-700", dot: "bg-amber-400" },
+  error: { label: "Failed", pill: "bg-rose-100 text-rose-700", dot: "bg-rose-500" },
+  skipped: { label: "Skipped", pill: "bg-slate-100 text-slate-600", dot: "bg-slate-300" }
+};
+
+/** Visual meta for tool activity entries in the chat test. */
+const TOOL_CALL_STATUS_META: Record<BusinessChatTestToolCall["status"], { label: string; pill: string }> = {
+  simulated: { label: "Simulated", pill: "bg-amber-100 text-amber-700" },
+  skipped: { label: "Skipped", pill: "bg-slate-100 text-slate-600" },
+  error: { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+};
+
+/** Short clock label ("3:42 PM") for a transcript timestamp; empty when invalid. */
+function chatTimeLabel(iso?: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function BusinessCalendarTestSection({
   calendarConnected,
-  timeZone
+  timeZone,
+  onResult
 }: {
   calendarConnected: boolean;
   timeZone: string;
+  /** Reports each turn's full result to the step-level test summary. */
+  onResult?: (result: BusinessChatTestResult) => void;
 }) {
   const [messages, setMessages] = useState<BusinessChatTestMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState("");
   const [configError, setConfigError] = useState<{ code: string; message: string; remediation: string } | null>(null);
+  const [calendarError, setCalendarError] = useState<{ code: string; message: string; remediation: string } | null>(null);
   const [calendarEvent, setCalendarEvent] = useState<BusinessTestCalendarEvent | null>(null);
+  const [toolCalls, setToolCalls] = useState<BusinessChatTestToolCall[]>([]);
+  const [executedNodes, setExecutedNodes] = useState<BusinessTestExecutedNode[]>([]);
   const [deletingEvent, setDeletingEvent] = useState(false);
   const testSessionIdRef = useRef<string>(`bts_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
 
@@ -4411,9 +4681,22 @@ function BusinessCalendarTestSection({
     setSending(false);
 
     if (res.success && res.data) {
-      setMessages(res.data.transcript);
+      // Keep client-side timestamps for entries the server echoes back without one.
+      const receivedAt = new Date().toISOString();
+      setMessages(
+        res.data.transcript.map((entry, index) => ({
+          ...entry,
+          createdAt: entry.createdAt ?? pending[index]?.createdAt ?? receivedAt
+        }))
+      );
+      setToolCalls(res.data.toolCalls ?? []);
+      // Latest turn's node timeline replaces the previous one — including
+      // failed/skipped nodes, which must stay visible.
+      setExecutedNodes(res.data.executedNodes ?? []);
       if (res.data.calendarEvent) setCalendarEvent(res.data.calendarEvent);
-      setConfigError(res.data.configError ?? res.data.calendarError ?? null);
+      setCalendarError(res.data.calendarError ?? null);
+      setConfigError(res.data.configError ?? null);
+      onResult?.(res.data);
     } else {
       setMessages(pending);
       setChatError(res.error ?? "Could not run the test conversation.");
@@ -4463,18 +4746,56 @@ function BusinessCalendarTestSection({
               Try: &ldquo;I&rsquo;d like to book a Test Appointment tomorrow at 3 PM. My name is Alex, my number is +1 555 010 0000.&rdquo;
             </p>
           ) : (
-            messages.map((entry, index) => (
-              <p
-                key={`${entry.role}-${index}`}
-                className={`rounded-lg px-3 py-2 text-sm ${entry.role === "user" ? "bg-amber-50 text-slate-800" : "bg-slate-50 text-slate-700"}`}
-                data-testid={`business-setup-calendar-test-message-${entry.role}`}
-              >
-                <span className="mr-1 font-semibold">{entry.role === "user" ? "You:" : "Agent:"}</span>
-                {entry.content}
-              </p>
-            ))
+            messages.map((entry, index) => {
+              const timeLabel = chatTimeLabel(entry.createdAt);
+
+              return (
+                <div
+                  key={`${entry.role}-${index}`}
+                  className={`rounded-lg px-3 py-2 text-sm ${entry.role === "user" ? "bg-amber-50 text-slate-800" : "bg-slate-50 text-slate-700"}`}
+                  data-testid={`business-setup-calendar-test-message-${entry.role}`}
+                >
+                  <span className="flex items-baseline justify-between gap-3">
+                    <span className="font-semibold">{entry.role === "user" ? "You" : "Agent"}</span>
+                    {timeLabel ? (
+                      <span className="shrink-0 font-mono text-[10px] text-slate-400" data-testid="business-test-chat-timestamp">
+                        {timeLabel}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block">{entry.content}</span>
+                </div>
+              );
+            })
           )}
         </div>
+        {toolCalls.length > 0 ? (
+          <div className="border-t border-gray-100 px-4 py-3" data-testid="business-test-chat-tool-activity">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tool activity — latest turn</p>
+            <ul className="mt-2 space-y-1.5">
+              {toolCalls.map((call, index) => {
+                const meta = TOOL_CALL_STATUS_META[call.status] ?? TOOL_CALL_STATUS_META.skipped;
+
+                return (
+                  <li
+                    key={`${call.name}-${index}`}
+                    className="flex items-start gap-2"
+                    data-testid="business-test-chat-tool-call"
+                  >
+                    <span className={`mt-px shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.pill}`}>
+                      {meta.label}
+                    </span>
+                    <span className="min-w-0 text-xs">
+                      <span className="font-mono font-semibold text-slate-700">{call.name}</span>
+                      {call.message ? <span className="block text-slate-500">{call.message}</span> : null}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="flex gap-2 border-t border-gray-100 p-3">
           <input
             type="text"
@@ -4510,47 +4831,106 @@ function BusinessCalendarTestSection({
         <p className="mt-3 text-sm font-semibold text-rose-600" data-testid="business-setup-calendar-test-error">{chatError}</p>
       ) : null}
 
+      {/* Node execution timeline — every node the graph runner touched this
+          turn, in order. Failed and skipped nodes stay visible on purpose. */}
+      {executedNodes.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4" data-testid="business-test-node-timeline">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Node execution — latest turn</p>
+          <ol className="mt-3">
+            {executedNodes.map((node, index) => {
+              const meta = NODE_STATUS_META[node.status] ?? NODE_STATUS_META.skipped;
+              const isLast = index === executedNodes.length - 1;
+
+              return (
+                <li key={`${node.nodeId}-${index}`} className={`flex gap-3 ${isLast ? "" : "pb-4"}`} data-testid="business-test-node-row">
+                  <span aria-hidden className="flex flex-col items-center">
+                    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${meta.dot}`} />
+                    {isLast ? null : <span className="mt-1 w-px flex-1 bg-slate-200" />}
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{node.label}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.pill}`}
+                        data-testid="business-test-node-status"
+                      >
+                        {meta.label}
+                      </span>
+                    </span>
+                    {node.message ? <span className="mt-0.5 block text-xs text-slate-500">{node.message}</span> : null}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      ) : null}
+
+      {/* Google Calendar result — a "Created" state only ever renders when a
+          real test event exists; failures render as a separate rose card. */}
       {calendarEvent ? (
-        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-calendar-test-event">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-bold text-slate-800" data-testid="business-setup-calendar-test-event-title">{calendarEvent.title}</p>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${calendarEvent.status === "CREATED" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}
-              data-testid="business-setup-calendar-test-event-status"
-            >
-              {calendarEvent.status === "CREATED" ? "Created on your calendar" : "Simulated"}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-start">
-            Starts: {new Date(calendarEvent.startAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })} ({calendarEvent.timeZone})
-          </p>
-          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-end">
-            Ends: {new Date(calendarEvent.endAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })}
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            {calendarEvent.htmlLink ? (
-              <a
-                href={calendarEvent.htmlLink}
-                target="_blank"
-                rel="noreferrer"
-                data-testid="business-setup-calendar-test-event-link"
-                className="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+        <div className="mt-4" data-testid="business-test-calendar-result">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-calendar-test-event">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Google Calendar result</p>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-slate-800" data-testid="business-setup-calendar-test-event-title">{calendarEvent.title}</p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${calendarEvent.status === "CREATED" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}
+                data-testid="business-setup-calendar-test-event-status"
               >
-                Open in Google Calendar
-              </a>
+                {calendarEvent.status === "CREATED" ? "Created on your calendar" : "Simulated"}
+              </span>
+            </div>
+            {calendarEvent.serviceName ? (
+              <p className="mt-1 text-xs text-slate-500" data-testid="business-test-calendar-service">
+                Service: <span className="font-semibold text-slate-700">{calendarEvent.serviceName}</span>
+              </p>
             ) : null}
-            {calendarEvent.testEventId ? (
-              <button
-                type="button"
-                onClick={() => void deleteEvent()}
-                disabled={deletingEvent}
-                data-testid="business-setup-calendar-test-event-delete"
-                className="btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
-              >
-                {deletingEvent ? "Deleting…" : "Delete test event"}
-              </button>
-            ) : null}
+            <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-start">
+              Starts: {new Date(calendarEvent.startAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })} ({calendarEvent.timeZone})
+            </p>
+            <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-end">
+              Ends: {new Date(calendarEvent.endAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })}
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              {calendarEvent.status === "CREATED" && calendarEvent.htmlLink ? (
+                <span className="contents" data-testid="business-test-calendar-open-link">
+                  <a
+                    href={calendarEvent.htmlLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-testid="business-setup-calendar-test-event-link"
+                    className="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+                  >
+                    Open in Google Calendar
+                  </a>
+                </span>
+              ) : null}
+              {calendarEvent.testEventId ? (
+                <button
+                  type="button"
+                  onClick={() => void deleteEvent()}
+                  disabled={deletingEvent}
+                  data-testid="business-setup-calendar-test-event-delete"
+                  className="btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                >
+                  {deletingEvent ? "Deleting…" : "Delete test event"}
+                </button>
+              ) : null}
+            </div>
           </div>
+        </div>
+      ) : null}
+
+      {calendarError ? (
+        <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3" data-testid="business-test-calendar-error">
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">Failed</span>
+            <span className="font-mono text-[11px] font-semibold text-rose-500">{calendarError.code}</span>
+          </div>
+          <p className="mt-1.5 text-sm font-semibold text-rose-700">{calendarError.message}</p>
+          <p className="mt-0.5 text-xs text-rose-600">{calendarError.remediation}</p>
         </div>
       ) : null}
     </div>

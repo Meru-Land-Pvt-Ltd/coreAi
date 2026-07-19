@@ -497,19 +497,19 @@ paymentRoutes.get("/billing", async (c) => {
   const currentBillingMonth = new Date().toISOString().slice(0, 7);
   const [currentUsage, unpaidUsageInvoices] = business
     ? await Promise.all([
-        prisma.vapiCall.aggregate({
-          where: {
-            businessId: business.id,
-            billingMonth: currentBillingMonth,
-            billingRecordedAt: { not: null }
-          },
-          _sum: { billedCostMicroUsd: true }
-        }),
-        prisma.businessUsageInvoice.aggregate({
-          where: { businessId: business.id, status: { in: ["OPEN", "OVERDUE"] } },
-          _sum: { totalMicroUsd: true }
-        })
-      ])
+      prisma.vapiCall.aggregate({
+        where: {
+          businessId: business.id,
+          billingMonth: currentBillingMonth,
+          billingRecordedAt: { not: null }
+        },
+        _sum: { billedCostMicroUsd: true }
+      }),
+      prisma.businessUsageInvoice.aggregate({
+        where: { businessId: business.id, status: { in: ["OPEN", "OVERDUE"] } },
+        _sum: { totalMicroUsd: true }
+      })
+    ])
     : [{ _sum: { billedCostMicroUsd: null } }, { _sum: { totalMicroUsd: null } }];
 
   // Best-effort fetch of the default card from Stripe. Any failure -> null (UI shows NA).
@@ -729,23 +729,23 @@ paymentRoutes.get("/my-agents", async (c) => {
   // Load details for listings that are installed but have no payment record
   const missingListings = missingListingIds.length > 0
     ? await prisma.agentListing.findMany({
-        where: { id: { in: missingListingIds } },
-        include: {
-          workflow: {
-            select: { id: true, name: true, description: true }
-          },
-          architect: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-              architectProfile: {
-                select: { title: true, rating: true, completedJobs: true }
-              }
+      where: { id: { in: missingListingIds } },
+      include: {
+        workflow: {
+          select: { id: true, name: true, description: true }
+        },
+        architect: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            architectProfile: {
+              select: { title: true, rating: true, completedJobs: true }
             }
           }
         }
-      })
+      }
+    })
     : [];
 
   const missingListingsMap = new Map(missingListings.map((l) => [l.id, l]));
@@ -786,9 +786,6 @@ paymentRoutes.get("/my-agents", async (c) => {
       }
     }
 
-    // A historical trial must not keep a converted/paid purchase in trial
-    // mode. The status selected above is the current source of truth; only
-    // retain the historical marker for failed/canceled trial acquisitions.
     const isTrial = statusToUse === PaymentStatus.TRIALING || (
       statusToUse !== PaymentStatus.SUCCEEDED &&
       listingPayments.some((payment) =>
@@ -808,7 +805,8 @@ paymentRoutes.get("/my-agents", async (c) => {
       const vapiExecutions = await prisma.vapiCall.count({
         where: {
           businessId: business.id,
-          installedAgentId: installedAgent.id
+          installedAgentId: installedAgent.id,
+          executionMode: "LIVE"
         }
       });
       totalExecutions = vapiExecutions;
@@ -823,13 +821,14 @@ paymentRoutes.get("/my-agents", async (c) => {
         totalExecutions += missedCalls;
 
         totalBookings = await prisma.appointment.count({
-          where: { businessId: business.id }
+          where: { businessId: business.id, executionMode: "LIVE" }
         });
       } else {
         const agentVapiCalls = await prisma.vapiCall.findMany({
           where: {
             businessId: business.id,
             installedAgentId: installedAgent.id,
+            executionMode: "LIVE",
             conversationId: { not: null }
           },
           select: { conversationId: true }
@@ -842,6 +841,7 @@ paymentRoutes.get("/my-agents", async (c) => {
           totalBookings = await prisma.appointment.count({
             where: {
               businessId: business.id,
+              executionMode: "LIVE",
               conversationId: { in: agentConversationIds }
             }
           });
@@ -1082,9 +1082,9 @@ paymentRoutes.post("/start-trial", async (c) => {
   });
   const checkoutBusiness = businessId
     ? await prisma.business.findUnique({
-        where: { id: businessId },
-        select: { stripeCustomerId: true }
-      })
+      where: { id: businessId },
+      select: { stripeCustomerId: true }
+    })
     : null;
 
   let customerId: string;
@@ -1372,7 +1372,7 @@ paymentRoutes.post("/purchase", async (c) => {
     return errorResponse(
       c,
       intent.last_payment_error?.message ??
-        "The payment could not be completed. Please try again or use a different card.",
+      "The payment could not be completed. Please try again or use a different card.",
       402,
       "PAYMENT_INCOMPLETE"
     );

@@ -5,6 +5,8 @@ import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
+import { DuplicateWorkflowRunError } from "../memory/work-flow-run-service";
+import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
@@ -395,9 +397,6 @@ async function resolveAgent({
       }
     }
 
-    // ---- B / D: PlatformPhoneNumber exact match assigned to a business ----
-    // Only ASSIGNED numbers route here: RELEASED/ARCHIVED/DISABLED/ERROR rows
-    // must never resolve a live call even if they still carry a businessId.
     const platform = await prisma.platformPhoneNumber.findUnique({
       where: { phoneNumber: normalizedCalledNumber }
     });
@@ -643,11 +642,6 @@ function formatAppointmentTime(iso: string, timeZone?: string | null): string {
   }
 }
 
-/**
- * Shared appointment creation used by both the Vapi voice booking tool and the
- * inbound-SMS booking path: creates the Google Calendar event and persists the
- * Appointment row. Requires the business to have an owner (for Google OAuth).
- */
 async function createBusinessAppointment({
   business,
   customerPhone,
@@ -852,12 +846,15 @@ async function runMissedCallAgent({
   agent,
   callerNumber,
   callerName,
-  reason
+  reason,
+  callSid
 }: {
   agent: ResolvedAgent;
   callerNumber: string;
   callerName?: string;
   reason: string;
+  /** Twilio CallSid — dedupes retried/doubly-configured webhook deliveries. */
+  callSid?: string | null;
 }) {
   const conversation = await upsertConversation({
     businessId: agent.business?.businessId,
@@ -867,20 +864,33 @@ async function runMissedCallAgent({
     providerId: null
   });
 
-  const run = await runWorkflowTest({
-    userId: agent.business?.ownerId ?? agent.userId,
-    workflowId: agent.workflowId,
-    workflowJson: agent.workflowJson,
-    mode: "live",
-    // Sandbox/test agents keep their test classification even on real calls.
-    executionMode: agent.business?.executionMode ?? "LIVE",
-    input: runInputFromContext({
-      agent,
-      callerNumber,
-      callerName,
-      reason
-    })
-  });
+  let run: Awaited<ReturnType<typeof runWorkflowTest>>;
+  try {
+    run = await runWorkflowTest({
+      userId: agent.business?.ownerId ?? agent.userId,
+      workflowId: agent.workflowId,
+      workflowJson: agent.workflowJson,
+      mode: "live",
+      executionMode: agent.business?.executionMode ?? "LIVE",
+      callProvider: callSid ? "TWILIO" : undefined,
+      externalCallId: callSid || undefined,
+      input: runInputFromContext({
+        agent,
+        callerNumber,
+        callerName,
+        reason
+      })
+    });
+  } catch (error) {
+    if (error instanceof DuplicateWorkflowRunError) {
+      console.log("[twilio-webhook] duplicate missed-call delivery ignored", {
+        callSid,
+        workflowId: agent.workflowId
+      });
+      return null;
+    }
+    throw error;
+  }
 
   const sentSms = typeof run.context.sentSms === "object" && run.context.sentSms !== null
     ? (run.context.sentSms as { body?: string; id?: string | null })
@@ -1030,10 +1040,6 @@ function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: strin
   }
 }
 
-/**
- * Read-only routing diagnostics for a Triven AI number — powers the buyer's
- * "Test call routing" check. Runs the same resolver the live webhook uses.
- */
 export async function getCallRoutingDiagnostics(rawNumber: string) {
   const normalizedNumber = normalizePhoneNumber(rawNumber);
   const agent = normalizedNumber ? await resolveAgent({ calledNumber: normalizedNumber }) : null;
@@ -1140,8 +1146,6 @@ export async function handleTwilioVoice(c: Context) {
     return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
   }
 
-  // Buyer paused the agent: the AI never answers. Calls still reach a human
-  // when a forwarding number exists; otherwise a polite unavailable message.
   if (agent.agentPaused) {
     if (forwardToPhone) {
       logDiag("agent_paused_forwarding_to_human");
@@ -1212,6 +1216,7 @@ export async function handleTwilioVoiceAction(c: Context) {
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
   const dialStatus = readBodyString(body, ["DialCallStatus", "DialStatus", "CallStatus"]);
+  const callSid = readBodyString(body, ["CallSid", "callSid"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   if (!agent || !callerNumber) {
@@ -1231,6 +1236,7 @@ export async function handleTwilioVoiceAction(c: Context) {
     agent,
     callerNumber,
     callerName,
+    callSid,
     reason: `Twilio forwarded the call but office did not answer. Dial status: ${dialStatus || "unknown"}.`
   });
 
@@ -1248,6 +1254,7 @@ export async function handleTwilioMissedCall(c: Context) {
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
+  const callSid = readBodyString(body, ["CallSid", "callSid"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   // Paused agents never run the missed-call text-back workflow.
@@ -1259,6 +1266,7 @@ export async function handleTwilioMissedCall(c: Context) {
     agent,
     callerNumber,
     callerName,
+    callSid,
     reason: "Direct Twilio missed-call webhook triggered this agent."
   });
 
@@ -1471,8 +1479,6 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  // "Reply C to cancel" — works even when the agent is paused, like the
-  // consent keywords: it's account service, not an agent conversation.
   if (isSmsCancelRequest(incomingBody)) {
     await upsertConversation({
       businessId: agent.business?.businessId,
@@ -1540,8 +1546,10 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   let bookedEventId: string | null = null;
   let bookedAppointmentId: string | null = null;
 
+  const smsWorkflowCanBook = workflowCapabilities(agent.workflowJson, "sms").canBook;
+
   const requestedSlot =
-    agent.business?.businessId && agent.business?.ownerId
+    smsWorkflowCanBook && agent.business?.businessId && agent.business?.ownerId
       ? parseRequestedAppointment(
           incomingBody,
           agent.business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
@@ -2170,6 +2178,9 @@ type VapiToolContext = {
   callId?: string;
   summary: string;
   transcript: string;
+  /** Resolved from trusted call metadata: BUSINESS_TEST for buyer browser
+   * tests — booking then writes marked test events, never live appointments. */
+  executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
 };
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -2482,9 +2493,76 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
-  // One source of truth for the confirmation SMS: the notification service's
-  // appointment-confirmation dedupe key. A failed SMS never rolls back a
-  // booked appointment — the result reports partial success instead.
+  if (ctx.executionMode === "BUSINESS_TEST") {
+    const ownerUserId = ctx.business?.ownerId ?? null;
+
+    if (!ownerUserId) {
+      return {
+        success: false,
+        business_test: true,
+        calendar_status: "not_connected",
+        message: "This test agent has no calendar owner configured, so the test booking could not be recorded."
+      };
+    }
+
+    const testEvent = await createTestCalendarEvent({
+      executionMode: "BUSINESS_TEST",
+      ownerUserId,
+      businessId: ctx.business?.businessId ?? null,
+      installedAgentId: ctx.business?.installedAgentId ?? null,
+      testSessionId: ctx.dental?.testSessionId ?? null,
+      serviceName: service,
+      customerName: patientName,
+      customerPhone: patientPhone,
+      startAt,
+      endAt,
+      timeZone: ctx.timeZone,
+      calendarId: ctx.business?.calendarId,
+      businessName: ctx.business?.businessName ?? "the business",
+      simulate: false
+    });
+
+    if (!testEvent.ok) {
+      // Never claim the appointment was created when the calendar write failed.
+      console.error("[vapi-tool] business-test booking failed", { code: testEvent.error.code });
+      return {
+        success: false,
+        business_test: true,
+        calendar_status: testEvent.error.code,
+        message: `${testEvent.error.message} ${testEvent.error.remediation}`
+      };
+    }
+
+    console.log("[vapi-tool] business-test booking", {
+      customer_name: patientName,
+      date,
+      service_type: service,
+      status: testEvent.event.status
+    });
+    return {
+      success: true,
+      status: "confirmed",
+      business_test: true,
+      customer_name: patientName,
+      customer_phone: patientPhone,
+      date,
+      time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
+      service_type: service,
+      event_id: testEvent.event.googleEventId ?? testEvent.event.testEventId,
+      event_link: testEvent.event.htmlLink,
+      test_event_id: testEvent.event.testEventId,
+      event_title: testEvent.event.title,
+      event_status: testEvent.event.status,
+      calendar_id: ctx.business?.calendarId ?? "primary",
+      calendar_status: "test_event_created",
+      source: "business_test",
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      message: `Test booking confirmed for ${patientName} on ${whenLabel} — a marked test event was created on the business calendar.`,
+      confirmation
+    };
+  }
+
   const sendBookingConfirmationSms = async (appointmentId: string, startAtIso: string) => {
     if (!ctx.business?.businessId || !patientPhone) return null;
     if (ctx.dental && ctx.dental.sendToPatient === false) return null;
@@ -2660,29 +2738,12 @@ function trustedCallerE164(ctx: VapiToolContext): string | null {
   return validated.e164;
 }
 
-/**
- * cancel_appointment: securely cancel a caller's upcoming appointment.
- *
- * SECURITY / PRIVACY MODEL
- * - Identity = exact match between the normalized inbound caller id and the
- *   Appointment.customerPhone, scoped to the call's trusted businessId. A
- *   spoken phone number, a partial/last-four match, or a model-supplied
- *   number NEVER verifies identity.
- * - When verification fails, the response reveals nothing: no stored or
- *   masked numbers, no appointment details, no confirmation that any
- *   appointment exists for any number.
- * - Appointment details (service/date/time) are disclosed only AFTER the
- *   caller-number match, and cancellation additionally requires the caller's
- *   explicit confirmation (confirmed=true).
- */
 async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { cancelled: false, code: "BUSINESS_NOT_RESOLVED", message: CANCEL_FAILED_MESSAGE };
   }
 
-  // Architect browser tests have no real caller id — behave exactly like a
-  // hidden-caller call and never touch live data.
-  if (ctx.dental?.dryRun) {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     return {
       cancelled: false,
       dry_run: true,
@@ -2768,8 +2829,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
 
   /* ------------------------- confirmed cancellation ------------------------ */
 
-  // Resolve the target: an id from a prior lookup, or the single eligible
-  // appointment. Every path below re-verifies business + caller-number scope.
   let targetId: string | null = null;
   if (requestedId) {
     targetId = requestedId;
@@ -2806,15 +2865,11 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
     return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   }
 
-  // Idempotent: repeating the confirmation on an already-cancelled
-  // appointment is a success, never an error.
   if (target.status === "CANCELLED") {
     return { cancelled: true, code: "ALREADY_CANCELLED", message: "Your appointment has been cancelled successfully." };
   }
 
   if (!CANCELLABLE_APPOINTMENT_STATUSES.includes(target.status) || target.startAt < new Date()) {
-    // Caller identity IS verified on this branch, so a non-leaky status
-    // message is safe.
     return {
       cancelled: false,
       code: "NOT_CANCELLABLE",
@@ -2823,8 +2878,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
     };
   }
 
-  // Google Calendar first: if the linked event cannot be removed, the
-  // appointment stays active and the caller must NOT hear that it worked.
   if (target.calendarEventId && ctx.business.ownerId) {
     try {
       await cancelGoogleCalendarAppointment({
@@ -2922,21 +2975,12 @@ const RESCHEDULE_FAILED_MESSAGE =
 const RESCHEDULE_CALLER_ID_UNAVAILABLE_MESSAGE =
   "I’m unable to verify the phone number for this call, so I can’t reschedule an appointment automatically. Please call from the phone number used when booking or contact the business team for assistance.";
 
-/**
- * reschedule_appointment: securely move a caller's upcoming appointment to a
- * new date/time. Shares cancel_appointment's SECURITY / PRIVACY MODEL —
- * identity is ONLY the trusted inbound caller id, nothing is disclosed until
- * that number matches, and the move requires explicit confirmation
- * (confirmed=true) plus the new date and time.
- */
 async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { rescheduled: false, code: "BUSINESS_NOT_RESOLVED", message: RESCHEDULE_FAILED_MESSAGE };
   }
 
-  // Architect browser tests have no real caller id — behave exactly like a
-  // hidden-caller call and never touch live data.
-  if (ctx.dental?.dryRun) {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     return {
       rescheduled: false,
       dry_run: true,
@@ -3125,8 +3169,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     };
   }
 
-  // Google Calendar first: if the linked event cannot be moved, the
-  // appointment keeps its original time and the caller must NOT hear success.
   let calendarEventId = target.calendarEventId;
   let calendarEventLink: string | null = null;
   if (target.calendarEventId && ctx.business.ownerId) {
@@ -3141,8 +3183,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
       });
 
       if (moved.missing) {
-        // The event was deleted from the calendar out-of-band — recreate it at
-        // the new time so the business calendar stays the source of truth.
         const recreated = await createGoogleCalendarAppointment({
           userId: ctx.business.ownerId,
           calendarId: ctx.business.calendarId,
@@ -3191,8 +3231,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     }
   });
 
-  // Notifications are best-effort and never affect the reschedule result. The
-  // customer SMS goes through the central consent gate and may be suppressed.
   let smsSent = false;
   try {
     const smsOutcome = await sendTrackedSms({
@@ -3251,6 +3289,16 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
 async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { success: false, error: "business_not_resolved", consent_recorded: false };
+  }
+
+  // Buyer browser test: acknowledge without writing a real consent record.
+  if (ctx.executionMode === "BUSINESS_TEST") {
+    return {
+      success: true,
+      business_test: true,
+      consent_recorded: false,
+      message: "Test call — consent noted for the conversation but not recorded. No texts are sent during tests."
+    };
   }
 
   const affirmative = args["affirmative"];
@@ -3321,8 +3369,8 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     ctx.business?.businessName ||
     "";
 
-  // Architect browser test: preview the SMS, never call Twilio.
-  if (ctx.dental?.dryRun) {
+  // Architect and buyer browser tests: preview the SMS, never call Twilio.
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
     const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
     const preview = applyBracketTemplate(
@@ -3363,10 +3411,6 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
 
     if ((ctx.dental?.sendToPatient ?? true) && customerPhone) {
       try {
-        // A caller with a just-created appointment is receiving THE appointment
-        // confirmation — route it through the single confirmation service so
-        // book_appointment + send_notification can never double-text the
-        // customer (both claim appointment-confirmation:{appointmentId}).
         const recentAppointment = await prisma.appointment.findFirst({
           where: {
             businessId: ctx.business.businessId,
@@ -3445,16 +3489,11 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
       }
     }
 
-    // Email-first MVP follow-up via the buyer's proxy alias (reply.triven.ai).
-    // Runs alongside legacy SMS; every failure is non-fatal so the live call
-    // continues, and nothing sends unless the buyer completed Mail Setup.
     const customerEmail = argStr(args, EMAIL_ARG_KEYS);
     const appointmentDate = argStr(args, ["appointment_date", "date"]) || "";
     const appointmentTime = argStr(args, ["appointment_time", "time"]) || "";
     const appointmentWhen = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || null;
 
-    // Architect-authored Send Email node templates take over composition when
-    // present; the hardcoded copy below stays as the no-template default.
     const emailNode = ctx.dental?.emailNode ?? null;
     const useNodeTemplate = Boolean(emailNode && (emailNode.bodyTemplate || emailNode.htmlTemplate));
     let templatedTeamHandled = false;
@@ -3651,7 +3690,10 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   };
 }
 
-function authorizeVapiWebhook(c: Context, body: Record<string, unknown>): { authorized: boolean; reason: string } {
+function authorizeVapiWebhook(
+  c: Context,
+  body: Record<string, unknown>
+): { authorized: boolean; reason: string; requiresArchitectSandbox?: boolean } {
   const secret = (env.VAPI_WEBHOOK_SECRET ?? "").trim();
 
   if (secret) {
@@ -3666,12 +3708,35 @@ function authorizeVapiWebhook(c: Context, body: Record<string, unknown>): { auth
   if (!isProduction) return { authorized: true, reason: "non-production" };
 
   // Matches ARCHITECT_TEST_PURPOSE in test-deployment.ts (literal to avoid an import cycle).
+  // The purpose comes from the client-controllable request body, so it is only
+  // PROVISIONAL: the request is rejected later unless the resolved business is
+  // a real architect sandbox. A forged purpose can never reach a live business.
   const metadata = getVapiMetadata(body);
-  if (metadata.purpose === "ARCHITECT_TEST") return { authorized: true, reason: "architect test session" };
+  if (metadata.purpose === "ARCHITECT_TEST") {
+    return { authorized: true, reason: "architect test session (sandbox check pending)", requiresArchitectSandbox: true };
+  }
 
   if (!secret) return { authorized: true, reason: "no VAPI_WEBHOOK_SECRET configured (legacy allow)" };
 
   return { authorized: false, reason: "missing or invalid webhook secret" };
+}
+
+/** Whether the resolved business is an architect test sandbox (never a live buyer business). */
+function isArchitectSandboxBusiness(business: unknown): boolean {
+  const config = (business as { configJson?: unknown } | null)?.configJson;
+  if (!config || typeof config !== "object" || Array.isArray(config)) return false;
+  return (config as Record<string, unknown>).purpose === "ARCHITECT_TEST";
+}
+
+function resolveVapiCallExecutionMode(
+  metadata: Record<string, unknown>,
+  business: unknown
+): "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" {
+  const purpose = typeof metadata.purpose === "string" ? metadata.purpose : "";
+  if (purpose === "ARCHITECT_TEST") return "ARCHITECT_DRY_RUN";
+  if (purpose === "BUYER_SETUP_PREVIEW" || purpose === "MARKETPLACE_DEMO") return "BUSINESS_TEST";
+  if (isArchitectSandboxBusiness(business)) return "ARCHITECT_DRY_RUN";
+  return "LIVE";
 }
 
 export async function handleVapiWebhook(c: Context) {
@@ -3698,7 +3763,16 @@ export async function handleVapiWebhook(c: Context) {
   try {
     const metadata = getVapiMetadata(body);
     const business = await findBusinessByVapiWebhook(body);
+
+    // The body-supplied ARCHITECT_TEST purpose only authorizes requests that
+    // resolve to a real architect sandbox business — never a live buyer.
+    if (auth.requiresArchitectSandbox && !isArchitectSandboxBusiness(business)) {
+      console.log("[vapi-webhook] response status", 401, "(architect-test purpose without sandbox business)");
+      return c.json({ success: false, error: "Unauthorized", code: "VAPI_WEBHOOK_UNAUTHORIZED" }, 401);
+    }
+
     const businessContext = business ? buildBusinessContext(business) : null;
+    const executionMode = resolveVapiCallExecutionMode(metadata, business);
     const callId = firstNestedString(body, [["message", "call", "id"], ["call", "id"], ["id"]]);
     const customerPhone =
       firstNestedString(body, [["message", "call", "customer", "number"], ["call", "customer", "number"]]) ||
@@ -3707,6 +3781,8 @@ export async function handleVapiWebhook(c: Context) {
     const messageType = firstNestedString(body, [["message", "type"], ["type"]]);
     const summary = firstNestedString(body, [["message", "summary"], ["summary"]]);
     const transcript = firstNestedString(body, [["message", "transcript"], ["transcript"]]);
+    const metadataInstalledAgentId =
+      typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
 
     // Best-effort call logging — never blocks a tool response.
     if (businessContext?.businessId && callId) {
@@ -3715,6 +3791,7 @@ export async function handleVapiWebhook(c: Context) {
           where: { callId },
           update: {
             status: messageType || "UPDATED",
+            executionMode,
             transcript: transcript || undefined,
             summary: summary || undefined,
             endedAt: /end|ended|report/.test(messageType) ? new Date() : undefined,
@@ -3722,9 +3799,11 @@ export async function handleVapiWebhook(c: Context) {
           },
           create: {
             businessId: businessContext.businessId,
+            installedAgentId: metadataInstalledAgentId,
             conversationId,
             callId,
             customerPhone,
+            executionMode,
             status: messageType || "STARTED",
             transcript: transcript || null,
             summary: summary || null,
@@ -3736,16 +3815,17 @@ export async function handleVapiWebhook(c: Context) {
       }
     }
 
-    // Non-tool event (status update / end-of-call report).
     if (toolCalls.length === 0) {
-      // End-of-call: record per-execution usage for monthly buyer billing.
-      if (businessContext?.businessId && callId && /end-of-call-report|end|ended|report/i.test(messageType ?? "")) {
-        const metadataInstalledAgentId =
-          typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
+      if (
+        businessContext?.businessId &&
+        callId &&
+        executionMode === "LIVE" &&
+        /end-of-call-report|end|ended|report/i.test(messageType ?? "")
+      ) {
         const installedAgent = metadataInstalledAgentId
           ? await prisma.installedAgent.findFirst({
               where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
-              select: { id: true }
+              select: { id: true, workflowId: true }
             })
           : await latestActiveInstalledAgent(businessContext.businessId);
         recordVapiCallUsage({
@@ -3755,10 +3835,31 @@ export async function handleVapiWebhook(c: Context) {
           customerPhone,
           webhookBody: body
         }).catch((error) => console.error("[vapi-webhook] usage billing failed (non-fatal)", error));
+
+        if (installedAgent?.workflowId) {
+          try {
+            await prisma.workflowRun.upsert({
+              where: { callProvider_externalCallId: { callProvider: "VAPI", externalCallId: callId } },
+              update: { status: "COMPLETED", finishedAt: new Date() },
+              create: {
+                workflowId: installedAgent.workflowId,
+                installedAgentId: installedAgent.id,
+                businessId: businessContext.businessId,
+                mode: "LIVE",
+                status: "COMPLETED",
+                callProvider: "VAPI",
+                externalCallId: callId,
+                finishedAt: new Date(),
+                inputJson: { source: "vapi_end_of_call", callId }
+              }
+            });
+          } catch (error) {
+            console.error("[vapi-webhook] workflowRun upsert failed (non-fatal)", error);
+          }
+        }
       }
 
-      // End-of-call: email the buyer a call summary via their proxy alias.
-      // Fire-and-forget — the webhook response never waits on SES.
+
       if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
         enqueueEmail(
           {
@@ -3802,16 +3903,14 @@ export async function handleVapiWebhook(c: Context) {
       conversationId,
       callId: callId || undefined,
       summary,
-      transcript
+      transcript,
+      executionMode
     };
 
     // Run every tool call in the request; return one result per toolCallId.
     const results: Array<{ name: string; toolCallId: string; result: string }> = [];
     for (const toolCall of toolCalls) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
-      // Consent/cancel/reschedule first: "recordsmsconsent", "cancelappointment"
-      // and "rescheduleappointment" must never fall through to the send/notify
-      // or book matchers.
       const isConsent = fnName.includes("consent");
       const isCancel = !isConsent && fnName.includes("cancel");
       const isReschedule = !isConsent && !isCancel && fnName.includes("resched");

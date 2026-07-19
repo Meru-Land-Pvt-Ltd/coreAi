@@ -96,11 +96,6 @@ function firstString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
-/**
- * Only unmistakable template demo content is stale. Buyer values are never
- * rejected for containing common names (a buyer's "Sarah" or "Bright Dental
- * Care" is real configuration, not a leftover demo).
- */
 function isStaleDemoEntry(value?: string | null): boolean {
   if (!value) return false;
   return /Triven Dental/i.test(value);
@@ -209,11 +204,6 @@ function readBuyerConfig(configJson: unknown): BuyerConfig {
   };
 }
 
-/**
- * Architect-defined setup fields the buyer filled in during install
- * (configJson.customFields — label/value pairs from the listing's
- * requiredBuyerSetup schema).
- */
 function readCustomFields(configJson: unknown): Array<{ label: string; value: string }> {
   const raw = recordOf(configJson).customFields;
   if (!Array.isArray(raw)) return [];
@@ -230,10 +220,6 @@ function readCustomFields(configJson: unknown): Array<{ label: string; value: st
     .filter((field) => field.label && field.value);
 }
 
-/**
- * What a booking is called for this business — from scheduling config, or an
- * architect-defined "Booking label" buyer setup field.
- */
 function readBookingLabel(configJson: unknown): string | undefined {
   const config = recordOf(configJson);
   const scheduling = recordOf(config.scheduling);
@@ -277,8 +263,9 @@ Live call handling:
 
 const PREVIEW_TOOL_NOTES = `
 Preview call handling:
-- This is a setup preview call placed by the business owner, not a live customer call.
-- Booking, SMS, and email actions are disabled in preview — if the caller asks to book, collect the details, confirm what you captured, and explain the booking will be completed once the agent is live.
+- This is a browser test call placed by the business owner, not a live customer call.
+- Booking works exactly like the live agent when the workflow supports it: ask for a preferred date and time, call check_availability once a date is known, and call book_appointment only after name, date, and time are confirmed. The booking creates a clearly-marked TEST event on the business calendar — say so when confirming.
+- SMS and email are disabled during the test — never promise a text or an email.
 - Never say "Y-Y-Y-Y, M-M, D-D"; say dates in plain spoken language.
 `.trim();
 
@@ -296,6 +283,8 @@ type InstalledAgentAssistantPlan = {
   override: VoiceOverride;
   businessName: string;
   assistantName: string;
+  /** Capabilities of the workflow graph — the only source of tool gating. */
+  capabilities: ReturnType<typeof workflowCapabilities>;
 };
 
 async function buildInstalledAgentAssistantPlan(
@@ -464,7 +453,8 @@ async function buildInstalledAgentAssistantPlan(
     firstMessage,
     override: readVoiceOverride(installedAgent.configJson),
     businessName,
-    assistantName
+    assistantName,
+    capabilities
   };
 }
 
@@ -495,7 +485,12 @@ export async function deployInstalledAgentVoiceAssistant(
     speakingSpeed: cleanString(plan.voiceNode.speakingSpeed),
     serverUrl: webhookUrl,
     existingAssistantId,
-    recordingEnabled: endFlowRecordingEnabled(plan.workflowJson)
+    recordingEnabled: endFlowRecordingEnabled(plan.workflowJson),
+    includeTools: {
+      checkAvailability: plan.capabilities.canCheckAvailability,
+      bookAppointment: plan.capabilities.canBook,
+      sendNotification: plan.capabilities.canText
+    }
   });
 
   if (plan.profileExists) {
@@ -530,11 +525,6 @@ export type InstalledAgentChatTestSetup = {
   workflowJson: unknown;
 };
 
-/**
- * The buyer's real setup as conversation-test context, so the Test step's
- * chat simulation answers with their actual business data through the shared
- * agent runtime (tools run as dry-runs there).
- */
 export async function buildInstalledAgentChatTestSetup(
   businessId: string
 ): Promise<InstalledAgentChatTestSetup | null> {
@@ -640,7 +630,15 @@ export async function startInstalledAgentPreviewCall(businessId: string): Promis
     serverUrl: webhookUrl,
     existingAssistantId,
     metadata: { purpose: SETUP_PREVIEW_PURPOSE, businessId: plan.businessId, installedAgentId: plan.installedAgentId },
-    includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false },
+    // Tools mirror the workflow graph exactly (same gating as live), so the
+    // buyer's browser test exercises the real booking path — the webhook books
+    // it as a [TRIVEN BUSINESS TEST] calendar event, never a live appointment.
+    // SMS stays disabled: browser tests must not text real customers.
+    includeTools: {
+      checkAvailability: plan.capabilities.canCheckAvailability,
+      bookAppointment: plan.capabilities.canBook,
+      sendNotification: false
+    },
     silenceTimeoutSeconds: 60,
     maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,
     recordingEnabled: false

@@ -139,24 +139,31 @@ export async function recordVapiCallUsage({
   customerPhone?: string;
   webhookBody: Record<string, unknown>;
 }) {
-  // Billing begins only after the particular agent was purchased. This also
-  // prevents test calls or one business's phone/assistant mapping from being
-  // charged to another business.
+
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { ownerId: true }
   });
   if (!business) return;
 
+
+  const callRow = await prisma.vapiCall.findUnique({
+    where: { callId },
+    select: { executionMode: true }
+  });
+  if (callRow && callRow.executionMode !== "LIVE") {
+    console.log("[usage-billing] skipped: non-live call", { businessId, callId, executionMode: callRow.executionMode });
+    return;
+  }
+
   const installedAgent = installedAgentId
     ? await prisma.installedAgent.findFirst({
-        where: { id: installedAgentId, businessId },
-        select: { id: true, listingId: true, configJson: true }
-      })
+      where: { id: installedAgentId, businessId },
+      select: { id: true, listingId: true, configJson: true }
+    })
     : null;
 
-  // Explicit test exclusion: sandbox/test installed agents are never billable,
-  // regardless of whether the owner also has a purchased agent.
+
   const agentConfig =
     installedAgent?.configJson && typeof installedAgent.configJson === "object" && !Array.isArray(installedAgent.configJson)
       ? (installedAgent.configJson as Record<string, unknown>)
@@ -445,26 +452,26 @@ export async function getBusinessUsageBill(c: Context) {
 
   const [calls, agents, serviceRoles] = await Promise.all([
     prisma.vapiCall.findMany({
-    where: {
-      businessId: business.id,
-      billingMonth: month,
-      billingRecordedAt: { not: null }
-    },
-    orderBy: { billingRecordedAt: "desc" },
-    select: {
-      callId: true,
-      customerPhone: true,
-      durationMinutes: true,
-      durationSeconds: true,
-      smsCount: true,
-      actualCostMicroUsd: true,
-      billedCostMicroUsd: true,
-      vapiCostMicroUsd: true,
-      usageLineItemsJson: true,
-      billingRecordedAt: true,
-      installedAgentId: true,
-      recordingUrl: true
-    }
+      where: {
+        businessId: business.id,
+        billingMonth: month,
+        billingRecordedAt: { not: null }
+      },
+      orderBy: { billingRecordedAt: "desc" },
+      select: {
+        callId: true,
+        customerPhone: true,
+        durationMinutes: true,
+        durationSeconds: true,
+        smsCount: true,
+        actualCostMicroUsd: true,
+        billedCostMicroUsd: true,
+        vapiCostMicroUsd: true,
+        usageLineItemsJson: true,
+        billingRecordedAt: true,
+        installedAgentId: true,
+        recordingUrl: true
+      }
     }),
     prisma.installedAgent.findMany({
       where: { businessId: business.id },

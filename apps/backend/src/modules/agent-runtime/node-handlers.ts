@@ -16,7 +16,7 @@ import type { AgentProviders } from "./provider-adapters";
 function log(
   context: AgentRuntimeContext,
   node: GraphNode,
-  status: "success" | "waiting" | "error",
+  status: "success" | "waiting" | "error" | "skipped",
   message: string,
   output?: unknown
 ): void {
@@ -60,10 +60,6 @@ export function resolveTemplate(template: string, context: AgentRuntimeContext):
   return resolved;
 }
 
-/**
- * Fill runtime variables from inferred conversation state so node gating can
- * be purely metadata-driven (requiredVariables present -> node may run).
- */
 export function seedConversationVariables(context: AgentRuntimeContext): void {
   const { conversation } = context;
 
@@ -375,8 +371,15 @@ export async function executeNode(
 
   const handler = HANDLERS[nodeCapability(node)] ?? handleUnknown;
 
+  const logsBefore = context.executedNodes.length;
   try {
-    return await handler(node, context, providers);
+    const result = await handler(node, context, providers);
+    // Skipped nodes appear in the execution timeline too — hiding them made
+    // the UI look like the graph never contained them.
+    if (result.status === "skipped" && context.executedNodes.length === logsBefore) {
+      log(context, node, "skipped", "Skipped this turn — the conversation did not reach this step.");
+    }
+    return result;
   } catch (error) {
     log(context, node, "error", error instanceof Error ? error.message : "Node execution failed.");
     return { status: "failed" };

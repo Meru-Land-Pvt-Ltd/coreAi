@@ -22,6 +22,7 @@ import {
 } from "../../lib/phone-locations";
 import { PhoneNumberServiceError } from "../admin/twilio-number-service";
 import {
+  getBusinessPhoneAssignment,
   getProvisioningRequestStatus,
   purchaseNumberForBusiness,
   searchNumbersForBusiness
@@ -337,7 +338,7 @@ businessRoutes.get("/dashboard", async (c) => {
   ] = await Promise.all([
     prisma.lead.count({ where: { businessId: business.id } }),
     prisma.conversation.count({ where: { businessId: business.id } }),
-    prisma.appointment.count({ where: { businessId: business.id } }),
+    prisma.appointment.count({ where: { businessId: business.id, executionMode: "LIVE" } }),
     prisma.lead.findMany({
       where: { businessId: business.id },
       orderBy: { createdAt: "desc" },
@@ -397,7 +398,7 @@ businessRoutes.get("/dashboard", async (c) => {
       select: { id: true, phoneNumber: true, name: true, createdAt: true }
     }),
     prisma.vapiCall.findMany({
-      where: { businessId: business.id, createdAt: { gte: chartStart } },
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: chartStart } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -409,12 +410,12 @@ businessRoutes.get("/dashboard", async (c) => {
       }
     }),
     // Month-over-month metric counts (calls handled = AI voice calls + missed calls captured).
-    prisma.vapiCall.count({ where: { businessId: business.id, createdAt: { gte: monthStart } } }),
+    prisma.vapiCall.count({ where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: monthStart } } }),
     prisma.lead.count({
       where: { businessId: business.id, source: { contains: "MISSED_CALL" }, createdAt: { gte: monthStart } }
     }),
     prisma.vapiCall.count({
-      where: { businessId: business.id, createdAt: { gte: prevMonthStart, lt: monthStart } }
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
     }),
     prisma.lead.count({
       where: {
@@ -424,7 +425,7 @@ businessRoutes.get("/dashboard", async (c) => {
       }
     }),
     prisma.appointment.count({
-      where: { businessId: business.id, createdAt: { gte: prevMonthStart, lt: monthStart } }
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
     })
   ]);
 
@@ -889,9 +890,7 @@ const phonePurchaseSchema = z.object({
   city: z.string().trim().max(80).optional(),
   fallbackType: z.enum(["NEARBY_CITY", "SAME_STATE", "NATIONAL", "TOLL_FREE"]).optional(),
   /** The buyer's own business line — stored as the forwarding target. */
-  forwardToPhone: z.string().trim().max(24).optional(),
-  /** Change-number flow: the old number stays active until the new one is configured. */
-  replaceExisting: z.boolean().optional()
+  forwardToPhone: z.string().trim().max(24).optional()
 });
 
 businessRoutes.post("/phone-numbers/purchase", async (c) => {
@@ -923,8 +922,7 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
       state: parsed.data.state,
       city: parsed.data.city,
       fallbackType: parsed.data.fallbackType ?? null,
-      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null,
-      replaceExisting: parsed.data.replaceExisting === true
+      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null
     });
     return successResponse(c, outcome);
   } catch (error) {
@@ -934,6 +932,20 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
     console.error("[phone-purchase] failed", error);
     return errorResponse(c, "Could not complete the number purchase.", 503, "PHONE_PURCHASE_FAILED");
   }
+});
+
+// The business's current active Triven number in the buyer-safe shape — never
+// includes provider/wholesale cost. `assigned: false` when no number is held.
+businessRoutes.get("/phone-numbers/assignment", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+
+  if (!businessId) {
+    return successResponse(c, { assigned: false });
+  }
+
+  const assignment = await getBusinessPhoneAssignment(businessId);
+  return successResponse(c, assignment ?? { assigned: false });
 });
 
 businessRoutes.get("/phone-numbers/provisioning/:clientRequestId", async (c) => {
@@ -1103,6 +1115,10 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
       reply: result.reply,
       transcript: result.transcript,
       toolCalls: result.toolCalls,
+      // Node execution timeline for the buyer Test step — every node the graph
+      // runner executed this turn, in graph order, with per-node status.
+      executedNodes: result.executedNodes,
+      finalOutput: result.finalOutput,
       simulated: true,
       executionMode: result.executionMode,
       timeZone: result.timeZone,

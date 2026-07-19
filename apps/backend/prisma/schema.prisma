@@ -37,8 +37,6 @@ model User {
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
 
-  // Same email may exist once per role (e.g. BUSINESS + ARCHITECT), but not twice
-  // for the same role.
   @@unique([email, role])
   @@index([role])
   @@index([createdAt])
@@ -78,8 +76,6 @@ model WorkflowDefinition {
   name                 String
   description          String?
   workflowJson         Json
-  // Architect Configure flow (marketplace template metadata) — optional so
-  // existing workflows keep working with safe defaults.
   configureJson        Json?
   marketplaceJson      Json?
   requiredIntegrations Json?
@@ -110,8 +106,6 @@ model AgentListing {
   requiredConnectors     String[]
   supportedLlms          String[]
   tags                   String[]
-  // Marketplace configure/publish metadata (Architect Configure flow). All
-  // optional or defaulted so pre-existing listings stay valid.
   tagline                String?
   category               String?
   industryTags           String[]             @default([])
@@ -227,12 +221,10 @@ model Business {
   ownerId           String
   name              String
   type              String
-  /// URL-safe slug for the public booking/service-request page (/book/[slug]).
   publicBookingSlug String?  @unique
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  // Stripe billing (AI Receptionist subscription).
   stripeCustomerId     String?
   stripeSubscriptionId String?
   subscriptionStatus   String?   @default("active")
@@ -405,21 +397,14 @@ model Appointment {
   endAt              DateTime
   timeZone           String?
   calendarEventId    String?
-  /// Google Calendar event htmlLink — lets the buyer open the booking on the calendar.
   calendarEventLink  String?
   status             String    @default("BOOKED")
   notes              String?
-  /// Cancellation audit trail (status CANCELLED).
   cancelledAt        DateTime?
-  /// What triggered the cancellation, e.g. CUSTOMER_PHONE_CALL.
   cancellationSource String?
   cancellationReason String?
-  /// Vapi call id of the phone call that cancelled this appointment.
   cancellationCallId String?
-  /// How this row was produced: LIVE (default) or a test mode. Test rows are
-  /// excluded from run stats, analytics, and billing.
   executionMode      String    @default("LIVE")
-  /// Groups rows produced by one test session (architect dry run / business test).
   testSessionId      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -432,14 +417,9 @@ model Appointment {
   @@index([executionMode])
 }
 
-/// A calendar event created (or simulated) by a test execution. Owns the
-/// deletion lifecycle: test events can only be removed by their owner, and the
-/// stored googleEventId is the only id we ever delete on the provider.
 model TestCalendarEvent {
   id               String    @id @default(cuid())
-  /// ARCHITECT_DRY_RUN or BUSINESS_TEST — never LIVE.
   executionMode    String
-  /// The authenticated user who ran the test (architect user or business owner).
   ownerUserId      String
   businessId       String?
   installedAgentId String?
@@ -475,20 +455,17 @@ model VapiCall {
   conversationId        String?
   callId                String                @unique
   customerPhone         String
+  executionMode         String                @default("LIVE")
   status                String                @default("STARTED")
   transcript            String?
   summary               String?
-  /// Vapi call recording URL — only present when the workflow's End Flow node has call recording enabled.
   recordingUrl          String?
   metadataJson          Json?
   durationSeconds       Int?
   durationMinutes       Float?
   smsCount              Int                   @default(0)
-  /// Vapi-reported total call cost (vendor actual).
   vapiCostMicroUsd      Int?
-  /// Sum of admin-board actual vendor rates for this execution.
   actualCostMicroUsd    Int?
-  /// Sum of admin-board updated rates — used for buyer billing.
   billedCostMicroUsd    Int?
   usageLineItemsJson    Json?
   vapiCostBreakdownJson Json?
@@ -504,6 +481,7 @@ model VapiCall {
 
   @@index([businessId])
   @@index([businessId, billingMonth])
+  @@index([businessId, executionMode])
   @@index([installedAgentId])
   @@index([usageInvoiceId])
   @@index([customerPhone])
@@ -673,8 +651,6 @@ model ArchitectPayoutMethod {
   livemode                Boolean   @default(false)
   /// Stripe capability status for "transfers" (active | pending | inactive).
   transfersCapability     String?
-  /// account.requirements snapshot: { currentlyDue, eventuallyDue, pastDue,
-  /// pendingVerification, disabledReason } — safe field names only.
   requirementsJson        Json?
   disabledReason          String?
   onboardingCompletedAt   DateTime?
@@ -802,10 +778,6 @@ model ArchitectRefundSettlement {
   @@index([status])
 }
 
-/// Immutable per-purchase architect settlement. One row per eligible Payment.
-/// Gross/commission values are never rewritten after creation — refunds,
-/// disputes, reversals, and manual corrections land in the *Minor adjustment
-/// columns backed by append-only ArchitectLedgerEntry rows.
 model ArchitectEarning {
   id                       String                 @id @default(cuid())
   architectUserId          String
@@ -833,9 +805,7 @@ model ArchitectEarning {
   stripeChargeId           String?
   stripeTransferId         String?                @unique
   stripeTransferReversalId String?
-  /// Version of the commission formula used at settlement time.
   calculationVersion       Int                    @default(1)
-  /// Bumped on money-affecting changes; part of the transfer idempotency key.
   settlementVersion        Int                    @default(1)
   lastStripeEventCreatedAt DateTime?
   createdAt                DateTime               @default(now())
@@ -851,21 +821,15 @@ model ArchitectEarning {
   @@index([livemode])
 }
 
-/// Append-only money-adjustment journal. Rows are never updated or deleted.
-/// The (entryType, sourceId, earningId) unique key makes duplicate webhook
-/// deliveries idempotent.
 model ArchitectLedgerEntry {
   id              String                   @id @default(cuid())
   earningId       String?
   architectUserId String
   entryType       ArchitectLedgerEntryType
-  /// Signed amount in minor units. Negative reduces the architect's earning.
   amountCents     Int
   currency        String                   @default("usd")
   reason          String
-  /// stripe_webhook | admin | reconciliation | system
   source          String
-  /// Stripe object/event id or admin user id that produced this entry.
   sourceId        String?
   createdByUserId String?
   createdAt       DateTime                 @default(now())
@@ -877,8 +841,6 @@ model ArchitectLedgerEntry {
   @@index([architectUserId, createdAt])
 }
 
-/// Stripe webhook receipt log — exactly-once processing and replay protection
-/// for both the platform and the Connect webhook endpoints.
 model StripeWebhookEvent {
   id                 String                        @id @default(cuid())
   stripeEventId      String                        @unique
@@ -959,13 +921,10 @@ enum PricingModel {
 }
 
 enum ArchitectPayoutStatus {
-  /// Legacy value — new manual requests start at RESERVED.
   PENDING
-  /// Balance reserved locally; Stripe payout not yet confirmed created.
   RESERVED
   PROCESSING
   IN_TRANSIT
-  /// Legacy terminal-success value (kept for historic rows). New rows use PAID.
   COMPLETED
   PAID
   FAILED
@@ -1064,33 +1023,25 @@ enum PhoneProvisioningStatus {
   RELEASED
 }
 
-/// One buyer-initiated phone-number provisioning attempt. Drives the
-/// location → search → select → purchase → configure → active state machine and
-/// makes the purchase idempotent via (businessId, clientRequestId).
 model PhoneProvisioningRequest {
   id                    String                  @id @default(cuid())
   businessId            String
   installedAgentId      String?
   requestedByUserId     String
-  /// Client-generated idempotency key: repeated submissions return the same request.
   clientRequestId       String
   status                PhoneProvisioningStatus @default(NUMBER_SELECTED)
-  /// Location the buyer asked for (ISO country, region code, city name).
   requestedCountry      String
   requestedRegion       String?
   requestedLocality     String?
-  /// Location of the number actually purchased.
   actualCountry         String?
   actualRegion          String?
   actualLocality        String?
-  /// NEARBY_CITY | SAME_STATE | NATIONAL | TOLL_FREE — null for exact-city matches.
   fallbackType          String?
   fallbackConfirmedAt   DateTime?
   selectedPhoneNumber   String
   platformPhoneNumberId String?
   errorCode             String?
   errorDetail           String?
-  /// Append-only transition log: [{ from, to, at, note }].
   auditJson             Json?
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
@@ -1115,15 +1066,11 @@ enum ArchitectEarningStatus {
   APPROVED
   REJECTED
 }
-
-// Brain Memory — stores what each workflow run and node actually did.
-// WorkflowRun = one execution. NodeRun = one step. ContextLink = back-links between steps.
-
 enum WorkflowRunMode {
-  TEST // Legacy generic test value (kept for existing rows)
-  ARCHITECT_DRY_RUN // Architect test panel / dry run
-  BUSINESS_TEST // Business owner testing an installed agent
-  LIVE // Real Twilio, Vapi, or production trigger
+  TEST
+  ARCHITECT_DRY_RUN
+  BUSINESS_TEST
+  LIVE
 }
 
 enum WorkflowRunStatus {
@@ -1143,9 +1090,9 @@ enum NodeRunStatus {
 }
 
 enum ContextLinkType {
-  BACKLINK // Load full memory from an earlier node into a later one
-  REFERENCE // Soft dependency / traceability
-  SUMMARY_SOURCE // Target summary was derived from source node
+  BACKLINK
+  REFERENCE
+  SUMMARY_SOURCE
 }
 
 enum ContextLinkStatus {
@@ -1154,7 +1101,6 @@ enum ContextLinkStatus {
   FAILED
 }
 
-// One execution of an entire workflow (user clicks Run, or live event fires).
 model WorkflowRun {
   id                String             @id @default(cuid())
   workflowId        String
@@ -1183,7 +1129,10 @@ model WorkflowRun {
   totalCostCents    Int?               @default(0)
   currentNodeId     String? /// Last node that executed in this run
   metadataJson      Json? /// Extra workflow-level metadata
+  callProvider      String?
+  externalCallId    String?
 
+  @@unique([callProvider, externalCallId])
   @@index([currentNodeId])
   @@index([workflowId])
   @@index([installedAgentId])
@@ -1254,8 +1203,6 @@ model ContextLink {
   @@index([linkStatus])
 }
 
-// ---- Proxy email (Amazon SES on reply.triven.ai) ----
-
 enum EmailAliasStatus {
   ACTIVE
   DISABLED
@@ -1294,7 +1241,6 @@ enum EmailPurpose {
   TEST
 }
 
-/// One buyer-branded proxy sender identity (<business-slug>@reply.triven.ai).
 model BusinessEmailAlias {
   id                          String                 @id @default(cuid())
   businessId                  String
@@ -1306,9 +1252,7 @@ model BusinessEmailAlias {
   displayName                 String
   forwardToEmail              String?
   replyHandlingMode           EmailReplyHandlingMode @default(TRIVEN_AND_FORWARD)
-  /// Buyer toggle: send customers booking-confirmation / follow-up emails.
   customerConfirmationEnabled Boolean                @default(true)
-  /// Buyer toggle: send the team internal call-summary / lead emails.
   internalSummaryEnabled      Boolean                @default(true)
   status                      EmailAliasStatus       @default(ACTIVE)
   provider                    String                 @default("SES")
@@ -1325,7 +1269,6 @@ model BusinessEmailAlias {
   @@index([status])
 }
 
-/// Every proxy email in or out — audit trail, threading, and suppression source.
 model EmailMessage {
   id                String             @id @default(cuid())
   businessId        String?
@@ -1365,7 +1308,6 @@ model EmailMessage {
   @@index([toEmail, status])
 }
 
-/// Recipients we must never email again (permanent bounce / complaint / manual block).
 model EmailSuppression {
   id           String   @id @default(cuid())
   emailAddress String   @unique
@@ -1411,8 +1353,6 @@ enum UsageInvoiceStatus {
   VOID
 }
 
-/// Immutable monthly, post-paid usage bill for one business. Call and pricing
-/// snapshots are retained so businesses never share or retroactively change costs.
 model BusinessUsageInvoice {
   id                    String             @id @default(cuid())
   businessId            String
@@ -1543,10 +1483,6 @@ enum SmsConsentPurpose {
   TRANSACTIONAL_BOOKING
 }
 
-/// Auditable SMS consent record. Consent is scoped to ONE business + ONE
-/// customer phone + ONE messaging program — consent captured for Business A
-/// never authorizes messages from Business B. Every business-initiated
-/// transactional SMS must pass canSendTransactionalSms() against this table.
 model SmsConsent {
   id               String  @id @default(cuid())
   businessId       String
@@ -1560,18 +1496,12 @@ model SmsConsent {
   method  SmsConsentMethod
   purpose SmsConsentPurpose @default(TRANSACTIONAL_BOOKING)
 
-  /// When affirmative consent was captured. Null when the only event so far is
-  /// a decline/opt-out (a declined ask is stored as OPTED_OUT with no consentAt).
   consentAt    DateTime?
   optOutAt     DateTime?
-  /// What triggered the opt-out: SMS_STOP | VERBAL_DECLINE | ADMIN.
   optOutSource String?
 
-  /// Business name presented to the customer in the disclosure.
   businessNamePresented String?
-  /// Version tag of the disclosure script shown/read at consent time.
   disclosureVersion     String
-  /// SHA-256 hash of the exact disclosure text presented (immutable evidence).
   disclosureHash        String?
 
   /// Vapi call id for VERBAL_CALL consent.

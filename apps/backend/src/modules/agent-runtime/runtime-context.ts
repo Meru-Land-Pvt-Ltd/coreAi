@@ -36,7 +36,7 @@ export type AgentCallerContext = {
 export type AgentRuntimeLog = {
   nodeId: string;
   label: string;
-  status: "success" | "waiting" | "error";
+  status: "success" | "waiting" | "error" | "skipped";
   message: string;
   output?: unknown;
 };
@@ -49,11 +49,7 @@ export type AgentToolCall = {
   output?: Record<string, unknown>;
 };
 
-/**
- * Conversation state inferred from the transcript each turn. These are small,
- * generic collectors (identity, time, closing) — business behavior comes from
- * the workflow graph and node prompts, never from rules here.
- */
+
 export type AgentConversationState = {
   /** The caller is trying to schedule something (any wording). */
   schedulingIntent: boolean;

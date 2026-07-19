@@ -20,6 +20,7 @@ vi.mock("@/components/business/features/api", () => ({
   disconnectBusinessCalendar: vi.fn().mockResolvedValue({ success: true }),
   getBusinessCalendarOAuthUrl: vi.fn().mockResolvedValue({ success: true, data: { url: "" } }),
   getBusinessMailSetup: vi.fn().mockResolvedValue({ success: true, data: { alias: null } }),
+  getBusinessPhoneAssignment: vi.fn().mockResolvedValue({ success: true, data: { assigned: false } }),
   getBusinessSetup: vi.fn(),
   getMarketplaceListing: vi.fn().mockResolvedValue({ success: true, data: { listing: null } }),
   getPhoneCountries: vi.fn(),
@@ -119,7 +120,7 @@ describe("Connect step — number-first flow", () => {
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 
-  it("an assigned number hides the selector behind Change number, then opens it on click", async () => {
+  it("an assigned number shows the Active card and offers no way to search or assign again", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({ phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null } }) as never
     );
@@ -128,12 +129,14 @@ describe("Connect step — number-first flow", () => {
 
     const assigned = await screen.findByTestId("business-setup-assigned-number");
     expect(assigned.textContent).toContain("+12135550999");
-    expect(screen.queryByTestId("business-setup-phone-country")).toBeNull();
+    expect(screen.getByTestId("business-setup-assigned-number-status").textContent).toBe("Active");
 
-    await userEvent.setup().click(screen.getByTestId("business-setup-phone-change-number"));
-    expect(await screen.findByTestId("business-setup-phone-country")).toBeTruthy();
-    // The current number is explicitly kept until the replacement is active.
-    expect(screen.getByText(/stays active until the replacement/i)).toBeTruthy();
+    // Number replacement is an admin/support-only process: no Change number,
+    // no location search, no assign controls.
+    expect(screen.queryByTestId("business-setup-phone-change-number")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-country")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-search")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-confirm")).toBeNull();
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 

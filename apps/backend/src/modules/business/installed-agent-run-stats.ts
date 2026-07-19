@@ -10,10 +10,7 @@ export type InstalledAgentRunStats = {
   costMicroUsd: number;
 };
 
-/**
- * Uses the same execution definition as Business → My Agents:
- * AI calls plus booking and missed-call runs, attributed to installed agents.
- */
+
 export async function buildInstalledAgentRunStats(
   businessId: string,
   installedAgents: InstalledAgentRunRef[],
@@ -32,14 +29,10 @@ export async function buildInstalledAgentRunStats(
     ? { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) }
     : undefined;
 
-  const [vapiCalls, appointments, missedCalls, phoneLinks] = await Promise.all([
+  const [vapiCalls, missedCalls, phoneLinks] = await Promise.all([
     prisma.vapiCall.findMany({
-      where: { businessId, ...(createdAt ? { createdAt } : {}) },
+      where: { businessId, executionMode: "LIVE", ...(createdAt ? { createdAt } : {}) },
       select: { installedAgentId: true, billedCostMicroUsd: true }
-    }),
-    // Test-mode appointments never count as production runs.
-    prisma.appointment.count({
-      where: { businessId, executionMode: "LIVE", ...(createdAt ? { createdAt } : {}) }
     }),
     prisma.lead.count({
       where: {
@@ -71,37 +64,21 @@ export async function buildInstalledAgentRunStats(
     unattributedCostMicroUsd += call.billedCostMicroUsd ?? 0;
   }
 
-  const attributeShared = (runs: number, costMicroUsd: number) => {
+const attributeShared = (runs: number, costMicroUsd: number) => {
     if (runs <= 0 && costMicroUsd <= 0) return;
 
-    if (installedAgents.length === 1) {
-      const row = statsByAgent.get(installedAgents[0].id)!;
-      row.runs += runs;
-      row.costMicroUsd += costMicroUsd;
-      return;
-    }
+    const target =
+      installedAgents.length === 1
+        ? statsByAgent.get(installedAgents[0].id)
+        : statsByAgent.get(phoneAgentIds[0] ?? "");
 
-    if (phoneAgentIds.length === 1) {
-      const row = statsByAgent.get(phoneAgentIds[0]);
-      if (row) {
-        row.runs += runs;
-        row.costMicroUsd += costMicroUsd;
-      }
-      return;
-    }
-
-    if (phoneAgentIds.length > 1) {
-      for (const agentId of phoneAgentIds) {
-        const row = statsByAgent.get(agentId);
-        if (row) row.runs += runs;
-      }
-      const first = statsByAgent.get(phoneAgentIds[0]);
-      if (first) first.costMicroUsd += costMicroUsd;
-    }
+    if (!target) return;
+    target.runs += runs;
+    target.costMicroUsd += costMicroUsd;
   };
 
   attributeShared(unattributedRuns, unattributedCostMicroUsd);
-  attributeShared(appointments + missedCalls, 0);
+  attributeShared(missedCalls, 0);
 
   return statsByAgent;
 }
