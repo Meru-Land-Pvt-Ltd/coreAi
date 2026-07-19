@@ -94,11 +94,9 @@ export function ConfigureSectionCard({
         </svg>
       </button>
 
-      {open ? (
-        <div id={regionId} className="border-t border-gray-100 px-5 py-5 sm:px-6">
-          {children}
-        </div>
-      ) : null}
+      <div id={regionId} hidden={!open} className="border-t border-gray-100 px-5 py-5 sm:px-6">
+        {children}
+      </div>
     </section>
   );
 }

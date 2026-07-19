@@ -1068,7 +1068,7 @@ async function loadSpecialHoursForRouting(
   }
 }
 
-async function shouldAnswerWithAiByMode(
+export async function shouldAnswerWithAiByMode(
   mode: string,
   agent: {
     business?: { businessId?: string; hours?: unknown; timeZone?: string };
