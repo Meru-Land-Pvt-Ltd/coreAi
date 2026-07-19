@@ -1185,7 +1185,7 @@ function SetupWizard() {
 
     if (requiresVoice && !result.vapiAssistantId) {
       setStep(4);
-      setError("Live voice assistant was not created. Check Vapi configuration.");
+      setError("Your live voice assistant could not be created. Try again, or contact Triven support if it keeps failing.");
       return;
     }
 
@@ -1372,7 +1372,7 @@ function SetupWizard() {
             ? "Add your AI assistant name."
             : voiceChoiceComplete
               ? undefined
-              : "Enter a custom ElevenLabs voice ID or choose a preset."
+              : "Enter a custom voice ID or choose a preset."
         }
       ]
       : [])
@@ -1967,7 +1967,8 @@ function StepBusiness({
           text: preset?.previewText
         });
         if (!res.success || !res.data?.audioBase64) {
-          throw new Error(res.error || "Voice preview is unavailable right now.");
+          // Provider errors can name internal vendors — buyers get neutral copy.
+          throw new Error("Voice preview is unavailable right now. Please try again shortly.");
         }
         src = `data:${res.data.mimeType || "audio/mpeg"};base64,${res.data.audioBase64}`;
         voiceAudioCacheRef.current.set(cacheKey, src);
@@ -4421,9 +4422,9 @@ function MissedCallSimulationSection({
           </div>
           <p className="mt-3 text-center text-xs text-slate-400" data-testid="business-setup-simulate-result">
             {result.simulated
-              ? "Simulated — no Twilio request was made; nothing was delivered."
+              ? "Simulated — nothing was delivered."
               : result.testCredentials
-                ? "Accepted with Twilio test credentials — nothing was delivered."
+                ? "Accepted in test mode — nothing was delivered."
                 : `Really sent — check ${result.to}.`}
             {result.from ? ` Sender: ${result.from}.` : ""}
           </p>

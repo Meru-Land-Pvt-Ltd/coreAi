@@ -838,9 +838,18 @@ businessRoutes.get("/phone-numbers/locations", async (c) => {
 
   return successResponse(c, {
     countries: listPhoneCountries(),
-    note: "Number availability depends on Twilio inventory and local regulatory requirements."
+    note: "Number availability depends on carrier inventory and local regulatory requirements."
   });
 });
+
+
+/** Buyer responses never name internal vendors — scrub pass-through messages. */
+function neutralizeProviderText(message: string): string {
+  return message
+    .replace(/twilio/gi, "our phone carrier")
+    .replace(/vapi/gi, "the voice platform")
+    .replace(/elevenlabs/gi, "the voice provider");
+}
 
 const phoneSearchSchema = z.object({
   installedAgentId: z.string().trim().min(1).optional(),
@@ -880,7 +889,7 @@ businessRoutes.post("/phone-numbers/search", async (c) => {
     return successResponse(c, outcome);
   } catch (error) {
     if (error instanceof PhoneNumberServiceError) {
-      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.code ?? "PHONE_SEARCH_FAILED");
+      return errorResponse(c, neutralizeProviderText(error.message), apiErrorStatus(error.status, 500), error.code ?? "PHONE_SEARCH_FAILED");
     }
     console.error("[phone-search] failed", error);
     return errorResponse(c, "Could not search available numbers.", 503, "PHONE_SEARCH_FAILED");
@@ -920,7 +929,7 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
   }
 
   try {
-    const outcome = await purchaseNumberForBusiness({
+    const rawOutcome = await purchaseNumberForBusiness({
       businessId: resolved.businessId,
       requestedByUserId: authUser.id,
       installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
@@ -932,10 +941,14 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
       fallbackType: parsed.data.fallbackType ?? null,
       forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null
     });
+    const outcome = {
+      ...rawOutcome,
+      errorMessage: rawOutcome.errorMessage ? neutralizeProviderText(rawOutcome.errorMessage) : rawOutcome.errorMessage
+    };
     return successResponse(c, outcome);
   } catch (error) {
     if (error instanceof PhoneNumberServiceError) {
-      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.code ?? "PHONE_PURCHASE_FAILED");
+      return errorResponse(c, neutralizeProviderText(error.message), apiErrorStatus(error.status, 500), error.code ?? "PHONE_PURCHASE_FAILED");
     }
     console.error("[phone-purchase] failed", error);
     return errorResponse(c, "Could not complete the number purchase.", 503, "PHONE_PURCHASE_FAILED");
@@ -1386,29 +1399,29 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
         ? backendIsTunnel
           ? "Reachable via a tunnel — fine for testing, use the production domain in production."
           : undefined
-        : "BACKEND_URL is not a public HTTPS URL — Twilio cannot reach the webhook."
+        : "The platform URL is not publicly reachable yet — inbound calls cannot reach your agent."
     },
     {
       key: "webhook_configured",
-      label: "Twilio voice webhook URL",
+      label: "Call routing webhook",
       ok: backendPublic,
-      message: `Set the Twilio number's voice webhook to POST ${webhookUrl}`
+      message: "Inbound call routing is configured automatically for your Triven number."
     },
     {
       key: "signature_validation",
-      label: "Twilio signature validation",
+      label: "Call security validation",
       ok: !isProduction || env.TWILIO_VALIDATE_SIGNATURE,
       message: env.TWILIO_VALIDATE_SIGNATURE
         ? undefined
         : isProduction
-          ? "Set TWILIO_VALIDATE_SIGNATURE=true in production."
-          : "Off in dev; set TWILIO_VALIDATE_SIGNATURE=true in production."
+          ? "Platform call security is still being enabled — contact Triven support."
+          : "Relaxed in development; enforced automatically in production."
     },
     {
       key: "no_env_phone_dependency",
       label: "Phone numbers managed in database",
       ok: true,
-      message: "Numbers are resolved from PlatformPhoneNumber/BusinessPhoneNumber."
+      message: "Your Triven number is managed automatically — nothing to configure."
     }
   ];
 
@@ -1496,7 +1509,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     },
     {
       key: "vapi_assistant",
-      label: "Vapi assistant id exists",
+      label: "Voice assistant deployed",
       ok: diagnostics.hasVapiAssistantId,
       message: diagnostics.hasVapiAssistantId
         ? undefined
@@ -1509,7 +1522,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       message: diagnostics.routingMode ? `Mode: ${diagnostics.routingMode}` : "Choose an answering mode in the Connect step."
     },
     { key: "answering_mode", label: "Answering mode allows answering", ok: diagnostics.aiWouldAnswer },
-    { key: "resolver", label: "Twilio resolver can resolve this number", ok: diagnostics.resolved }
+    { key: "resolver", label: "Inbound calls reach this agent", ok: diagnostics.resolved }
   ];
 
   const readyForCall = checks.every((check) => check.ok);

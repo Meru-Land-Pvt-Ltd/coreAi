@@ -1831,11 +1831,18 @@ type DentalToolConfig = {
 };
 
 async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
-  const agent = await prisma.installedAgent.findFirst({
-    where: { businessId, status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    select: { configJson: true, workflow: { select: { workflowJson: true } } }
-  });
+
+  const agent =
+    (await prisma.installedAgent.findFirst({
+      where: { businessId, status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
+      select: { configJson: true, workflow: { select: { workflowJson: true } } }
+    })) ??
+    (await prisma.installedAgent.findFirst({
+      where: { businessId, status: "PROVISIONING" },
+      orderBy: { createdAt: "desc" },
+      select: { configJson: true, workflow: { select: { workflowJson: true } } }
+    }));
   const configJson = (agent?.configJson as Record<string, unknown> | null) ?? {};
   const emailNode = applyBuyerEmailRecipients(
     extractSendEmailNodeConfig(agent?.workflow?.workflowJson ?? null),

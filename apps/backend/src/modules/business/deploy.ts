@@ -527,8 +527,8 @@ export async function buildInstalledAgentChatTestSetup(
     include: {
       profile: true,
       installedAgents: {
-        where: { status: "ACTIVE" },
-        orderBy: { createdAt: "desc" },
+        where: { status: { in: ["ACTIVE", "PROVISIONING"] } },
+        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
         take: 1,
         include: { workflow: true }
       }
@@ -541,8 +541,6 @@ export async function buildInstalledAgentChatTestSetup(
   const buyer = readBuyerConfig(installedAgent.configJson);
   const services = buyer.services.length ? buyer.services : stringArray(business.profile?.services);
   const faqs = buyer.faqs.length ? buyer.faqs : faqStrings(business.profile?.faqsJson);
-  // Same knowledge loader as the deployed assistant — browser tests and live
-  // calls answer from the same source set.
   const { knowledge } = await loadBusinessAgentKnowledge({ businessId: business.id });
 
   return {
@@ -588,12 +586,30 @@ export type SetupPreviewCallSession = {
   preview: true;
 };
 
+/** Latest agent the buyer can test: ACTIVE preferred, then PROVISIONING. */
+async function findLatestTestableInstalledAgent(businessId: string): Promise<{ id: string } | null> {
+  const active = await prisma.installedAgent.findFirst({
+    where: { businessId, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  if (active) return active;
+  return prisma.installedAgent.findFirst({
+    where: { businessId, status: "PROVISIONING" },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+}
+
 export async function startInstalledAgentPreviewCall(businessId: string): Promise<SetupPreviewCallSession> {
   if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
     throw new SetupPreviewCallError("Voice preview is not configured on this server.", 503, "PREVIEW_NOT_CONFIGURED");
   }
 
+  const previewAgent = await findLatestTestableInstalledAgent(businessId);
+
   const plan = await buildInstalledAgentAssistantPlan(businessId, {
+    ...(previewAgent ? { installedAgentId: previewAgent.id } : {}),
     extraSections: [PREVIEW_TOOL_NOTES]
   });
 

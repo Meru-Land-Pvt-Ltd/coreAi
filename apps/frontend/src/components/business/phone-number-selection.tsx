@@ -296,7 +296,7 @@ export function PhoneNumberSelectionSection({
       <div className="w-full">
         <p className="text-sm font-semibold text-slate-800">Choose your Triven AI phone number</p>
         <p className="mt-1 text-xs text-slate-500">
-          {catalogueNote || "Number availability depends on Twilio inventory and local regulatory requirements."}
+          {catalogueNote || "Number availability depends on carrier inventory and local regulatory requirements."}
         </p>
 
         {catalogueLoading ? (

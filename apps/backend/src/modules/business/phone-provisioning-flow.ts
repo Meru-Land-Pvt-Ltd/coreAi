@@ -455,7 +455,7 @@ export async function purchaseNumberForBusiness(params: {
   } catch (error) {
     const code = error instanceof PhoneNumberServiceError ? error.code : "TWILIO_PURCHASE_FAILED";
     const message =
-      error instanceof PhoneNumberServiceError ? error.message : "Twilio could not complete the purchase.";
+      error instanceof PhoneNumberServiceError ? error.message : "The number could not be purchased right now. Please try again shortly.";
     return fail(code ?? "TWILIO_PURCHASE_FAILED", message);
   }
 

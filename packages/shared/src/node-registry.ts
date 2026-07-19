@@ -734,10 +734,10 @@ const REQ = {
   },
   twilioSms: {
     connector: "twilio",
-    label: "Twilio / SMS sender",
+    label: "Text messaging (SMS)",
     ownedBy: "buyer",
     config: ["senderNumber"],
-    note: "Buyer sets up Twilio / SMS sender (or platform SMS) during install."
+    note: "Text messaging is included — Triven manages the SMS sender."
   },
   phoneProvider: {
     connector: "phone_provider",
@@ -748,16 +748,16 @@ const REQ = {
   },
   vapi: {
     connector: "vapi",
-    label: "Vapi voice",
+    label: "Triven voice engine",
     ownedBy: "platform",
-    note: "Runs on the Triven AI Vapi platform — no buyer credential needed for MVP."
+    note: "Runs on the Triven AI voice platform — nothing for you to set up."
   },
   elevenlabs: {
     connector: "elevenlabs",
-    label: "ElevenLabs voice",
+    label: "Premium voice",
     ownedBy: "platform",
     optional: true,
-    note: "Optional ElevenLabs voice delivered through the platform Vapi account."
+    note: "Optional premium voice delivered through the Triven voice platform."
   },
   trivenMail: {
     connector: "triven_mail",
