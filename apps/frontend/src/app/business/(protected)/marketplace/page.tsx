@@ -523,7 +523,6 @@ function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
 export default function MarketplacePage() {
     const router = useRouter();
     const agentListRef = useRef<HTMLElement>(null);
-  const router = useRouter();
 
   const [authReady, setAuthReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
