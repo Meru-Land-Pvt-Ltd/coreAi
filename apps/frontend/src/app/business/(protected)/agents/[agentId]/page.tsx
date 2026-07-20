@@ -580,17 +580,23 @@ export default function BusinessAgentDetailPage() {
       </div>
 
       <main>
-        <section className="relative px-6 pb-16 pt-12">
+      <section className="relative px-4 pb-10 pt-8 sm:px-6 sm:pb-16 sm:pt-12">
           <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(245,158,11,0.08),rgba(255,255,255,0)_72%)]" />
 
-          <div className="mx-auto grid w-full max-w-none gap-12 lg:grid-cols-5 lg:items-start">
-            <div className="order-1 lg:order-1 lg:col-span-3">
-              <div className="relative inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-amber-500 shadow-glow">
+          <div
+            className="
+              mx-auto grid w-full max-w-none
+              grid-cols-1 grid-rows-[auto_auto] gap-8
+              lg:grid-cols-5 lg:grid-rows-1 lg:items-start lg:gap-12
+            "
+          >
+            <div className="col-start-1 row-start-1 lg:col-span-3 lg:row-start-1">
+              <div className="relative inline-flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-amber-500 shadow-glow sm:h-16 sm:w-16">
                 {iconUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- icons may be data URLs
                   <img src={iconUrl} alt="" className="h-full w-full object-cover" />
                 ) : (
-                  <PhoneIcon className="h-8 w-8 text-slate-950" />
+                  <PhoneIcon className="h-7 w-7 text-slate-950 sm:h-8 sm:w-8" />
                 )}
                 <span className="absolute -right-1.5 -top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-amber-400 ring-2 ring-white">
                   ⚡
@@ -598,7 +604,7 @@ export default function BusinessAgentDetailPage() {
               </div>
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl md:text-4xl">
                   {listing.name}
                 </h1>
                 <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
@@ -608,12 +614,12 @@ export default function BusinessAgentDetailPage() {
 
               {/* Short Description */}
               {heroDescription ? (
-                <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600">{heroDescription}</p>
+                <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">{heroDescription}</p>
               ) : (
                 agentDescription && (
                   <ExpandableText
                     text={agentDescription}
-                    className="mt-4 max-w-xl text-lg leading-relaxed text-slate-600"
+                    className="mt-4 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg"
                   />
                 )
               )}
@@ -640,14 +646,14 @@ export default function BusinessAgentDetailPage() {
                 ) : null}
               </div>
 
-              <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-slate-600">
+              <div className="mt-3 inline-flex flex-wrap items-center gap-1.5 text-sm text-slate-600">
                 Built by{" "}
                 <span className="inline-flex items-center gap-1 font-semibold text-slate-900">
                   {author} <span className="text-amber-500">✓</span>
                 </span>
               </div>
 
-              <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+              <div className="mt-7 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
                 {trialInfo?.isTrial && !trialInfo.trialEnded ? (
                   <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-700" data-testid="business-owned-agent-trial-days-left">
                     ⏱ {trialInfo.daysLeft} {trialInfo.daysLeft === 1 ? "day" : "days"} left in trial
@@ -672,13 +678,13 @@ export default function BusinessAgentDetailPage() {
                 <div className="mt-3">
                   {(listing?.pricingModel ?? "SUBSCRIPTION") === "FREE" ? (
                     <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-extrabold tracking-tight text-slate-900">Free</span>
+                      <span className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Free</span>
                       <span className="text-sm font-medium text-slate-500">forever</span>
                     </div>
                   ) : (listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME" ? (
                     <div>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">${price}</span>
                         <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-600">one-time</span>
                       </div>
                       <p className="mt-1 text-sm text-slate-500">Pay once, use forever — no recurring fees.</p>
@@ -686,8 +692,8 @@ export default function BusinessAgentDetailPage() {
                   ) : (
                     <div>
                       <div className="flex items-baseline gap-2">
-                        <span className="text-4xl font-extrabold tracking-tight text-slate-900">${price}</span>
-                        <span className="text-lg font-medium text-slate-500">/month</span>
+                        <span className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">${price}</span>
+                        <span className="text-base font-medium text-slate-500 sm:text-lg">/month</span>
                       </div>
                       {!ownedAgent && (listing?.freeTrialEnabled !== false) ? (
                         <p className="mt-1 text-sm text-slate-500">
@@ -705,7 +711,7 @@ export default function BusinessAgentDetailPage() {
                         ref={heroCtaRef}
                         href={checkoutPath}
                         data-testid="owned-agent-detail-pay-now"
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400 sm:px-6 sm:py-3.5 sm:text-base"
                       >
                         {(listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME" ? `Buy now — $${price}` : `Pay $${price}/mo`}
                         <ArrowIcon />
@@ -717,7 +723,7 @@ export default function BusinessAgentDetailPage() {
                         ref={showPayButton ? undefined : heroCtaRef}
                         href={setupPath}
                         data-testid="owned-agent-detail-setup"
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400 sm:px-6 sm:py-3.5 sm:text-base"
                       >
                         {isSetupCompleted ? "Edit Configuration" : "Setup agent"}
                         <ArrowIcon />
@@ -731,7 +737,7 @@ export default function BusinessAgentDetailPage() {
                       ref={heroCtaRef}
                       href={checkoutPath}
                       data-testid="agent-detail-get-agent"
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 hover:scale-[1.02] hover:bg-amber-400 sm:px-6 sm:py-3.5 sm:text-base"
                     >
                       {(listing?.pricingModel ?? "SUBSCRIPTION") === "FREE"
                         ? "Install for Free"
@@ -762,7 +768,22 @@ export default function BusinessAgentDetailPage() {
               </div>
             </div>
 
-            <div ref={demoRef} id="demo" className="order-2 scroll-mt-24 lg:order-2 lg:col-span-2">
+            {/*
+              Isolated grid cell for the demo. `grid` + `isolate` + `contain: layout`
+              forces this to be its own independent formatting/positioning context —
+              any `absolute`/`fixed` element inside AgentWorkflowPreview resolves
+              against THIS box, not an ancestor further up the tree, so it can never
+              visually creep into the pricing card above it.
+            */}
+            <div
+              ref={demoRef}
+              id="demo"
+              className="
+                col-start-1 row-start-2 lg:col-span-2 lg:row-start-1
+                grid scroll-mt-24 isolate
+                [contain:layout_paint]
+              "
+            >
               <AgentWorkflowPreview listing={listing} />
             </div>
           </div>

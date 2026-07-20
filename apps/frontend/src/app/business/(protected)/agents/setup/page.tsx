@@ -2017,76 +2017,121 @@ function SetupWizard() {
             </p>
           ) : null}
 
-          <div
-            className={`mt-8 flex items-center justify-between gap-3 pt-6 border-t border-gray-100 ${
-              step === 2 ? "sticky bottom-0 z-20 bg-white pb-2 -mb-2" : ""
-            }`}
-            data-testid="business-setup-footer"
-          >
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                disabled={step === 1 || saving}
-                onClick={() => setStep((current) => Math.max(1, current - 1))}
-                data-testid="business-setup-back"
-                className="btn border border-gray-200 text-slate-600 px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
-              >
-                Back
-              </button>
+<div
+  className={`mt-8 border-t border-gray-100 pt-5 ${
+    step === 2
+      ? "sticky bottom-0 z-20 bg-white/95 backdrop-blur pb-[calc(env(safe-area-inset-bottom)+12px)]"
+      : ""
+  }`}
+  data-testid="business-setup-footer"
+>
+  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-              {step < STEPS.length ? (
-                <button
-                  type="button"
-                  onClick={() => setStep((current) => Math.min(current + 1, STEPS.length))}
-                  disabled={saving}
-                  data-testid="business-setup-skip"
-                  className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
-                >
-                  Skip for now
-                </button>
-              ) : null}
-            </div>
+    {/* Left Actions */}
+    <div className="flex flex-wrap items-center gap-3 justify-between">
+      <button
+        type="button"
+        disabled={step === 1 || saving}
+        onClick={() => setStep((current) => Math.max(1, current - 1))}
+        data-testid="business-setup-back"
+        className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Back
+      </button>
 
-            <div className="flex items-center gap-4">
-              {step === 2 && anyUnsaved && !saving ? (
-                <span className="text-xs font-semibold text-amber-600" data-testid="business-setup-unsaved">
-                  Unsaved changes
-                </span>
-              ) : null}
+      {step < STEPS.length && (
+        <button
+          type="button"
+          onClick={() =>
+            setStep((current) => Math.min(current + 1, STEPS.length))
+          }
+          disabled={saving}
+          data-testid="business-setup-skip"
+          className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
+        >
+          Skip for now
+        </button>
+      )}
 
-              <button
-                type="button"
-                onClick={handleSaveProgress}
-                disabled={saving}
-                data-testid="business-setup-save"
-                className="text-xs font-semibold text-slate-500 hover:text-slate-700 underline transition-colors disabled:opacity-50"
-              >
-                {saving ? "Saving…" : step === 2 ? "Save draft" : "Save progress"}
-              </button>
+{step === 2 && anyUnsaved && !saving && (
+        <span
+          className="text-center text-xs font-semibold text-amber-600 sm:text-left"
+          data-testid="business-setup-unsaved"
+        >
+          Unsaved changes
+        </span>
+      )}
 
-              {step < STEPS.length ? (
-                <button
-                  type="button"
-                  onClick={goNext}
-                  disabled={saving}
-                  data-testid="business-setup-next"
-                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors"
-                >
-                  {step === 2 ? "Save & continue" : "Continue"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleDeploy}
-                  disabled={saving || !readyToDeploy}
-                  data-testid="business-setup-submit"
-                  className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors"
-                >
-                  {saving ? "Deploying…" : "Deploy live agent"}
-                </button>
-              )}
-            </div>
-          </div>
+      <button
+        type="button"
+        onClick={handleSaveProgress}
+        disabled={saving}
+        data-testid="business-setup-save"
+        className="text-center text-sm font-medium text-slate-500 underline transition hover:text-slate-700 disabled:opacity-50"
+      >
+        {saving
+          ? "Saving..."
+          : step === 2
+          ? "Save draft"
+          : "Save progress"}
+      </button>
+    </div>
+
+    {/* Right Actions */}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+
+
+
+      {step < STEPS.length ? (
+        <button
+          type="button"
+          onClick={goNext}
+          disabled={saving}
+          data-testid="business-setup-next"
+          className="
+            w-full
+            rounded-xl
+            bg-amber-500
+            px-6
+            py-3
+            text-sm
+            font-bold
+            text-white
+            transition
+            hover:bg-amber-600
+            disabled:opacity-50
+            sm:w-auto
+          "
+        >
+          {step === 2 ? "Save & Continue" : "Continue"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={handleDeploy}
+          disabled={saving || !readyToDeploy}
+          data-testid="business-setup-submit"
+          className="
+            w-full
+            rounded-xl
+            bg-amber-500
+            px-6
+            py-3
+            text-sm
+            font-bold
+            text-white
+            transition
+            hover:bg-amber-600
+            disabled:opacity-50
+            sm:w-auto
+          "
+        >
+          {saving ? "Deploying..." : "Deploy Live Agent"}
+        </button>
+      )}
+    </div>
+  </div>
+</div>
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import {
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+import {  BotIcon } from "lucide-react";
 
 const TRIAL_DAYS = 7;
 
@@ -426,7 +427,7 @@ export default function BusinessMyAgentsPage() {
                     ) : (
                         <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
                             <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
-                                🤖
+                                <BotIcon className="h-6 w-6 text-amber-600" />
                             </div>
                             <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="business-my-agents-empty-heading">
                                 No agents yet
@@ -530,7 +531,7 @@ function OwnedAgentCard({
                             // eslint-disable-next-line @next/next/no-img-element -- listing icons may be data URLs or uploaded URLs from arbitrary hosts.
                             <img src={agent.iconUrl} alt="" className="h-full w-full object-cover" />
                         ) : (
-                            "🤖"
+                            <BotIcon className="h-6 w-6 text-amber-600" />
                         )}
                     </span>
 
