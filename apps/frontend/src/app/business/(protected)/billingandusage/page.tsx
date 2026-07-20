@@ -212,12 +212,20 @@ const DOWNLOAD_STYLES = `
 
 function VisaIcon() {
     return (
-        <svg viewBox="0 0 45 14" className="h-4.5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M17.2 0.2L14.7 12.3H11.5L9.5 3.1c-.2-.8-.4-1.1-.9-1.4C7.8 1.3 6.2 1 4.2 0.5l.1-.3h5.2c.7 0 1.3.4 1.4 1.2l1.6 8.5L15.2.2h3.2v.02z" fill="#1A1F71" />
-            <path d="M4.2.2h5.2c.7 0 1.3.4 1.4 1.2l.6 3.1-3.6-4.3H4.2z" fill="#F7B600" />
-            <path d="M21.2.2h3.1l-1.9 12.1h-3.1L21.2.2z" fill="#1A1F71" />
-            <path d="M30.6.2c-1.8 0-3 .9-3 2.1 0 1.7 2.4 1.9 2.4 2.8 0 .4-.5.8-1.2.8-1 0-1.8-.4-2.3-.9l-.4 2.3c.7.4 1.9.6 3 .6 1.8 0 3.2-.8 3.2-2.3 0-1.8-2.4-2-2.4-2.8 0-.3.4-.7 1.1-.7.8 0 1.5.3 1.9.7l.4-2.2c-.6-.4-1.6-.7-2.7-.7z" fill="#1A1F71" />
-            <path d="M38.8.2c-.6 0-1.2.3-1.4.9l-4.9 11.2h3.2l.6-1.8h3.9l.4 1.8h2.8L40.8.2h-2zm.6 7.8h-2.6l1.3-3.6 1.3 3.6z" fill="#1A1F71" />
+        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <text
+                x="2"
+                y="12.5"
+                fontFamily="'Inter', 'Arial Black', sans-serif"
+                fontWeight="900"
+                fontStyle="italic"
+                fontSize="12"
+                fill="#1A1F71"
+                letterSpacing="-0.3"
+            >
+                VISA
+            </text>
+            <polygon points="2,4.5 4.5,4.5 3,6" fill="#F7B600" />
         </svg>
     );
 }
