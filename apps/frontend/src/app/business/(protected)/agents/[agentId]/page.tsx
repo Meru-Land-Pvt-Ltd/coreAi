@@ -258,17 +258,23 @@ function getWorkflowFeatures(listing: ApiListing) {
 }
 
 function getIncludedItems(listing: ApiListing) {
-  const fromFeatures = (listing.includedFeatures ?? [])
-    .map((feature) => feature.trim())
-    .filter(Boolean);
-  if (fromFeatures.length) return fromFeatures;
+  const items: string[] = [];
 
-  const items = [
-    ...(listing.requiredConnectors ?? []).map((connector) => getConnectorIncludedItem(connector)),
-    ...(listing.supportedLlms ?? []).map((llm) => getLlmIncludedItem(llm)),
-    "Real-time workflow automation",
-    "Business-specific configuration"
-  ];
+  // Connector integrations
+  for (const connector of listing.requiredConnectors ?? []) {
+    items.push(getConnectorIncludedItem(connector));
+  }
+
+  // LLM support
+  for (const llm of listing.supportedLlms ?? []) {
+    items.push(getLlmIncludedItem(llm));
+  }
+
+  // Always-included items
+  items.push("Real-time workflow automation");
+  items.push("Business-specific configuration");
+  items.push("Dedicated AI agent instance");
+  items.push("Ongoing feature updates");
 
   return Array.from(new Set(items));
 }

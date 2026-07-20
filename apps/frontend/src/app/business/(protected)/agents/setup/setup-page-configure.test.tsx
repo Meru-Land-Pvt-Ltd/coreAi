@@ -185,6 +185,7 @@ function setupData(overrides: Record<string, unknown> = {}) {
       answeringHours: null,
       triggerKind: "voice",
       installedAgentId: "agent-1",
+      setupTimeEstimate: "3 min",
       ...overrides
     }
   };

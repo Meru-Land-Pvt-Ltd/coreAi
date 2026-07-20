@@ -37,8 +37,8 @@ export function BusinessPaymentMethodModal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/55 p-4" role="dialog" aria-modal="true" data-testid="business-settings-card-modal">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-slate-900/55 p-4 sm:items-center" role="dialog" aria-modal="true" data-testid="business-settings-card-modal">
+      <div className="my-auto w-full max-w-lg rounded-2xl bg-white p-5 sm:p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">{mode === "backup" ? "Add backup payment method" : "Change payment method"}</h2>
@@ -123,14 +123,14 @@ function CardSetupForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="rounded-xl border border-gray-200 p-4">
+      <div className="rounded-xl border border-gray-200 p-3 sm:p-4">
         <PaymentElement options={{ layout: "tabs", paymentMethodOrder: ["card"] }} />
       </div>
       <p className="text-xs text-slate-400">Card details are securely processed by Stripe and are not stored by Triven.</p>
       {error ? <p className="text-sm text-red-600" data-testid="business-settings-card-error">{error}</p> : null}
-      <div className="flex gap-3">
-        <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancel</button>
-        <button type="submit" disabled={!stripe || !elements || saving} className="flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50" data-testid="business-settings-save-card">{saving ? "Saving…" : mode === "backup" ? "Add backup card" : "Save card"}</button>
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:gap-3">
+        <button type="button" onClick={onClose} className="w-full sm:flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 order-2 sm:order-1">Cancel</button>
+        <button type="submit" disabled={!stripe || !elements || saving} className="w-full sm:flex-1 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 order-1 sm:order-2" data-testid="business-settings-save-card">{saving ? "Saving…" : mode === "backup" ? "Add backup card" : "Save card"}</button>
       </div>
     </form>
   );
