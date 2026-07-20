@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
 import { apiGet } from "@/lib/api";
 import { ASSIGNMENT_PATH } from "@/lib/routes";
-import { Download } from "lucide-react";
+import { BotIcon, Download, Search } from "lucide-react";
 
 type Agent = {
   id: string;
@@ -626,7 +626,7 @@ export default function MarketplacePage() {
             <div data-testid="app-marketplace-page-div-3" className="hidden min-w-0 flex-1 justify-center px-4 md:flex lg:px-8">
               <div data-testid="app-marketplace-page-div-4" className="relative w-full max-w-2xl">
                 <span data-testid="app-marketplace-page-span-3" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                  🔍
+                  <Search className="h-4 w-4" />
                 </span>
                 <input data-testid="marketplace-search-input"
                   value={query}
@@ -662,7 +662,7 @@ export default function MarketplacePage() {
           <div data-testid="app-marketplace-page-div-3-mobile" className="pb-3 md:hidden">
             <div data-testid="app-marketplace-page-div-4-mobile" className="relative w-full">
               <span data-testid="app-marketplace-page-span-3-mobile" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                🔍
+                <Search className="h-4 w-4" />
               </span>
               <input data-testid="app-marketplace-page-input-1-mobile"
                 value={query}
@@ -1217,7 +1217,7 @@ export default function MarketplacePage() {
           ) : (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
               <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
-                🔍
+                <Search className="h-6 w-6 text-amber-600 " />
               </div>
               <h3 className="mt-4 text-lg font-semibold text-slate-900" data-testid="marketplace-no-agents-match-those-filters-heading">
                 No agents found.
@@ -1333,7 +1333,10 @@ function AgentGridCard({
       <div className="flex-1 p-6">
         <div className="flex items-start justify-between">
           <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-            🤖
+            
+            <BotIcon
+              className="h-6 w-6 text-amber-500"
+            />
           </span>
 
           <div className="text-right flex flex-col items-end">
@@ -1410,7 +1413,9 @@ function AgentListCard({
   return (
     <article className="group flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-center">
       <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-50 text-xl ring-1 ring-amber-100">
-        🤖
+        <BotIcon
+          className="h-6 w-6 text-amber-500"
+        />
       </span>
 
       <div className="min-w-0 flex-1">
@@ -1505,7 +1510,9 @@ function AgentDetailsModal({
         <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
           <div className="flex items-start gap-4 pr-10">
             <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-3xl">
-              🤖
+              <BotIcon
+                className="h-6 w-6 text-amber-500"
+              />
             </span>
 
             <div className="min-w-0">

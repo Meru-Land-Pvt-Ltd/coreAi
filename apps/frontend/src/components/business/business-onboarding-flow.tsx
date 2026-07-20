@@ -6,10 +6,20 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { BusinessHoursSection } from "@/components/business/business-hours-section";
+import { BUSINESS_MARKETPLACE_PATH, publicAgentPath } from "@/lib/routes";
+import { BriefcaseBusiness, Rocket, TrendingUp } from "lucide-react";
 import {
-  BUSINESS_MARKETPLACE_PATH,
-  publicAgentPath
-} from "@/lib/routes";
+  PhoneCall,
+  CalendarDays,
+  MessageSquare,
+  Star,
+  Wallet,
+  ClipboardList,
+  ChartColumn,
+  RefreshCcw,
+  Bot,
+  BotIcon,
+} from "lucide-react";
 
 const TRIVEN_LOGO_SRC = encodeURI("/triven.ai word logo transparent bg.PNG");
 
@@ -22,7 +32,7 @@ const SOFTWARE_OPTIONS = [
   "Curve Dental",
   "PracticeWorks",
   "Other PMS",
-  "None / Paper-based"
+  "None / Paper-based",
 ];
 
 const BUSINESS_TYPES = [
@@ -33,26 +43,44 @@ const BUSINESS_TYPES = [
   { value: "pedo", label: "Pediatric dentistry" },
   { value: "oral", label: "Oral surgery / Specialty" },
   { value: "health", label: "Other healthcare" },
-  { value: "non-dental", label: "Non-dental business" }
+  { value: "non-dental", label: "Non-dental business" },
 ];
 
 const PAIN_POINTS = [
-  ["missed-calls", "📞", "Missed calls & follow-ups", "Patients call after hours and never call back"],
-  ["scheduling", "📅", "Appointment scheduling", "Too much time spent on phone scheduling"],
-  ["communication", "💬", "Patient communication", "Reminders, confirmations, and follow-ups"],
-  ["reviews", "⭐", "Online reviews", "Need more Google/Yelp reviews from happy patients"],
-  ["billing", "💰", "Billing & collections", "Outstanding balances and payment follow-ups"],
-  ["intake", "📋", "New patient intake", "Paper forms, manual data entry"],
-  ["analytics", "📊", "Practice analytics", "No visibility into practice performance"],
-  ["recall", "🔄", "Patient recall", "Patients overdue for hygiene/checkups"],
-  ["frontdesk", "🤖", "Front desk automation", "Staff overwhelmed with repetitive tasks"]
+  [
+    "missed-calls",
+    PhoneCall,
+    "Missed calls & follow-ups",
+    "Patients call after hours and never call back",
+  ],
+  ["scheduling", CalendarDays, "Appointment scheduling", "Too much time spent on phone scheduling"],
+  [
+    "communication",
+    MessageSquare,
+    "Patient communication",
+    "Reminders, confirmations, and follow-ups",
+  ],
+  ["reviews", Star, "Online reviews", "Need more Google/Yelp reviews from happy patients"],
+  ["billing", Wallet, "Billing & collections", "Outstanding balances and payment follow-ups"],
+  ["intake", ClipboardList, "New patient intake", "Paper forms, manual data entry"],
+  ["analytics", ChartColumn, "Practice analytics", "No visibility into practice performance"],
+  ["recall", RefreshCcw, "Patient recall", "Patients overdue for hygiene/checkups"],
+  ["frontdesk", Bot, "Front desk automation", "Staff overwhelmed with repetitive tasks"],
 ] as const;
 
-const PAIN_LABELS = Object.fromEntries(
-  PAIN_POINTS.map(([id, , label]) => [id, label])
-) as Record<string, string>;
+const PAIN_LABELS = Object.fromEntries(PAIN_POINTS.map(([id, , label]) => [id, label])) as Record<
+  string,
+  string
+>;
 
-const STEP_TITLES = ["", "Welcome", "Business profile", "Your challenges", "How Triven works", "Recommended for you"];
+const STEP_TITLES = [
+  "",
+  "Welcome",
+  "Business profile",
+  "Your challenges",
+  "How Triven works",
+  "Recommended for you",
+];
 
 type OnboardingData = {
   businessName: string;
@@ -132,15 +160,21 @@ function renderPriceTag(agent: RecommendedAgent) {
     return (
       <span className="ml-auto text-right">
         <span className="font-mono text-sm font-bold text-green-600 block leading-tight">Free</span>
-        <span className="block text-[9px] font-normal text-slate-400 leading-tight">Pay only for usage</span>
+        <span className="block text-[9px] font-normal text-slate-400 leading-tight">
+          Pay only for usage
+        </span>
       </span>
     );
   }
   if (model === "one_time" || model === "one-time" || model === "onetime") {
     return (
       <span className="ml-auto text-right">
-        <span className="font-mono text-sm font-bold text-slate-900 block leading-tight">{formatPrice(agent.priceCents)} one-time</span>
-        <span className="block text-[9px] font-normal text-slate-400 leading-tight">Usage charges apply separately</span>
+        <span className="font-mono text-sm font-bold text-slate-900 block leading-tight">
+          {formatPrice(agent.priceCents)} one-time
+        </span>
+        <span className="block text-[9px] font-normal text-slate-400 leading-tight">
+          Usage charges apply separately
+        </span>
       </span>
     );
   }
@@ -150,7 +184,9 @@ function renderPriceTag(agent: RecommendedAgent) {
       <span className="font-mono text-sm font-bold text-slate-900 block leading-tight">
         {formatPrice(agent.priceCents)}/mo
       </span>
-      <span className="block text-[9px] font-normal text-slate-400 leading-tight">Usage charges billed separately</span>
+      <span className="block text-[9px] font-normal text-slate-400 leading-tight">
+        Usage charges billed separately
+      </span>
     </span>
   );
 }
@@ -182,7 +218,7 @@ export function BusinessOnboardingFlow() {
     industry: "",
     challenges: [],
     lastStep: 1,
-    skippedFrom: null
+    skippedFrom: null,
   });
 
   const progress = step === "done" ? 100 : (Number(step) / 5) * 100;
@@ -261,6 +297,7 @@ export function BusinessOnboardingFlow() {
     setSaving(true);
     try {
       const payload = { ...form, ...patch };
+
       const response = await apiPost<{
         completed: boolean;
         skipped: boolean;
@@ -269,23 +306,23 @@ export function BusinessOnboardingFlow() {
       }>("/business/onboarding", {
         action,
         data: {
-          businessName: payload.businessName,
-          businessType: payload.businessType,
-          teamSize: payload.teamSize,
-          monthlyVolume: payload.monthlyVolume,
-          software: payload.software,
-          industry: payload.industry,
-          challenges: payload.challenges,
+          businessName: payload.businessName.trim() || undefined,
+          businessType: payload.businessType.trim() || undefined,
+          teamSize: payload.teamSize.trim() || undefined,
+          monthlyVolume: payload.monthlyVolume.trim() || undefined,
+          software: payload.software.length ? payload.software : undefined,
+          industry: payload.industry.trim() || undefined,
+          challenges: payload.challenges.length ? payload.challenges : undefined,
           lastStep: typeof step === "number" ? step : payload.lastStep,
-          skippedFrom: payload.skippedFrom ?? undefined
-        }
+          skippedFrom: payload.skippedFrom ?? undefined,
+        },
       });
 
       if (response.success && response.data) {
         setForm((current) => ({ ...current, ...response.data!.data }));
         setRecommendations(response.data.recommendations ?? []);
       }
-
+      console.log("persist result:", response);
       return response.success;
     } finally {
       setSaving(false);
@@ -323,11 +360,19 @@ export function BusinessOnboardingFlow() {
 
   async function handleSkip() {
     const skippedFrom = typeof step === "number" ? step : 1;
-    const ok = await persist("skip", { skippedFrom, lastStep: skippedFrom });
+
+    const ok = await persist("skip", {
+      skippedFrom,
+      lastStep: skippedFrom,
+    });
+
+    console.log("persist result:", ok);
+
     if (!ok) {
       showToast("Could not skip setup. Please try again.");
       return;
     }
+
     setDoneKind("skip");
     goTo("done");
   }
@@ -343,16 +388,11 @@ export function BusinessOnboardingFlow() {
     goTo("done");
   }
 
-  async function finishAndNavigate(
-    action: "complete" | "skip",
-    destination: Route
-  ) {
+  async function finishAndNavigate(action: "complete" | "skip", destination: Route) {
     const currentStep = typeof step === "number" ? step : 5;
     const ok = await persist(
       action,
-      action === "skip"
-        ? { skippedFrom: currentStep, lastStep: currentStep }
-        : { lastStep: 5 }
+      action === "skip" ? { skippedFrom: currentStep, lastStep: currentStep } : { lastStep: 5 },
     );
 
     if (!ok) {
@@ -369,7 +409,7 @@ export function BusinessOnboardingFlow() {
       const exists = list.includes(value);
       return {
         ...current,
-        [key]: exists ? list.filter((item) => item !== value) : [...list, value]
+        [key]: exists ? list.filter((item) => item !== value) : [...list, value],
       };
     });
     if (key === "challenges") setShowPainHint(false);
@@ -407,139 +447,274 @@ export function BusinessOnboardingFlow() {
           className="h-1 w-full bg-slate-200"
           data-testid="business-onboarding-progress"
         >
-          <div className="h-1 rounded-full bg-amber-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+          <div
+            className="h-1 rounded-full bg-amber-500 transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
         </div>
       </div>
 
       <main className="grid min-h-screen place-items-center px-4 pt-12 pb-28">
         <div className="w-full max-w-[640px]">
           <p className="mb-5 text-center" aria-label="Onboarding navigation">
-            <span className="hidden text-xs font-medium text-slate-500 sm:inline" data-testid="business-onboarding-step-label">
-              {step === "done" ? "Setup complete" : `Step ${step} of 5 — ${STEP_TITLES[Number(step)]}`}
+            <span
+              className="hidden text-xs font-medium text-slate-500 sm:inline"
+              data-testid="business-onboarding-step-label"
+            >
+              {step === "done"
+                ? "Setup complete"
+                : `Step ${step} of 5 — ${STEP_TITLES[Number(step)]}`}
             </span>
-            <span className="text-xs font-medium text-slate-500 sm:hidden" data-testid="business-onboarding-step-short">
+            <span
+              className="text-xs font-medium text-slate-500 sm:hidden"
+              data-testid="business-onboarding-step-short"
+            >
               {step === "done" ? "✓" : `${step}/5`}
             </span>
           </p>
 
           <div id="onboarding-stage" ref={stageRef} className="relative">
             {step === 1 ? (
-              <section data-onboarding-active="true" className={`mx-auto max-w-[520px] rounded-2xl bg-white p-6 text-center onboarding-elev sm:p-8 ${direction === "back" ? "onboarding-in-left" : "onboarding-in-right"}`}>
-                <div className="mb-6 flex items-center justify-center gap-2">
-                  <Image src={TRIVEN_LOGO_SRC} alt="Triven" width={130} height={38} priority className="h-9 w-auto object-contain" />
-                  <span className="text-lg font-bold tracking-tight text-slate-900">Triven</span>
+              <section
+                data-onboarding-active="true"
+                className={`mx-auto w-full max-w-lg rounded-3xl bg-white px-5 py-8 shadow-xl sm:px-8 sm:py-10 lg:max-w-xl ${
+                  direction === "back" ? "onboarding-in-left" : "onboarding-in-right"
+                }`}
+              >
+                {/* Logo */}
+                <div className="flex flex-col items-center">
+                  <div className="flex items-center gap-2">
+                    <Image
+                      src={TRIVEN_LOGO_SRC}
+                      alt="Triven"
+                      width={130}
+                      height={38}
+                      priority
+                      className="h-9 w-auto object-contain sm:h-10"
+                    />
+
+                    <span className="text-xl font-bold tracking-tight text-slate-900">Triven</span>
+                  </div>
                 </div>
-                <div className="mb-6 flex justify-center">
-                  <svg className="onboarding-float" width="180" height="130" viewBox="0 0 180 130" fill="none" aria-hidden="true">
+
+                {/* Illustration */}
+                <div className="mt-8 flex justify-center">
+                  <svg
+                    className="onboarding-float h-auto w-40 sm:w-48"
+                    viewBox="0 0 180 130"
+                    fill="none"
+                    aria-hidden="true"
+                  >
                     <circle cx="74" cy="66" r="33" stroke="#94a3b8" strokeWidth="6" opacity=".75" />
                     <circle cx="106" cy="66" r="33" stroke="#f59e0b" strokeWidth="6" />
                     <circle cx="90" cy="66" r="9" fill="#f59e0b" />
                     <circle cx="90" cy="66" r="9" fill="none" stroke="#fff" strokeWidth="2.5" />
                   </svg>
                 </div>
-                <h2 className="text-xl font-bold text-slate-900" data-testid="business-onboarding-welcome-title">
-                  Welcome to Triven, {firstName}! 👋
-                </h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  You&apos;re about to discover AI agents that will transform how your business operates.
-                </p>
-                <p className="mt-3 text-sm text-slate-500">
-                  This quick setup takes about 2 minutes and helps us recommend the perfect agents for your business.
-                </p>
-                <ul className="mx-auto mt-6 max-w-xs space-y-2.5 text-left">
-                  {[
-                    "Personalized agent recommendations",
-                    "Dashboard configured for your business",
-                    "Instant access to the marketplace"
-                  ].map((item) => (
-                    <li key={item} className="flex items-start gap-2.5 text-sm text-slate-700">
-                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-amber-50 text-xs text-amber-600">✓</span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-8">
-                  <button type="button" disabled={saving} onClick={() => goTo(2)} className={primaryBigBtn} data-testid="business-onboarding-start">
-                    Let&apos;s get started
+
+                {/* Heading */}
+                <div className="mt-8 text-center">
+                  <h2
+                    className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl"
+                    data-testid="business-onboarding-welcome-title"
+                  >
+                    Welcome to Triven,
+                    <br className="sm:hidden" />
+                    <span className="text-amber-600"> {firstName}! 👋</span>
+                  </h2>
+
+                  <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-slate-600 sm:text-base">
+                    You're about to discover AI agents that transform how your business operates.
+                  </p>
+
+                  <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-500">
+                    This setup takes only <strong>2 minutes</strong> and helps us recommend the
+                    perfect AI agents for your business.
+                  </p>
+                </div>
+
+                {/* Features */}
+                <div className="mt-8 rounded-2xl bg-slate-50 p-5">
+                  <ul className="space-y-4">
+                    {[
+                      "Personalized AI agent recommendations",
+                      "Business dashboard tailored for you",
+                      "Instant marketplace access",
+                    ].map((item) => (
+                      <li
+                        key={item}
+                        className="flex items-start gap-3 text-sm text-slate-700 sm:text-base"
+                      >
+                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">
+                          ✓
+                        </span>
+
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Buttons */}
+                <div className="mt-10 flex flex-col gap-4">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => goTo(2)}
+                    className={`${primaryBigBtn} w-full`}
+                    data-testid="business-onboarding-start"
+                  >
+                    Let's Get Started
                   </button>
-                  <div className="mt-4 text-center">
-                    <button type="button" onClick={() => void handleSkip()} className={skipBtn} data-testid="business-onboarding-skip">
-                      Skip setup and explore on my own →
-                    </button>
-                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSkip()}
+                    className={`${skipBtn} w-full text-center`}
+                    data-testid="business-onboarding-skip"
+                  >
+                    Skip setup and explore on my own →
+                  </button>
                 </div>
               </section>
             ) : null}
 
             {step === 2 ? (
-              <section data-onboarding-active="true" className="onboarding-elev mx-auto max-w-[520px] rounded-2xl bg-white p-6 sm:p-8">
-                <h2 className="text-xl font-bold text-slate-900" data-testid="business-onboarding-business-title">Tell us about your business</h2>
-                <p className="mt-1.5 text-sm text-slate-600">This helps us recommend agents that actually fit your practice.</p>
-                <div className="mt-6 space-y-5">
+              <section
+                data-onboarding-active="true"
+                className="onboarding-elev mx-auto w-full max-w-[520px] rounded-2xl bg-white px-5 py-6 sm:px-8 sm:py-8"
+              >
+                <h2
+                  className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl"
+                  data-testid="business-onboarding-business-title"
+                >
+                  Tell us about your business
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  This helps us recommend agents that actually fit your practice.
+                </p>
+
+                <div className="mt-6 space-y-6">
                   <div>
-                    <label htmlFor="bizName" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="bizName"
+                      className="mb-1.5 block text-sm font-medium text-slate-700"
+                    >
                       Business name <span className="text-amber-500">*</span>
                     </label>
+
                     <input
                       id="bizName"
                       type="text"
                       value={form.businessName}
                       onChange={(event) => {
-                        setForm((current) => ({ ...current, businessName: event.target.value }));
-                        if (event.target.value.trim()) setErrors((current) => ({ ...current, name: false }));
+                        setForm((current) => ({
+                          ...current,
+                          businessName: event.target.value,
+                        }));
+                        if (event.target.value.trim())
+                          setErrors((current) => ({ ...current, name: false }));
                       }}
                       autoComplete="organization"
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                       data-testid="business-onboarding-business-name"
                     />
-                    {errors.name ? <p className="mt-1 text-xs text-red-600">Add your business name so we can personalize your setup.</p> : null}
+
+                    {errors.name ? (
+                      <p className="mt-1 text-xs text-red-600">
+                        Add your business name so we can personalize your setup.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div>
-                    <label htmlFor="bizType" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="bizType"
+                      className="mb-1.5 block text-sm font-medium text-slate-700"
+                    >
                       Business type <span className="text-amber-500">*</span>
                     </label>
+
                     <select
                       id="bizType"
                       value={form.businessType}
                       onChange={(event) => {
-                        setForm((current) => ({ ...current, businessType: event.target.value }));
+                        setForm((current) => ({
+                          ...current,
+                          businessType: event.target.value,
+                        }));
                         setErrors((current) => ({ ...current, type: false }));
                       }}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                       data-testid="business-onboarding-business-type"
                     >
-                      <option value="" disabled>Select your practice type…</option>
+                      <option value="" disabled>
+                        Select your practice type…
+                      </option>
+
                       {BUSINESS_TYPES.map((item) => (
-                        <option key={item.value} value={item.value}>{item.label}</option>
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
                       ))}
                     </select>
-                    {errors.type ? <p className="mt-1 text-xs text-red-600">Choose the option that best describes your business.</p> : null}
+
+                    {errors.type ? (
+                      <p className="mt-1 text-xs text-red-600">
+                        Choose the option that best describes your business.
+                      </p>
+                    ) : null}
+
                     {form.businessType === "non-dental" ? (
-                      <div className="mt-3">
-                        <label htmlFor="bizIndustry" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      <div className="mt-4">
+                        <label
+                          htmlFor="bizIndustry"
+                          className="mb-1.5 block text-sm font-medium text-slate-700"
+                        >
                           Your industry <span className="text-amber-500">*</span>
                         </label>
+
                         <input
                           id="bizIndustry"
                           type="text"
                           value={form.industry}
                           onChange={(event) => {
-                            setForm((current) => ({ ...current, industry: event.target.value }));
-                            if (event.target.value.trim()) setErrors((current) => ({ ...current, industry: false }));
+                            setForm((current) => ({
+                              ...current,
+                              industry: event.target.value,
+                            }));
+
+                            if (event.target.value.trim())
+                              setErrors((current) => ({
+                                ...current,
+                                industry: false,
+                              }));
                           }}
                           placeholder="e.g. Veterinary, med spa, law firm"
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                           data-testid="business-onboarding-industry"
                         />
-                        {errors.industry ? <p className="mt-1 text-xs text-red-600">Tell us your industry so we can tailor recommendations.</p> : null}
+
+                        {errors.industry ? (
+                          <p className="mt-1 text-xs text-red-600">
+                            Tell us your industry so we can tailor recommendations.
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
 
                   <div>
-                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Team size <span className="text-amber-500">*</span></span>
-                    <div role="radiogroup" aria-label="Team size" className="flex flex-wrap gap-2">
+                    <span className="mb-2 block text-sm font-medium text-slate-700">
+                      Team size <span className="text-amber-500">*</span>
+                    </span>
+
+                    <div
+                      role="radiogroup"
+                      aria-label="Team size"
+                      className="flex flex-wrap gap-2 sm:gap-3"
+                    >
                       {TEAM_SIZES.map((value) => (
                         <button
                           key={value}
@@ -547,19 +722,31 @@ export function BusinessOnboardingFlow() {
                           role="radio"
                           aria-checked={form.teamSize === value}
                           onClick={() => toggleSingleValue("teamSize", value)}
-                          className="onboarding-pill rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700"
-                          data-testid={`business-onboarding-team-${value.replace(/\s+/g, "-").toLowerCase()}`}
+                          className="onboarding-pill min-h-[42px] rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700"
+                          data-testid={`business-onboarding-team-${value
+                            .replace(/\s+/g, "-")
+                            .toLowerCase()}`}
                         >
                           {value}
                         </button>
                       ))}
                     </div>
-                    {errors.team ? <p className="mt-1 text-xs text-red-600">Pick your team size.</p> : null}
+
+                    {errors.team ? (
+                      <p className="mt-1 text-xs text-red-600">Pick your team size.</p>
+                    ) : null}
                   </div>
 
                   <div>
-                    <span className="mb-1.5 block text-sm font-medium text-slate-700">Monthly patient volume <span className="text-amber-500">*</span></span>
-                    <div role="radiogroup" aria-label="Monthly patient volume" className="flex flex-wrap gap-2">
+                    <span className="mb-2 block text-sm font-medium text-slate-700">
+                      Monthly patient volume <span className="text-amber-500">*</span>
+                    </span>
+
+                    <div
+                      role="radiogroup"
+                      aria-label="Monthly patient volume"
+                      className="flex flex-wrap gap-2 sm:gap-3"
+                    >
                       {MONTHLY_VOLUMES.map((value) => (
                         <button
                           key={value}
@@ -567,21 +754,34 @@ export function BusinessOnboardingFlow() {
                           role="radio"
                           aria-checked={form.monthlyVolume === value}
                           onClick={() => toggleSingleValue("monthlyVolume", value)}
-                          className="onboarding-pill rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700"
-                          data-testid={`business-onboarding-volume-${value.replace(/\s+/g, "-").toLowerCase()}`}
+                          className="onboarding-pill min-h-[42px] rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700"
+                          data-testid={`business-onboarding-volume-${value
+                            .replace(/\s+/g, "-")
+                            .toLowerCase()}`}
                         >
                           {value}
                         </button>
                       ))}
                     </div>
-                    {errors.volume ? <p className="mt-1 text-xs text-red-600">Pick your typical monthly volume.</p> : null}
+
+                    {errors.volume ? (
+                      <p className="mt-1 text-xs text-red-600">Pick your typical monthly volume.</p>
+                    ) : null}
                   </div>
 
                   <div>
-                    <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                      Current software <span className="text-xs font-normal text-slate-400">(optional — helps with integrations)</span>
+                    <span className="mb-2 block text-sm font-medium text-slate-700">
+                      Current software{" "}
+                      <span className="text-xs font-normal text-slate-400">
+                        (optional — helps with integrations)
+                      </span>
                     </span>
-                    <div role="group" aria-label="Current software" className="flex flex-wrap gap-2">
+
+                    <div
+                      role="group"
+                      aria-label="Current software"
+                      className="flex flex-wrap gap-2 sm:gap-3"
+                    >
                       {SOFTWARE_OPTIONS.map((value) => (
                         <button
                           key={value}
@@ -589,8 +789,10 @@ export function BusinessOnboardingFlow() {
                           role="checkbox"
                           aria-checked={form.software.includes(value)}
                           onClick={() => toggleArrayValue("software", value)}
-                          className="onboarding-chip inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-700"
-                          data-testid={`business-onboarding-software-${value.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+                          className="onboarding-chip inline-flex min-h-[42px] items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-700"
+                          data-testid={`business-onboarding-software-${value
+                            .replace(/[^a-z0-9]+/gi, "-")
+                            .toLowerCase()}`}
                         >
                           <span className="chk text-xs">✓</span>
                           {value}
@@ -599,99 +801,231 @@ export function BusinessOnboardingFlow() {
                     </div>
                   </div>
                 </div>
+
                 <div className="mt-8">
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button type="button" onClick={() => goTo(1, "back")} className={backBtn} data-testid="business-onboarding-back">← Back</button>
-                    <button type="button" disabled={saving} onClick={() => void handleContinueFromStep2()} className={primaryBtn} data-testid="business-onboarding-continue-step2">
+                    <button
+                      type="button"
+                      onClick={() => goTo(1, "back")}
+                      className={`${backBtn} w-full sm:w-auto`}
+                      data-testid="business-onboarding-back"
+                    >
+                      ← Back
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void handleContinueFromStep2()}
+                      className={`${primaryBtn} w-full sm:w-auto`}
+                      data-testid="business-onboarding-continue-step2"
+                    >
                       Continue
                     </button>
                   </div>
+
                   <div className="mt-4 text-center">
-                    <button type="button" onClick={() => void handleSkip()} className={skipBtn} data-testid="business-onboarding-skip-step2">Skip for now →</button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSkip()}
+                      className={skipBtn}
+                      data-testid="business-onboarding-skip-step2"
+                    >
+                      Skip for now →
+                    </button>
                   </div>
                 </div>
               </section>
             ) : null}
 
             {step === 3 ? (
-              <section data-onboarding-active="true" className="onboarding-elev mx-auto max-w-[520px] rounded-2xl bg-white p-6 sm:p-8">
-                <h2 className="text-xl font-bold text-slate-900" data-testid="business-onboarding-challenges-title">What challenges can we help with?</h2>
-                <p className="mt-1.5 text-sm text-slate-600">Select all that apply. This personalizes your marketplace experience.</p>
+              <section
+                data-onboarding-active="true"
+                className="onboarding-elev mx-auto w-full max-w-[700px] rounded-2xl bg-white px-5 py-6 sm:px-8 sm:py-8"
+              >
+                <h2
+                  className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl"
+                  data-testid="business-onboarding-challenges-title"
+                >
+                  What challenges can we help with?
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Select all that apply. This personalizes your marketplace experience.
+                </p>
+
                 <div
                   role="group"
                   aria-label="Practice challenges"
-                  className={`mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 ${showPainHint ? "onboarding-shake" : ""}`}
+                  className={`mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 ${
+                    showPainHint ? "onboarding-shake" : ""
+                  }`}
                 >
-                  {PAIN_POINTS.map(([id, emoji, title, subtitle]) => (
+                  {PAIN_POINTS.map(([id, Icon, title, subtitle]) => (
                     <button
                       key={id}
                       type="button"
                       role="checkbox"
                       aria-checked={form.challenges.includes(id)}
                       onClick={() => toggleArrayValue("challenges", id)}
-                      className="onboarding-paincard relative rounded-xl bg-white p-4 text-left"
+                      className="onboarding-paincard relative flex min-h-[150px] flex-col rounded-xl bg-white p-5 text-left transition-all"
                       data-testid={`business-onboarding-challenge-${id}`}
                     >
-                      <span className="onboarding-pc-check absolute right-2.5 top-2.5 grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[11px] leading-none text-white">✓</span>
-                      <div className="mb-2 text-2xl">{emoji}</div>
-                      <div className="text-sm font-medium text-slate-800">{title}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{subtitle}</div>
+                      <span className="onboarding-pc-check absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs text-white">
+                        ✓
+                      </span>
+
+                      <div
+                        className={`mb-3 flex h-12 w-12 items-center justify-center rounded-xl border ${
+                          id === "missed-calls"
+                            ? "border-blue-200 bg-blue-50 text-blue-600"
+                            : id === "scheduling"
+                              ? "border-violet-200 bg-violet-50 text-violet-600"
+                              : id === "communication"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                : id === "reviews"
+                                  ? "border-yellow-200 bg-yellow-50 text-yellow-600"
+                                  : id === "billing"
+                                    ? "border-green-200 bg-green-50 text-green-600"
+                                    : id === "intake"
+                                      ? "border-orange-200 bg-orange-50 text-orange-600"
+                                      : id === "analytics"
+                                        ? "border-cyan-200 bg-cyan-50 text-cyan-600"
+                                        : id === "recall"
+                                          ? "border-indigo-200 bg-indigo-50 text-indigo-600"
+                                          : "border-amber-200 bg-amber-50 text-amber-600"
+                        }`}
+                      >
+                        <Icon className="h-6 w-6" strokeWidth={2} />
+                      </div>
+
+                      <div className="text-sm font-semibold text-slate-800">{title}</div>
+
+                      <div className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</div>
                     </button>
                   ))}
                 </div>
-                {showPainHint ? <p className="mt-3 text-sm text-amber-600">Select at least one to get personalized recommendations.</p> : null}
+
+                {showPainHint ? (
+                  <p className="mt-4 text-center text-sm text-amber-600">
+                    Select at least one challenge to get personalized recommendations.
+                  </p>
+                ) : null}
+
                 <div className="mt-8">
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button type="button" onClick={() => goTo(2, "back")} className={backBtn} data-testid="business-onboarding-back-step3">← Back</button>
-                    <button type="button" disabled={saving} onClick={() => void handleContinueFromStep3()} className={primaryBtn} data-testid="business-onboarding-continue-step3">
+                    <button
+                      type="button"
+                      onClick={() => goTo(2, "back")}
+                      className={`${backBtn} w-full sm:w-auto`}
+                      data-testid="business-onboarding-back-step3"
+                    >
+                      ← Back
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void handleContinueFromStep3()}
+                      className={`${primaryBtn} w-full sm:w-auto`}
+                      data-testid="business-onboarding-continue-step3"
+                    >
                       Continue
                     </button>
                   </div>
+
                   <div className="mt-4 text-center">
-                    <button type="button" onClick={() => void handleSkip()} className={skipBtn} data-testid="business-onboarding-skip-step3">Skip for now →</button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSkip()}
+                      className={skipBtn}
+                      data-testid="business-onboarding-skip-step3"
+                    >
+                      Skip for now →
+                    </button>
                   </div>
                 </div>
               </section>
             ) : null}
 
             {step === 4 ? (
-              <section data-onboarding-active="true" className="onboarding-elev mx-auto max-w-[520px] rounded-2xl bg-white p-6 sm:p-8">
-                <h2 className="text-xl font-bold text-slate-900" data-testid="business-onboarding-how-title">Here&apos;s how Triven works</h2>
-                <p className="mt-1.5 text-sm text-slate-600">3 simple steps to automate your practice.</p>
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+              <section
+                data-onboarding-active="true"
+                className="onboarding-elev mx-auto w-full max-w-6xl rounded-2xl bg-white px-5 py-6 sm:px-8 sm:py-8"
+              >
+                <h2
+                  className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl"
+                  data-testid="business-onboarding-how-title"
+                >
+                  Here's how Triven works
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  3 simple steps to automate your practice.
+                </p>
+
+                <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
                   {[
-                    ["1", "Browse & choose", "Explore AI agents built for service businesses. Filter by need, read reviews, compare options."],
-                    ["2", "Subscribe & set up", "Subscribe and follow the guided setup wizard. Connect your tools and set preferences in 5 minutes."],
-                    ["3", "Sit back & grow", "Your agent works 24/7. Monitor performance from your dashboard. Cancel anytime if it is not delivering."]
-                  ].map(([num, title, copy]) => (
-                    <div key={num} className="relative rounded-xl border border-slate-200 bg-white p-5">
-                      <span className="absolute left-4 top-2 font-mono text-3xl font-extrabold text-amber-500/25">{num}</span>
-                      <h3 className="mt-3 text-sm font-semibold text-slate-900">{title}</h3>
-                      <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{copy}</p>
+                    {
+                      icon: BriefcaseBusiness,
+                      title: "Browse & choose",
+                      copy: "Explore AI agents built for service businesses. Filter by need, read reviews, compare options.",
+                    },
+                    {
+                      icon: Rocket,
+                      title: "Subscribe & set up",
+                      copy: "Subscribe and follow the guided setup wizard. Connect your tools and set preferences in 5 minutes.",
+                    },
+                    {
+                      icon: TrendingUp,
+                      title: "Sit back & grow",
+                      copy: "Your agent works 24/7. Monitor performance from your dashboard. Cancel anytime if it isn't delivering.",
+                    },
+                  ].map(({ icon: Icon, title, copy }) => (
+                    <div
+                      key={title}
+                      className="relative flex min-h-[180px] flex-col rounded-xl border border-slate-200 bg-white p-5"
+                    >
+                      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50">
+                        <Icon className="h-6 w-6 text-amber-600" strokeWidth={2} />
+                      </div>
+
+                      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{copy}</p>
                     </div>
                   ))}
                 </div>
-                <div className="mt-6 space-y-2.5">
-                  {[
-                    "Enterprise-grade security — your data is encrypted and never shared",
-                    "Cancel anytime — no contracts, no commitments",
-                    "Only verified, reviewed agents on the marketplace"
-                  ].map((item) => (
-                    <p key={item} className="flex items-start gap-2 text-xs text-slate-600">
-                      <span className="mt-px shrink-0 text-amber-500">✓</span>
-                      <span>{item}</span>
-                    </p>
-                  ))}
+
+                <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="space-y-3">
+                    {[
+                      "Enterprise-grade security — your data is encrypted and never shared",
+                      "Cancel anytime — no contracts, no commitments",
+                      "Only verified, reviewed agents on the marketplace",
+                    ].map((item) => (
+                      <div key={item} className="flex items-start gap-3 text-sm text-slate-700">
+                        <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">
+                          ✓
+                        </span>
+
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Structured weekly Business Hours — configured right here, no
-                    document upload needed. Saved via its own endpoint. */}
-                <div className="mt-6" data-testid="business-onboarding-hours">
-                  <BusinessHoursSection compact title="When is your business open?" />
-                </div>
                 <div className="mt-8">
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button type="button" onClick={() => goTo(3, "back")} className={backBtn} data-testid="business-onboarding-back-step4">← Back</button>
+                    <button
+                      type="button"
+                      onClick={() => goTo(3, "back")}
+                      className={`${backBtn} w-full sm:w-auto`}
+                      data-testid="business-onboarding-back-step4"
+                    >
+                      ← Back
+                    </button>
+
                     <button
                       type="button"
                       disabled={saving}
@@ -699,69 +1033,136 @@ export function BusinessOnboardingFlow() {
                         const ok = await persist("save", { lastStep: 5 });
                         if (ok) goTo(5);
                       }}
-                      className={primaryBtn}
+                      className={`${primaryBtn} w-full sm:w-auto`}
                       data-testid="business-onboarding-continue-step4"
                     >
                       Continue
                     </button>
                   </div>
+
                   <div className="mt-4 text-center">
-                    <button type="button" onClick={() => void handleSkip()} className={skipBtn} data-testid="business-onboarding-skip-step4">Skip for now →</button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSkip()}
+                      className={skipBtn}
+                      data-testid="business-onboarding-skip-step4"
+                    >
+                      Skip for now →
+                    </button>
                   </div>
                 </div>
               </section>
             ) : null}
 
             {step === 5 ? (
-              <section data-onboarding-active="true" className="onboarding-elev mx-auto max-w-[640px] rounded-2xl bg-white p-6 sm:p-8">
-                <h2 className="text-xl font-bold text-slate-900" data-testid="business-onboarding-recommendations-title">Agents recommended for you</h2>
-                <p className="mt-1.5 text-sm text-slate-600">
+              <section
+                data-onboarding-active="true"
+                className="onboarding-elev mx-auto w-full max-w-7xl rounded-2xl bg-white px-5 py-6 sm:px-8 sm:py-8"
+              >
+                <h2
+                  className="text-xl font-bold leading-tight text-slate-900 sm:text-2xl"
+                  data-testid="business-onboarding-recommendations-title"
+                >
+                  Agents recommended for you
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
                   {form.challenges.length > 0
                     ? "Based on your practice profile and goals, here are your top matches:"
                     : "Popular agents for your business — your matches sharpen as you pick goals:"}
                 </p>
-                <div role="list" className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+                <div
+                  role="list"
+                  className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3"
+                >
                   {orderedRecommendations.length === 0 ? (
-                    <p className="col-span-full text-sm text-slate-500">Browse the marketplace to discover available agents.</p>
+                    <p className="col-span-full text-sm text-slate-500">
+                      Browse the marketplace to discover available agents.
+                    </p>
                   ) : (
                     orderedRecommendations.map((agent, index) => {
                       const isMatch = agent.matchedChallenges.length > 0;
                       const top = isMatch && index === 0;
+
                       const reason = isMatch
-                        ? `Matches: ${agent.matchedChallenges.map((id) => PAIN_LABELS[id] ?? id).join(", ")}`
+                        ? `Matches: ${agent.matchedChallenges
+                            .map((id) => PAIN_LABELS[id] ?? id)
+                            .join(", ")}`
                         : "Popular with businesses like yours";
 
                       return (
                         <div
                           key={agent.id}
                           role="listitem"
-                          className={`onboarding-fade-up rounded-xl bg-white p-4 ${top ? "border border-amber-500 ring-2 ring-amber-500" : "border border-slate-200"}`}
+                          className={`onboarding-fade-up flex h-full flex-col rounded-xl bg-white p-5 transition-all hover:-translate-y-1 hover:shadow-lg ${
+                            top
+                              ? "border border-amber-500 ring-2 ring-amber-500"
+                              : "border border-slate-200"
+                          }`}
                           style={{ animationDelay: `${index * 100}ms` }}
                           data-testid={`business-onboarding-recommendation-${agent.id}`}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600">🤖</div>
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-xl text-amber-600">
+                              <BotIcon
+                                className="h-6 w-6 text-amber-500"
+                              />
+                            </div>
+
                             {top ? (
-                              <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white">TOP MATCH</span>
+                              <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-1 text-[11px] font-semibold tracking-wide text-white">
+                                TOP MATCH
+                              </span>
                             ) : isMatch ? (
-                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Match</span>
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                Match
+                              </span>
                             ) : (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">Popular</span>
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500">
+                                Popular
+                              </span>
                             )}
                           </div>
-                          <h3 className="mt-3 text-base font-semibold text-slate-900">{agent.name}</h3>
-                          <p className={`mt-1 text-xs ${isMatch ? "text-amber-700" : "text-slate-400"}`}>{reason}</p>
-                          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+
+                          <h3 className="mt-4 text-lg font-semibold text-slate-900">
+                            {agent.name}
+                          </h3>
+
+                          <p
+                            className={`mt-1 text-sm ${
+                              isMatch ? "text-amber-700" : "text-slate-500"
+                            }`}
+                          >
+                            {reason}
+                          </p>
+
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                             <span className="text-amber-500">★</span>
-                            <span className="font-medium text-slate-700">{agent.rating.toFixed(1)}</span>
+
+                            <span className="font-medium text-slate-700">
+                              {agent.rating.toFixed(1)}
+                            </span>
+
                             <span>({agent.installCount} installs)</span>
+
                             {renderPriceTag(agent)}
                           </div>
-                          <p className="mt-2 line-clamp-3 text-sm text-slate-600">{agent.description}</p>
+
+                          <p className="mt-3 flex-1 line-clamp-3 text-sm leading-6 text-slate-600">
+                            {agent.description}
+                          </p>
+
                           <button
                             type="button"
-                            onClick={() => void finishAndNavigate("complete", publicAgentPath(agent.id))}
-                            className={index === 0 ? primaryBtn.replace("sm:w-auto", "") + " mt-3 w-full" : "mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"}
+                            onClick={() =>
+                              void finishAndNavigate("complete", publicAgentPath(agent.id))
+                            }
+                            className={
+                              index === 0
+                                ? primaryBtn.replace("sm:w-auto", "") + " mt-5 w-full"
+                                : "mt-5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            }
                             data-testid={`business-onboarding-view-agent-${agent.id}`}
                           >
                             View agent →
@@ -771,7 +1172,7 @@ export function BusinessOnboardingFlow() {
                     })
                   )}
                 </div>
-                <div className="mt-6 space-y-1.5 text-center">
+                <div className="mt-8 space-y-2 text-center">
                   <button
                     type="button"
                     disabled={saving}
@@ -781,17 +1182,42 @@ export function BusinessOnboardingFlow() {
                   >
                     Browse all agents →
                   </button>
-                  <p className="text-xs text-slate-400">These recommendations improve as you use the platform.</p>
+
+                  <p className="text-xs text-slate-400">
+                    These recommendations improve as you use the platform.
+                  </p>
                 </div>
+
                 <div className="mt-8">
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button type="button" onClick={() => goTo(4, "back")} className={backBtn} data-testid="business-onboarding-back-step5">← Back</button>
-                    <button type="button" disabled={saving} onClick={() => void handleComplete()} className={primaryBigBtn.replace("w-full", "w-full sm:w-auto")} data-testid="business-onboarding-finish">
+                    <button
+                      type="button"
+                      onClick={() => goTo(4, "back")}
+                      className={`${backBtn} w-full sm:w-auto`}
+                      data-testid="business-onboarding-back-step5"
+                    >
+                      ← Back
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void handleComplete()}
+                      className={`${primaryBigBtn.replace("w-full", "")} w-full sm:w-auto`}
+                      data-testid="business-onboarding-finish"
+                    >
                       Continue
                     </button>
                   </div>
+
                   <div className="mt-4 text-center">
-                    <button type="button" disabled={saving} onClick={() => void finishAndNavigate("skip", BUSINESS_MARKETPLACE_PATH)} className={skipBtn} data-testid="business-onboarding-marketplace-first">
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void finishAndNavigate("skip", BUSINESS_MARKETPLACE_PATH)}
+                      className={skipBtn}
+                      data-testid="business-onboarding-marketplace-first"
+                    >
                       Browse marketplace first →
                     </button>
                   </div>
@@ -800,32 +1226,66 @@ export function BusinessOnboardingFlow() {
             ) : null}
 
             {step === "done" ? (
-              <section data-onboarding-active="true" className="onboarding-elev mx-auto max-w-[520px] rounded-2xl bg-white p-6 text-center sm:p-8">
-                <div className={`mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full ${doneKind === "done" ? "bg-amber-50 text-amber-500" : "bg-slate-100 text-slate-500"}`}>
-                  {doneKind === "done" ? "✓" : "→"}
+              <section
+                data-onboarding-active="true"
+                className="onboarding-elev mx-auto w-full max-w-2xl rounded-2xl bg-white px-5 py-8 text-center sm:px-8 sm:py-10"
+              >
+                <div
+                  className={`mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full ${
+                    doneKind === "done"
+                      ? "bg-amber-50 text-amber-500"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  <span className="text-4xl">{doneKind === "done" ? "✓" : "→"}</span>
                 </div>
-                <h2 className="text-xl font-bold text-slate-900" data-testid="business-onboarding-done-title">
-                  {doneKind === "done" ? `You're all set, ${firstName} 🎉` : "No problem — you're in 👍"}
-                </h2>
-                <p className="mt-2 text-sm text-slate-600">
+
+                <h2
+                  className="text-2xl font-bold text-slate-900 sm:text-3xl"
+                  data-testid="business-onboarding-done-title"
+                >
                   {doneKind === "done"
-                    ? "Your dashboard is ready. Here's where to begin."
-                    : "You can finish setup anytime — we'll keep what you've entered."}
+                    ? `You're all set, ${firstName} 🎉`
+                    : "No problem — you're in 👍"}
+                </h2>
+
+                <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-slate-600 sm:text-base">
+                  {doneKind === "done"
+                    ? "Your dashboard is ready. Start exploring AI agents built to automate and grow your business."
+                    : "You can finish setup anytime. We've safely saved everything you've entered so far."}
                 </p>
-                <div className={`mt-6 flex items-start gap-3 rounded-xl p-4 text-left ${doneKind === "done" ? "border border-amber-200 bg-amber-50" : "border border-slate-200 bg-slate-50"}`}>
-                  <span className="mt-0.5 text-xl leading-none">{doneKind === "done" ? "✨" : "🛒"}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-800">
-                      {doneKind === "done" ? "Explore Marketplace" : "Browse Marketplace"}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => router.replace(BUSINESS_MARKETPLACE_PATH)}
-                      className="mt-1 rounded px-1 text-sm font-medium text-amber-600 transition-colors hover:text-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                      data-testid="business-onboarding-explore-marketplace"
-                    >
-                      {doneKind === "done" ? "Explore Marketplace →" : "Browse Marketplace →"}
-                    </button>
+
+                <div
+                  className={`mt-8 rounded-2xl border p-5 text-left ${
+                    doneKind === "done"
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-2xl shadow-sm">
+                      {doneKind === "done" ? "✨" : "🛒"}
+                    </div>
+
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-slate-900">
+                        {doneKind === "done" ? "Explore Marketplace" : "Browse Marketplace"}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-slate-600">
+                        Discover AI agents tailored for your business and start automating your
+                        daily operations.
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => router.replace(BUSINESS_MARKETPLACE_PATH)}
+                        className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-600 sm:w-auto"
+                        data-testid="business-onboarding-explore-marketplace"
+                      >
+                        {doneKind === "done" ? "Explore Marketplace" : "Browse Marketplace"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -835,7 +1295,11 @@ export function BusinessOnboardingFlow() {
       </main>
 
       {toast ? (
-        <div className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg" role="status" data-testid="business-onboarding-toast">
+        <div
+          className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
+          role="status"
+          data-testid="business-onboarding-toast"
+        >
           {toast}
         </div>
       ) : null}
