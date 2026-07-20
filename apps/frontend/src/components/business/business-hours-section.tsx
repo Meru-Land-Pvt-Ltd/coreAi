@@ -134,6 +134,7 @@ export function BusinessHoursSection({
   onSaved,
   onLoaded,
   onDirtyChange,
+  onChange,
   registerApi
 }: {
   title?: string;
@@ -148,6 +149,7 @@ export function BusinessHoursSection({
   /** Fires with the server state on initial load (summary for parent UIs). */
   onLoaded?: (data: BusinessHoursData) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onChange?: (data: BusinessHoursData) => void;
   registerApi?: (api: EmbeddedSectionApi | null) => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -212,6 +214,28 @@ export function BusinessHoursSection({
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    if (onChangeRef.current && !loading) {
+      onChangeRef.current({
+        hours: week,
+        timeZone,
+        specialDates,
+        source: null,
+        confirmedAt,
+        configured: configured || dirty,
+        weeklySummary: summarizeWeek(week),
+        openStatus: { state: "", description: openStatusText },
+        suggestion,
+        liveAssistant
+      });
+    }
+  }, [week, timeZone, specialDates, confirmedAt, configured, dirty, openStatusText, suggestion, liveAssistant, loading]);
 
   const dayErrors = useMemo(() => week.map(validateDay), [week]);
   const hasErrors = dayErrors.some(Boolean);

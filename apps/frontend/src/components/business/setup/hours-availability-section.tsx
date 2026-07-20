@@ -1,5 +1,6 @@
 "use client";
 
+import type { WorkflowTriggerKind } from "@coreai/shared";
 import {
   BusinessHoursSection,
   type EmbeddedSectionApi
@@ -32,6 +33,7 @@ import {
 export function HoursAvailabilitySection({
   onBusinessHoursLoaded,
   onBusinessHoursSaved,
+  onBusinessHoursChange,
   onBusinessHoursDirtyChange,
   registerBusinessHoursApi,
   businessHoursSummary,
@@ -48,10 +50,12 @@ export function HoursAvailabilitySection({
   coverageKind,
   onCoverageKind,
   answeringDays,
-  onAnsweringDay
+  onAnsweringDay,
+  triggerKind
 }: {
   onBusinessHoursLoaded: (data: BusinessHoursData) => void;
   onBusinessHoursSaved: (data: BusinessHoursData) => void;
+  onBusinessHoursChange?: (data: BusinessHoursData) => void;
   onBusinessHoursDirtyChange: (dirty: boolean) => void;
   registerBusinessHoursApi: (api: EmbeddedSectionApi | null) => void;
   businessHoursSummary: string[] | null;
@@ -70,6 +74,7 @@ export function HoursAvailabilitySection({
   onCoverageKind: (kind: AiCoverageKind) => void;
   answeringDays: AnsweringDayRow[];
   onAnsweringDay: (day: string, patch: Partial<AnsweringDayRow>) => void;
+  triggerKind?: WorkflowTriggerKind;
 }) {
   return (
     <div className="space-y-6">
@@ -80,6 +85,7 @@ export function HoursAvailabilitySection({
           embedded
           onLoaded={onBusinessHoursLoaded}
           onSaved={onBusinessHoursSaved}
+          onChange={onBusinessHoursChange}
           onDirtyChange={onBusinessHoursDirtyChange}
           registerApi={registerBusinessHoursApi}
         />
@@ -112,6 +118,7 @@ export function HoursAvailabilitySection({
           onAnsweringDay={onAnsweringDay}
           businessHoursSummary={businessHoursSummary}
           businessHoursConfigured={businessHoursConfigured}
+          triggerKind={triggerKind}
         />
       </div>
     </div>

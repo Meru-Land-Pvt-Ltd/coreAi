@@ -34,7 +34,8 @@ type IconName =
     | "help"
     | "external"
     | "menu"
-    | "close";
+    | "close"
+    | "logout";
 
 const businessNavItems = [
     {
@@ -64,8 +65,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [locationHash, setLocationHash] = useState("");
     const router = useRouter();
-    const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-
     const [currentUser, setCurrentUser] = useState<TrivenUser | null>(null);
 
     useEffect(() => {
@@ -97,7 +96,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     function handleLogout() {
         localStorage.clear();
         sessionStorage.clear();
-        setAccountMenuOpen(false);
         closeSidebar();
         router.replace(BUSINESS_LOGIN_PATH);
     }
@@ -211,32 +209,15 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             <p className="truncate text-xs text-slate-500" data-testid="business-sidebar-subtitle-text">{subtitle}</p>
                         </div>
 
-                        <div className="relative shrink-0">
-                            <button
-                                type="button"
-                                onClick={() => setAccountMenuOpen((open) => !open)}
-                                data-testid="business-account-menu-toggle"
-                                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-50 hover:text-slate-600"
-                                aria-label="Account settings"
-                                aria-haspopup="true"
-                                aria-expanded={accountMenuOpen}
-                            >
-                                <Icon name="settings" className="h-[18px] w-[18px]" />
-                            </button>
-
-                            {accountMenuOpen ? (
-                                <div className="absolute bottom-full right-0 z-50 mb-2 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
-                                    <button
-                                        type="button"
-                                        onClick={handleLogout}
-                                        data-testid="business-logout"
-                                        className="flex w-full items-center px-3.5 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
-                                    >
-                                        Logout
-                                    </button>
-                                </div>
-                            ) : null}
-                        </div>
+                        <button
+                            type="button"
+                            onClick={handleLogout}
+                            data-testid="business-logout"
+                            className="shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                            aria-label="Logout"
+                        >
+                            <Icon name="logout" className="h-[18px] w-[18px]" />
+                        </button>
                     </div>
                 </div>
             </aside>
@@ -384,6 +365,16 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
                 <line x1="3" y1="6" x2="21" y2="6" />
                 <line x1="3" y1="12" x2="21" y2="12" />
                 <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+        );
+    }
+
+    if (name === "logout") {
+        return (
+            <svg {...common}>
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" x2="9" y1="12" y2="12" />
             </svg>
         );
     }

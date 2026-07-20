@@ -159,7 +159,7 @@ function testPaymentMethodForBrand(brand: CardBrand) {
 }
 
 type PaymentTab = "credit" | "google" | "apple";
-type CardBrand = "visa" | "mastercard" | "amex" | null;
+type CardBrand = "visa" | "mastercard" | "amex" | "discover" | "diners" | "jcb" | "unionpay" | null;
 
 type CardElementFields = {
     number: { complete: boolean; error: string };
@@ -254,7 +254,11 @@ const CHECKOUT_STYLES = `
 }
 
 .field.with-brands {
-  padding-right: 7.25rem;
+  padding-right: 9.25rem;
+}
+
+.field.with-single-brand {
+  padding-right: 4.5rem;
 }
 
 /* Stripe Elements mount a wrapper div inside the .field container — make it
@@ -609,6 +613,10 @@ function detectBrand(digits: string): CardBrand {
     if (/^4/.test(digits)) return "visa";
     if (/^(34|37)/.test(digits)) return "amex";
     if (/^(5[1-5]|2[2-7])/.test(digits)) return "mastercard";
+    if (/^6(011|5|4[4-9]|22)/.test(digits)) return "discover";
+    if (/^3(0[0-5]|[68])/.test(digits)) return "diners";
+    if (/^35(2[89]|[3-8])/.test(digits)) return "jcb";
+    if (/^(62|81)/.test(digits)) return "unionpay";
     return null;
 }
 
@@ -1407,7 +1415,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                                     {stripeMode ? (
                                                         <div
                                                             data-testid="checkout-card-number-input"
-                                                            className={`field with-brands tnum ${fieldState(
+                                                            className={`field ${brand ? "with-single-brand" : "with-brands"} tnum ${fieldState(
                                                                 validations.card,
                                                                 showError("card") || Boolean(cardElementFields.number.error)
                                                             )}`}
@@ -1416,8 +1424,14 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                                                 options={{ style: STRIPE_ELEMENT_STYLE, placeholder: "1234 5678 9012 3456" }}
                                                                 onChange={(event) => {
                                                                     setElementBrand(
-                                                                        event.brand === "visa" || event.brand === "mastercard" || event.brand === "amex"
-                                                                            ? event.brand
+                                                                        event.brand === "visa" ||
+                                                                        event.brand === "mastercard" ||
+                                                                        event.brand === "amex" ||
+                                                                        event.brand === "discover" ||
+                                                                        event.brand === "diners" ||
+                                                                        event.brand === "jcb" ||
+                                                                        event.brand === "unionpay"
+                                                                            ? (event.brand as CardBrand)
                                                                             : null
                                                                     );
                                                                     setCardElementFields((current) => ({
@@ -1436,15 +1450,13 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                                         value={cardNumber}
                                                         onChange={(event) => handleCardInput(event.target.value)}
                                                         onBlur={() => setTouched((current) => ({ ...current, card: true }))}
-                                                        className={`field with-brands tnum ${fieldState(validations.card, showError("card"))}`}
+                                                        className={`field ${brand ? "with-single-brand" : "with-brands"} tnum ${fieldState(validations.card, showError("card"))}`}
                                                         placeholder="1234 5678 9012 3456"
                                                     />
                                                     )}
 
                                                     <div className="brands" aria-hidden="true">
-                                                        <VisaBrand active={brand === "visa"} hasBrand={!!brand} />
-                                                        <MastercardBrand active={brand === "mastercard"} hasBrand={!!brand} />
-                                                        <AmexBrand active={brand === "amex"} hasBrand={!!brand} />
+                                                        <CardBrandIcon brand={brand} />
                                                     </div>
                                                 </div>
 
@@ -2329,60 +2341,205 @@ function TrustInline({ text }: { text: string }) {
     );
 }
 
-function VisaBrand({ active, hasBrand }: { active: boolean; hasBrand: boolean }) {
+function VisaIcon() {
     return (
-        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`} data-testid="business-protected-checkout-visa-text">
-            <svg width="34" height="22" viewBox="0 0 34 22">
-                <rect width="34" height="22" rx="4" fill="#fff" stroke="#e5e7eb" />
+        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <text
+                x="2"
+                y="12.5"
+                fontFamily="'Inter', 'Arial Black', sans-serif"
+                fontWeight="900"
+                fontStyle="italic"
+                fontSize="12"
+                fill="#1A1F71"
+                letterSpacing="-0.3"
+            >
+                VISA
+            </text>
+            <polygon points="2,4.5 4.5,4.5 3,6" fill="#F7B600" />
+        </svg>
+    );
+}
+
+function MastercardIcon() {
+    return (
+        <svg viewBox="0 0 76 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7" fill="#EB001B" />
+            <circle cx="17" cy="8" r="7" fill="#F79E1B" fillOpacity="0.85" />
+            <text x="28" y="11.5" fontFamily="'Inter', sans-serif" fontWeight="700" fontSize="8" fill="#1F2937" letterSpacing="-0.2">mastercard</text>
+        </svg>
+    );
+}
+
+function AmexIcon() {
+    return (
+        <svg viewBox="0 0 28 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="28" height="16" rx="2" fill="#01A6E5" />
+            <text x="14" y="10.5" textAnchor="middle" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="5.5" fill="#FFFFFF" letterSpacing="0.2">AMEX</text>
+        </svg>
+    );
+}
+
+function DiscoverIcon() {
+    return (
+        <svg viewBox="0 0 54 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="discGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#FF8A00" />
+                    <stop offset="100%" stopColor="#FF5000" />
+                </linearGradient>
+            </defs>
+            <text x="1" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">DISC</text>
+            <circle cx="28.5" cy="8" r="3.2" fill="url(#discGrad)" />
+            <text x="33.5" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">VER</text>
+        </svg>
+    );
+}
+
+function DinersClubIcon() {
+    return (
+        <svg viewBox="0 0 68 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="6.5" stroke="#0079C1" strokeWidth="1.5" />
+            <path d="M8 1.5a6.5 6.5 0 0 0 0 13v-13z" fill="#0079C1" />
+            <circle cx="8" cy="8" r="3" stroke="#0079C1" strokeWidth="1" fill="#FFFFFF" />
+            <text x="18" y="11" fontFamily="'Inter', sans-serif" fontWeight="800" fontSize="7" fill="#0D4B81" letterSpacing="-0.1">Diners Club</text>
+        </svg>
+    );
+}
+
+function JcbIcon() {
+    return (
+        <svg viewBox="0 0 32 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="2" width="9" height="12" rx="1.5" fill="#003580" />
+            <rect x="11" y="2" width="9" height="12" rx="1.5" fill="#D0021B" />
+            <rect x="21" y="2" width="9" height="12" rx="1.5" fill="#00875A" />
+            <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">J</text>
+            <text x="13" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">C</text>
+            <text x="23" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">B</text>
+        </svg>
+    );
+}
+
+function UnionPayIcon() {
+    return (
+        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="2" width="17" height="12" rx="1" fill="#C51A1B" />
+            <rect x="18" y="2" width="19" height="12" rx="1" fill="#004D95" />
+            <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#FFFFFF">Union</text>
+            <text x="19.5" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#00B0FF">Pay</text>
+        </svg>
+    );
+}
+
+function DefaultCardIcon() {
+    return (
+        <svg viewBox="0 0 24 24" className="h-5 w-auto text-slate-400" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+            <rect width="20" height="14" x="2" y="5" rx="2" />
+            <line x1="2" x2="22" y1="10" y2="10" />
+        </svg>
+    );
+}
+
+function VisaIconCompact() {
+    return (
+        <div className="flex h-5 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white">
+            <svg viewBox="0 0 38 16" className="h-3.5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <text
-                    x="17"
-                    y="15.5"
-                    textAnchor="middle"
-                    fontFamily="Inter,sans-serif"
-                    fontSize="9.5"
-                    fontWeight="800"
+                    x="2"
+                    y="12.5"
+                    fontFamily="'Inter', 'Arial Black', sans-serif"
+                    fontWeight="900"
                     fontStyle="italic"
-                    fill="#1a1f71"
-                    letterSpacing="0.3"
+                    fontSize="12"
+                    fill="#1A1F71"
+                    letterSpacing="-0.3"
                 >
                     VISA
                 </text>
+                <polygon points="2,4.5 4.5,4.5 3,6" fill="#F7B600" />
             </svg>
-        </span>
+        </div>
     );
 }
 
-function MastercardBrand({ active, hasBrand }: { active: boolean; hasBrand: boolean }) {
+function MastercardIconCompact() {
     return (
-        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`}>
-            <svg width="34" height="22" viewBox="0 0 34 22">
-                <rect width="34" height="22" rx="4" fill="#fff" stroke="#e5e7eb" />
-                <circle cx="14" cy="11" r="6" fill="#eb001b" />
-                <circle cx="20" cy="11" r="6" fill="#f79e1b" fillOpacity="0.92" />
+        <div className="flex h-5 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white">
+            <svg viewBox="0 0 24 16" className="h-3 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="6" fill="#EB001B" />
+                <circle cx="16" cy="8" r="6" fill="#F79E1B" fillOpacity="0.85" />
             </svg>
-        </span>
+        </div>
     );
 }
 
-function AmexBrand({ active, hasBrand }: { active: boolean; hasBrand: boolean }) {
+function AmexIconCompact() {
     return (
-        <span className={`brand ${hasBrand ? (active ? "brand-on" : "brand-off") : ""}`} data-testid="business-protected-checkout-amex-text">
-            <svg width="34" height="22" viewBox="0 0 34 22">
-                <rect width="34" height="22" rx="4" fill="#1f6fc4" />
-                <text
-                    x="17"
-                    y="14.5"
-                    textAnchor="middle"
-                    fontFamily="Inter,sans-serif"
-                    fontSize="7"
-                    fontWeight="800"
-                    fill="#fff"
-                    letterSpacing="0.2"
-                >
-                    AMEX
-                </text>
+        <div className="flex h-5 w-8 shrink-0 items-center justify-center rounded bg-[#01A6E5]">
+            <span className="font-sans text-[5.5px] font-black text-white">AMEX</span>
+        </div>
+    );
+}
+
+function DiscoverIconCompact() {
+    return (
+        <div className="flex h-5 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white">
+            <svg viewBox="0 0 54 16" className="h-2.5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <text x="1" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">DISC</text>
+                <circle cx="28.5" cy="8" r="3.2" fill="#FF5000" />
+                <text x="33.5" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">VER</text>
             </svg>
-        </span>
+        </div>
+    );
+}
+
+function CardBrandIcon({ brand }: { brand: CardBrand }) {
+    if (!brand) {
+        return (
+            <div className="flex items-center gap-1 opacity-55">
+                <VisaIconCompact />
+                <MastercardIconCompact />
+                <AmexIconCompact />
+                <DiscoverIconCompact />
+            </div>
+        );
+    }
+    const brandKey = brand.toLowerCase().trim();
+
+    let iconElement: React.ReactNode;
+    switch (brandKey) {
+        case "visa":
+            iconElement = <VisaIcon />;
+            break;
+        case "mastercard":
+            iconElement = <MastercardIcon />;
+            break;
+        case "amex":
+        case "american express":
+            iconElement = <AmexIcon />;
+            break;
+        case "discover":
+            iconElement = <DiscoverIcon />;
+            break;
+        case "diners":
+        case "diners club":
+            iconElement = <DinersClubIcon />;
+            break;
+        case "jcb":
+            iconElement = <JcbIcon />;
+            break;
+        case "unionpay":
+            iconElement = <UnionPayIcon />;
+            break;
+        default:
+            iconElement = <DefaultCardIcon />;
+            break;
+    }
+
+    return (
+        <div className="flex h-8 w-14 shrink-0 items-center justify-start">
+            {iconElement}
+        </div>
     );
 }
 

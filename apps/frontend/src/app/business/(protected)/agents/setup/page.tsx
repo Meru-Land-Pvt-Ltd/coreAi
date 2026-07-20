@@ -655,6 +655,7 @@ function SetupWizard() {
   // Trigger kind derived from the listing's workflow graph.
   // Drives which phone/forwarding/voice sections are shown.
   const [triggerKind, setTriggerKind] = useState<WorkflowTriggerKind>("none");
+  const [setupTimeEstimate, setSetupTimeEstimate] = useState<string | null>(null);
 
   const setCustomFieldValue = useCallback((key: string, label: string, value: string | string[] | boolean) => {
     setCustomFieldValues((current) => {
@@ -848,6 +849,10 @@ function SetupWizard() {
         setTriggerKind(data.triggerKind);
       }
 
+      if (data.setupTimeEstimate) {
+        setSetupTimeEstimate(data.setupTimeEstimate);
+      }
+
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
       let loadedBuyerSetupFields = data.buyerSetupSchema?.filter((field) => field && field.key && field.label) || [];
 
@@ -856,6 +861,9 @@ function SetupWizard() {
 
         if (listingRes.success && listingRes.data?.listing) {
           setListing(listingRes.data.listing);
+          if (listingRes.data.listing.setupTimeEstimate) {
+            setSetupTimeEstimate(listingRes.data.listing.setupTimeEstimate);
+          }
           if (!data.installedAgent) {
             keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
           }
@@ -1723,7 +1731,11 @@ function SetupWizard() {
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />
               </svg>
-              ~3 min setup
+              {(() => {
+                const estimate = setupTimeEstimate || "3 min";
+                const display = estimate.startsWith("~") ? estimate : `~${estimate}`;
+                return display.toLowerCase().includes("setup") ? display : `${display} setup`;
+              })()}
             </span>
           </div>
         </div>
@@ -1888,6 +1900,7 @@ function SetupWizard() {
                 <HoursAvailabilitySection
                   onBusinessHoursLoaded={handleBusinessHoursData}
                   onBusinessHoursSaved={handleBusinessHoursData}
+                  onBusinessHoursChange={handleBusinessHoursData}
                   onBusinessHoursDirtyChange={setBhDirty}
                   registerBusinessHoursApi={registerBusinessHoursApi}
                   businessHoursSummary={businessHours.summary}
@@ -1905,6 +1918,7 @@ function SetupWizard() {
                   onCoverageKind={updateCoverageKind}
                   answeringDays={answeringDays}
                   onAnsweringDay={updateAnsweringDay}
+                  triggerKind={triggerKind}
                 />
               </ConfigureSectionCard>
 

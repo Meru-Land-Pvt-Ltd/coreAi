@@ -39,6 +39,145 @@ import { BUSINESS_BILLING_PATH } from "@/lib/routes";
 import { requestSignedDpa } from "@/lib/dpa";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 
+function VisaIcon() {
+    return (
+        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <text
+                x="2"
+                y="12.5"
+                fontFamily="'Inter', 'Arial Black', sans-serif"
+                fontWeight="900"
+                fontStyle="italic"
+                fontSize="12"
+                fill="#1A1F71"
+                letterSpacing="-0.3"
+            >
+                VISA
+            </text>
+            <polygon points="2,4.5 4.5,4.5 3,6" fill="#F7B600" />
+        </svg>
+    );
+}
+
+function MastercardIcon() {
+    return (
+        <svg viewBox="0 0 76 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="7" fill="#EB001B" />
+            <circle cx="17" cy="8" r="7" fill="#F79E1B" fillOpacity="0.85" />
+            <text x="28" y="11.5" fontFamily="'Inter', sans-serif" fontWeight="700" fontSize="8" fill="#1F2937" letterSpacing="-0.2">mastercard</text>
+        </svg>
+    );
+}
+
+function AmexIcon() {
+    return (
+        <svg viewBox="0 0 28 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="28" height="16" rx="2" fill="#01A6E5" />
+            <text x="14" y="10.5" textAnchor="middle" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="5.5" fill="#FFFFFF" letterSpacing="0.2">AMEX</text>
+        </svg>
+    );
+}
+
+function DiscoverIcon() {
+    return (
+        <svg viewBox="0 0 54 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="discGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#FF8A00" />
+                    <stop offset="100%" stopColor="#FF5000" />
+                </linearGradient>
+            </defs>
+            <text x="1" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">DISC</text>
+            <circle cx="28.5" cy="8" r="3.2" fill="url(#discGrad)" />
+            <text x="33.5" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">VER</text>
+        </svg>
+    );
+}
+
+function DinersClubIcon() {
+    return (
+        <svg viewBox="0 0 68 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="8" r="6.5" stroke="#0079C1" strokeWidth="1.5" />
+            <path d="M8 1.5a6.5 6.5 0 0 0 0 13v-13z" fill="#0079C1" />
+            <circle cx="8" cy="8" r="3" stroke="#0079C1" strokeWidth="1" fill="#FFFFFF" />
+            <text x="18" y="11" fontFamily="'Inter', sans-serif" fontWeight="800" fontSize="7" fill="#0D4B81" letterSpacing="-0.1">Diners Club</text>
+        </svg>
+    );
+}
+
+function JcbIcon() {
+    return (
+        <svg viewBox="0 0 32 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="2" width="9" height="12" rx="1.5" fill="#003580" />
+            <rect x="11" y="2" width="9" height="12" rx="1.5" fill="#D0021B" />
+            <rect x="21" y="2" width="9" height="12" rx="1.5" fill="#00875A" />
+            <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">J</text>
+            <text x="13" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">C</text>
+            <text x="23" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">B</text>
+        </svg>
+    );
+}
+
+function UnionPayIcon() {
+    return (
+        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="2" width="17" height="12" rx="1" fill="#C51A1B" />
+            <rect x="18" y="2" width="19" height="12" rx="1" fill="#004D95" />
+            <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#FFFFFF">Union</text>
+            <text x="19.5" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#00B0FF">Pay</text>
+        </svg>
+    );
+}
+
+function DefaultCardIcon() {
+    return (
+        <svg viewBox="0 0 24 24" className="h-5 w-auto text-slate-400" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+            <rect width="20" height="14" x="2" y="5" rx="2" />
+            <line x1="2" x2="22" y1="10" y2="10" />
+        </svg>
+    );
+}
+
+function CardBrandIcon({ brand }: { brand: string }) {
+    const brandKey = brand.toLowerCase().trim();
+
+    let iconElement: React.ReactNode;
+    switch (brandKey) {
+        case "visa":
+            iconElement = <VisaIcon />;
+            break;
+        case "mastercard":
+            iconElement = <MastercardIcon />;
+            break;
+        case "amex":
+        case "american express":
+            iconElement = <AmexIcon />;
+            break;
+        case "discover":
+            iconElement = <DiscoverIcon />;
+            break;
+        case "diners":
+        case "diners club":
+            iconElement = <DinersClubIcon />;
+            break;
+        case "jcb":
+            iconElement = <JcbIcon />;
+            break;
+        case "unionpay":
+            iconElement = <UnionPayIcon />;
+            break;
+        default:
+            iconElement = <DefaultCardIcon />;
+            break;
+    }
+
+    return (
+        <div className="flex h-8 w-14 shrink-0 items-center justify-start">
+            {iconElement}
+        </div>
+    );
+}
+
 type SettingsTab =
   | "profile"
   | "security"
@@ -2122,12 +2261,7 @@ export function BusinessSettingsView() {
                     <div className="rounded-xl border border-gray-100 p-4">
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <svg viewBox="0 0 48 32" className="h-8 w-12 shrink-0" aria-hidden="true">
-                            <rect width="48" height="32" rx="5" fill="#fff" stroke="#E5E7EB" />
-                            <text x="24" y="21" textAnchor="middle" fontFamily="Inter, Arial, sans-serif" fontSize="11" fontWeight="800" fontStyle="italic" fill="#1434CB">
-                              {billing.paymentMethod.brand.toUpperCase()}
-                            </text>
-                          </svg>
+                          <CardBrandIcon brand={billing.paymentMethod.brand} />
                           <div className="min-w-0">
                             <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
                               •••• •••• •••• {billing.paymentMethod.last4}
@@ -2164,7 +2298,7 @@ export function BusinessSettingsView() {
                       <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-settings-backup-card">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                           <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <span className="grid h-8 w-12 shrink-0 place-items-center rounded-md border border-gray-200 bg-white text-[10px] font-extrabold uppercase text-slate-600">{billing.backupPaymentMethod.brand}</span>
+                            <CardBrandIcon brand={billing.backupPaymentMethod.brand} />
                             <div>
                               <p className="flex items-center gap-2 text-sm font-medium text-slate-800">•••• •••• •••• {billing.backupPaymentMethod.last4}<span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">Backup</span></p>
                               <p className="mt-0.5 text-xs text-slate-500">Expires {String(billing.backupPaymentMethod.expMonth).padStart(2, "0")}/{billing.backupPaymentMethod.expYear}</p>
@@ -2177,7 +2311,10 @@ export function BusinessSettingsView() {
                     </div>
                   ) : (
                     <div className="rounded-xl border border-gray-100 p-4">
-                      <p className="text-sm text-slate-500">No payment method on file.</p>
+                      <div className="flex items-center gap-3 text-sm text-slate-500">
+                        <CardBrandIcon brand="" />
+                        <span>No payment method on file.</span>
+                      </div>
                       <button type="button" onClick={() => setCardModalMode("primary")} className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600" data-testid="business-settings-add-card">Add payment method</button>
                     </div>
                   )}

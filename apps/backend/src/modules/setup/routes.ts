@@ -343,6 +343,7 @@ function serializeListing(listing: OwnedListing) {
     tags: listing.tags,
     requiredConnectors: listing.requiredConnectors,
     workflowId: listing.workflowId,
+    setupTimeEstimate: listing.setupTimeEstimate,
     architectName:
       listing.architect?.fullName ||
       listing.architect?.architectProfile?.title ||

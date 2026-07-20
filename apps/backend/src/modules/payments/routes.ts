@@ -432,41 +432,115 @@ paymentRoutes.get("/history", async (c) => {
 paymentRoutes.get("/billing", async (c) => {
   const authUser = c.get("authUser");
 
-  const payments = await prisma.payment.findMany({
-    where: { userId: authUser.id },
-    orderBy: { createdAt: "desc" },
-    include: {
-      listing: {
-        select: {
-          id: true,
-          name: true,
-          pricingModel: true,
-          trialDays: true
+  const [payments, business] = await Promise.all([
+    prisma.payment.findMany({
+      where: { userId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            name: true,
+            pricingModel: true,
+            trialDays: true
+          }
         }
       }
-    }
-  });
+    }),
+    prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        name: true,
+        stripeCustomerId: true,
+        billingName: true,
+        billingEmail: true,
+        billingAddress: true,
+        billingPostalCode: true,
+        installedAgents: {
+          select: {
+            id: true,
+            createdAt: true,
+            status: true,
+            listingId: true,
+            listing: {
+              select: {
+                id: true,
+                name: true,
+                pricingModel: true,
+                trialDays: true,
+                priceCents: true
+              }
+            }
+          }
+        }
+      }
+    })
+  ]);
 
   const activeStatuses: string[] = ["TRIALING", "SUCCEEDED", "PENDING"];
 
   // Unique agents the business has purchased/started, with the price paid.
   const agentMap = new Map<
     string,
-    { id: string; name: string; priceCents: number; pricingModel?: string | null; trialDays?: number | null }
+    {
+      id: string;
+      name: string;
+      priceCents: number;
+      pricingModel?: string | null;
+      trialDays?: number | null;
+      isTrial?: boolean;
+    }
   >();
+
+  const installedAgentMap = new Map<string, string>(); // listingId -> status
+  if (business?.installedAgents) {
+    for (const installed of business.installedAgents) {
+      if (installed.listingId) {
+        installedAgentMap.set(installed.listingId, installed.status);
+      }
+    }
+  }
 
   for (const payment of payments) {
     if (!payment.listing) continue;
     if (!activeStatuses.includes(payment.status)) continue;
     if (agentMap.has(payment.listing.id)) continue;
 
+    // Exclude if currently suspended
+    const status = installedAgentMap.get(payment.listing.id);
+    if (status === "SUSPENDED_BILLING") continue;
+
     agentMap.set(payment.listing.id, {
       id: payment.listing.id,
       name: payment.listing.name,
       priceCents: payment.amountCents,
       pricingModel: payment.listing.pricingModel,
-      trialDays: payment.listing.trialDays
+      trialDays: payment.listing.trialDays,
+      isTrial: payment.status === "TRIALING"
     });
+  }
+
+  if (business?.installedAgents) {
+    for (const installed of business.installedAgents) {
+      if (!installed.listing) continue;
+      if (agentMap.has(installed.listing.id)) continue;
+      if (installed.status === "SUSPENDED_BILLING") continue;
+
+      // Paid agents must have active/valid payment records to show up under Current Plan.
+      // Therefore, the installedAgents loop only serves to include active free agents.
+      if (installed.listing.pricingModel !== "FREE") continue;
+
+      agentMap.set(installed.listing.id, {
+        id: installed.listing.id,
+        name: installed.listing.name,
+        priceCents: 0,
+        pricingModel: installed.listing.pricingModel,
+        trialDays: installed.listing.trialDays,
+        isTrial: false
+      });
+    }
   }
 
   const agents = Array.from(agentMap.values());
@@ -475,23 +549,37 @@ paymentRoutes.get("/billing", async (c) => {
     .filter((payment) => payment.status === "SUCCEEDED")
     .reduce((sum, payment) => sum + payment.amountCents, 0);
 
-  const hasActivePlan = payments.some((payment) => activeStatuses.includes(payment.status));
+  const hasActivePlan = agentMap.size > 0;
 
   const invoices = buildBillingInvoices(payments);
 
-  const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      name: true,
-      stripeCustomerId: true,
-      billingName: true,
-      billingEmail: true,
-      billingAddress: true,
-      billingPostalCode: true
+  if (business?.installedAgents) {
+    for (const installed of business.installedAgents) {
+      if (!installed.listing) continue;
+      if (installed.listing.pricingModel !== "FREE") continue;
+
+      const exists = invoices.some((inv) => inv.listingId === installed.listingId);
+      if (exists) continue;
+
+      invoices.push({
+        id: `free-install-${installed.id}`,
+        createdAt: installed.createdAt.toISOString(),
+        description: `Free install of ${installed.listing.name}`,
+        amountCents: 0,
+        displayAmountCents: 0,
+        currency: "usd",
+        status: "SUCCEEDED",
+        listingId: installed.listingId,
+        listingName: installed.listing.name,
+        billingName: business.billingName,
+        billingEmail: business.billingEmail,
+        billingAddress: business.billingAddress,
+        lineItems: [{ label: `Installation fee`, amountCents: 0 }]
+      });
     }
-  });
+  }
+
+  invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const currentBillingMonth = new Date().toISOString().slice(0, 7);
   const [currentUsage, unpaidUsageInvoices] = business

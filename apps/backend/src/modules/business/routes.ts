@@ -806,7 +806,7 @@ async function loadBusinessForOwner(ownerId: string) {
       profile: true,
       knowledgeBases: { orderBy: { createdAt: "asc" } },
       phoneNumbers: includeActivePhoneNumbers(),
-      installedAgents: { orderBy: { createdAt: "desc" }, include: { workflow: true } }
+      installedAgents: { orderBy: { createdAt: "desc" }, include: { workflow: true, listing: true } }
     }
   });
 }
@@ -2076,6 +2076,9 @@ function serializeSetup(
     triggerKind: (installedAgent as any)?.workflow?.workflowJson
       ? getWorkflowTriggerKind((installedAgent as any).workflow.workflowJson)
       : null,
+    setupTimeEstimate: (installedAgent as any)?.listing?.setupTimeEstimate 
+      || ((installedAgent as any)?.workflow?.configureJson as any)?.template?.setupTimeEstimate 
+      || null,
     silence: silenceConfig
       ? {
         repromptCount: typeof silenceConfig.repromptCount === "number" ? silenceConfig.repromptCount : null,

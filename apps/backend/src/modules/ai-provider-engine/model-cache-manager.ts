@@ -84,17 +84,26 @@ export class ModelCacheManager {
     try {
       if (fs.existsSync(CACHE_FILE_PATH)) {
         const fileContent = fs.readFileSync(CACHE_FILE_PATH, "utf-8");
-        const parsed = JSON.parse(fileContent) as CacheSchema;
-        const now = Date.now();
-        if (now - parsed.timestamp < CACHE_EXPIRATION_MS) {
-          console.info("[ModelCacheManager] Valid cache found. Using cached models and pricing.");
-          cache = parsed;
-        } else {
-          console.info("[ModelCacheManager] Cache is expired. Will fetch fresh data.");
+        try {
+          const parsed = JSON.parse(fileContent) as CacheSchema;
+          const now = Date.now();
+          if (now - parsed.timestamp < CACHE_EXPIRATION_MS) {
+            console.info("[ModelCacheManager] Valid cache found. Using cached models and pricing.");
+            cache = parsed;
+          } else {
+            console.info("[ModelCacheManager] Cache is expired. Will fetch fresh data.");
+          }
+        } catch (parseErr) {
+          console.warn("[ModelCacheManager] Cache file is corrupt, deleting to force fresh fetch:", parseErr);
+          try {
+            fs.unlinkSync(CACHE_FILE_PATH);
+          } catch (unlinkErr) {
+            // Ignore unlink error
+          }
         }
       }
     } catch (err) {
-      console.warn("[ModelCacheManager] Failed to read or parse cache file:", err);
+      console.warn("[ModelCacheManager] Failed to read cache file:", err);
     }
 
     if (!cache) {

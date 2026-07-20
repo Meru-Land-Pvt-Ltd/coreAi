@@ -292,6 +292,7 @@ export type BusinessSetupData = {
   installedAgentId?: string | null;
   vapiAssistantId?: string | null;
   triggerKind?: any;
+  setupTimeEstimate?: string | null;
 };
 
 export type CallRoutingCheck = {
@@ -324,6 +325,7 @@ export type MarketplaceListing = {
   requiredBuyerSetup?: BuyerSetupFieldDef[] | null;
   /** Architect's setup notes shown to the buyer above the agent-specific fields. */
   buyerSetupInstructions?: string | null;
+  setupTimeEstimate?: string | null;
 };
 
 export type BusinessCalendarStatus = {
