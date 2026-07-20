@@ -116,6 +116,7 @@ type ListingsApiResponse = {
 type MyAgentsResponse = {
     agents?: Array<{
         installedAgentId?: string | null;
+        installedAgentStatus?: string | null;
         listing: {
             id: string;
         };
@@ -543,15 +544,22 @@ export default function MarketplacePage() {
             localStorage.getItem("coreai-user") ||
             localStorage.getItem("coreai_user");
 
-        let role = "";
+        let user: { role?: string; roles?: string[] } | null = null;
 
         try {
-            role = userRaw ? JSON.parse(userRaw)?.role ?? "" : "";
+            user = userRaw ? JSON.parse(userRaw) : null;
         } catch {
-            role = "";
+            user = null;
         }
 
-        if (!token || role !== "BUSINESS") {
+        // Capability check: dual-role accounts (e.g. ARCHITECT + BUSINESS)
+        // keep their session — only truly unauthenticated visitors are
+        // cleared and sent to login.
+        const hasBusinessCapability =
+            user?.role === "BUSINESS" ||
+            (Array.isArray(user?.roles) && user.roles.includes("BUSINESS"));
+
+        if (!token || !hasBusinessCapability) {
             localStorage.removeItem("coreai-token");
             localStorage.removeItem("coreai_token");
             localStorage.removeItem("coreai-user");
@@ -619,9 +627,17 @@ export default function MarketplacePage() {
 
                 const entries = response.data?.agents ?? [];
                 const ownedIds = new Set(entries.map((entry) => entry.listing.id));
-                // Purchased but never installed — setup hasn't been completed yet.
+                // Setup not finished yet: either never installed, or installed
+                // automatically at purchase/trial time but not taken live
+                // (auto-installs start as PROVISIONING until Go live).
                 const pendingIds = new Set(
-                    entries.filter((entry) => !entry.installedAgentId).map((entry) => entry.listing.id)
+                    entries
+                        .filter(
+                            (entry) =>
+                                !entry.installedAgentId ||
+                                !["ACTIVE", "PAUSED"].includes(entry.installedAgentStatus ?? "")
+                        )
+                        .map((entry) => entry.listing.id)
                 );
 
                 setOwnedListingIds(ownedIds);

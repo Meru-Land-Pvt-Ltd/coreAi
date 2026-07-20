@@ -10,6 +10,7 @@ import { PhoneNumberSelectionSection } from "./phone-number-selection";
  */
 
 vi.mock("@/components/business/features/api", () => ({
+  getBusinessPhoneAssignment: vi.fn(),
   getPhoneCountries: vi.fn(),
   getPhoneStates: vi.fn(),
   getPhoneCities: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("@/components/business/features/api", () => ({
 }));
 
 import {
+  getBusinessPhoneAssignment,
   getPhoneCities,
   getPhoneCountries,
   getPhoneStates,
@@ -54,8 +56,6 @@ const FIRST_NUMBER = {
   locality: "Los Angeles",
   capabilities: { voice: true, sms: true, mms: false },
   numberType: "LOCAL" as const,
-  feeCents: 500,
-  feeLabel: "AI Receptionist No.",
   regulatoryNote: null,
   checkedAt: "2026-07-18T00:00:00.000Z"
 };
@@ -108,6 +108,10 @@ async function selectLocationAndWaitForOffer() {
 
 beforeEach(() => {
   cleanup();
+  vi.mocked(getBusinessPhoneAssignment).mockReset().mockResolvedValue({
+    success: true,
+    data: { assigned: false }
+  } as never);
   vi.mocked(getPhoneCountries).mockReset().mockResolvedValue(COUNTRIES as never);
   vi.mocked(getPhoneStates).mockReset().mockResolvedValue(US_STATES as never);
   vi.mocked(getPhoneCities).mockReset().mockResolvedValue(CA_CITIES as never);
@@ -294,5 +298,76 @@ describe("PhoneNumberSelectionSection", () => {
     // ASSIGNMENT_FAILED keeps the same request key so the server resumes the
     // SAME provisioning request instead of purchasing a second number.
     expect(new Set(ids).size).toBe(1);
+  });
+
+  it("never shows a price, provider cost, or $ amount on the offered number", async () => {
+    render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
+    await selectLocationAndWaitForOffer();
+
+    const review = screen.getByTestId("business-setup-phone-review");
+    expect(review.textContent).not.toContain("$");
+    expect(review.textContent?.toLowerCase()).not.toContain("twilio");
+    expect(review.textContent).toContain("Included with your Triven AI setup");
+  });
+});
+
+describe("existing assignment (one number only)", () => {
+  const ASSIGNMENT = {
+    success: true as const,
+    data: {
+      assigned: true as const,
+      phoneNumber: "+12135550123",
+      status: "ACTIVE" as const,
+      country: "US",
+      region: "CA",
+      locality: "Los Angeles",
+      capabilities: { voice: true, sms: true },
+      assignedAt: "2026-07-18T00:00:00.000Z",
+      installedAgentId: "agent-1"
+    }
+  };
+
+  it("shows the assigned number with Active status and hides search and assign entirely", async () => {
+    vi.mocked(getBusinessPhoneAssignment).mockResolvedValue(ASSIGNMENT as never);
+
+    render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
+
+    expect(await screen.findByTestId("business-setup-phone-assignment")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-phone-assignment-number").textContent).toBe("+12135550123");
+    expect(screen.getByTestId("business-setup-phone-assignment-status").textContent).toBe("Active");
+    expect(screen.getByTestId("business-setup-phone-assignment-details").textContent).toContain("Los Angeles");
+
+    expect(screen.queryByTestId("business-setup-phone-country")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-search")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-confirm")).toBeNull();
+    expect(searchBusinessPhoneNumbers).not.toHaveBeenCalled();
+    expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
+  });
+
+  it("switches to the assignment when a search reports the number already assigned", async () => {
+    vi.mocked(searchBusinessPhoneNumbers).mockResolvedValue({
+      success: true,
+      data: {
+        numbers: [],
+        exactMatchAvailable: false,
+        matchLevel: "NATIONAL",
+        fallbackOptions: [],
+        smsRequired: false,
+        localityFilterSupported: true,
+        alreadyAssigned: ASSIGNMENT.data
+      }
+    } as never);
+
+    render(<PhoneNumberSelectionSection installedAgentId={null} listingId="listing-1" onProvisioned={vi.fn()} />);
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByTestId("business-setup-phone-country"), "US");
+    await screen.findByRole("option", { name: "California" });
+    await user.selectOptions(screen.getByTestId("business-setup-phone-state"), "CA");
+    await screen.findByRole("option", { name: "Los Angeles" });
+    await user.selectOptions(screen.getByTestId("business-setup-phone-city"), "Los Angeles");
+
+    expect(await screen.findByTestId("business-setup-phone-assignment")).toBeTruthy();
+    expect(screen.queryByTestId("business-setup-phone-confirm")).toBeNull();
+    expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 });

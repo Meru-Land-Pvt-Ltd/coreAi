@@ -19,6 +19,8 @@ import {
   verifyCodeSchema,
   firebaseLoginSchema
 } from "./schemas";
+import { resolveLoginUser, type LoginUser } from "./role-login";
+import { getUserRoles, grantRole, mergeRoles } from "../../lib/roles";
 
 export const authRoutes = new Hono();
 
@@ -58,12 +60,17 @@ function toSafeUser(user: {
   isSuspended: boolean;
   createdAt: Date;
   profilePhotoUrl?: string | null;
+  roleMemberships?: Array<{ role: unknown }>;
 }) {
   return {
     id: user.id,
     fullName: user.fullName,
     email: user.email,
     role: user.role,
+    roles: mergeRoles(
+      String(user.role),
+      (user.roleMemberships ?? []).map((membership) => ({ role: String(membership.role) }))
+    ),
     isSuspended: user.isSuspended,
     createdAt: user.createdAt,
     profilePhotoUrl: user.profilePhotoUrl ?? null
@@ -74,17 +81,28 @@ authRoutes.post("/send-verification-code", async (c) => {
   try {
     const input = sendVerificationCodeSchema.parse(await c.req.json());
 
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        email: input.email,
-        role: input.role
-      },
+    // Email-first: the code may log the caller into an existing account of a
+    // different legacy role, so the suspension precheck mirrors the account
+    // resolution order used at verification time (exact role → membership →
+    // oldest row) instead of the exact (email, role) pair.
+    const candidates = await prisma.user.findMany({
+      where: { email: input.email },
       select: {
         id: true,
         role: true,
-        isSuspended: true
-      }
+        isSuspended: true,
+        roleMemberships: { select: { role: true } }
+      },
+      orderBy: { createdAt: "asc" }
     });
+
+    const existingUser =
+      candidates.find((candidate) => candidate.role === input.role) ??
+      candidates.find((candidate) =>
+        candidate.roleMemberships.some((membership) => membership.role === input.role)
+      ) ??
+      candidates[0] ??
+      null;
 
     if (existingUser?.isSuspended) {
       return errorResponse(
@@ -138,56 +156,27 @@ authRoutes.post("/verify-code", async (c) => {
       return errorResponse(c, verification.message, verification.status, verification.code);
     }
 
-    let user = await prisma.user.findFirst({
-      where: {
-        email: input.email,
-        role: input.role
-      },
-      include: {
-        architectProfile: true
-      }
+    // Email-first resolution: an existing account (any role) is reused and
+    // granted the requested role as a membership — the same email is never
+    // duplicated into a second User row.
+    const { user, isNewUser } = await resolveLoginUser({
+      email: input.email,
+      role: input.role,
+      fallbackFullName: getNameFromEmail(input.email),
+      allowCreate: true
     });
-    if (user?.isSuspended) {
+
+    if (!user) {
+      return errorResponse(c, "Verification failed", 500, "VERIFY_CODE_FAILED");
+    }
+
+    if (user.isSuspended) {
       return errorResponse(
         c,
         "Your account is suspended",
         403,
         "ACCOUNT_SUSPENDED"
       );
-    }
-
-    const isNewUser = !user;
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email: input.email,
-          role: input.role,
-          passwordHash: null,
-          fullName: getNameFromEmail(input.email),
-          architectProfile:
-            input.role === "ARCHITECT"
-              ? {
-                create: {}
-              }
-              : undefined
-        },
-        include: {
-          architectProfile: true
-        }
-      });
-    } else if (!user.fullName) {
-      user = await prisma.user.update({
-        where: {
-          id: user.id
-        },
-        data: {
-          fullName: getNameFromEmail(user.email)
-        },
-        include: {
-          architectProfile: true
-        }
-      });
     }
 
     sendWelcomeEmailIfNewBuyer(user, isNewUser);
@@ -270,74 +259,33 @@ authRoutes.post("/firebase-login", async (c) => {
       role: input.role
     });
 
-    let user = await prisma.user.findFirst({
-      where: {
-        email,
-        role: input.role
-      },
-      include: {
-        architectProfile: true
-      }
+    // Email-first resolution: reuse any existing account for this email and
+    // grant the requested role membership instead of creating a duplicate row.
+    const { user, isNewUser } = await resolveLoginUser({
+      email,
+      role: input.role,
+      fallbackFullName: googleName,
+      allowCreate: true
     });
 
     console.log("User lookup result:", {
       found: Boolean(user),
       userId: user?.id,
-      role: user?.role
+      role: user?.role,
+      isNewUser
     });
 
-    if (user?.isSuspended) {
+    if (!user) {
+      return errorResponse(c, "Google login failed", 500, "GOOGLE_LOGIN_FAILED");
+    }
+
+    if (user.isSuspended) {
       return errorResponse(
         c,
         "Your account is suspended",
         403,
         "ACCOUNT_SUSPENDED"
       );
-    }
-
-    const isNewUser = !user;
-
-    if (!user) {
-      console.log("Creating user:", {
-        email,
-        role: input.role
-      });
-
-      user = await prisma.user.create({
-        data: {
-          email,
-          role: input.role,
-          passwordHash: null,
-          fullName: googleName,
-          architectProfile:
-            input.role === "ARCHITECT"
-              ? {
-                  create: {}
-                }
-              : undefined
-        },
-        include: {
-          architectProfile: true
-        }
-      });
-
-      console.log("User created:", {
-        userId: user.id,
-        email: user.email,
-        role: user.role
-      });
-    } else if (!user.fullName) {
-      user = await prisma.user.update({
-        where: {
-          id: user.id
-        },
-        data: {
-          fullName: googleName
-        },
-        include: {
-          architectProfile: true
-        }
-      });
     }
 
     console.log("Creating auth token:", {
@@ -427,15 +375,25 @@ authRoutes.post("/login", async (c) => {
   try {
     const input = loginSchema.parse(await c.req.json());
 
-    const user = await prisma.user.findFirst({
-      where: {
-        email: input.email,
-        role: input.role
-      },
+    // Email-first: prefer the row matching the requested role, then a row
+    // holding it as a membership, then any account for the email. The role
+    // membership is only granted AFTER the password is verified.
+    const candidates = await prisma.user.findMany({
+      where: { email: input.email },
       include: {
-        architectProfile: true
-      }
+        architectProfile: true,
+        roleMemberships: { select: { role: true } }
+      },
+      orderBy: { createdAt: "asc" }
     });
+
+    const user: LoginUser | null =
+      candidates.find((candidate) => candidate.role === input.role) ??
+      candidates.find((candidate) =>
+        candidate.roleMemberships.some((membership) => membership.role === input.role)
+      ) ??
+      candidates[0] ??
+      null;
 
     if (!user) {
       return errorResponse(
@@ -473,6 +431,18 @@ authRoutes.post("/login", async (c) => {
         401,
         "INVALID_CREDENTIALS"
       );
+    }
+
+    // Authenticated entry into this role's workspace — grant the capability
+    // (idempotent) instead of requiring a separate User row per role.
+    await grantRole(user.id, input.role);
+    if (!user.roleMemberships.some((membership) => membership.role === input.role)) {
+      user.roleMemberships = [...user.roleMemberships, { role: input.role }];
+    }
+    if (input.role === "ARCHITECT" && !user.architectProfile) {
+      user.architectProfile = await prisma.architectProfile.create({
+        data: { userId: user.id }
+      });
     }
 
     const safeUser = {
@@ -518,4 +488,36 @@ authRoutes.get("/me", requireAuth, async (c) => {
   return successResponse(c, {
     user: authUser
   });
+});
+
+/**
+ * Intentional entry into the Business (buyer) workspace. Grants the BUSINESS
+ * role membership to the current account — an ARCHITECT keeps architect
+ * access and additionally becomes a buyer on the same User row. Idempotent.
+ */
+authRoutes.post("/business-workspace/activate", requireAuth, async (c) => {
+  const authUser = c.get("authUser");
+
+  try {
+    await grantRole(authUser.id, "BUSINESS");
+    const roles = await getUserRoles(authUser.id);
+
+    return successResponse(
+      c,
+      {
+        userId: authUser.id,
+        roles,
+        activeWorkspace: "BUSINESS"
+      },
+      "Business workspace activated"
+    );
+  } catch (error) {
+    console.error("Business workspace activation failed", error);
+    return errorResponse(
+      c,
+      "Failed to activate the Business workspace",
+      500,
+      "BUSINESS_WORKSPACE_ACTIVATION_FAILED"
+    );
+  }
 });

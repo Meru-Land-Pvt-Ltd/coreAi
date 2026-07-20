@@ -90,7 +90,7 @@ function signStatePayload(payload: Record<string, unknown>) {
   return `${body}.${signature}`;
 }
 
-function verifyStatePayload(state: string) {
+function verifyStatePayload(state: string, options?: { allowExpired?: boolean }) {
   const [body, signature] = state.split(".");
 
   if (!body || !signature) {
@@ -133,7 +133,7 @@ function verifyStatePayload(state: string) {
 
   const ageMs = Date.now() - createdAt;
 
-  if (ageMs > 10 * 60 * 1000) {
+  if (ageMs > 10 * 60 * 1000 && !options?.allowExpired) {
     throw new Error("OAuth state expired");
   }
 
@@ -721,5 +721,8 @@ export async function createGmailDraft({
 }
 
 export function getGmailOAuthRedirectPath(state: string) {
-  return verifyStatePayload(state).redirectPath;
+  // Used only to pick the browser return page (never for the token
+  // exchange), so an expired-but-authentically-signed state still sends the
+  // user back to where they started instead of the architect profile.
+  return verifyStatePayload(state, { allowExpired: true }).redirectPath;
 }

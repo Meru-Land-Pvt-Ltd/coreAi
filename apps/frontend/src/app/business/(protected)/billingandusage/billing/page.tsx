@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
-import { getAuthToken, getAuthUser } from "@/lib/auth";
+import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
 import { BUSINESS_BILLING_PATH, BUSINESS_LOGIN_PATH } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -225,7 +225,7 @@ export default function BusinessInvoiceDetailPage() {
         const token = getAuthToken();
         const user = getAuthUser();
 
-        if (!token || user?.role !== "BUSINESS") {
+        if (!token || !hasAuthRole(user, "BUSINESS")) {
             router.replace(BUSINESS_LOGIN_PATH);
             return;
         }

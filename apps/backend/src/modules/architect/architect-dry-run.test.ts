@@ -638,11 +638,22 @@ describe("test exclusion from production data", () => {
           timeZone: "America/New_York"
         }
       });
+      // The call that produced the live booking — the only countable run.
+      await prisma.vapiCall.create({
+        data: {
+          businessId: business.id,
+          callId: `${RUN}-runstats-live-1`,
+          customerPhone: "+15550014444",
+          executionMode: "LIVE"
+        }
+      });
 
       const stats = await buildInstalledAgentRunStats(business.id, [{ id: "agent-1", listingId: null }]);
-      // Only the LIVE appointment counts.
+      // Appointments are outcomes of an already-counted call, never separate
+      // runs (live or test) — only the LIVE call itself counts.
       expect(stats.get("agent-1")?.runs).toBe(1);
     } finally {
+      await prisma.vapiCall.deleteMany({ where: { businessId: business.id } });
       await prisma.appointment.deleteMany({ where: { businessId: business.id } });
       await prisma.business.delete({ where: { id: business.id } });
       await prisma.user.delete({ where: { id: owner.id } });

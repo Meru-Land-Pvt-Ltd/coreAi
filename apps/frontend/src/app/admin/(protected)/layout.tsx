@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { Route } from "next";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearAuthSession, getAuthUser } from "@/lib/auth";
+import { clearAuthSession, getAuthUser, hasAuthRole } from "@/lib/auth";
 import { AdminShell } from "@/components/admin/ui/admin-shell";
 
 const ADMIN_LOGIN_PATH = "/admin/login" as Route;
@@ -20,7 +20,7 @@ export default function AdminProtectedLayout({ children }: { children: ReactNode
       router.replace(ADMIN_LOGIN_PATH);
       return;
     }
-    if (authUser.role !== "ADMIN") {
+    if (!hasAuthRole(authUser, "ADMIN")) {
       // Wrong role in this browser session — clear it and send to admin login
       // (not the home page).
       clearAuthSession();

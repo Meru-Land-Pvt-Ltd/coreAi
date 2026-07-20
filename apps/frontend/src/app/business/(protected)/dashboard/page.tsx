@@ -104,6 +104,8 @@ type MetricCard = {
     trend?: string;
     badge?: string;
     icon: IconName;
+    /** Metric definition shown on hover — keeps counts explainable. */
+    tooltip?: string;
 };
 
 type Agent = {
@@ -221,7 +223,8 @@ const metrics: MetricCard[] = [
         value: "0",
         subtitle: "this month · vs last month",
         trend: "0%",
-        icon: "phone"
+        icon: "phone",
+        tooltip: "Unique live phone/browser-call sessions handled by your agents, plus captured missed calls. Test and preview calls are excluded."
     },
     {
         label: "Appointments Booked",
@@ -848,7 +851,7 @@ function MetricCard({ metric }: { metric: MetricCard }) {
                 ) : null}
             </div>
 
-            <p className="mt-5 text-sm font-medium text-slate-500" data-testid="business-protected-dashboard-metric-label-text">{metric.label}</p>
+            <p className="mt-5 text-sm font-medium text-slate-500" title={metric.tooltip} data-testid="business-protected-dashboard-metric-label-text">{metric.label}</p>
             <p className="mt-1 text-3xl font-black tracking-tight text-slate-900" data-testid="business-protected-dashboard-metric-text">
                 {metric.value}
             </p>
@@ -948,7 +951,7 @@ function AgentRow({
 
             <div className="flex items-center justify-between gap-4 pl-5 sm:justify-end sm:gap-6 sm:pl-0 md:gap-8">
                 <div className="text-left sm:text-right">
-                    <p className="text-sm font-semibold text-slate-700" data-testid="business-protected-dashboard-agent-runs-text">{agent.runs} runs</p>
+                    <p className="text-sm font-semibold text-slate-700" title="Unique live workflow executions: one per handled call plus captured missed calls. Test runs are excluded." data-testid="business-protected-dashboard-agent-runs-text">{agent.runs} runs</p>
                     <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-this-month-text">this month</p>
                 </div>
 

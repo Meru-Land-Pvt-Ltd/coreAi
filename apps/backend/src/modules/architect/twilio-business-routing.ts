@@ -5,6 +5,24 @@ import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest, type WorkflowRunInput } from "./workflow-runner";
+import { DuplicateWorkflowRunError } from "../memory/work-flow-run-service";
+import { workflowCapabilities } from "../agent-runtime/graph-runner";
+import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import {
+  checkBusinessExactTime,
+  computeBusinessAvailability,
+  revalidateAndReserveSlot
+} from "../business/scheduling";
+import { detectFactIntents, loadBusinessFacts, lookupStructuredFacts } from "../business/business-facts";
+import { businessOpenStatusNow, specialEntriesFromRows } from "../business/business-hours-state";
+import {
+  addDaysToDate,
+  businessOpenStatus,
+  dateInTimeZone,
+  describeOpenStatus,
+  normalizeWeeklyHours,
+  type SpecialHoursEntry
+} from "@coreai/shared";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
@@ -78,6 +96,10 @@ type ResolvedAgent = {
   forwardToPhone?: string;
   /** Buyer's answering mode from InstalledAgent.configJson.phoneRouting.mode. */
   routingMode?: string;
+  /** AI Call Coverage (configJson.phoneRouting.coverage): always | business_hours | custom. */
+  coverage?: string;
+  /** Optional custom AI answering schedule (configJson.phoneRouting.answeringHours). */
+  answeringHours?: unknown;
   /** Buyer paused this agent — no AI answer, no text-back, no AI SMS replies. */
   agentPaused?: boolean;
   business?: BusinessRuntimeContext;
@@ -91,13 +113,6 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/[^+\d]/g, "").trim();
 }
 
-/**
- * Whether the workflow graph opts into SMS conversations. AI SMS auto-replies
- * run only when the architect placed an SMS-capable node — the Inbound SMS
- * Trigger, a Send SMS action, or the Missed Call Trigger (whose text-back
- * conversation continues over SMS). Legacy installs without a graph keep the
- * previous always-reply behavior.
- */
 const SMS_CAPABLE_NODE_TYPES = new Set([
   "trigger.twilio_inbound_sms",
   "trigger.twilio_missed_call",
@@ -290,9 +305,9 @@ function buildBusinessContext(
     tone: profile?.tone ?? "friendly",
     escalationRules: profile?.escalationRules ?? undefined,
     hours: profile?.hoursJson ?? undefined,
-    knowledge: knowledgeBases
-      .map((item: any) => `${item.title ? `${item.title}: ` : ""}${item.content ?? ""}`.trim())
-      .filter(Boolean)
+    // Shared formatter — the live tool context reads the same knowledge set
+    // (manual + document chunks) as the deployed prompt and browser tests.
+    knowledge: formatKnowledgeEntries(knowledgeBases)
   };
 }
 
@@ -330,6 +345,8 @@ function toResolvedAgent(opts: {
     workflowJson: installedAgent.workflow?.workflowJson ?? null,
     forwardToPhone: opts.forwardToPhone ?? undefined,
     routingMode: readRoutingMode(installedAgent.configJson),
+    coverage: readCoverage(installedAgent.configJson),
+    answeringHours: readAnsweringHours(installedAgent.configJson),
     agentPaused: installedAgent.status === "PAUSED",
     business: buildBusinessContext(business, phoneNumber, installedAgent),
     matchedBusinessPhoneNumberId: opts.matchedBusinessPhoneNumberId,
@@ -395,9 +412,6 @@ async function resolveAgent({
       }
     }
 
-    // ---- B / D: PlatformPhoneNumber exact match assigned to a business ----
-    // Only ASSIGNED numbers route here: RELEASED/ARCHIVED/DISABLED/ERROR rows
-    // must never resolve a live call even if they still carry a businessId.
     const platform = await prisma.platformPhoneNumber.findUnique({
       where: { phoneNumber: normalizedCalledNumber }
     });
@@ -643,11 +657,6 @@ function formatAppointmentTime(iso: string, timeZone?: string | null): string {
   }
 }
 
-/**
- * Shared appointment creation used by both the Vapi voice booking tool and the
- * inbound-SMS booking path: creates the Google Calendar event and persists the
- * Appointment row. Requires the business to have an owner (for Google OAuth).
- */
 async function createBusinessAppointment({
   business,
   customerPhone,
@@ -691,12 +700,12 @@ async function createBusinessAppointment({
     summaryOverride: isTestMode ? calendarEventTitleForMode(executionMode, service) : undefined,
     description: isTestMode
       ? [
-          executionMode === "ARCHITECT_DRY_RUN"
-            ? "Triven.ai architect sandbox test appointment."
-            : "Triven.ai business test appointment.",
-          "This is not a real customer booking.",
-          `Phone: ${customerPhone}`
-        ].join("\n")
+        executionMode === "ARCHITECT_DRY_RUN"
+          ? "Triven.ai architect sandbox test appointment."
+          : "Triven.ai business test appointment.",
+        "This is not a real customer booking.",
+        `Phone: ${customerPhone}`
+      ].join("\n")
       : description ?? `Booked by Triven AI Receptionist for ${business.businessName}. Phone: ${customerPhone}`
   });
 
@@ -852,12 +861,15 @@ async function runMissedCallAgent({
   agent,
   callerNumber,
   callerName,
-  reason
+  reason,
+  callSid
 }: {
   agent: ResolvedAgent;
   callerNumber: string;
   callerName?: string;
   reason: string;
+  /** Twilio CallSid — dedupes retried/doubly-configured webhook deliveries. */
+  callSid?: string | null;
 }) {
   const conversation = await upsertConversation({
     businessId: agent.business?.businessId,
@@ -867,20 +879,33 @@ async function runMissedCallAgent({
     providerId: null
   });
 
-  const run = await runWorkflowTest({
-    userId: agent.business?.ownerId ?? agent.userId,
-    workflowId: agent.workflowId,
-    workflowJson: agent.workflowJson,
-    mode: "live",
-    // Sandbox/test agents keep their test classification even on real calls.
-    executionMode: agent.business?.executionMode ?? "LIVE",
-    input: runInputFromContext({
-      agent,
-      callerNumber,
-      callerName,
-      reason
-    })
-  });
+  let run: Awaited<ReturnType<typeof runWorkflowTest>>;
+  try {
+    run = await runWorkflowTest({
+      userId: agent.business?.ownerId ?? agent.userId,
+      workflowId: agent.workflowId,
+      workflowJson: agent.workflowJson,
+      mode: "live",
+      executionMode: agent.business?.executionMode ?? "LIVE",
+      callProvider: callSid ? "TWILIO" : undefined,
+      externalCallId: callSid || undefined,
+      input: runInputFromContext({
+        agent,
+        callerNumber,
+        callerName,
+        reason
+      })
+    });
+  } catch (error) {
+    if (error instanceof DuplicateWorkflowRunError) {
+      console.log("[twilio-webhook] duplicate missed-call delivery ignored", {
+        callSid,
+        workflowId: agent.workflowId
+      });
+      return null;
+    }
+    throw error;
+  }
 
   const sentSms = typeof run.context.sentSms === "object" && run.context.sentSms !== null
     ? (run.context.sentSms as { body?: string; id?: string | null })
@@ -984,56 +1009,114 @@ function readRoutingMode(configJson: unknown): string | undefined {
   return undefined;
 }
 
-function isWithinBusinessHours(hours: unknown, timeZone?: string): boolean | null {
-  if (!Array.isArray(hours) || hours.length === 0) return null;
+function readAnsweringHours(configJson: unknown): unknown {
+  const routing = (configJson as Record<string, unknown> | null)?.phoneRouting;
+  if (typeof routing === "object" && routing !== null) {
+    return (routing as Record<string, unknown>).answeringHours ?? undefined;
+  }
+  return undefined;
+}
+
+/** AI Call Coverage (configJson.phoneRouting.coverage) — the buyer's answer-time window. */
+function readCoverage(configJson: unknown): string | undefined {
+  const routing = (configJson as Record<string, unknown> | null)?.phoneRouting;
+  if (typeof routing === "object" && routing !== null) {
+    const coverage = (routing as Record<string, unknown>).coverage;
+    if (typeof coverage === "string" && coverage.trim()) return coverage.trim().toLowerCase();
+  }
+  return undefined;
+}
+
+/**
+ * Structured-hours open check (multiple periods, breaks, special-date
+ * overrides). null = hours not configured — callers must not treat that as
+ * either open or closed.
+ */
+function isWithinBusinessHours(
+  hours: unknown,
+  timeZone?: string,
+  special: SpecialHoursEntry[] = []
+): boolean | null {
+  const weekly = normalizeWeeklyHours(hours);
+  if (!weekly && special.length === 0) return null;
+
   const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
-  let dayName: string;
-  let nowHhmm: string;
   try {
-    dayName = new Date().toLocaleDateString("en-US", { timeZone: tz, weekday: "long" }).toLowerCase();
-    nowHhmm = new Date().toLocaleTimeString("en-GB", {
-      timeZone: tz,
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit"
-    });
+    const status = businessOpenStatus({ weekly, special, timeZone: tz });
+    return status.state === "unknown" ? null : status.state === "open";
   } catch {
     return null;
   }
-
-  const entry = hours.find((item) => {
-    if (typeof item !== "object" || item === null) return false;
-    const day = (item as Record<string, unknown>).day;
-    return typeof day === "string" && day.toLowerCase() === dayName;
-  }) as Record<string, unknown> | undefined;
-  if (!entry) return null;
-  if (entry.closed === true) return false;
-
-  const open = typeof entry.open === "string" ? entry.open.slice(0, 5) : "";
-  const close = typeof entry.close === "string" ? entry.close.slice(0, 5) : "";
-  if (!/^\d{2}:\d{2}$/.test(open) || !/^\d{2}:\d{2}$/.test(close)) return null;
-  return nowHhmm >= open && nowHhmm <= close;
 }
 
-function shouldAnswerWithAiByMode(mode: string, hours: unknown, timeZone?: string): boolean {
-  switch (mode) {
-    case "AI_FIRST":
-    case "NO_ANSWER":
-    case "BUSY":
-    case "UNREACHABLE":
-      return true;
-    case "AFTER_HOURS":
-      // Answer when outside hours OR when hours are unknown; skip only when open.
-      return isWithinBusinessHours(hours, timeZone) !== true;
+/** Today's + tomorrow's special-hours overrides for a business (may be empty). */
+async function loadSpecialHoursForRouting(
+  businessId: string | undefined,
+  timeZone?: string
+): Promise<SpecialHoursEntry[]> {
+  if (!businessId) return [];
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  try {
+    const today = dateInTimeZone(tz);
+    const rows = await prisma.businessSpecialHours.findMany({
+      where: { businessId, date: { in: [today, addDaysToDate(today, 1)] } },
+      select: { date: true, kind: true, closed: true, periodsJson: true, note: true }
+    });
+    return specialEntriesFromRows(rows);
+  } catch {
+    return [];
+  }
+}
+
+export async function shouldAnswerWithAiByMode(
+  mode: string,
+  agent: {
+    business?: { businessId?: string; hours?: unknown; timeZone?: string };
+    coverage?: string;
+    answeringHours?: unknown;
+  }
+): Promise<boolean> {
+  const modeAllows = await (async () => {
+    switch (mode) {
+      case "AI_FIRST":
+      case "NO_ANSWER":
+      case "BUSY":
+      case "UNREACHABLE":
+        return true;
+      case "AFTER_HOURS": {
+        const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
+        // Answer when outside hours OR when hours are unknown; skip only when open.
+        return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== true;
+      }
+      case "BUSINESS_HOURS": {
+        const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
+        // Answer only while open; unknown hours → answer (never drop calls).
+        return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== false;
+      }
+      case "CUSTOM_HOURS":
+        // Legacy combined mode (pre-coverage saves) — the schedule IS the gate.
+        return isWithinBusinessHours(agent.answeringHours, agent.business?.timeZone) !== false;
+      default:
+        return true;
+    }
+  })();
+
+  if (!modeAllows) return false;
+
+  // AI Call Coverage is a second, independent time gate. Absent or "always"
+  // keeps the legacy behavior; unknown hours never drop a call.
+  switch (agent.coverage) {
+    case "business_hours": {
+      const special = await loadSpecialHoursForRouting(agent.business?.businessId, agent.business?.timeZone);
+      return isWithinBusinessHours(agent.business?.hours, agent.business?.timeZone, special) !== false;
+    }
+    case "custom":
+      return isWithinBusinessHours(agent.answeringHours, agent.business?.timeZone) !== false;
     default:
       return true;
   }
 }
 
-/**
- * Read-only routing diagnostics for a Triven AI number — powers the buyer's
- * "Test call routing" check. Runs the same resolver the live webhook uses.
- */
 export async function getCallRoutingDiagnostics(rawNumber: string) {
   const normalizedNumber = normalizePhoneNumber(rawNumber);
   const agent = normalizedNumber ? await resolveAgent({ calledNumber: normalizedNumber }) : null;
@@ -1041,7 +1124,7 @@ export async function getCallRoutingDiagnostics(rawNumber: string) {
   const routingMode = agent?.routingMode;
   const aiWouldAnswer = agent
     ? routingMode
-      ? shouldAnswerWithAiByMode(routingMode, agent.business?.hours, agent.business?.timeZone)
+      ? await shouldAnswerWithAiByMode(routingMode, agent)
       : true
     : false;
 
@@ -1053,6 +1136,7 @@ export async function getCallRoutingDiagnostics(rawNumber: string) {
     businessId: agent?.business?.businessId ?? null,
     installedAgentId: agent?.business?.installedAgentId ?? null,
     routingMode: routingMode ?? null,
+    aiCallCoverage: agent?.coverage ?? null,
     hasVapiAssistantId: isRealId(assistantId),
     hasVapiPhoneNumberId: isRealId(agent?.business?.vapiPhoneNumberId),
     aiWouldAnswer,
@@ -1140,8 +1224,6 @@ export async function handleTwilioVoice(c: Context) {
     return sayTwiml(c, NOT_DEPLOYED_MESSAGE);
   }
 
-  // Buyer paused the agent: the AI never answers. Calls still reach a human
-  // when a forwarding number exists; otherwise a polite unavailable message.
   if (agent.agentPaused) {
     if (forwardToPhone) {
       logDiag("agent_paused_forwarding_to_human");
@@ -1153,7 +1235,7 @@ export async function handleTwilioVoice(c: Context) {
 
   const hasDeployedAssistant = Boolean(assistantId && assistantId !== env.VAPI_DEFAULT_ASSISTANT_ID);
   const aiShouldAnswer = agent.routingMode
-    ? shouldAnswerWithAiByMode(agent.routingMode, agent.business?.hours, agent.business?.timeZone)
+    ? await shouldAnswerWithAiByMode(agent.routingMode, agent)
     : env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone;
 
   if (aiShouldAnswer) {
@@ -1212,6 +1294,7 @@ export async function handleTwilioVoiceAction(c: Context) {
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
   const dialStatus = readBodyString(body, ["DialCallStatus", "DialStatus", "CallStatus"]);
+  const callSid = readBodyString(body, ["CallSid", "callSid"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   if (!agent || !callerNumber) {
@@ -1231,6 +1314,7 @@ export async function handleTwilioVoiceAction(c: Context) {
     agent,
     callerNumber,
     callerName,
+    callSid,
     reason: `Twilio forwarded the call but office did not answer. Dial status: ${dialStatus || "unknown"}.`
   });
 
@@ -1248,6 +1332,7 @@ export async function handleTwilioMissedCall(c: Context) {
   const calledNumber = readBodyString(body, ["Called", "To", "to"]);
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
+  const callSid = readBodyString(body, ["CallSid", "callSid"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   // Paused agents never run the missed-call text-back workflow.
@@ -1259,6 +1344,7 @@ export async function handleTwilioMissedCall(c: Context) {
     agent,
     callerNumber,
     callerName,
+    callSid,
     reason: "Direct Twilio missed-call webhook triggered this agent."
   });
 
@@ -1382,7 +1468,7 @@ async function handleSharedSenderInboundSms(
     } catch (error) {
       console.error("[twilio.sms] keyword consent sync failed", error);
     }
-if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
+    if (keyword === "HELP" && env.SMS_KEYWORD_APP_REPLIES) {
       return c.text(
         `<Response><Message>${escapeXml(smsHelpReplyText())}</Message></Response>`,
         200,
@@ -1420,7 +1506,7 @@ export async function handleTwilioInboundSms(c: Context) {
   const businessNumber = readBodyString(body, ["To", "to"]);
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
-const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
+  const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
 
   const sharedSender = normalizePhoneE164(env.TWILIO_SHARED_SMS_NUMBER ?? "");
   if (sharedSender && normalizePhoneE164(businessNumber) === sharedSender) {
@@ -1435,7 +1521,7 @@ const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
   if (!agent || !customerPhone || !incomingBody) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
-const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
+  const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   if (keyword) {
     await upsertConversation({
       businessId: agent.business?.businessId,
@@ -1471,8 +1557,6 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
-  // "Reply C to cancel" — works even when the agent is paused, like the
-  // consent keywords: it's account service, not an agent conversation.
   if (isSmsCancelRequest(incomingBody)) {
     await upsertConversation({
       businessId: agent.business?.businessId,
@@ -1510,7 +1594,7 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
 
- if (!workflowSupportsSmsReplies(agent.workflowJson)) {
+  if (!workflowSupportsSmsReplies(agent.workflowJson)) {
     await upsertConversation({
       businessId: agent.business?.businessId,
       customerPhone,
@@ -1540,12 +1624,14 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
   let bookedEventId: string | null = null;
   let bookedAppointmentId: string | null = null;
 
+  const smsWorkflowCanBook = workflowCapabilities(agent.workflowJson, "sms").canBook;
+
   const requestedSlot =
-    agent.business?.businessId && agent.business?.ownerId
+    smsWorkflowCanBook && agent.business?.businessId && agent.business?.ownerId
       ? parseRequestedAppointment(
-          incomingBody,
-          agent.business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
-        )
+        incomingBody,
+        agent.business.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE
+      )
       : null;
 
   if (requestedSlot && agent.business) {
@@ -1572,6 +1658,16 @@ const keyword = classifyInboundSmsKeyword(incomingBody, optOutType);
       console.error("Inbound SMS booking failed", error);
       replyBody = buildInboundSmsReply(agent, incomingBody, history);
     }
+  } else if (detectFactIntents(incomingBody).includes("hours") && agent.business?.businessId) {
+    // Hours questions answer from the confirmed structured schedule — the
+    // same source live calls and demos use. Never guessed.
+    const status = await businessOpenStatusNow(agent.business.businessId);
+    replyBody =
+      status.state === "unknown"
+        ? `${agent.business.businessName}: our operating hours haven't been confirmed yet — we'll have the team follow up with exact times. Anything else we can help with?`
+        : `${agent.business.businessName}: ${describeOpenStatus(status)}${
+            agent.business.bookingUrl ? ` Book anytime: ${agent.business.bookingUrl}` : ""
+          }`;
   } else {
     replyBody = buildInboundSmsReply(agent, incomingBody, history);
   }
@@ -1822,11 +1918,18 @@ type DentalToolConfig = {
 };
 
 async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
-  const agent = await prisma.installedAgent.findFirst({
-    where: { businessId, status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    select: { configJson: true, workflow: { select: { workflowJson: true } } }
-  });
+
+  const agent =
+    (await prisma.installedAgent.findFirst({
+      where: { businessId, status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
+      select: { configJson: true, workflow: { select: { workflowJson: true } } }
+    })) ??
+    (await prisma.installedAgent.findFirst({
+      where: { businessId, status: "PROVISIONING" },
+      orderBy: { createdAt: "desc" },
+      select: { configJson: true, workflow: { select: { workflowJson: true } } }
+    }));
   const configJson = (agent?.configJson as Record<string, unknown> | null) ?? {};
   const emailNode = applyBuyerEmailRecipients(
     extractSendEmailNodeConfig(agent?.workflow?.workflowJson ?? null),
@@ -2170,6 +2273,12 @@ type VapiToolContext = {
   callId?: string;
   summary: string;
   transcript: string;
+  /** Resolved from trusted call metadata: BUSINESS_TEST for buyer browser
+   * tests — booking then writes marked test events, never live appointments. */
+  executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
+  /** Installed agent this call belongs to (assistant metadata) — scopes
+   * knowledge retrieval so agents never see each other's documents. */
+  installedAgentId?: string;
 };
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -2264,7 +2373,6 @@ function resolvePatientPhone(argPhone: string | undefined, callerPhone: string):
   return normalizePhoneE164(argPhone) || normalizePhoneE164(callerPhone) || callerPhone || "";
 }
 
-/** check_availability: validate date, then real Google Calendar slots or demo slots. */
 async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
     .filter(Boolean)
@@ -2272,52 +2380,152 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
-  const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
   const service = argStr(args, ["service_type", "service"]) || ctx.dental?.bookingLabel || "appointment";
-  const ownerId = ctx.business?.ownerId;
+  const businessId = ctx.business?.businessId;
 
-  if (!ownerId) {
-    console.log("[vapi-tool] check_availability calendar source", "demo (no calendar owner)");
-    return { available_slots: dryRunAvailabilitySlots(ctx.dental), date, service, duration: `${duration} minutes`, source: "demo", calendar_status: "not_connected" };
+  if (!businessId) {
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: "not_connected",
+      message: "No business calendar is configured — do not state availability. Offer to take the caller's preferred time as a request."
+    };
   }
 
-  try {
-    const availability = await withTimeout(listAvailableSlots({
-      userId: ownerId,
-      calendarId: ctx.business?.calendarId,
-      timeZone: ctx.timeZone,
+  const requestedTime = parseClockTime(argStr(args, ["time", "requested_time", "appointment_time"]));
+
+  // Exact-time question ("Is 5 PM available?") → direct truthful verdict.
+  if (requestedTime) {
+    const check = await checkBusinessExactTime({
+      businessId,
+      installedAgentId: ctx.installedAgentId ?? null,
       date,
-      openHour: ctx.dental?.openHour ?? 9,
-      closeHour: ctx.dental?.closeHour ?? 17,
-      durationMinutes: duration,
-      bufferMinutes: ctx.dental?.bufferMinutes ?? 10,
-      maxSlots: ctx.dental?.slotsToOffer ?? 6
-    }), 4500, "google-calendar availability read");
-    console.log("[vapi-tool] check_availability calendar source", "google_calendar", {
-      date,
-      count: availability.slots.length
+      hour: requestedTime.hour,
+      minute: requestedTime.minute,
+      serviceName: service
     });
-    return {
-      available_slots: availability.slots,
-      date,
-      service,
-      duration: `${duration} minutes`,
-      source: "google_calendar",
-      calendar_status: "connected"
+
+    const openNote = check.closeLabel ? `The business is open until ${check.closeLabel} that day.` : "";
+    const alternatives = check.alternatives.map((slot) => slot.label);
+    const messages: Record<string, string> = {
+      available: `${openNote} The requested time is FREE on the calendar — confirm it with the caller and book it.`,
+      occupied: `${openNote} That exact time is already taken on the calendar. Offer the alternatives instead — do NOT say the rest of the day is booked.`,
+      outside_hours: `${openNote} The requested time is outside appointment hours.`,
+      closed_day: "The business is closed that day. Offer another day.",
+      insufficient_time_before_closing: `${openNote} This ${check.durationMinutes}-minute service cannot finish before closing if it starts then. Offer the alternatives.`,
+      past: "That time is in the past. Ask for a future time.",
+      too_soon: "That time is too soon to book. Offer the alternatives.",
+      beyond_advance_limit: "That date is beyond the booking window. Offer an earlier date.",
+      invalid: "The time could not be understood. Ask the caller to repeat it."
     };
-  } catch (error) {
-    const status = calendarStatusFromError(error);
-    console.error(`[vapi-webhook] check_availability failed (${status}); falling back to dry-run slots`, error);
-    console.log("[vapi-tool] check_availability calendar source", "demo (calendar read failed)");
+
+    if (ctx.executionMode !== "ARCHITECT_DRY_RUN" && check.calendarStatus !== "connected") {
+      return {
+        date,
+        service,
+        requested_time: `${String(requestedTime.hour).padStart(2, "0")}:${String(requestedTime.minute).padStart(2, "0")}`,
+        verdict: "calendar_unavailable",
+        calendar_status: check.calendarStatus,
+        open_until: check.closeLabel,
+        message:
+          "Live calendar availability cannot be confirmed right now. Tell the caller honestly, take their preferred time as a REQUEST, and say the team will confirm."
+      };
+    }
+
+    console.log("[vapi-tool] check_availability exact-time", { date, time: requestedTime, verdict: check.verdict });
     return {
-      available_slots: dryRunAvailabilitySlots(ctx.dental),
       date,
       service,
-      duration: `${duration} minutes`,
-      source: "demo",
-      calendar_status: status === "error" ? "needs_reconnect" : status
+      requested_time: `${String(requestedTime.hour).padStart(2, "0")}:${String(requestedTime.minute).padStart(2, "0")}`,
+      verdict: check.verdict,
+      open_until: check.closeLabel,
+      alternatives,
+      calendar_status: check.calendarStatus,
+      message: messages[check.verdict] ?? "Checked."
     };
   }
+
+  // Full-day availability — computed WITHOUT any cap; the cap applies only to
+  // the spoken sample below.
+  const availability = await withTimeout(
+    computeBusinessAvailability({
+      businessId,
+      installedAgentId: ctx.installedAgentId ?? null,
+      date,
+      serviceName: service
+    }),
+    8000,
+    "availability computation"
+  ).catch((error) => {
+    console.error("[vapi-tool] check_availability failed", error);
+    return null;
+  });
+
+  if (!availability) {
+    if (ctx.executionMode === "ARCHITECT_DRY_RUN") {
+      return {
+        available_slots: dryRunAvailabilitySlots(ctx.dental),
+        date,
+        service,
+        source: "simulated",
+        calendar_status: "simulated",
+        message: "SIMULATED test slots (architect dry run) — clearly not a real calendar."
+      };
+    }
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: "error",
+      message:
+        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
+    };
+  }
+
+  if (availability.calendarStatus !== "connected" && ctx.executionMode !== "ARCHITECT_DRY_RUN") {
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: availability.calendarStatus,
+      open_until: availability.closeLabel,
+      message:
+        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
+    };
+  }
+
+  if (availability.closed) {
+    return {
+      available_slots: [],
+      date,
+      service,
+      closed: true,
+      calendar_status: availability.calendarStatus,
+      message: "The business is closed on that day. Offer another day."
+    };
+  }
+
+  console.log("[vapi-tool] check_availability full-day", {
+    date,
+    total: availability.totalFreeSlots,
+    spoken: availability.spokenSlots.length
+  });
+  return {
+    available_slots: availability.spokenSlots.map((slot) => slot.label),
+    total_free_slots: availability.totalFreeSlots,
+    date,
+    service,
+    duration: `${availability.durationMinutes} minutes`,
+    open_from: availability.openLabel,
+    open_until: availability.closeLabel,
+    source: "calendar",
+    calendar_status: availability.calendarStatus,
+    message:
+      availability.totalFreeSlots > availability.spokenSlots.length
+        ? `These are ${availability.spokenSlots.length} of ${availability.totalFreeSlots} free times across the day. If the caller asks about a specific time not listed, call check_availability again with the time parameter — NEVER assume unlisted times are booked.`
+        : "These are all the free times for that day."
+  };
 }
 
 /** book_appointment: validate date/time, then create a real Google Calendar event or a local record. */
@@ -2384,20 +2592,23 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const whenLabel = formatAppointmentTime(startAt.toISOString(), ctx.timeZone);
   const confirmation = ctx.dental?.confirmationMessage
     ? applyBracketTemplate(
-        ctx.dental.confirmationMessage,
-        bracketTemplateValues({
-          service,
-          customerName: patientName,
-          customerPhone: patientPhone,
-          teamName,
-          date: whenLabel,
-          time: whenLabel
-        })
-      )
+      ctx.dental.confirmationMessage,
+      bracketTemplateValues({
+        service,
+        customerName: patientName,
+        customerPhone: patientPhone,
+        teamName,
+        date: whenLabel,
+        time: whenLabel
+      })
+    )
     : `Perfect, ${patientName} — you're booked for ${service} on ${whenLabel}.`;
 
-  // Rich, validated calendar description.
+  // Rich, validated calendar description (confirmed address included so the
+  // calendar entry tells the patient where to arrive).
+  const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
   const eventDescription = [
+    ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
     `Customer: ${patientName}`,
     `Phone: ${patientPhone || "not provided"}`,
     `Service: ${service}`,
@@ -2482,9 +2693,100 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
-  // One source of truth for the confirmation SMS: the notification service's
-  // appointment-confirmation dedupe key. A failed SMS never rolls back a
-  // booked appointment — the result reports partial success instead.
+  if (ctx.executionMode === "BUSINESS_TEST") {
+    const ownerUserId = ctx.business?.ownerId ?? null;
+
+    if (ctx.business?.businessId) {
+      const revalidation = await checkBusinessExactTime({
+        businessId: ctx.business.businessId,
+        installedAgentId: ctx.installedAgentId ?? null,
+        date,
+        hour: time.hour,
+        minute: time.minute,
+        serviceName: service
+      });
+      if (revalidation.verdict !== "available") {
+        return {
+          success: false,
+          business_test: true,
+          verdict: revalidation.verdict,
+          open_until: revalidation.closeLabel,
+          alternatives: revalidation.alternatives.map((slot) => slot.label),
+          message:
+            revalidation.verdict === "occupied"
+              ? "That time was just taken. Offer the alternatives — do not claim the whole day is booked."
+              : "That time cannot be booked (see verdict). Offer the alternatives."
+        };
+      }
+    }
+
+    if (!ownerUserId) {
+      return {
+        success: false,
+        business_test: true,
+        calendar_status: "not_connected",
+        message: "This test agent has no calendar owner configured, so the test booking could not be recorded."
+      };
+    }
+
+    const testEvent = await createTestCalendarEvent({
+      executionMode: "BUSINESS_TEST",
+      ownerUserId,
+      businessId: ctx.business?.businessId ?? null,
+      installedAgentId: ctx.business?.installedAgentId ?? null,
+      testSessionId: ctx.dental?.testSessionId ?? null,
+      serviceName: service,
+      customerName: patientName,
+      customerPhone: patientPhone,
+      startAt,
+      endAt,
+      timeZone: ctx.timeZone,
+      calendarId: ctx.business?.calendarId,
+      businessName: ctx.business?.businessName ?? "the business",
+      simulate: false
+    });
+
+    if (!testEvent.ok) {
+      // Never claim the appointment was created when the calendar write failed.
+      console.error("[vapi-tool] business-test booking failed", { code: testEvent.error.code });
+      return {
+        success: false,
+        business_test: true,
+        calendar_status: testEvent.error.code,
+        message: `${testEvent.error.message} ${testEvent.error.remediation}`
+      };
+    }
+
+    console.log("[vapi-tool] business-test booking", {
+      customer_name: patientName,
+      date,
+      service_type: service,
+      status: testEvent.event.status
+    });
+    return {
+      success: true,
+      status: "confirmed",
+      business_test: true,
+      customer_name: patientName,
+      customer_phone: patientPhone,
+      date,
+      time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
+      service_type: service,
+      event_id: testEvent.event.googleEventId ?? testEvent.event.testEventId,
+      event_link: testEvent.event.htmlLink,
+      test_event_id: testEvent.event.testEventId,
+      event_title: testEvent.event.title,
+      event_status: testEvent.event.status,
+      calendar_id: ctx.business?.calendarId ?? "primary",
+      calendar_status: "test_event_created",
+      source: "business_test",
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      message: `Test booking confirmed for ${patientName} on ${whenLabel} — a marked test event was created on the business calendar.`,
+      confirmation
+    };
+  }
+
   const sendBookingConfirmationSms = async (appointmentId: string, startAtIso: string) => {
     if (!ctx.business?.businessId || !patientPhone) return null;
     if (ctx.dental && ctx.dental.sendToPatient === false) return null;
@@ -2558,17 +2860,43 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   if (ctx.business?.businessId && ctx.business.ownerId && patientPhone) {
     try {
-      const { calendarEvent, appointment } = await createBusinessAppointment({
-        business: ctx.business,
-        customerPhone: patientPhone,
-        customerName: patientName,
-        service,
-        startAt,
-        endAt,
-        conversationId: ctx.conversationId,
-        description: eventDescription,
-        notes: ctx.summary || ctx.transcript || null
+      const reservation = await revalidateAndReserveSlot({
+        businessId: ctx.business.businessId,
+        installedAgentId: ctx.installedAgentId ?? null,
+        date,
+        hour: time.hour,
+        minute: time.minute,
+        serviceName: service,
+        createBooking: () =>
+          createBusinessAppointment({
+            business: ctx.business!,
+            customerPhone: patientPhone,
+            customerName: patientName,
+            service,
+            startAt,
+            endAt,
+            conversationId: ctx.conversationId,
+            description: eventDescription,
+            notes: ctx.summary || ctx.transcript || null
+          })
       });
+
+      if (!reservation.ok) {
+        const check = reservation.result;
+        return {
+          success: false,
+          verdict: check.verdict,
+          open_until: check.closeLabel,
+          alternatives: check.alternatives.map((slot) => slot.label),
+          calendar_status: check.calendarStatus,
+          message:
+            check.verdict === "occupied"
+              ? "That time was just taken on the calendar. Offer the alternatives — do not claim the rest of the day is booked."
+              : "That time cannot be booked (see verdict). Offer the alternatives."
+        };
+      }
+
+      const { calendarEvent, appointment } = reservation.booking;
       await upsertConversation({
         businessId: ctx.business.businessId,
         customerPhone: patientPhone,
@@ -2660,29 +2988,12 @@ function trustedCallerE164(ctx: VapiToolContext): string | null {
   return validated.e164;
 }
 
-/**
- * cancel_appointment: securely cancel a caller's upcoming appointment.
- *
- * SECURITY / PRIVACY MODEL
- * - Identity = exact match between the normalized inbound caller id and the
- *   Appointment.customerPhone, scoped to the call's trusted businessId. A
- *   spoken phone number, a partial/last-four match, or a model-supplied
- *   number NEVER verifies identity.
- * - When verification fails, the response reveals nothing: no stored or
- *   masked numbers, no appointment details, no confirmation that any
- *   appointment exists for any number.
- * - Appointment details (service/date/time) are disclosed only AFTER the
- *   caller-number match, and cancellation additionally requires the caller's
- *   explicit confirmation (confirmed=true).
- */
 async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { cancelled: false, code: "BUSINESS_NOT_RESOLVED", message: CANCEL_FAILED_MESSAGE };
   }
 
-  // Architect browser tests have no real caller id — behave exactly like a
-  // hidden-caller call and never touch live data.
-  if (ctx.dental?.dryRun) {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     return {
       cancelled: false,
       dry_run: true,
@@ -2711,9 +3022,9 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   const dayRange =
     dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)
       ? {
-          gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
-          lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
-        }
+        gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
+        lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
+      }
       : null;
 
   const eligible = await prisma.appointment.findMany({
@@ -2768,8 +3079,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
 
   /* ------------------------- confirmed cancellation ------------------------ */
 
-  // Resolve the target: an id from a prior lookup, or the single eligible
-  // appointment. Every path below re-verifies business + caller-number scope.
   let targetId: string | null = null;
   if (requestedId) {
     targetId = requestedId;
@@ -2806,15 +3115,11 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
     return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   }
 
-  // Idempotent: repeating the confirmation on an already-cancelled
-  // appointment is a success, never an error.
   if (target.status === "CANCELLED") {
     return { cancelled: true, code: "ALREADY_CANCELLED", message: "Your appointment has been cancelled successfully." };
   }
 
   if (!CANCELLABLE_APPOINTMENT_STATUSES.includes(target.status) || target.startAt < new Date()) {
-    // Caller identity IS verified on this branch, so a non-leaky status
-    // message is safe.
     return {
       cancelled: false,
       code: "NOT_CANCELLABLE",
@@ -2823,8 +3128,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
     };
   }
 
-  // Google Calendar first: if the linked event cannot be removed, the
-  // appointment stays active and the caller must NOT hear that it worked.
   if (target.calendarEventId && ctx.business.ownerId) {
     try {
       await cancelGoogleCalendarAppointment({
@@ -2922,21 +3225,12 @@ const RESCHEDULE_FAILED_MESSAGE =
 const RESCHEDULE_CALLER_ID_UNAVAILABLE_MESSAGE =
   "I’m unable to verify the phone number for this call, so I can’t reschedule an appointment automatically. Please call from the phone number used when booking or contact the business team for assistance.";
 
-/**
- * reschedule_appointment: securely move a caller's upcoming appointment to a
- * new date/time. Shares cancel_appointment's SECURITY / PRIVACY MODEL —
- * identity is ONLY the trusted inbound caller id, nothing is disclosed until
- * that number matches, and the move requires explicit confirmation
- * (confirmed=true) plus the new date and time.
- */
 async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { rescheduled: false, code: "BUSINESS_NOT_RESOLVED", message: RESCHEDULE_FAILED_MESSAGE };
   }
 
-  // Architect browser tests have no real caller id — behave exactly like a
-  // hidden-caller call and never touch live data.
-  if (ctx.dental?.dryRun) {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     return {
       rescheduled: false,
       dry_run: true,
@@ -2964,9 +3258,9 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   const dayRange =
     dateFilter && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter)
       ? {
-          gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
-          lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
-        }
+        gte: zonedWallClockToUtc(dateFilter, 0, 0, timeZone),
+        lte: zonedWallClockToUtc(dateFilter, 23, 59, timeZone)
+      }
       : null;
 
   const eligible = await prisma.appointment.findMany({
@@ -3093,7 +3387,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   const durationMs = Math.max(
     5 * 60 * 1000,
     target.endAt.getTime() - target.startAt.getTime() ||
-      (ctx.dental?.defaultDurationMinutes ?? 30) * 60 * 1000
+    (ctx.dental?.defaultDurationMinutes ?? 30) * 60 * 1000
   );
   const newStartAt = zonedWallClockToUtc(newDate, newTime.hour, newTime.minute, timeZone);
   const newEndAt = new Date(newStartAt.getTime() + durationMs);
@@ -3125,8 +3419,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     };
   }
 
-  // Google Calendar first: if the linked event cannot be moved, the
-  // appointment keeps its original time and the caller must NOT hear success.
   let calendarEventId = target.calendarEventId;
   let calendarEventLink: string | null = null;
   if (target.calendarEventId && ctx.business.ownerId) {
@@ -3141,8 +3433,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
       });
 
       if (moved.missing) {
-        // The event was deleted from the calendar out-of-band — recreate it at
-        // the new time so the business calendar stays the source of truth.
         const recreated = await createGoogleCalendarAppointment({
           userId: ctx.business.ownerId,
           calendarId: ctx.business.calendarId,
@@ -3191,8 +3481,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     }
   });
 
-  // Notifications are best-effort and never affect the reschedule result. The
-  // customer SMS goes through the central consent gate and may be suppressed.
   let smsSent = false;
   try {
     const smsOutcome = await sendTrackedSms({
@@ -3248,9 +3536,70 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   };
 }
 
+async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  const query = argStr(args, ["query", "question", "topic", "search"]) || ctx.transcript.slice(-300);
+  const businessId = ctx.business?.businessId;
+
+  if (!businessId || !query.trim()) {
+    return {
+      found: false,
+      sections: [],
+      message: "No business documents are available. Use the fallback response instead of inventing details."
+    };
+  }
+
+  // Source priority: buyer-confirmed structured facts first (address, phone,
+  // website), then document knowledge. Structured configuration always beats
+  // conflicting document text.
+  const structured = await lookupStructuredFacts({ businessId, query });
+  const documents = await retrieveRelevantKnowledge({
+    businessId,
+    // Scope to the calling agent when the assistant reported its identity.
+    // Legacy assistants (deployed before metadata) stay business-wide so their
+    // existing documents keep working; the next knowledge sync re-deploys
+    // them WITH identity and tightens the scope.
+    installedAgentId: ctx.installedAgentId,
+    query
+  });
+  const sections = [
+    ...structured,
+    ...documents.filter((section) => !structured.some((fact) => fact.title === section.title))
+  ];
+
+  if (sections.length === 0) {
+    return {
+      found: false,
+      sections: [],
+      message:
+        "Nothing in the business documents matches this question. Do not invent an answer — use the configured fallback response."
+    };
+  }
+
+  console.log("[vapi-tool] lookup_knowledge", { businessId, terms: query.slice(0, 60), sections: sections.length });
+  return {
+    found: true,
+    sections: sections.map((section) => ({
+      title: section.title,
+      content: section.content,
+      source: section.sourceFilename
+    })),
+    message: "Answer using ONLY these sections. If they do not cover the question, say you will have the team confirm."
+  };
+}
+
 async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { success: false, error: "business_not_resolved", consent_recorded: false };
+  }
+
+  // Buyer browser test: acknowledge without writing a real consent record.
+  if (ctx.executionMode === "BUSINESS_TEST") {
+    return {
+      success: true,
+      business_test: true,
+      consent_recorded: false,
+      message: "Test call — consent noted for the conversation but not recorded. No texts are sent during tests."
+    };
   }
 
   const affirmative = args["affirmative"];
@@ -3321,8 +3670,8 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     ctx.business?.businessName ||
     "";
 
-  // Architect browser test: preview the SMS, never call Twilio.
-  if (ctx.dental?.dryRun) {
+  // Architect and buyer browser tests: preview the SMS, never call Twilio.
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
     const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
     const preview = applyBracketTemplate(
@@ -3363,10 +3712,6 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
 
     if ((ctx.dental?.sendToPatient ?? true) && customerPhone) {
       try {
-        // A caller with a just-created appointment is receiving THE appointment
-        // confirmation — route it through the single confirmation service so
-        // book_appointment + send_notification can never double-text the
-        // customer (both claim appointment-confirmation:{appointmentId}).
         const recentAppointment = await prisma.appointment.findFirst({
           where: {
             businessId: ctx.business.businessId,
@@ -3445,16 +3790,11 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
       }
     }
 
-    // Email-first MVP follow-up via the buyer's proxy alias (reply.triven.ai).
-    // Runs alongside legacy SMS; every failure is non-fatal so the live call
-    // continues, and nothing sends unless the buyer completed Mail Setup.
     const customerEmail = argStr(args, EMAIL_ARG_KEYS);
     const appointmentDate = argStr(args, ["appointment_date", "date"]) || "";
     const appointmentTime = argStr(args, ["appointment_time", "time"]) || "";
     const appointmentWhen = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || null;
 
-    // Architect-authored Send Email node templates take over composition when
-    // present; the hardcoded copy below stays as the no-template default.
     const emailNode = ctx.dental?.emailNode ?? null;
     const useNodeTemplate = Boolean(emailNode && (emailNode.bodyTemplate || emailNode.htmlTemplate));
     let templatedTeamHandled = false;
@@ -3639,9 +3979,9 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     customer_sms_blocked_reason: customerSmsBlockedReason,
     ...(customerSmsBlockedReason
       ? {
-          message:
-            "Customer SMS was not sent: no SMS consent on record (or the customer opted out). Do not promise a text. The booking itself is unaffected."
-        }
+        message:
+          "Customer SMS was not sent: no SMS consent on record (or the customer opted out). Do not promise a text. The booking itself is unaffected."
+      }
       : {}),
     team_sms_sent: teamSmsSent,
     customer_email_sent: customerEmailSent,
@@ -3651,7 +3991,10 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   };
 }
 
-function authorizeVapiWebhook(c: Context, body: Record<string, unknown>): { authorized: boolean; reason: string } {
+function authorizeVapiWebhook(
+  c: Context,
+  body: Record<string, unknown>
+): { authorized: boolean; reason: string; requiresArchitectSandbox?: boolean } {
   const secret = (env.VAPI_WEBHOOK_SECRET ?? "").trim();
 
   if (secret) {
@@ -3666,12 +4009,43 @@ function authorizeVapiWebhook(c: Context, body: Record<string, unknown>): { auth
   if (!isProduction) return { authorized: true, reason: "non-production" };
 
   // Matches ARCHITECT_TEST_PURPOSE in test-deployment.ts (literal to avoid an import cycle).
+  // The purpose comes from the client-controllable request body, so it is only
+  // PROVISIONAL: the request is rejected later unless the resolved business is
+  // a real architect sandbox. A forged purpose can never reach a live business.
   const metadata = getVapiMetadata(body);
-  if (metadata.purpose === "ARCHITECT_TEST") return { authorized: true, reason: "architect test session" };
+  if (metadata.purpose === "ARCHITECT_TEST") {
+    return { authorized: true, reason: "architect test session (sandbox check pending)", requiresArchitectSandbox: true };
+  }
 
   if (!secret) return { authorized: true, reason: "no VAPI_WEBHOOK_SECRET configured (legacy allow)" };
 
   return { authorized: false, reason: "missing or invalid webhook secret" };
+}
+
+/**
+ * Whether the resolved business is an architect test sandbox (never a live
+ * buyer business). The sandbox marker lives on InstalledAgent.configJson
+ * (same predicate findSandboxBusiness uses) — Business has no configJson.
+ */
+async function isArchitectSandboxBusiness(business: unknown): Promise<boolean> {
+  const businessId = (business as { id?: unknown } | null)?.id;
+  if (typeof businessId !== "string" || !businessId) return false;
+  const sandboxAgent = await prisma.installedAgent.findFirst({
+    where: { businessId, configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" } },
+    select: { id: true }
+  });
+  return Boolean(sandboxAgent);
+}
+
+function resolveVapiCallExecutionMode(
+  metadata: Record<string, unknown>,
+  isSandboxBusiness: boolean
+): "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" {
+  const purpose = typeof metadata.purpose === "string" ? metadata.purpose : "";
+  if (purpose === "ARCHITECT_TEST") return "ARCHITECT_DRY_RUN";
+  if (purpose === "BUYER_SETUP_PREVIEW" || purpose === "MARKETPLACE_DEMO") return "BUSINESS_TEST";
+  if (isSandboxBusiness) return "ARCHITECT_DRY_RUN";
+  return "LIVE";
 }
 
 export async function handleVapiWebhook(c: Context) {
@@ -3698,7 +4072,17 @@ export async function handleVapiWebhook(c: Context) {
   try {
     const metadata = getVapiMetadata(body);
     const business = await findBusinessByVapiWebhook(body);
+
+    // The body-supplied ARCHITECT_TEST purpose only authorizes requests that
+    // resolve to a real architect sandbox business — never a live buyer.
+    if (auth.requiresArchitectSandbox && !(business && (await isArchitectSandboxBusiness(business)))) {
+      console.log("[vapi-webhook] response status", 401, "(architect-test purpose without sandbox business)");
+      return c.json({ success: false, error: "Unauthorized", code: "VAPI_WEBHOOK_UNAUTHORIZED" }, 401);
+    }
+
     const businessContext = business ? buildBusinessContext(business) : null;
+    const sandboxBusiness = business ? await isArchitectSandboxBusiness(business) : false;
+    const executionMode = resolveVapiCallExecutionMode(metadata, sandboxBusiness);
     const callId = firstNestedString(body, [["message", "call", "id"], ["call", "id"], ["id"]]);
     const customerPhone =
       firstNestedString(body, [["message", "call", "customer", "number"], ["call", "customer", "number"]]) ||
@@ -3707,6 +4091,8 @@ export async function handleVapiWebhook(c: Context) {
     const messageType = firstNestedString(body, [["message", "type"], ["type"]]);
     const summary = firstNestedString(body, [["message", "summary"], ["summary"]]);
     const transcript = firstNestedString(body, [["message", "transcript"], ["transcript"]]);
+    const metadataInstalledAgentId =
+      typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
 
     // Best-effort call logging — never blocks a tool response.
     if (businessContext?.businessId && callId) {
@@ -3715,6 +4101,7 @@ export async function handleVapiWebhook(c: Context) {
           where: { callId },
           update: {
             status: messageType || "UPDATED",
+            executionMode,
             transcript: transcript || undefined,
             summary: summary || undefined,
             endedAt: /end|ended|report/.test(messageType) ? new Date() : undefined,
@@ -3722,9 +4109,11 @@ export async function handleVapiWebhook(c: Context) {
           },
           create: {
             businessId: businessContext.businessId,
+            installedAgentId: metadataInstalledAgentId,
             conversationId,
             callId,
             customerPhone,
+            executionMode,
             status: messageType || "STARTED",
             transcript: transcript || null,
             summary: summary || null,
@@ -3736,17 +4125,18 @@ export async function handleVapiWebhook(c: Context) {
       }
     }
 
-    // Non-tool event (status update / end-of-call report).
     if (toolCalls.length === 0) {
-      // End-of-call: record per-execution usage for monthly buyer billing.
-      if (businessContext?.businessId && callId && /end-of-call-report|end|ended|report/i.test(messageType ?? "")) {
-        const metadataInstalledAgentId =
-          typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
+      if (
+        businessContext?.businessId &&
+        callId &&
+        executionMode === "LIVE" &&
+        /end-of-call-report|end|ended|report/i.test(messageType ?? "")
+      ) {
         const installedAgent = metadataInstalledAgentId
           ? await prisma.installedAgent.findFirst({
-              where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
-              select: { id: true }
-            })
+            where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
+            select: { id: true, workflowId: true }
+          })
           : await latestActiveInstalledAgent(businessContext.businessId);
         recordVapiCallUsage({
           businessId: businessContext.businessId,
@@ -3755,10 +4145,31 @@ export async function handleVapiWebhook(c: Context) {
           customerPhone,
           webhookBody: body
         }).catch((error) => console.error("[vapi-webhook] usage billing failed (non-fatal)", error));
+
+        if (installedAgent?.workflowId) {
+          try {
+            await prisma.workflowRun.upsert({
+              where: { callProvider_externalCallId: { callProvider: "VAPI", externalCallId: callId } },
+              update: { status: "COMPLETED", finishedAt: new Date() },
+              create: {
+                workflowId: installedAgent.workflowId,
+                installedAgentId: installedAgent.id,
+                businessId: businessContext.businessId,
+                mode: "LIVE",
+                status: "COMPLETED",
+                callProvider: "VAPI",
+                externalCallId: callId,
+                finishedAt: new Date(),
+                inputJson: { source: "vapi_end_of_call", callId }
+              }
+            });
+          } catch (error) {
+            console.error("[vapi-webhook] workflowRun upsert failed (non-fatal)", error);
+          }
+        }
       }
 
-      // End-of-call: email the buyer a call summary via their proxy alias.
-      // Fire-and-forget — the webhook response never waits on SES.
+
       if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
         enqueueEmail(
           {
@@ -3802,22 +4213,22 @@ export async function handleVapiWebhook(c: Context) {
       conversationId,
       callId: callId || undefined,
       summary,
-      transcript
+      transcript,
+      executionMode,
+      installedAgentId: metadataInstalledAgentId
     };
 
     // Run every tool call in the request; return one result per toolCallId.
     const results: Array<{ name: string; toolCallId: string; result: string }> = [];
     for (const toolCall of toolCalls) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
-      // Consent/cancel/reschedule first: "recordsmsconsent", "cancelappointment"
-      // and "rescheduleappointment" must never fall through to the send/notify
-      // or book matchers.
       const isConsent = fnName.includes("consent");
-      const isCancel = !isConsent && fnName.includes("cancel");
-      const isReschedule = !isConsent && !isCancel && fnName.includes("resched");
-      const isCheck = !isConsent && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
-      const isBook = !isConsent && !isCancel && !isReschedule && fnName.startsWith("book");
-      const isNotify = !isConsent && !isCancel && !isReschedule && (fnName.startsWith("send") || fnName.includes("notif"));
+      const isLookup = !isConsent && (fnName.includes("knowledge") || fnName.startsWith("lookup"));
+      const isCancel = !isConsent && !isLookup && fnName.includes("cancel");
+      const isReschedule = !isConsent && !isLookup && !isCancel && fnName.includes("resched");
+      const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
+      const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && fnName.startsWith("book");
+      const isNotify = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("send") || fnName.includes("notif"));
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -3826,6 +4237,7 @@ export async function handleVapiWebhook(c: Context) {
       let payload: unknown;
       try {
         if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
+        else if (isLookup) payload = await runLookupKnowledgeTool(toolCall.parameters, ctx);
         else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
         else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
         else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
@@ -3834,17 +4246,19 @@ export async function handleVapiWebhook(c: Context) {
         else payload = { ok: true };
       } catch (error) {
         console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
-        payload = isCheck
-          ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
-          : isBook
-            ? { success: false, message: "Could not complete the booking right now. Please try again." }
-            : isConsent
-              ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
-              : isCancel
-                ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
-                : isReschedule
-                  ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
-                  : { success: false };
+        payload = isLookup
+          ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
+          : isCheck
+            ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
+            : isBook
+              ? { success: false, message: "Could not complete the booking right now. Please try again." }
+              : isConsent
+                ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
+                : isCancel
+                  ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
+                  : isReschedule
+                    ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
+                    : { success: false };
       }
 
       results.push({

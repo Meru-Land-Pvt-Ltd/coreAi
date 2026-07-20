@@ -7,7 +7,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
-import { AUTH_USER_UPDATED_EVENT, getAuthUser, logout, type AuthUser } from "@/lib/auth";
+import {
+  AUTH_USER_UPDATED_EVENT,
+  getAuthUser,
+  hasAuthRole,
+  logout,
+  setActiveWorkspace,
+  type AuthUser
+} from "@/lib/auth";
 import { ARCHITECT_SETTINGS_PATH } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -294,10 +301,13 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const authUser = getAuthUser();
-    if (!authUser || authUser.role !== "ARCHITECT") {
+    // Capability check: a dual-role account (ARCHITECT + BUSINESS) keeps
+    // architect access no matter which legacy role its row carries.
+    if (!authUser || !hasAuthRole(authUser, "ARCHITECT")) {
       router.replace("/architect/login" as Route);
       return;
     }
+    setActiveWorkspace("ARCHITECT");
     setUser(authUser);
     setReady(true);
   }, [router]);

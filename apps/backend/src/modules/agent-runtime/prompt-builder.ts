@@ -91,6 +91,8 @@ export type AgentPromptInput = {
   services: string[];
   faqs: string[];
   knowledge?: string[];
+  /** Vapi assistants have the lookup_knowledge tool; chat runtimes do not. */
+  hasKnowledgeLookupTool?: boolean;
   address?: string;
   businessHours?: string;
   /** Timezone text — a literal value, or a {{timeZone}} placeholder for live Vapi substitution. */
@@ -168,19 +170,18 @@ Conversation rules:
   sections.push(`
 Booking rules:
 - ${capabilities.canCheckAvailability
-    ? `You can check ${bookingLabel} availability. Check availability before offering times, and only offer times that were returned.`
-    : "You cannot check a calendar. Never offer, invent, or imply available time slots."}
+      ? `You can check ${bookingLabel} availability. Check availability before offering times, and only offer times that were returned. The list you receive is a SAMPLE of the full day — when the caller asks about a specific time that is not in the list, CHECK that exact time (never assume it is booked). Business opening hours are NOT the same as calendar availability: say things like "We're open until 6:00 PM — let me check whether 5:00 PM is free." Never claim later times are booked, the calendar is full, or a time is free unless a check said so.`
+      : "You cannot check a calendar. Never offer, invent, or imply available time slots."}
 - ${capabilities.canBook
-    ? `You can book ${bookingLabelPlural} — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that.`
-    : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
+      ? `You can book ${bookingLabelPlural} — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that.`
+      : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
 - ${capabilities.canText
-    ? "You can send transactional text messages, but ONLY to a caller with recorded SMS consent (see the SMS consent rules below)."
-    : capabilities.canEmail
-      ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer an email confirmation and collect the caller's email address if they want one."
-      : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}${
-      capabilities.canEmail && capabilities.canText
-        ? "\n- You can also send email follow-ups — offer email confirmation when the caller prefers it, and collect their email address."
-        : ""
+      ? "You can send transactional text messages, but ONLY to a caller with recorded SMS consent (see the SMS consent rules below)."
+      : capabilities.canEmail
+        ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer an email confirmation and collect the caller's email address if they want one."
+        : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}${capabilities.canEmail && capabilities.canText
+      ? "\n- You can also send email follow-ups — offer email confirmation when the caller prefers it, and collect their email address."
+      : ""
     }
 - After a booking is complete, answer whatever the caller asks next — do not keep repeating the confirmation.`.trim());
 
@@ -234,7 +235,9 @@ FAQs:
 ${faqsList}
 
 Additional knowledge:
-${knowledgeList}`.trim());
+${knowledgeList}${input.hasKnowledgeLookupTool
+      ? "\n\nIf the caller asks about a business detail not covered above, call the lookup_knowledge tool with their exact question BEFORE saying you don't know. Answer only from what it returns; if it returns nothing relevant, use the fallback response — never invent details."
+      : ""}`.trim());
 
   const customFieldLines = (input.customFields ?? [])
     .map((field) => ({ label: clean(field.label), value: clean(field.value) }))

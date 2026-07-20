@@ -139,8 +139,6 @@ export async function startArchitectVapiBrowserTest(
     );
   }
 
-  // Vapi's cloud must be able to reach our webhook for tool calls — a
-  // localhost BACKEND_URL silently breaks mid-call when the agent uses a tool.
   const webhookBase = env.BACKEND_URL.replace(/\/$/, "");
   const isPublicHttps =
     /^https:\/\//i.test(webhookBase) && !/localhost|127\.0\.0\.1|0\.0\.0\.0|\.local(:|\/|$)/i.test(webhookBase);
@@ -153,8 +151,6 @@ export async function startArchitectVapiBrowserTest(
     );
   }
 
-  // Never start with the wrong voice: an explicitly selected custom voice ID
-  // must look valid, otherwise fail with an architect-facing error.
   const selectedVoice = str(ai, "voice");
   const selectedVoiceId = str(ai, "voiceId");
   const selectedVoiceName = str(ai, "voiceName", selectedVoice || "Default voice");
@@ -317,8 +313,6 @@ Live call handling:
     ]
   });
 
-  // The architect's own First message is kept whenever it renders to anything
-  // non-empty; the generic greeting is only the fallback for a blank result.
   const customFirstMessageRaw = fillNodeTokens(str(ai, "firstMessage"), tokens);
   const customFirstMessageResolved = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, {
     assistantName,
@@ -332,8 +326,6 @@ Live call handling:
     customFirstMessage
   });
 
-  // Whatever is still {{unresolved}} at this point was stripped — surface it
-  // to the Test panel so a typo'd variable never disappears silently.
   const unresolvedVariables = Array.from(
     new Set([
       ...extractPromptVariables(nodeInstructionsResolved),
@@ -444,11 +436,9 @@ Live call handling:
     testMode: true,
     executionMode: "ARCHITECT_DRY_RUN",
     browserTest: true,
-    // Booking + SMS are dry-runs in the browser test; availability reads stay
-    // real. With useTestCalendar the booking creates a REAL marked event in
-    // the architect's OWN calendar.
+
     testDryRun: true,
-    useTestCalendar: input.useTestCalendar === true,
+    useTestCalendar: true,
     testSessionId: input.testSessionId?.trim() || null,
     architectUserId,
     workflowId,

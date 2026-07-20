@@ -1993,6 +1993,8 @@ export async function runWorkflowTest({
   input,
   mode = "test",
   executionMode,
+  callProvider,
+  externalCallId,
   chainDepth = 0,
   chainVisited = []
 }: {
@@ -2003,6 +2005,10 @@ export async function runWorkflowTest({
   mode?: WorkflowRunMode;
   /** Explicit run classification stored on WorkflowRun (wins over `mode`). */
   executionMode?: "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" | "LIVE";
+  /** External call linkage (e.g. TWILIO + CallSid): duplicate webhook
+   * deliveries throw DuplicateWorkflowRunError before any side effect runs. */
+  callProvider?: string;
+  externalCallId?: string;
   chainDepth?: number;
   chainVisited?: string[];
 }) {
@@ -2045,6 +2051,8 @@ export async function runWorkflowTest({
     installedAgentId: input?.installedAgentId,
     mode,
     executionMode,
+    callProvider,
+    externalCallId,
     inputJson: input as Record<string, unknown> | undefined,
   });
 

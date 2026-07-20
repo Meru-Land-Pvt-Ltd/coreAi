@@ -2,18 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findInstalledAgent: vi.fn(),
-  getPhoneNumberFee: vi.fn(),
+  findPlatformNumber: vi.fn(),
   searchAvailableNumbers: vi.fn()
 }));
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
-    installedAgent: { findFirst: mocks.findInstalledAgent }
+    installedAgent: { findFirst: mocks.findInstalledAgent },
+    platformPhoneNumber: { findFirst: mocks.findPlatformNumber }
   }
-}));
-
-vi.mock("./phone-provisioning", () => ({
-  getPhoneNumberFee: mocks.getPhoneNumberFee
 }));
 
 vi.mock("../architect/twilio-business-routing", () => ({
@@ -64,7 +61,8 @@ describe("business phone-number search cardinality", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findInstalledAgent.mockResolvedValue(null);
-    mocks.getPhoneNumberFee.mockResolvedValue({ amountCents: 200, label: "AI Receptionist No." });
+    // No number assigned yet — the search may offer inventory.
+    mocks.findPlatformNumber.mockResolvedValue(null);
   });
 
   it("requests one exact-city candidate and returns at most one even if the provider over-returns", async () => {

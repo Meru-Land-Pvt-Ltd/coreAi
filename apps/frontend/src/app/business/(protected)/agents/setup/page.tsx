@@ -4,7 +4,6 @@ import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  CUSTOM_INSTRUCTION_SUGGESTIONS,
   DEFAULT_SILENCE,
   getAgentSuccessMessage,
   getWorkflowTriggerKind,
@@ -17,10 +16,30 @@ import {
 } from "@coreai/shared";
 import { PhoneNumberSelectionSection } from "@/components/business/phone-number-selection";
 import {
+  BusinessHoursSummary,
+  type EmbeddedSectionApi
+} from "@/components/business/business-hours-section";
+import { ConfigureSectionCard, type ConfigureSectionStatus } from "@/components/business/setup/configure-section-card";
+import { BusinessProfileSection } from "@/components/business/setup/business-profile-section";
+import { AgentIdentitySection } from "@/components/business/setup/agent-identity-section";
+import { KnowledgeSection } from "@/components/business/setup/knowledge-section";
+import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
+import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
+import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
+import {
+  defaultAnsweringDays,
+  type AiCoverageKind,
+  type AnsweringDayRow
+} from "@/components/business/setup/ai-call-coverage-editor";
+import { businessSetupPath } from "@/lib/routes";
+import {
   checkMailAliasAvailability,
   deleteBusinessTestEvent,
   disconnectBusinessCalendar,
+  getAppointmentSchedule,
   getBusinessCalendarOAuthUrl,
+  getBusinessFacts,
+  getBusinessKnowledgeFiles,
   getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
@@ -31,9 +50,16 @@ import {
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
+  type AppointmentDayHours,
+  type AppointmentWeekday,
   type BusinessChatTestMessage,
+  type BusinessChatTestResult,
+  type BusinessChatTestToolCall,
+  type BusinessHoursData,
+  type BusinessTestExecutedNode,
   type BusinessPreviewCallSession,
   type BusinessEmailAliasData,
+  type BusinessFactsData,
   type BusinessFaq,
   type BusinessHoursItem,
   type BusinessKnowledgeItem,
@@ -41,6 +67,7 @@ import {
   type BuyerCustomFieldValue,
   type BuyerSetupFieldDef,
   type CallRoutingResult,
+  type KnowledgeFileSummary,
   type PlatformPhoneOption,
   type TestSmsResult
 } from "@/components/business/features/api";
@@ -60,60 +87,14 @@ const STEPS = [
   { id: 4, title: "Go live", hint: "~30 seconds" }
 ] as const;
 
-const TONES: { value: string; label: string; emoji: string }[] = [
-  { value: "friendly", label: "Friendly", emoji: "😊" },
-  { value: "professional", label: "Professional", emoji: "👔" },
-  { value: "casual", label: "Casual", emoji: "🤙" }
-];
-
-const SERVICE_MAP: Record<string, string[]> = {
-  dental: ["Consultation", "Root canal", "Cleaning", "Whitening", "Braces"],
-  salon: ["Haircut", "Coloring", "Manicure", "Facial", "Massage"],
-  clinic: ["General checkup", "Vaccination", "Lab tests", "Follow-up visit"],
-  restaurant: ["Reservations", "Takeout orders", "Private events"],
-  law: ["Consultation", "Case review", "Document filing"],
-  realestate: ["Property viewing", "Listing inquiry", "Valuation"]
-};
-
-const BUSINESS_TYPE_OPTIONS = [
-  { value: "dental", label: "Dental clinic" },
-  { value: "salon", label: "Salon / spa" },
-  { value: "clinic", label: "Medical clinic" },
-  { value: "restaurant", label: "Restaurant" },
-  { value: "law", label: "Law firm" },
-  { value: "realestate", label: "Real estate" },
-  { value: "other", label: "Other" }
-];
-
-const VOICE_OPTIONS = [
-  { value: "aria", label: "Aria — Warm & friendly · Female" },
-  { value: "miles", label: "Miles — Calm & professional · Male" },
-  { value: "sana", label: "Sana — Bright & upbeat · Female" },
-  { value: "leo", label: "Leo — Confident & warm · Male" },
-  { value: "noor", label: "Noor — Soft & reassuring · Female" },
-  { value: "theo", label: "Theo — Crisp & efficient · Male" }
-];
-
-// Day rows match the backend AFTER_HOURS parser:
-// [{ day: "Monday", open: "HH:mm", close: "HH:mm", closed: boolean }].
-const HOURS_DAYS = [
-  { day: "Monday", short: "M" },
-  { day: "Tuesday", short: "T" },
-  { day: "Wednesday", short: "W" },
-  { day: "Thursday", short: "T" },
-  { day: "Friday", short: "F" },
-  { day: "Saturday", short: "S" },
-  { day: "Sunday", short: "S" }
-] as const;
-
-const DEFAULT_HOURS_DAYS: Record<string, boolean> = {
-  Monday: true,
-  Tuesday: true,
-  Wednesday: true,
-  Thursday: true,
-  Friday: true,
-  Saturday: false,
-  Sunday: false
+const DEFAULT_APPT_DAYS: Record<AppointmentWeekday, AppointmentDayHours> = {
+  monday: { open: "09:00", close: "17:00", closed: false },
+  tuesday: { open: "09:00", close: "17:00", closed: false },
+  wednesday: { open: "09:00", close: "17:00", closed: false },
+  thursday: { open: "09:00", close: "17:00", closed: false },
+  friday: { open: "09:00", close: "17:00", closed: false },
+  saturday: { open: "09:00", close: "17:00", closed: true },
+  sunday: { open: "09:00", close: "17:00", closed: true }
 };
 
 const ANSWERING_MODES: { value: string; label: string }[] = [
@@ -124,45 +105,6 @@ const ANSWERING_MODES: { value: string; label: string }[] = [
   { value: "UNREACHABLE", label: "AI answers when the phone is unreachable" }
 ];
 
-const TIMEZONE_GROUPS: { label: string; zones: string[] }[] = [
-  {
-    label: "Asia",
-    zones: [
-      "Asia/Kolkata",
-      "Asia/Dubai",
-      "Asia/Singapore",
-      "Asia/Tokyo",
-      "Asia/Bangkok",
-      "Asia/Jakarta",
-      "Asia/Manila",
-      "Asia/Kathmandu",
-      "Asia/Karachi"
-    ]
-  },
-  {
-    label: "Europe",
-    zones: ["Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Rome", "Europe/Amsterdam"]
-  },
-  {
-    label: "Americas",
-    zones: [
-      "America/New_York",
-      "America/Chicago",
-      "America/Denver",
-      "America/Los_Angeles",
-      "America/Toronto",
-      "America/Vancouver",
-      "America/Mexico_City"
-    ]
-  },
-  {
-    label: "Pacific / Oceania",
-    zones: ["Australia/Sydney", "Australia/Melbourne", "Australia/Perth", "Pacific/Auckland"]
-  },
-  { label: "Other", zones: ["UTC"] }
-];
-
-const ALL_ZONES = TIMEZONE_GROUPS.flatMap((group) => group.zones);
 
 const PRESET_VOICE_IDS = new Set([
   PLATFORM_DEFAULT_VOICE_ID,
@@ -615,10 +557,54 @@ function SetupWizard() {
   const [faqs, setFaqs] = useState<BusinessFaq[]>([]);
   const [bookingUrl, setBookingUrl] = useState("");
   const [tone, setTone] = useState("friendly");
-  const [hoursMode, setHoursMode] = useState<"247" | "custom">("247");
-  const [hoursStart, setHoursStart] = useState("09:00");
-  const [hoursEnd, setHoursEnd] = useState("18:00");
-  const [hoursDays, setHoursDays] = useState<Record<string, boolean>>(DEFAULT_HOURS_DAYS);
+
+  // AI Call Coverage — WHEN the AI answers calls. Independent of the Connect
+  // step's answering mode (the forward condition) and of Business Hours.
+  const [coverageKind, setCoverageKind] = useState<AiCoverageKind>("always");
+  const [answeringDays, setAnsweringDays] = useState<AnsweringDayRow[]>(defaultAnsweringDays);
+
+  // Authoritative Business Hours snapshot fed by the embedded editor — powers
+  // the compact summaries (Appointment Hours, AI Coverage, Test, Go-live).
+  const [businessHours, setBusinessHoursState] = useState<{
+    configured: boolean;
+    summary: string[] | null;
+    timeZone: string;
+  }>({ configured: false, summary: null, timeZone: "" });
+
+  // Document counts reported by the Knowledge section (collapsed-card summary).
+  const [knowledgeSummary, setKnowledgeSummary] = useState({ files: 0, ready: 0 });
+
+  // Page-level unsaved-changes tracking: the wizard form plus the embedded
+  // self-loading sections (Business Hours, Business Address).
+  const [configDirty, setConfigDirty] = useState(false);
+  const [bhDirty, setBhDirty] = useState(false);
+  const [addressDirty, setAddressDirty] = useState(false);
+  const bhApiRef = useRef<EmbeddedSectionApi | null>(null);
+  const addressApiRef = useRef<EmbeddedSectionApi | null>(null);
+  // True once GET /business/setup returned an existing profile — a first-run
+  // save seeds the timezone from the browser; later saves never touch it
+  // (the Business Hours editor owns the timezone).
+  const [profileExists, setProfileExists] = useState(false);
+
+  // Appointment schedule (booking hours + slot config). Loaded from its own
+  // endpoint; only included in the save payload once loaded so an unloaded
+  // section never clobbers the server-side config with empty defaults.
+  const [apptLoaded, setApptLoaded] = useState(false);
+  const [apptDays, setApptDays] = useState<Record<AppointmentWeekday, AppointmentDayHours>>(DEFAULT_APPT_DAYS);
+  const [apptFields, setApptFields] = useState<Record<ApptNumberField, number>>({
+    defaultDurationMinutes: 30,
+    bufferMinutes: 0,
+    slotIntervalMinutes: 30,
+    minNoticeMinutes: 0,
+    maxAdvanceDays: 30,
+    maxSpokenSuggestions: 3
+  });
+  const [apptConfirmed, setApptConfirmed] = useState(false);
+  const [apptNeedsConfirmation, setApptNeedsConfirmation] = useState(false);
+  // True (default) = appointment days follow Business Hours; false = the
+  // custom weekly editor is authoritative.
+  const [apptUseBusinessHours, setApptUseBusinessHours] = useState(true);
+
   const [knowledge, setKnowledge] = useState<BusinessKnowledgeItem[]>([]);
   const [confetti, setConfetti] = useState<
     { id: number; left: string; size: number; color: string; delay: string; duration: string }[]
@@ -678,7 +664,55 @@ function SetupWizard() {
       }
       return [...current, { key, label, value }];
     });
+    setConfigDirty(true);
   }, []);
+
+  // Embedded-section wiring (Business Hours + Business Address). The refs hold
+  // each section's save/isDirty handle; the callbacks are stable so the child
+  // effects register exactly once.
+  const registerBusinessHoursApi = useCallback((api: EmbeddedSectionApi | null) => {
+    bhApiRef.current = api;
+  }, []);
+  const registerAddressApi = useCallback((api: EmbeddedSectionApi | null) => {
+    addressApiRef.current = api;
+  }, []);
+  const handleBusinessHoursData = useCallback((data: BusinessHoursData) => {
+    setBusinessHoursState({
+      configured: data.configured,
+      summary: data.weeklySummary ?? null,
+      timeZone: data.timeZone
+    });
+    // One authoritative timezone: the Business Hours editor owns it; the rest
+    // of the page (Connect summary, Test details) just reflects it.
+    if (data.timeZone) setTimeZone(normalizeTimeZone(data.timeZone));
+  }, []);
+
+  // Warn before leaving while any Configure section has unsaved changes.
+  const anyUnsaved = configDirty || bhDirty || addressDirty;
+  useEffect(() => {
+    if (!anyUnsaved) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [anyUnsaved]);
+
+  useEffect(() => {
+    const gmailResult = searchParams.get("gmail");
+    if (!gmailResult) return;
+
+    if (gmailResult === "connected") {
+      setStatusMsg("Google Calendar connected");
+    } else if (gmailResult === "denied") {
+      setError("Google connection was cancelled — permission was not granted. You can retry anytime.");
+    } else {
+      setError("Google connection failed. Please try connecting again.");
+    }
+
+    router.replace(businessSetupPath(listingId || undefined));
+  }, [searchParams, router, listingId]);
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
@@ -716,28 +750,31 @@ function SetupWizard() {
         if (Array.isArray(data.profile.faqs) && data.profile.faqs.length > 0) {
           setFaqs(data.profile.faqs);
         }
+      }
+      setProfileExists(Boolean(data.profile));
 
-        const savedHours = data.profile.hours;
-        if (Array.isArray(savedHours) && savedHours.length > 0) {
-          setHoursMode("custom");
-          const dayFlags: Record<string, boolean> = { ...DEFAULT_HOURS_DAYS };
-          let start = "09:00";
-          let end = "18:00";
-          for (const item of savedHours) {
-            const match = HOURS_DAYS.find((entry) => entry.day.toLowerCase() === (item.day ?? "").toLowerCase());
-            if (!match) continue;
-            dayFlags[match.day] = !item.closed;
-            if (!item.closed) {
-              if (item.open) start = item.open.slice(0, 5);
-              if (item.close) end = item.close.slice(0, 5);
-            }
-          }
-          setHoursDays(dayFlags);
-          setHoursStart(start);
-          setHoursEnd(end);
-        } else {
-          setHoursMode("247");
-        }
+      // AI Call Coverage (phoneRouting.coverage) + the custom answering
+      // schedule rows. Legacy CUSTOM_HOURS mode arrives as coverage "custom".
+      const savedCoverage = data.aiCallCoverage;
+      setCoverageKind(
+        savedCoverage === "custom" ? "custom" : savedCoverage === "business_hours" ? "business_hours" : "always"
+      );
+      const savedAnsweringHours = data.answeringHours;
+      if (Array.isArray(savedAnsweringHours) && savedAnsweringHours.length > 0) {
+        setAnsweringDays(
+          defaultAnsweringDays().map((row) => {
+            const saved = savedAnsweringHours.find(
+              (item) => (item.day ?? "").toLowerCase() === row.day.toLowerCase()
+            );
+            if (!saved) return row;
+            return {
+              day: row.day,
+              open: saved.open?.slice(0, 5) || row.open,
+              close: saved.close?.slice(0, 5) || row.close,
+              closed: saved.closed
+            };
+          })
+        );
       }
 
       if (Array.isArray(data.knowledge)) {
@@ -766,7 +803,11 @@ function SetupWizard() {
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId ?? "");
       setCalendar(data.calendar ?? { connected: false, email: null });
-      setAnsweringMode(data.answeringMode || "NO_ANSWER");
+      // Legacy CUSTOM_HOURS answering mode is now expressed as coverage
+      // "custom" — the Connect routing choice falls back to its default.
+      setAnsweringMode(
+        data.answeringMode === "CUSTOM_HOURS" ? "NO_ANSWER" : data.answeringMode || "NO_ANSWER"
+      );
 
       const selection = data.voiceSelection ?? null;
       const savedVoiceId = (selection?.voiceId ?? "").trim();
@@ -887,6 +928,68 @@ function SetupWizard() {
     void loadSetup();
   }, [loadSetup]);
 
+  // Appointment schedule loads once on mount — independent of the main setup
+  // payload so a failure here never blocks the wizard.
+  useEffect(() => {
+    let cancelled = false;
+
+    void getAppointmentSchedule().then((res) => {
+      if (cancelled || !res.success || !res.data) return;
+
+      const { schedule, needsConfirmation } = res.data;
+
+      setApptDays({ ...DEFAULT_APPT_DAYS, ...schedule.days });
+      setApptFields({
+        defaultDurationMinutes: schedule.defaultDurationMinutes,
+        bufferMinutes: schedule.bufferMinutes,
+        slotIntervalMinutes: schedule.slotIntervalMinutes,
+        minNoticeMinutes: schedule.minNoticeMinutes,
+        maxAdvanceDays: schedule.maxAdvanceDays,
+        maxSpokenSuggestions: schedule.maxSpokenSuggestions
+      });
+      setApptConfirmed(schedule.confirmed);
+      setApptUseBusinessHours(schedule.useBusinessHours ?? schedule.source !== "configured");
+      setApptNeedsConfirmation(needsConfirmation);
+      setApptLoaded(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateApptDay = useCallback((day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => {
+    setApptDays((current) => ({ ...current, [day]: { ...current[day], ...patch } }));
+    setConfigDirty(true);
+  }, []);
+
+  const updateApptField = useCallback((field: ApptNumberField, value: number) => {
+    setApptFields((current) => ({ ...current, [field]: value }));
+    setConfigDirty(true);
+  }, []);
+
+  const updateApptConfirmed = useCallback((value: boolean) => {
+    setApptConfirmed(value);
+    setConfigDirty(true);
+  }, []);
+
+  const updateApptUseBusinessHours = useCallback((value: boolean) => {
+    setApptUseBusinessHours(value);
+    setConfigDirty(true);
+  }, []);
+
+  const updateCoverageKind = useCallback((kind: AiCoverageKind) => {
+    setCoverageKind(kind);
+    setConfigDirty(true);
+  }, []);
+
+  const updateAnsweringDay = useCallback((day: string, patch: Partial<AnsweringDayRow>) => {
+    setAnsweringDays((current) =>
+      current.map((row) => (row.day === day ? { ...row, ...patch } : row))
+    );
+    setConfigDirty(true);
+  }, []);
+
   // Auto-dismiss the status toast.
   useEffect(() => {
     if (!statusMsg) return;
@@ -894,13 +997,13 @@ function SetupWizard() {
     return () => window.clearTimeout(timer);
   }, [statusMsg]);
 
-  function buildHours(): BusinessHoursItem[] {
-    if (hoursMode !== "custom") return [];
-    return HOURS_DAYS.map(({ day }) => ({
-      day,
-      open: hoursStart,
-      close: hoursEnd,
-      closed: !hoursDays[day]
+  /** Custom AI answering schedule rows for the save payload. */
+  function buildAnsweringItems(): BusinessHoursItem[] {
+    return answeringDays.map((row) => ({
+      day: row.day,
+      open: row.open,
+      close: row.close,
+      closed: row.closed
     }));
   }
 
@@ -940,11 +1043,30 @@ function SetupWizard() {
   async function persistSetup(deploy: boolean): Promise<PersistResult> {
     const voiceFields = buildVoiceFields();
 
+    // Embedded sections (Business Hours, Business Address) save through their
+    // own endpoints first — they work even for live agents, and a failure is
+    // reported per-section without losing the other sections' changes.
+    const sectionFailures: string[] = [];
+    if (bhApiRef.current?.isDirty()) {
+      const saved = await bhApiRef.current.save();
+      if (!saved.ok) sectionFailures.push(`Business Hours: ${saved.error ?? "could not be saved."}`);
+      else setBhDirty(false);
+    }
+    if (addressApiRef.current?.isDirty()) {
+      const saved = await addressApiRef.current.save();
+      if (!saved.ok) sectionFailures.push(`Business address: ${saved.error ?? "could not be saved."}`);
+      else setAddressDirty(false);
+    }
+
     if (!deploy && liveVapiAssistantId) {
-      setStatusMsg("Live agent is already deployed. Click Deploy live agent to apply new changes.");
+      if (sectionFailures.length > 0) {
+        setError(sectionFailures.join(" "));
+      } else {
+        setStatusMsg("Live agent is already deployed. Click Deploy live agent to apply new changes.");
+      }
 
       return {
-        ok: true,
+        ok: sectionFailures.length === 0,
         number: assignedNumber ?? "",
         vapiAssistantId: liveVapiAssistantId,
         installedAgentId: liveInstalledAgentId
@@ -959,13 +1081,25 @@ function SetupWizard() {
       forwardToPhone: forwardToPhone.trim(),
       bookingUrl: bookingUrl.trim(),
       teamPhone: teamPhone.trim(),
-      timeZone: timeZone.trim() || defaultTimeZone(),
+      // The Business Hours editor owns the timezone. Only the very first save
+      // (no profile yet) seeds it from the browser so bookings work out of
+      // the box; after that, setup saves never touch it.
+      ...(profileExists ? {} : { timeZone: timeZone.trim() || defaultTimeZone() }),
       tone,
       services: parseLines(servicesText),
       faqs: faqs
         .filter((faq) => faq.question.trim() && faq.answer.trim())
         .map((faq) => ({ question: faq.question.trim(), answer: faq.answer.trim() })),
-      hours: buildHours(),
+      // Structured Business Hours are owned by the Business Hours editor
+      // (PUT /business/hours) — setup saves never send or overwrite them.
+      hours: [],
+      // AI Call Coverage: when the AI answers. The custom weekly schedule is
+      // only sent for "custom"; the Connect-step answering mode is preserved
+      // as-is (it is the forward condition, not the time window).
+      aiCallCoverage: {
+        kind: coverageKind,
+        ...(coverageKind === "custom" ? { answeringHours: buildAnsweringItems() } : {})
+      },
       knowledge: knowledge
         .filter((item) => item.title.trim() && item.content.trim())
         .map((item) => ({ title: item.title.trim(), content: item.content.trim() })),
@@ -993,6 +1127,24 @@ function SetupWizard() {
         ),
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
+      // Only sent after the GET has loaded — never clobbers the saved
+      // schedule with unloaded empty state. Custom day rows are always kept
+      // so switching back from "Use Business Hours" restores them.
+      ...(apptLoaded
+        ? {
+          appointmentSchedule: {
+            useBusinessHours: apptUseBusinessHours,
+            days: apptDays,
+            defaultDurationMinutes: apptFields.defaultDurationMinutes,
+            bufferMinutes: apptFields.bufferMinutes,
+            slotIntervalMinutes: apptFields.slotIntervalMinutes,
+            minNoticeMinutes: apptFields.minNoticeMinutes,
+            maxAdvanceDays: apptFields.maxAdvanceDays,
+            maxSpokenSuggestions: apptFields.maxSpokenSuggestions,
+            confirmed: apptConfirmed
+          }
+        }
+        : {}),
       ...(needsMail
         ? {
           emailRecipients: {
@@ -1009,9 +1161,13 @@ function SetupWizard() {
     const res = await saveBusinessSetup(payload);
 
     if (!res.success || !res.data) {
-      setError(res.error ?? "Could not save your setup. Please try again.");
+      setError(
+        [...sectionFailures, `Setup: ${res.error ?? "could not be saved. Please try again."}`].join(" ")
+      );
       return { ok: false, number: "", vapiAssistantId: null, installedAgentId: null };
     }
+
+    setConfigDirty(false);
 
     const data = res.data;
     const number = data.assignedPhoneNumber ?? data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
@@ -1038,7 +1194,23 @@ function SetupWizard() {
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId);
     }
 
+    if (apptLoaded) {
+      setApptNeedsConfirmation(!apptConfirmed);
+    }
+
     setCalendar(data.calendar ?? calendar);
+
+    // The main save succeeded, but a section save failed — surface exactly
+    // which section so the buyer knows what still needs attention.
+    if (sectionFailures.length > 0) {
+      setError(sectionFailures.join(" "));
+      return {
+        ok: false,
+        number,
+        vapiAssistantId: nextVapiAssistantId,
+        installedAgentId: nextInstalledAgentId
+      };
+    }
 
     return {
       ok: true,
@@ -1066,7 +1238,12 @@ function SetupWizard() {
       }
     }
 
-    const res = await getBusinessCalendarOAuthUrl();
+    // Return to THIS setup page (same listing) after the Google consent
+    // screen — not to Business Settings. The wizard step is restored from
+    // sessionStorage and the form was just persisted above.
+    const res = await getBusinessCalendarOAuthUrl(
+      String(businessSetupPath(listingId || undefined))
+    );
 
     if (res.success && res.data?.url) {
       window.location.href = res.data.url;
@@ -1161,7 +1338,7 @@ function SetupWizard() {
 
     if (requiresVoice && !result.vapiAssistantId) {
       setStep(4);
-      setError("Live voice assistant was not created. Check Vapi configuration.");
+      setError("Your live voice assistant could not be created. Try again, or contact Triven support if it keeps failing.");
       return;
     }
 
@@ -1201,6 +1378,30 @@ function SetupWizard() {
   const needs = new Set(requiredKeys);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
+  // Configure sections: controlled open/collapse state so Test/Go-live Edit
+  // links can jump straight to the right section. Business Profile starts
+  // open; everything else starts as a compact summary row.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    "business-profile": true
+  });
+  const toggleSection = useCallback((id: string, open: boolean) => {
+    setOpenSections((current) => ({ ...current, [id]: open }));
+  }, []);
+  function jumpToConfigureSection(id: string) {
+    setError("");
+    setStep(2);
+    setOpenSections((current) => ({ ...current, [id]: true }));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** Marks the Configure form dirty alongside the wrapped state setter. */
+  function dirtyWrap<T>(setter: (value: T) => void): (value: T) => void {
+    return (value) => {
+      setter(value);
+      setConfigDirty(true);
+    };
+  }
+
   // Required + format validation of the agent-specific (architect-defined)
   // setup fields — mirrors the backend's 422 validation on deploy.
   const buyerSetupIssues = validateBuyerSetupAnswers(buyerSetupFields, customFieldValues, { requireMissing: true });
@@ -1238,7 +1439,6 @@ function SetupWizard() {
 
   const connectTitle =
     showPhone && showCalendar ? "Connect your phone & calendar" : showPhone ? "Connect your phone" : "Connect your services";
-  const voiceTitle = showVoice ? "Voice & Instructions" : "Instructions";
 
   // Per-step completion for the header indicator — a step is "done" when the
   // required checklist items that live on it are complete.
@@ -1348,7 +1548,7 @@ function SetupWizard() {
             ? "Add your AI assistant name."
             : voiceChoiceComplete
               ? undefined
-              : "Enter a custom ElevenLabs voice ID or choose a preset."
+              : "Enter a custom voice ID or choose a preset."
         }
       ]
       : [])
@@ -1415,7 +1615,7 @@ function SetupWizard() {
                     <li key={cap} className="flex items-center gap-3 text-sm text-slate-700">
                       <span className="text-green-500 shrink-0">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                          <polyline points="20 6 9 17 4 12"/>
+                          <polyline points="20 6 9 17 4 12" />
                         </svg>
                       </span>
                       <span>{cap}</span>
@@ -1448,8 +1648,8 @@ function SetupWizard() {
               <div className="mt-8 bg-blue-50 rounded-xl p-4 border border-blue-100 text-left max-w-sm mx-auto flex items-start gap-3">
                 <span className="text-blue-500 shrink-0 mt-0.5">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <path d="M9 18h6M10 22h4"/>
-                    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>
+                    <path d="M9 18h6M10 22h4" />
+                    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
                   </svg>
                 </span>
                 <p className="text-sm text-blue-900">
@@ -1470,7 +1670,7 @@ function SetupWizard() {
 
       <header className="bg-white border-b border-gray-100 py-4 px-4 sm:px-8 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-         <div className="flex items-center gap-3 sm:gap-4"></div>
+          <div className="flex items-center gap-3 sm:gap-4"></div>
 
           {/* Step indicator */}
           <nav className="progress" aria-label="Setup progress" data-testid="business-setup-progress-dots">
@@ -1520,8 +1720,8 @@ function SetupWizard() {
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
             <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
               ~3 min setup
             </span>
@@ -1559,7 +1759,6 @@ function SetupWizard() {
               onConnectCalendar={handleConnectCalendar}
               onDisconnectCalendar={handleDisconnectCalendar}
               onCalendarId={setCalendarId}
-              onTimeZone={setTimeZone}
               existingPhoneNumber={existingPhoneNumber}
               onExistingPhoneNumberChange={setExistingPhoneNumber}
               listingId={listingId}
@@ -1572,69 +1771,184 @@ function SetupWizard() {
           ) : null}
 
           {step === 2 ? (
-            <div className="space-y-6">
-            <StepBusiness
-              businessName={businessName}
-              businessType={businessType}
-              contactName={contactName}
-              servicesText={servicesText}
-              faqs={faqs}
-              checklist={checklist}
-              setupFields={buyerSetupFields}
-              setupInstructions={buyerSetupInstructions}
-              customValues={customFieldValues}
-              tone={tone}
-              hoursMode={hoursMode}
-              hoursStart={hoursStart}
-              hoursEnd={hoursEnd}
-              hoursDays={hoursDays}
-              assistantName={assistantName}
-              voiceChoice={voiceChoice}
-              customVoiceId={customVoiceId}
-              showVoice={showVoice}
-              onBusinessName={setBusinessName}
-              onBusinessType={setBusinessType}
-              onContactName={setContactName}
-              onServices={setServicesText}
-              onFaqs={setFaqs}
-              onCustomField={setCustomFieldValue}
-              onTone={setTone}
-              onHoursMode={setHoursMode}
-              onHoursStart={setHoursStart}
-              onHoursEnd={setHoursEnd}
-              onToggleDay={(day) => setHoursDays((current) => ({ ...current, [day]: !current[day] }))}
-              onAssistantName={setAssistantName}
-              onVoiceChoice={setVoiceChoice}
-              onCustomVoiceId={setCustomVoiceId}
-            />
+            <div className="space-y-4" data-testid="business-setup-configure">
+              <div>
+                <div className="w-14 h-14 bg-violet-50 rounded-2xl grid place-items-center text-violet-600 mb-5" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
+                    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" />
+                    <path d="M5 3v4M19 17v4M3 5h4M17 19h4" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Set up your agent</h2>
+                <p className="text-slate-500 text-base mt-2 max-w-md">
+                  Five short sections — your business, the agent&rsquo;s identity, its knowledge, your
+                  hours, and how it behaves.
+                </p>
+              </div>
 
-            {/* {showMail ? (
-              <EmailRecipientsSection
-                recipientType={emailRecipientType}
-                customRecipient={emailCustomRecipient}
-                cc={emailCc}
-                bcc={emailBcc}
-                onRecipientType={setEmailRecipientType}
-                onCustomRecipient={setEmailCustomRecipient}
-                onCc={setEmailCc}
-                onBcc={setEmailBcc}
-              />
-            ) : null} */}
+              <ConfigureSectionCard
+                id="business-profile"
+                title="Business Profile"
+                description="Your business name, type, address, and services."
+                status={businessComplete ? "complete" : "incomplete"}
+                summary={
+                  businessComplete
+                    ? `${businessName.trim()} · ${businessType.trim()}`
+                    : "Add your business name and type."
+                }
+                open={Boolean(openSections["business-profile"])}
+                onToggle={(open) => toggleSection("business-profile", open)}
+              >
+                <BusinessProfileSection
+                  businessName={businessName}
+                  businessType={businessType}
+                  contactName={contactName}
+                  servicesText={servicesText}
+                  onBusinessName={dirtyWrap(setBusinessName)}
+                  onBusinessType={dirtyWrap(setBusinessType)}
+                  onContactName={dirtyWrap(setContactName)}
+                  onServices={setServicesText}
+                  onAddressDirtyChange={setAddressDirty}
+                  registerAddressApi={registerAddressApi}
+                />
+              </ConfigureSectionCard>
 
-            <StepVoice
-              title={voiceTitle}
-              showVoice={showVoice}
-              customInstructions={customInstructions}
-              silenceRepromptCount={silenceRepromptCount}
-              silenceMessage1={silenceMessage1}
-              silenceMessage2={silenceMessage2}
-              goodbyeMessage={goodbyeMessage}
-              onCustomInstructions={setCustomInstructions}
-              onSilenceCount={setSilenceRepromptCount}
-              onSilence1={setSilenceMessage1}
-              onSilence2={setSilenceMessage2}
-              onGoodbye={setGoodbyeMessage}
-            />
+              <ConfigureSectionCard
+                id="agent-identity"
+                title="Agent Identity"
+                description="The agent's name, voice, and conversation tone."
+                status={!showVoice ? "optional" : voiceComplete ? "complete" : "incomplete"}
+                summary={
+                  showVoice
+                    ? `${assistantName.trim() || DEFAULT_ASSISTANT_NAME} · ${
+                        voiceChoice === "custom"
+                          ? "Custom voice"
+                          : VOICE_PRESETS.find((preset) => preset.id === voiceChoice)?.name ?? TRIVEN_VOICE_NAME
+                      } · ${tone}`
+                    : `Tone: ${tone}`
+                }
+                open={Boolean(openSections["agent-identity"])}
+                onToggle={(open) => toggleSection("agent-identity", open)}
+              >
+                <AgentIdentitySection
+                  showVoice={showVoice}
+                  assistantName={assistantName}
+                  businessName={businessName}
+                  voiceChoice={voiceChoice}
+                  customVoiceId={customVoiceId}
+                  tone={tone}
+                  onAssistantName={dirtyWrap(setAssistantName)}
+                  onVoiceChoice={dirtyWrap(setVoiceChoice)}
+                  onCustomVoiceId={dirtyWrap(setCustomVoiceId)}
+                  onTone={dirtyWrap(setTone)}
+                />
+              </ConfigureSectionCard>
+
+              <ConfigureSectionCard
+                id="knowledge"
+                title="Knowledge"
+                description="Documents, FAQs, and what the agent knows about you."
+                status={knowledgeSummary.ready > 0 || faqs.some((faq) => faq.question.trim() && faq.answer.trim()) ? "complete" : "optional"}
+                summary={`${knowledgeSummary.files} document${knowledgeSummary.files === 1 ? "" : "s"} · ${
+                  faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length
+                } FAQ${faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length === 1 ? "" : "s"}`}
+                open={Boolean(openSections["knowledge"])}
+                onToggle={(open) => toggleSection("knowledge", open)}
+              >
+                <KnowledgeSection
+                  listingId={listingId}
+                  installedAgentId={liveInstalledAgentId}
+                  faqs={faqs}
+                  onFaqs={dirtyWrap(setFaqs)}
+                  onSummaryChange={setKnowledgeSummary}
+                />
+              </ConfigureSectionCard>
+
+              <ConfigureSectionCard
+                id="hours-availability"
+                title="Hours & Availability"
+                description="Business Hours, Appointment Hours, and AI Call Coverage."
+                status={businessHours.configured ? "complete" : "incomplete"}
+                summary={
+                  businessHours.configured
+                    ? `Business Hours set (${businessHours.timeZone}) · Appointments ${
+                        apptUseBusinessHours ? "follow Business Hours" : "use custom hours"
+                      } · AI answers ${
+                        coverageKind === "always"
+                          ? "24/7"
+                          : coverageKind === "business_hours"
+                            ? "during Business Hours"
+                            : "on a custom schedule"
+                      }`
+                    : "Set your Business Hours so the agent knows when you're open."
+                }
+                open={Boolean(openSections["hours-availability"])}
+                onToggle={(open) => toggleSection("hours-availability", open)}
+              >
+                <HoursAvailabilitySection
+                  onBusinessHoursLoaded={handleBusinessHoursData}
+                  onBusinessHoursSaved={handleBusinessHoursData}
+                  onBusinessHoursDirtyChange={setBhDirty}
+                  registerBusinessHoursApi={registerBusinessHoursApi}
+                  businessHoursSummary={businessHours.summary}
+                  businessHoursConfigured={businessHours.configured}
+                  apptUseBusinessHours={apptUseBusinessHours}
+                  onApptUseBusinessHours={updateApptUseBusinessHours}
+                  apptDays={apptDays}
+                  onApptDay={updateApptDay}
+                  apptFields={apptFields}
+                  onApptField={updateApptField}
+                  apptConfirmed={apptConfirmed}
+                  onApptConfirmed={updateApptConfirmed}
+                  apptLoaded={apptLoaded}
+                  coverageKind={coverageKind}
+                  onCoverageKind={updateCoverageKind}
+                  answeringDays={answeringDays}
+                  onAnsweringDay={updateAnsweringDay}
+                />
+              </ConfigureSectionCard>
+
+              <ConfigureSectionCard
+                id="agent-behavior"
+                title="Agent Behavior"
+                description="Custom instructions, agent-specific details, and advanced call handling."
+                status={
+                  buyerSetupFields.length > 0
+                    ? buyerSetupComplete
+                      ? "complete"
+                      : "incomplete"
+                    : customInstructions.trim()
+                      ? "complete"
+                      : "optional"
+                }
+                summary={
+                  buyerSetupFields.length > 0 && !buyerSetupComplete
+                    ? buyerSetupIssues[0]?.message ?? "Complete the agent setup details."
+                    : customInstructions.trim()
+                      ? "Custom instructions set."
+                      : "Default behavior — add instructions any time."
+                }
+                open={Boolean(openSections["agent-behavior"])}
+                onToggle={(open) => toggleSection("agent-behavior", open)}
+              >
+                <AgentBehaviorSection
+                  showVoice={showVoice}
+                  customInstructions={customInstructions}
+                  silenceRepromptCount={silenceRepromptCount}
+                  silenceMessage1={silenceMessage1}
+                  silenceMessage2={silenceMessage2}
+                  goodbyeMessage={goodbyeMessage}
+                  setupFields={buyerSetupFields}
+                  setupInstructions={buyerSetupInstructions}
+                  customValues={customFieldValues}
+                  onCustomInstructions={dirtyWrap(setCustomInstructions)}
+                  onSilenceCount={dirtyWrap(setSilenceRepromptCount)}
+                  onSilence1={dirtyWrap(setSilenceMessage1)}
+                  onSilence2={dirtyWrap(setSilenceMessage2)}
+                  onGoodbye={dirtyWrap(setGoodbyeMessage)}
+                  onCustomField={setCustomFieldValue}
+                />
+              </ConfigureSectionCard>
             </div>
           ) : null}
 
@@ -1654,6 +1968,17 @@ function SetupWizard() {
               showCalendarTest={showCalendar}
               calendarConnected={calendar.connected}
               timeZone={timeZone}
+              agentName={(typeof listing?.name === "string" ? listing.name : "") || assistantName}
+              calendarId={calendarId}
+              serviceName={
+                servicesText
+                  .split(/\r?\n/)
+                  .map((item) => item.trim())
+                  .filter(Boolean)[0] ?? ""
+              }
+              apptUseBusinessHours={apptUseBusinessHours}
+              coverageKind={coverageKind}
+              onEditConfigure={jumpToConfigureSection}
             />
           ) : null}
 
@@ -1663,6 +1988,12 @@ function SetupWizard() {
               blockers={blockers}
               readyToDeploy={readyToDeploy}
               assignedNumber={assignedNumber}
+              apptNeedsConfirmation={apptLoaded && apptNeedsConfirmation}
+              apptUseBusinessHours={apptUseBusinessHours}
+              coverageKind={coverageKind}
+              timeZone={timeZone}
+              calendarConnected={calendar.connected}
+              onEditConfigure={jumpToConfigureSection}
             />
           ) : null}
 
@@ -1672,7 +2003,12 @@ function SetupWizard() {
             </p>
           ) : null}
 
-          <div className="mt-8 flex items-center justify-between gap-3 pt-6 border-t border-gray-100">
+          <div
+            className={`mt-8 flex items-center justify-between gap-3 pt-6 border-t border-gray-100 ${
+              step === 2 ? "sticky bottom-0 z-20 bg-white pb-2 -mb-2" : ""
+            }`}
+            data-testid="business-setup-footer"
+          >
             <div className="flex items-center gap-4">
               <button
                 type="button"
@@ -1698,6 +2034,12 @@ function SetupWizard() {
             </div>
 
             <div className="flex items-center gap-4">
+              {step === 2 && anyUnsaved && !saving ? (
+                <span className="text-xs font-semibold text-amber-600" data-testid="business-setup-unsaved">
+                  Unsaved changes
+                </span>
+              ) : null}
+
               <button
                 type="button"
                 onClick={handleSaveProgress}
@@ -1705,7 +2047,7 @@ function SetupWizard() {
                 data-testid="business-setup-save"
                 className="text-xs font-semibold text-slate-500 hover:text-slate-700 underline transition-colors disabled:opacity-50"
               >
-                {saving ? "Saving…" : "Save progress"}
+                {saving ? "Saving…" : step === 2 ? "Save draft" : "Save progress"}
               </button>
 
               {step < STEPS.length ? (
@@ -1716,7 +2058,7 @@ function SetupWizard() {
                   data-testid="business-setup-next"
                   className="btn bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm px-6 py-2.5 rounded-xl transition-colors"
                 >
-                  Continue
+                  {step === 2 ? "Save & continue" : "Continue"}
                 </button>
               ) : (
                 <button
@@ -1742,759 +2084,6 @@ function SetupWizard() {
         >
           {statusMsg}
         </div>
-      ) : null}
-    </div>
-  );
-}
-
-/* -------------------------------- shared -------------------------------- */
-
-function ChecklistSummary({ checklist }: { checklist: ChecklistRow[] }) {
-  return (
-    <div data-testid="business-setup-checklist">
-      <h3 className={SECTION_TITLE}>Setup progress</h3>
-
-      <ul className="mt-3 space-y-2">
-        {checklist.map((row) => (
-          <li key={row.key} data-testid={`business-setup-checklist-${row.key}`} className="flex items-center gap-2.5 text-sm">
-            <span
-              className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${row.complete ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"
-                }`}
-            >
-              {row.complete ? "✓" : "•"}
-            </span>
-
-            <span className="font-semibold text-slate-800">{row.label}</span>
-
-            <span className={`ml-auto text-xs font-semibold ${row.complete ? "text-green-600" : "text-slate-400"}`}>
-              {row.complete ? "Done" : row.required ? "Required" : "Optional"}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-/* --------------------- Configure step: business card --------------------- */
-
-function StepBusiness({
-  businessName,
-  businessType,
-  contactName,
-  servicesText,
-  faqs,
-  checklist,
-  setupFields,
-  setupInstructions,
-  customValues,
-  tone,
-  hoursMode,
-  hoursStart,
-  hoursEnd,
-  hoursDays,
-  assistantName,
-  voiceChoice,
-  customVoiceId,
-  onBusinessName,
-  onBusinessType,
-  onContactName,
-  onServices,
-  onFaqs,
-  onCustomField,
-  onTone,
-  onHoursMode,
-  onHoursStart,
-  onHoursEnd,
-  onToggleDay,
-  onAssistantName,
-  onVoiceChoice,
-  onCustomVoiceId,
-  showVoice
-}: {
-  businessName: string;
-  businessType: string;
-  contactName: string;
-  servicesText: string;
-  faqs: BusinessFaq[];
-  checklist: ChecklistRow[];
-  setupFields: BuyerSetupFieldDef[];
-  setupInstructions: string;
-  customValues: BuyerCustomFieldValue[];
-  tone: string;
-  hoursMode: "247" | "custom";
-  hoursStart: string;
-  hoursEnd: string;
-  hoursDays: Record<string, boolean>;
-  assistantName: string;
-  voiceChoice: string;
-  customVoiceId: string;
-  onBusinessName: (v: string) => void;
-  onBusinessType: (v: string) => void;
-  onContactName: (v: string) => void;
-  onServices: (v: string) => void;
-  onFaqs: (v: BusinessFaq[]) => void;
-  onCustomField: (key: string, label: string, value: string | string[] | boolean) => void;
-  onTone: (v: string) => void;
-  onHoursMode: (v: "247" | "custom") => void;
-  onHoursStart: (v: string) => void;
-  onHoursEnd: (v: string) => void;
-  onToggleDay: (day: string) => void;
-  onAssistantName: (v: string) => void;
-  onVoiceChoice: (v: string) => void;
-  onCustomVoiceId: (v: string) => void;
-  showVoice: boolean;
-}) {
-  const [selectedServices, setSelectedServices] = useState<string[]>(() =>
-    servicesText
-      .split(/[\n,]/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-  );
-  const [customServiceInput, setCustomServiceInput] = useState("");
-  const [voicePlaying, setVoicePlaying] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync selected services → servicesText state
-  useEffect(() => {
-    onServices(selectedServices.join("\n"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedServices]);
-
-  // Derive service suggestions from businessType
-  const typeKey = Object.keys(SERVICE_MAP).find(
-    (key) => businessType.toLowerCase().includes(key)
-  ) ?? "";
-  const suggestions = (SERVICE_MAP[typeKey] ?? []).filter((s) => !selectedServices.includes(s));
-
-  function addService(s: string) {
-    if (!s.trim() || selectedServices.includes(s.trim())) return;
-    setSelectedServices((prev) => [...prev, s.trim()]);
-  }
-
-  function removeService(idx: number) {
-    setSelectedServices((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function handleVoicePlay() {
-    if (voicePlaying) return;
-    setVoicePlaying(true);
-    setTimeout(() => setVoicePlaying(false), 1800);
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = Array.from(e.target.files ?? []);
-    if (picked.length === 0) return;
-    setUploadedFiles((prev) => {
-      const existing = new Set(prev.map((f) => f.name));
-      return [...prev, ...picked.filter((f) => !existing.has(f.name))];
-    });
-    // Reset input so the same file can be re-selected after removal
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
-  function handleRemoveFile(idx: number) {
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  const businessInitials = (name: string): string => {
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    const initials = parts
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("");
-    return initials || "AI";
-  };
-
-  const textBackMessage = buildTextBackMessage(businessName, tone);
-
-  return (
-    <div className="space-y-6">
-      {/* Icon */}
-      <div className="w-14 h-14 bg-violet-50 rounded-2xl grid place-items-center text-violet-600 mb-5" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
-          <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" />
-          <path d="M5 3v4M19 17v4M3 5h4M17 19h4" />
-        </svg>
-      </div>
-
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Set up your agent</h2>
-      <p className="text-slate-500 text-base mt-2 max-w-md">Tell us about your business, pick a voice, and give your agent what it needs to know.</p>
-      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
-        ~2 minutes
-      </span>
-
-      {/* Business details */}
-      <div className="mt-4">
-        <h3 className="text-sm font-semibold text-slate-800 mb-4">Business details</h3>
-        <div className="grid sm:grid-cols-2 gap-5">
-          <div>
-            <label htmlFor="biz-contact-name" className="block text-sm font-medium text-slate-700 mb-2">
-              Your name <span className="text-slate-400 font-normal">(optional)</span>
-            </label>
-            <input
-              id="biz-contact-name"
-              data-testid="business-setup-input-contact"
-              type="text"
-              value={contactName}
-              onChange={(e) => onContactName(e.target.value)}
-              placeholder="Dr. Jhon Doe"
-              className={FIELD}
-            />
-          </div>
-          <div>
-            <label htmlFor="biz-name" className="block text-sm font-medium text-slate-700 mb-2">
-              Business name
-            </label>
-            <div className="relative">
-              <input
-                id="biz-name"
-                data-testid="business-setup-input-name"
-                type="text"
-                value={businessName}
-                onChange={(e) => onBusinessName(e.target.value)}
-                placeholder="Central Perk Hospital"
-                className={`${FIELD} pr-12`}
-              />
-              {businessName.trim() && (
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <label htmlFor="biz-type" className="block text-sm font-medium text-slate-700 mb-2">Business type</label>
-          <select
-            id="biz-type"
-            data-testid="business-setup-input-type"
-            value={businessType}
-            onChange={(e) => onBusinessType(e.target.value)}
-            className={FIELD}
-          >
-            <option value="">Select your business type</option>
-            {BUSINESS_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Services offered */}
-      <div className="mt-6">
-        <label className="block text-sm font-medium text-slate-700 mb-2">Services offered</label>
-        <p className="text-xs text-slate-400 mb-3 font-semibold">Select what applies, or add your own.</p>
-        <div id="serviceChips" className="flex flex-wrap gap-2">
-          {selectedServices.map((s, i) => (
-            <button
-              key={i}
-              type="button"
-              className="text-xs font-semibold border border-amber-400 bg-amber-400 text-white rounded-full px-3 py-1.5 transition-colors hover:bg-amber-500"
-              onClick={() => removeService(i)}
-            >
-              {s} ✕
-            </button>
-          ))}
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="text-xs font-semibold border border-gray-200 text-slate-600 rounded-full px-3 py-1.5 hover:border-amber-300 transition-colors"
-              onClick={() => addService(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2 mt-3">
-          <input
-            id="custom-service"
-            data-testid="business-setup-input-services"
-            type="text"
-            value={customServiceInput}
-            onChange={(e) => setCustomServiceInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); addService(customServiceInput); setCustomServiceInput(""); }
-            }}
-            placeholder="Add another service"
-            className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={() => { addService(customServiceInput); setCustomServiceInput(""); }}
-            className="btn shrink-0 border border-gray-200 rounded-xl px-5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            Add
-          </button>
-        </div>
-      </div>
-
-      {/* Agent voice */}
-      {showVoice ? (
-        <div className="mt-7">
-          <span className="block text-sm font-medium text-slate-700 mb-2">Agent voice</span>
-          <p className="text-xs text-slate-400 mb-3 font-semibold">Pick the voice your customers will hear on every call.</p>
-          <div className="flex gap-2">
-            <select
-              id="voice-select"
-              data-testid="business-setup-voice-select"
-              value={voiceChoice}
-              onChange={(e) => {
-                onVoiceChoice(normalizeVoiceChoice(e.target.value));
-                onCustomVoiceId("");
-              }}
-              className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-slate-900 focus:outline-none"
-            >
-              {VOICE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              id="voice-play"
-              data-testid="business-setup-voice-play"
-              onClick={handleVoicePlay}
-              aria-label="Listen to voice sample"
-              className={`shrink-0 w-12 rounded-xl border border-gray-200 text-slate-600 grid place-items-center hover:bg-slate-50 transition-colors ${voicePlaying ? "bg-amber-50 border-amber-300" : ""}`}
-            >
-              {voicePlaying ? (
-                <span className="inline-flex items-end gap-[2px] h-3">
-                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0s" }} />
-                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "12px", animationDelay: "0.15s" }} />
-                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0.3s" }} />
-                </span>
-              ) : (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5.14v13.72a.5.5 0 0 0 .77.42l10.7-6.86a.5.5 0 0 0 0-.84L8.77 4.72a.5.5 0 0 0-.77.42z" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Agent name */}
-      {showVoice ? (
-        <div className="mt-7">
-          <label htmlFor="agent-name" className="block text-sm font-medium text-slate-700 mb-2">Name your agent</label>
-          <input
-            id="agent-name"
-            data-testid="business-setup-input-assistant-name"
-            type="text"
-            value={assistantName}
-            onChange={(e) => onAssistantName(e.target.value)}
-            placeholder={DEFAULT_ASSISTANT_NAME}
-            className={FIELD}
-          />
-          <p className="text-xs text-slate-400 mt-2 font-semibold">
-            Example: &ldquo;Hello, this is{" "}
-            <span className="font-semibold text-slate-600">{assistantName.trim() || DEFAULT_ASSISTANT_NAME}</span>{" "}
-            from{" "}
-            <span className="font-semibold text-slate-600">{businessName.trim() || "your business"}</span>. How can I help today?&rdquo;
-          </p>
-        </div>
-      ) : null}
-
-      {/* Knowledge */}
-      <div className="mt-7">
-        <span className="block text-sm font-medium text-slate-700">Knowledge</span>
-        <p className="text-xs text-slate-400 mt-1 mb-3 font-semibold">Provide the documents you want your AI agent to use, and what it needs to know.</p>
-
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-slate-700">
-            FAQs <span className="text-slate-400 font-normal">(optional)</span>
-          </span>
-          <button
-            type="button"
-            data-testid="business-setup-faq-add"
-            onClick={() => onFaqs([...faqs, { question: "", answer: "" }])}
-            className="text-sm font-semibold text-amber-600 hover:text-amber-700 inline-flex items-center gap-1"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Add FAQ
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {faqs.map((faq, index) => (
-            <div key={index} className="border border-gray-200 rounded-xl p-4 flex gap-3" data-testid="business-setup-faq-row">
-              <div className="flex-1 space-y-2">
-                <input
-                  type="text"
-                  value={faq.question}
-                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))}
-                  className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none"
-                  placeholder="Question, e.g. Do you accept insurance?"
-                />
-                <textarea
-                  rows={2}
-                  value={faq.answer}
-                  onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))}
-                  className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none resize-none"
-                  placeholder="Answer the agent should give"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => onFaqs(faqs.filter((_, i) => i !== index))}
-                className="text-slate-400 hover:text-red-500 shrink-0 self-start mt-1"
-                aria-label="Remove FAQ"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* File upload dropzone — always visible */}
-        <label
-          htmlFor="file-input"
-          className="dropzone rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-2.5 mt-4 border-2 border-dashed border-gray-200 cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-colors"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-slate-400">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
-          <span className="text-sm text-slate-600">
-            <span className="font-semibold text-amber-600">Click to upload</span> or drag and drop documents
-          </span>
-          <span className="text-xs text-slate-400 font-semibold">PDF, DOC, or TXT · up to 10 MB each · multiple allowed</span>
-          <input
-            ref={fileInputRef}
-            id="file-input"
-            type="file"
-            accept=".pdf,.doc,.docx,.txt"
-            multiple
-            className="sr-only"
-            onChange={handleFileChange}
-          />
-        </label>
-
-        {/* Uploaded files list */}
-        {uploadedFiles.length > 0 ? (
-          <div className="mt-3 space-y-2" data-testid="business-setup-uploaded-files">
-            {uploadedFiles.map((file, idx) => (
-              <div
-                key={`${file.name}-${idx}`}
-                className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 group transition-colors hover:border-slate-200"
-                data-testid="business-setup-file-chip"
-              >
-                <span className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                  <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveFile(idx)}
-                  className="text-slate-300 hover:text-red-500 shrink-0 transition-colors"
-                  aria-label={`Remove ${file.name}`}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Availability */}
-      <div className="mt-7" data-testid="business-setup-hours">
-        <span className="block text-sm font-medium text-slate-700 mb-2">When should the agent respond?</span>
-        <div className="space-y-3">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={hoursMode === "247"}
-            data-testid="business-setup-hours-247"
-            onClick={() => onHoursMode("247")}
-            className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left ${hoursMode === "247" ? "selected" : "border-gray-200 bg-white"}`}
-          >
-            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-              hoursMode === "247" ? "border-amber-500" : "border-slate-300"
-            }`}>
-              {hoursMode === "247" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
-            </span>
-            <span className="flex-1">
-              <span className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-slate-800">24/7 — always respond</span>
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">Recommended</span>
-              </span>
-              <span className="text-sm text-slate-500 block mt-0.5">Never miss a call, even after hours or on weekends.</span>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            role="radio"
-            aria-checked={hoursMode === "custom"}
-            data-testid="business-setup-hours-custom"
-            onClick={() => onHoursMode("custom")}
-            className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left ${hoursMode === "custom" ? "selected" : "border-gray-200 bg-white"}`}
-          >
-            <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-              hoursMode === "custom" ? "border-amber-500" : "border-slate-300"
-            }`}>
-              {hoursMode === "custom" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
-            </span>
-            <span className="flex-1">
-              <span className="font-semibold text-slate-800 block">Business hours only</span>
-              <span className="text-sm text-slate-500 block mt-0.5">Respond during the days and hours you choose.</span>
-            </span>
-          </button>
-
-          {hoursMode === "custom" ? (
-            <div className="rounded-xl border border-gray-100 bg-slate-50 p-4" data-testid="business-setup-hours-editor">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div>
-                  <label htmlFor="hours-start" className="block text-xs font-medium text-slate-500 mb-1">Start</label>
-                  <input
-                    id="hours-start"
-                    data-testid="business-setup-hours-start"
-                    type="time"
-                    value={hoursStart}
-                    onChange={(e) => onHoursStart(e.target.value)}
-                    className="field border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white"
-                  />
-                </div>
-                <span className="text-slate-400 mt-5">→</span>
-                <div>
-                  <label htmlFor="hours-end" className="block text-xs font-medium text-slate-500 mb-1">End</label>
-                  <input
-                    id="hours-end"
-                    data-testid="business-setup-hours-end"
-                    type="time"
-                    value={hoursEnd}
-                    onChange={(e) => onHoursEnd(e.target.value)}
-                    className="field border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white"
-                  />
-                </div>
-              </div>
-              <div className="mt-4">
-                <span className="block text-xs font-medium text-slate-500 mb-2">Active days</span>
-                <div className="flex gap-1.5 flex-wrap">
-                  {HOURS_DAYS.map((entry) => {
-                    const on = Boolean(hoursDays[entry.day]);
-                    return (
-                      <button
-                        key={entry.day}
-                        type="button"
-                        role="checkbox"
-                        aria-checked={on}
-                        aria-label={entry.day}
-                        data-testid={`business-setup-hours-day-${entry.day.toLowerCase()}`}
-                        onClick={() => onToggleDay(entry.day)}
-                        className={`day w-10 h-10 grid place-items-center rounded-lg border text-sm font-semibold transition-colors ${
-                          on ? "border-amber-500 bg-amber-500 text-white" : "border-gray-200 bg-white text-slate-600"
-                        }`}
-                      >
-                        {entry.short}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Agent-specific custom fields */}
-      {setupFields.length > 0 ? (
-        <div className="mt-7 pt-7 border-t border-gray-100" data-testid="business-setup-custom-fields">
-          <h3 className="text-sm font-semibold text-slate-800 mb-1">Agent setup details</h3>
-          <p className="text-xs text-slate-400 mb-3 font-semibold">
-            This agent asks for a few extra details so it can answer callers accurately.
-          </p>
-          {setupInstructions ? (
-            <p
-              className="mb-3 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
-              data-testid="business-setup-buyer-instructions"
-            >
-              {setupInstructions}
-            </p>
-          ) : null}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {setupFields.map((field) => (
-              <BuyerSetupFieldControl
-                key={field.key}
-                field={field}
-                value={customValues.find((item) => item.key === field.key)?.value}
-                onChange={(value) => onCustomField(field.key, field.label, value)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/* ------------------- Architect-defined buyer setup field ------------------- */
-
-/** Wide controls that should span both grid columns. */
-const FULL_WIDTH_FIELD_TYPES = new Set(["textarea", "multiselect"]);
-
-const HTML_INPUT_TYPE_BY_FIELD_TYPE: Record<string, string> = {
-  phone: "tel",
-  email: "email",
-  url: "url",
-  number: "number",
-  date: "date",
-  time: "time"
-};
-
-function BuyerSetupFieldControl({
-  field,
-  value,
-  onChange
-}: {
-  field: BuyerSetupFieldDef;
-  value: string | string[] | boolean | undefined;
-  onChange: (value: string | string[] | boolean) => void;
-}) {
-  const inputId = `custom-field-${field.key}`;
-  const testId = `business-setup-custom-field-${field.key}`;
-  const options = (field.options ?? []).filter((option) => option.trim());
-
-  const inlineIssue =
-    value !== undefined && !isBuyerAnswerEmpty(value)
-      ? validateBuyerSetupAnswers([field], [{ key: field.key, label: field.label, value }], {
-        requireMissing: false
-      })[0]
-      : undefined;
-
-  const textValue = typeof value === "string" ? value : "";
-  const selectedOptions = Array.isArray(value)
-    ? value
-    : typeof value === "string" && value
-      ? value.split(",").map((item) => item.trim()).filter(Boolean)
-      : [];
-  const booleanValue = value === true || (typeof value === "string" && /^(yes|true)$/i.test(value));
-
-  let control: ReactNode;
-
-  if (field.type === "textarea") {
-    control = (
-      <textarea
-        data-testid={testId}
-        id={inputId}
-        value={textValue}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        className={FIELD}
-      />
-    );
-  } else if (field.type === "select") {
-    control = (
-      <select
-        data-testid={testId}
-        id={inputId}
-        value={textValue}
-        onChange={(e) => onChange(e.target.value)}
-        className={FIELD}
-      >
-        <option value="">{field.placeholder || "Select an option…"}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    );
-  } else if (field.type === "multiselect") {
-    control = (
-      <div data-testid={testId} className="mt-1 flex flex-wrap gap-2">
-        {options.map((option, optionIndex) => {
-          const checked = selectedOptions.includes(option);
-          return (
-            <label
-              key={option}
-              className={`pick flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${checked ? "selected border-amber-400" : "border-gray-200"
-                }`}
-            >
-              <input
-                type="checkbox"
-                data-testid={`${testId}-option-${optionIndex}`}
-                checked={checked}
-                onChange={(e) =>
-                  onChange(
-                    e.target.checked
-                      ? [...selectedOptions, option]
-                      : selectedOptions.filter((item) => item !== option)
-                  )
-                }
-                className="h-3.5 w-3.5 accent-amber-500"
-              />
-              <span className="font-medium text-slate-700">{option}</span>
-            </label>
-          );
-        })}
-      </div>
-    );
-  } else if (field.type === "boolean") {
-    control = (
-      <label className="mt-1 flex cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-700">
-        <input
-          type="checkbox"
-          data-testid={testId}
-          id={inputId}
-          checked={booleanValue}
-          onChange={(e) => onChange(e.target.checked)}
-          className="h-4 w-4 accent-amber-500"
-        />
-        Yes
-      </label>
-    );
-  } else {
-    control = (
-      <input
-        data-testid={testId}
-        id={inputId}
-        type={HTML_INPUT_TYPE_BY_FIELD_TYPE[field.type] ?? "text"}
-        value={textValue}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className={FIELD}
-      />
-    );
-  }
-
-  return (
-    <div className={FULL_WIDTH_FIELD_TYPES.has(field.type) ? "sm:col-span-2" : undefined}>
-      <label className={LABEL} htmlFor={inputId}>
-        {field.label} {field.required ? "" : "optional"}
-      </label>
-      {control}
-      {field.helper ? <p className="mt-1 text-xs text-slate-400">{field.helper}</p> : null}
-      {inlineIssue ? (
-        <p className="mt-1 text-xs text-red-500" data-testid={`business-setup-custom-field-error-${field.key}`}>
-          {inlineIssue.message}
-        </p>
       ) : null}
     </div>
   );
@@ -2527,7 +2116,6 @@ function StepConnect({
   onConnectCalendar,
   onDisconnectCalendar,
   onCalendarId,
-  onTimeZone,
   businessName,
   onMailAliasChange,
 
@@ -2565,7 +2153,6 @@ function StepConnect({
   onConnectCalendar: () => void;
   onDisconnectCalendar: () => void;
   onCalendarId: (v: string) => void;
-  onTimeZone: (v: string) => void;
 
   existingPhoneNumber: string;
   onExistingPhoneNumberChange: (v: string) => void;
@@ -2576,10 +2163,8 @@ function StepConnect({
   const [countryFlag, setCountryFlag] = useState("🇺🇸");
   const [countryCode, setCountryCode] = useState("+1");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
-  const [changingNumber, setChangingNumber] = useState(false);
 
   const routingMode = answeringMode === "AI_FIRST" ? "direct" : "forward";
-  const timezoneMissing = Boolean(timeZone) && !ALL_ZONES.includes(timeZone);
 
   const phoneValid = existingPhoneNumber.replace(/\D/g, "").length === 10;
 
@@ -2611,54 +2196,38 @@ function StepConnect({
           verification, or any other setup section. */}
       {showPhone && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-number-card">
-          {assignedNumber && !changingNumber ? (
+          {assignedNumber ? (
             <div className="flex items-start justify-between gap-3.5">
               <div className="flex items-start gap-3.5">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
                 </svg>
                 <div>
-                  <p className="text-sm font-semibold text-slate-500">Your Triven AI number</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-500">Your Triven AI number</p>
+                    <span
+                      className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-green-700"
+                      data-testid="business-setup-assigned-number-status"
+                    >
+                      Active
+                    </span>
+                  </div>
                   <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Included with your Triven AI setup. To replace this number, contact Triven support.
+                  </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setChangingNumber(true)}
-                data-testid="business-setup-phone-change-number"
-                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-amber-300"
-              >
-                Change number
-              </button>
             </div>
           ) : (
-            <>
-              {assignedNumber ? (
-                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
-                  <p className="text-sm text-slate-700">
-                    Your current number <span className="font-mono font-bold">{assignedNumber}</span> stays active until the replacement is purchased and configured.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setChangingNumber(false)}
-                    data-testid="business-setup-phone-change-cancel"
-                    className="text-xs font-bold text-slate-500 hover:text-slate-700 underline shrink-0"
-                  >
-                    Keep current number
-                  </button>
-                </div>
-              ) : null}
-              <PhoneNumberSelectionSection
-                installedAgentId={installedAgentIdForPhone}
-                listingId={listingId}
-                forwardToPhone={routingMode === "forward" ? existingPhoneNumber : ""}
-                replaceExisting={Boolean(assignedNumber)}
-                onProvisioned={(phoneNumber) => {
-                  setChangingNumber(false);
-                  onNumberProvisioned(phoneNumber);
-                }}
-              />
-            </>
+            <PhoneNumberSelectionSection
+              installedAgentId={installedAgentIdForPhone}
+              listingId={listingId}
+              forwardToPhone={routingMode === "forward" ? existingPhoneNumber : ""}
+              onProvisioned={(phoneNumber) => {
+                onNumberProvisioned(phoneNumber);
+              }}
+            />
           )}
         </div>
       )}
@@ -2673,15 +2242,13 @@ function StepConnect({
               <button
                 type="button"
                 onClick={() => onAnsweringMode("AI_FIRST")}
-                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
-                  answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-                }`}
+                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${answeringMode === "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                  }`}
                 style={answeringMode === "AI_FIRST" ? { boxShadow: "none" } : undefined}
                 data-testid="business-setup-routing-direct"
               >
-                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                  answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-                }`}>
+                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${answeringMode === "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                  }`}>
                   {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                 </span>
                 <span className="flex-1">
@@ -2695,15 +2262,13 @@ function StepConnect({
               <button
                 type="button"
                 onClick={() => onAnsweringMode("NO_ANSWER")}
-                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${
-                  answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
-                }`}
+                className={`pick w-full text-left rounded-xl border p-4 flex items-start gap-3 focus:outline-none ${answeringMode !== "AI_FIRST" ? "selected" : "border-gray-200 bg-white"
+                  }`}
                 style={answeringMode !== "AI_FIRST" ? { boxShadow: "none" } : undefined}
                 data-testid="business-setup-routing-forward"
               >
-                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${
-                  answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
-                }`}>
+                <span className={`mt-0.5 w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${answeringMode !== "AI_FIRST" ? "border-amber-500" : "border-slate-300"
+                  }`}>
                   {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                 </span>
                 <span className="flex-1">
@@ -2738,7 +2303,7 @@ function StepConnect({
                     <span className="text-lg leading-none">{countryFlag}</span>
                     <span className="text-slate-700">{countryCode}</span>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-slate-400">
-                      <polyline points="6 9 12 15 18 9"/>
+                      <polyline points="6 9 12 15 18 9" />
                     </svg>
                   </button>
                   {countryMenuOpen && (
@@ -2775,7 +2340,7 @@ function StepConnect({
                 {/* Check icon */}
                 <span className="phone-check absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true" style={{ opacity: phoneValid ? 1 : 0, transform: phoneValid ? "scale(1)" : "scale(0.6)" }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <polyline points="20 6 9 17 4 12"/>
+                    <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </span>
               </div>
@@ -2806,6 +2371,55 @@ function StepConnect({
               <p className="mt-2 text-xs text-slate-400 font-semibold">
                 Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
               </p>
+
+              {/* How to actually turn on carrier forwarding — the buyer does
+                  this on their own phone/provider; without it, forwarded
+                  answering modes never reach the AI. */}
+              <div
+                className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-4"
+                data-testid="business-setup-forwarding-steps"
+              >
+                <p className="text-sm font-semibold text-slate-800">
+                  Set up call forwarding to your Triven AI number
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Your carrier forwards calls it can&apos;t complete to{" "}
+                  <span className="font-mono font-bold text-slate-700">{assignedNumber || "your Triven AI number"}</span>. Do this once from the phone that uses your existing business number:
+                </p>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs text-slate-600">
+                  <li>
+                    Dial the conditional-forwarding code for your carrier
+                    {assignedNumber ? (
+                      <>
+                        {" "}with your Triven number <span className="font-mono font-semibold">{assignedNumber.replace(/[^\d+]/g, "")}</span>:
+                      </>
+                    ) : (
+                      " with your Triven number (assigned in the step above):"
+                    )}
+                    <ul className="mt-1.5 list-disc space-y-1 pl-4 text-slate-500">
+                      <li>
+                        <span className="font-semibold text-slate-600">AT&amp;T, T-Mobile &amp; most GSM carriers:</span>{" "}
+                        <span className="font-mono">**61*number#</span> (no answer) · <span className="font-mono">**67*number#</span> (busy) · <span className="font-mono">**62*number#</span> (unreachable)
+                      </li>
+                      <li>
+                        <span className="font-semibold text-slate-600">Verizon &amp; many US carriers:</span>{" "}
+                        <span className="font-mono">*71number</span> (busy / no answer)
+                      </li>
+                      <li>
+                        <span className="font-semibold text-slate-600">Landline / VoIP:</span> turn on &ldquo;no-answer call forwarding&rdquo; to your Triven number in your provider&apos;s portal or app.
+                      </li>
+                    </ul>
+                  </li>
+                  <li>Wait for your carrier&apos;s confirmation tone or message — that means forwarding is active.</li>
+                  <li>
+                    Try it: call your business number from another phone and let it ring. Your AI agent should answer. The Test step&apos;s{" "}
+                    <span className="font-semibold text-slate-700">Test call routing</span> check verifies this too.
+                  </li>
+                </ol>
+                <p className="mt-3 text-[11px] text-slate-400">
+                  To turn forwarding off later: <span className="font-mono">##61#</span> / <span className="font-mono">##67#</span> / <span className="font-mono">##62#</span> (GSM) or <span className="font-mono">*73</span> (Verizon). Codes vary by carrier and country — if none work, ask your carrier to enable &ldquo;conditional call forwarding&rdquo; to your Triven number.
+                </p>
+              </div>
             </div>
           ) : null}
         </div>
@@ -2816,16 +2430,15 @@ function StepConnect({
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
-          <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${
-            calendar.connected 
-              ? "border-green-100 bg-green-50/30" 
+          <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${calendar.connected
+              ? "border-green-100 bg-green-50/30"
               : "border-gray-100 bg-slate-50"
-          }`}>
+            }`}>
             <div className="flex items-center gap-3">
               {/* Google Calendar Icon */}
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm-5-8h-4v4h4v-4z"/>
+                  <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm-5-8h-4v4h4v-4z" />
                 </svg>
               </div>
 
@@ -2834,8 +2447,8 @@ function StepConnect({
                   {calendar.connected ? "Google Calendar connected" : "Google Calendar"}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {calendar.connected 
-                    ? `Connected as ${calendar.email || "your account"}` 
+                  {calendar.connected
+                    ? `Connected as ${calendar.email || "your account"}`
                     : "Not connected. Connect so the agent can book appointments."}
                 </p>
               </div>
@@ -2863,30 +2476,21 @@ function StepConnect({
           </div>
 
           <div className="mt-4">
-            <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="timezone">
-              Business timezone
-            </label>
+            <span className="mb-1.5 block text-sm font-semibold text-slate-700">Business timezone</span>
 
-            <select
-              id="timezone"
-              value={timeZone}
-              onChange={(e) => onTimeZone(e.target.value)}
-              className="field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 focus:outline-none"
+            {/* Read-only: ONE authoritative timezone, edited in the Business
+                Hours section of the Configure step. */}
+            <p
+              className="rounded-xl border border-gray-100 bg-slate-50 px-5 py-4 text-base font-semibold text-slate-800"
+              data-testid="business-setup-timezone-summary"
             >
-              {timezoneMissing ? <option value={timeZone}>{timeZone}</option> : null}
+              {timeZone.trim() || "Set automatically from your browser"}
+            </p>
 
-              {TIMEZONE_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.zones.map((zone) => (
-                    <option key={zone} value={zone}>
-                      {zone}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-
-            <p className="mt-2 text-xs text-slate-400 font-semibold">All availability, bookings, and call times use this timezone.</p>
+            <p className="mt-2 text-xs text-slate-400 font-semibold">
+              All availability, bookings, and call times use this timezone. Change it in Configure →
+              Hours &amp; Availability → Business Hours.
+            </p>
           </div>
         </div>
       ) : null}
@@ -3184,253 +2788,6 @@ function MailSetupSection({
   );
 }
 
-/* ----------------- Configure step: email recipients card ----------------- */
-
-function EmailRecipientsSection({
-  recipientType,
-  customRecipient,
-  cc,
-  bcc,
-  onRecipientType,
-  onCustomRecipient,
-  onCc,
-  onBcc
-}: {
-  recipientType: "customer" | "team" | "custom";
-  customRecipient: string;
-  cc: string;
-  bcc: string;
-  onRecipientType: (value: "customer" | "team" | "custom") => void;
-  onCustomRecipient: (value: string) => void;
-  onCc: (value: string) => void;
-  onBcc: (value: string) => void;
-}) {
-  return (
-    <div className={CARD} data-testid="business-setup-email-recipients">
-      <h2 className={H2}>Email recipients</h2>
-      <p className={SUB}>
-        Choose who receives the emails this agent sends — confirmations, follow-ups, and notifications. The email
-        content comes from the agent; you control the recipients.
-      </p>
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={LABEL} htmlFor="email-recipient-type">
-            Send To
-          </label>
-          <select
-            data-testid="business-setup-email-recipient-type"
-            id="email-recipient-type"
-            value={recipientType}
-            onChange={(e) => onRecipientType(e.target.value as "customer" | "team" | "custom")}
-            className={FIELD}
-          >
-            <option value="customer">Customer (email collected during the call)</option>
-            <option value="team">My team (Mail Setup forward-to address)</option>
-            <option value="custom">A specific email address</option>
-          </select>
-        </div>
-
-        {recipientType === "custom" ? (
-          <div>
-            <label className={LABEL} htmlFor="email-recipient-custom">
-              Recipient email
-            </label>
-            <input
-              data-testid="business-setup-email-recipient-custom"
-              id="email-recipient-custom"
-              type="email"
-              value={customRecipient}
-              onChange={(e) => onCustomRecipient(e.target.value)}
-              placeholder="frontdesk@yourbusiness.com"
-              className={FIELD}
-            />
-          </div>
-        ) : null}
-
-        <div>
-          <label className={LABEL} htmlFor="email-recipients-cc">
-            CC
-          </label>
-          <input
-            data-testid="business-setup-email-recipients-cc"
-            id="email-recipients-cc"
-            value={cc}
-            onChange={(e) => onCc(e.target.value)}
-            placeholder="comma-separated emails (optional)"
-            className={FIELD}
-          />
-        </div>
-
-        <div>
-          <label className={LABEL} htmlFor="email-recipients-bcc">
-            BCC
-          </label>
-          <input
-            data-testid="business-setup-email-recipients-bcc"
-            id="email-recipients-bcc"
-            value={bcc}
-            onChange={(e) => onBcc(e.target.value)}
-            placeholder="comma-separated emails (optional)"
-            className={FIELD}
-          />
-        </div>
-      </div>
-
-      <p className="mt-3 text-xs text-slate-400" data-testid="business-setup-email-recipients-note">
-        CC/BCC addresses are validated and deduplicated at send time. BCC recipients are never shown to others.
-      </p>
-    </div>
-  );
-}
-
-/* --------------------- Configure step: voice card --------------------- */
-
-function StepVoice({
-  title,
-  showVoice,
-  customInstructions,
-  silenceRepromptCount,
-  silenceMessage1,
-  silenceMessage2,
-  goodbyeMessage,
-  onCustomInstructions,
-  onSilenceCount,
-  onSilence1,
-  onSilence2,
-  onGoodbye
-}: {
-  title: string;
-  showVoice: boolean;
-  customInstructions: string;
-  silenceRepromptCount: number;
-  silenceMessage1: string;
-  silenceMessage2: string;
-  goodbyeMessage: string;
-  onCustomInstructions: (v: string) => void;
-  onSilenceCount: (v: number) => void;
-  onSilence1: (v: string) => void;
-  onSilence2: (v: string) => void;
-  onGoodbye: (v: string) => void;
-}) {
-  return (
-    <div className={CARD}>
-      <h2 className={H2}>{title}</h2>
-      <p className={SUB}>
-        {showVoice
-          ? "Choose the AI name, voice, and call behavior your customers will hear."
-          : "Tell the AI how to handle conversations for your business."}
-      </p>
-
-      <div className={SECTION} data-testid="business-setup-instructions">
-        <h3 className={SECTION_TITLE}>Custom instructions</h3>
-        <p className="mt-0.5 text-sm text-slate-500">Tell the AI how to handle calls. Merged into the agent’s system prompt at deploy.</p>
-
-        <div className="mt-3 flex flex-wrap gap-2" data-testid="business-setup-instruction-chips">
-          {CUSTOM_INSTRUCTION_SUGGESTIONS.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              data-testid={`business-setup-instruction-chip-${suggestion.toLowerCase().replace(/[^a-z]+/g, "-")}`}
-              onClick={() => {
-                if (customInstructions.includes(suggestion)) return;
-
-                const trimmed = customInstructions.trim();
-
-                onCustomInstructions(trimmed ? `${trimmed}\n- ${suggestion}` : `- ${suggestion}`);
-              }}
-              className="btn rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-amber-300 hover:bg-amber-50"
-            >
-              + {suggestion}
-            </button>
-          ))}
-        </div>
-
-        <textarea
-          data-testid="business-setup-input-instructions"
-          value={customInstructions}
-          onChange={(e) => onCustomInstructions(e.target.value)}
-          rows={6}
-          placeholder="e.g. Always greet by business name. Confirm date and time before booking."
-          className={`${FIELD} mt-3`}
-        />
-      </div>
-
-      {showVoice ? (
-      <div className={SECTION} data-testid="business-setup-silence">
-        <h3 className={SECTION_TITLE}>Silence &amp; no-answer handling</h3>
-        <p className="mt-0.5 text-sm text-slate-500">If the caller goes quiet, the AI re-prompts warmly, then ends the call politely.</p>
-
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className={LABEL} htmlFor="silence-count">
-              Re-prompt attempts
-            </label>
-
-            <select
-              data-testid="business-setup-input-silence-count"
-              id="silence-count"
-              value={String(silenceRepromptCount)}
-              onChange={(e) => onSilenceCount(Number(e.target.value))}
-              className={FIELD}
-            >
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <label className={LABEL} htmlFor="silence-1">
-            1st silence re-prompt
-          </label>
-
-          <input
-            data-testid="business-setup-input-silence1"
-            id="silence-1"
-            value={silenceMessage1}
-            onChange={(e) => onSilence1(e.target.value)}
-            placeholder={DEFAULT_SILENCE.reprompt1}
-            className={FIELD}
-          />
-        </div>
-
-        <div className="mt-4">
-          <label className={LABEL} htmlFor="silence-2">
-            2nd silence re-prompt
-          </label>
-
-          <input
-            data-testid="business-setup-input-silence2"
-            id="silence-2"
-            value={silenceMessage2}
-            onChange={(e) => onSilence2(e.target.value)}
-            placeholder={DEFAULT_SILENCE.reprompt2}
-            className={FIELD}
-          />
-        </div>
-
-        <div className="mt-4">
-          <label className={LABEL} htmlFor="goodbye">
-            Goodbye message
-          </label>
-
-          <input
-            data-testid="business-setup-input-goodbye"
-            id="goodbye"
-            value={goodbyeMessage}
-            onChange={(e) => onGoodbye(e.target.value)}
-            placeholder={DEFAULT_SILENCE.goodbye}
-            className={FIELD}
-          />
-        </div>
-      </div>
-      ) : null}
-    </div>
-  );
-}
-
 /* ---------------------- Preview call (Test step) ---------------------- */
 
 type PreviewVapiEventName = "call-start" | "call-end" | "speech-start" | "speech-end" | "error" | "message";
@@ -3438,6 +2795,8 @@ type PreviewVapiEventName = "call-start" | "call-end" | "speech-start" | "speech
 type PreviewVapiClient = {
   start: (assistantId: string, overrides?: Record<string, unknown>) => Promise<unknown>;
   stop: () => void;
+  setMuted?: (muted: boolean) => void;
+  isMuted?: () => boolean;
   on: (event: PreviewVapiEventName, listener: (payload?: unknown) => void) => unknown;
   off?: (event: PreviewVapiEventName, listener: (payload?: unknown) => void) => unknown;
   removeAllListeners?: (event?: PreviewVapiEventName) => unknown;
@@ -3485,6 +2844,8 @@ function PreviewCallSection() {
   const [error, setError] = useState("");
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [micMuted, setMicMuted] = useState(false);
   const [transcript, setTranscript] = useState<PreviewTranscriptEntry[]>([]);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
 
@@ -3526,7 +2887,34 @@ function PreviewCallSection() {
     }
 
     setAgentSpeaking(false);
+    setMicMuted(false);
     setState("ended");
+  }
+
+  /** Clears this section's local transcript/error state back to a fresh test. */
+  function resetPreview() {
+    if (state === "starting" || state === "live") return;
+    setTranscript([]);
+    setError("");
+    setSecondsLeft(0);
+    setElapsedSeconds(0);
+    setMicMuted(false);
+    setSession(null);
+    setState("idle");
+  }
+
+  function toggleMute() {
+    const client = clientRef.current;
+    if (!client?.setMuted || state !== "live") return;
+
+    const next = !(client.isMuted?.() ?? micMuted);
+
+    try {
+      client.setMuted(next);
+      setMicMuted(next);
+    } catch {
+      // mute is best-effort — the call keeps going either way
+    }
   }
 
   async function startPreview() {
@@ -3535,6 +2923,8 @@ function PreviewCallSection() {
     startInFlightRef.current = true;
     setError("");
     setTranscript([]);
+    setElapsedSeconds(0);
+    setMicMuted(false);
     setState("starting");
 
     try {
@@ -3555,8 +2945,16 @@ function PreviewCallSection() {
       const onCallStart = () => {
         setState("live");
         setSecondsLeft(nextSession.maxDurationSeconds);
+        setElapsedSeconds(0);
+        setMicMuted(false);
+        try {
+          clientRef.current?.setMuted?.(false);
+        } catch {
+          // best-effort — a fresh call starts unmuted anyway
+        }
         stopTimer();
         timerRef.current = setInterval(() => {
+          setElapsedSeconds((current) => current + 1);
           setSecondsLeft((current) => {
             if (current <= 1) {
               endPreview();
@@ -3630,61 +3028,100 @@ function PreviewCallSection() {
         <div>
           <h3 className={SECTION_TITLE}>Talk to your agent</h3>
           <p className="mt-0.5 text-sm text-slate-500">
-            A live browser preview — it answers with your business details, FAQs, and voice, exactly like the live
-            agent. Booking and texting are disabled during preview.
+            A live browser call — it answers with your business details, FAQs, and voice, exactly like the live agent.
+            If your workflow includes booking, it can create a clearly-marked test event on your calendar during this
+            call. SMS and email stay disabled.
           </p>
         </div>
 
         {state === "live" ? (
-          <span className="shrink-0 font-mono text-sm font-bold text-slate-700" data-testid="business-setup-preview-timer">
-            {formatSeconds(secondsLeft)}
+          <span className="shrink-0 text-right">
+            <span className="block font-mono text-sm font-bold text-slate-700" data-testid="business-setup-preview-timer">
+              {formatSeconds(secondsLeft)}
+            </span>
+            <span className="block font-mono text-[11px] font-semibold text-slate-400" data-testid="business-test-call-duration">
+              {formatSeconds(elapsedSeconds)} elapsed
+            </span>
+          </span>
+        ) : state === "ended" && elapsedSeconds > 0 ? (
+          <span className="shrink-0 font-mono text-[11px] font-semibold text-slate-400" data-testid="business-test-call-duration">
+            Call length {formatSeconds(elapsedSeconds)}
           </span>
         ) : null}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {state === "live" ? (
-          <button
-            type="button"
-            data-testid="business-setup-preview-end"
-            onClick={() => endPreview()}
-            className="btn rounded-full bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
-          >
-            End call
-          </button>
+          <>
+            <button
+              type="button"
+              data-testid="business-setup-preview-end"
+              onClick={() => endPreview()}
+              className="btn rounded-full bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
+            >
+              End call
+            </button>
+
+            <button
+              type="button"
+              data-testid="business-test-call-mute"
+              aria-pressed={micMuted}
+              onClick={toggleMute}
+              className={`btn rounded-full border px-4 py-2.5 text-sm font-bold ${micMuted
+                  ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  : "border-gray-200 bg-white text-slate-700 hover:border-amber-300"
+                }`}
+            >
+              {micMuted ? "Unmute mic" : "Mute mic"}
+            </button>
+          </>
         ) : (
-          <button
-            type="button"
-            data-testid="business-setup-preview-start"
-            disabled={state === "starting"}
-            onClick={() => void startPreview()}
-            className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-          >
-            {state === "starting" ? "Connecting…" : state === "ended" ? "Call again" : "Start preview call"}
-          </button>
+          <>
+            <button
+              type="button"
+              data-testid="business-setup-preview-start"
+              disabled={state === "starting"}
+              onClick={() => void startPreview()}
+              className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
+            >
+              {state === "starting" ? "Connecting…" : state === "ended" ? "Call again" : "Start test call"}
+            </button>
+
+            {state === "ended" || transcript.length > 0 || error ? (
+              <button
+                type="button"
+                data-testid="business-test-call-reset"
+                disabled={state === "starting"}
+                onClick={resetPreview}
+                className="btn rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
+              >
+                Reset test
+              </button>
+            ) : null}
+          </>
         )}
 
         <span
           data-testid="business-setup-preview-status"
-          className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
-            state === "live" ? (agentSpeaking ? "text-violet-600" : "text-green-600") : "text-slate-400"
-          }`}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold ${state === "live" ? (agentSpeaking ? "text-violet-600" : "text-green-600") : "text-slate-400"
+            }`}
         >
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              state === "live"
+            className={`h-1.5 w-1.5 rounded-full ${state === "live"
                 ? agentSpeaking
                   ? "bg-violet-500"
                   : "bg-green-500"
                 : state === "starting"
                   ? "bg-amber-400"
                   : "bg-slate-300"
-            }`}
+              }`}
           />
           {state === "live"
             ? agentSpeaking
               ? "Agent speaking…"
-              : "Listening — just talk"
+              : micMuted
+                ? "Mic muted — the agent can't hear you"
+                : "Listening — just talk"
             : state === "starting"
               ? "Connecting…"
               : state === "ended"
@@ -3888,12 +3325,15 @@ function MissedCallSimulationSection({
   businessName,
   tone,
   answeringMode,
-  listing
+  listing,
+  onOutcome
 }: {
   businessName: string;
   tone: string;
   answeringMode: string;
   listing?: any;
+  /** Reports the latest SMS test outcome to the step-level test summary. */
+  onOutcome?: (outcome: "sent" | "simulated" | "failed") => void;
 }) {
   const [phone, setPhone] = useState("");
   const [stage, setStage] = useState<SimulationStage>("idle");
@@ -3965,9 +3405,11 @@ function MissedCallSimulationSection({
       setResult(res.data);
       setSentAt(nowTimeLabel());
       setStage("sent");
+      onOutcome?.(res.data.simulated || res.data.testCredentials ? "simulated" : "sent");
     } else {
       setError(res.error ?? "Could not send the test SMS.");
       setStage("failed");
+      onOutcome?.("failed");
     }
   }
 
@@ -3979,9 +3421,8 @@ function MissedCallSimulationSection({
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-semibold text-slate-700">Live agent feed</span>
         <span
-          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
-            stage === "idle" ? "text-slate-400 bg-slate-50" : badge.text
-          }`}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${stage === "idle" ? "text-slate-400 bg-slate-50" : badge.text
+            }`}
           data-testid="business-setup-simulate-badge"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${badge.dot} ${running ? "animate-pulse" : ""}`} />
@@ -4066,9 +3507,9 @@ function MissedCallSimulationSection({
           </div>
           <p className="mt-3 text-center text-xs text-slate-400" data-testid="business-setup-simulate-result">
             {result.simulated
-              ? "Simulated — no Twilio request was made; nothing was delivered."
+              ? "Simulated — nothing was delivered."
               : result.testCredentials
-                ? "Accepted with Twilio test credentials — nothing was delivered."
+                ? "Accepted in test mode — nothing was delivered."
                 : `Really sent — check ${result.to}.`}
             {result.from ? ` Sender: ${result.from}.` : ""}
           </p>
@@ -4114,6 +3555,7 @@ function MissedCallSimulationSection({
           {stage === "sent" && !testConfirmed && (
             <button
               type="button"
+              data-testid="business-test-sms-received-confirm"
               onClick={() => setTestConfirmed(true)}
               className="btn bg-green-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-green-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
             >
@@ -4160,7 +3602,13 @@ function StepTest({
   listing,
   showCalendarTest = false,
   calendarConnected = false,
-  timeZone = ""
+  timeZone = "",
+  agentName = "",
+  calendarId = "",
+  serviceName = "",
+  apptUseBusinessHours = true,
+  coverageKind = "always",
+  onEditConfigure
 }: {
   showPreview: boolean;
   showCallTest: boolean;
@@ -4176,8 +3624,78 @@ function StepTest({
   showCalendarTest?: boolean;
   calendarConnected?: boolean;
   timeZone?: string;
+  agentName?: string;
+  calendarId?: string;
+  serviceName?: string;
+  apptUseBusinessHours?: boolean;
+  coverageKind?: string;
+  /** Jump back to a Configure section ("hours-availability", …). */
+  onEditConfigure?: (sectionId: string) => void;
 }) {
   const labels = getAnsweringLabels(answeringMode, listing, assignedNumber);
+
+  // Step-level test summary state, fed by the chat test + SMS simulation.
+  const [chatSummary, setChatSummary] = useState<BusinessChatTestResult | null>(null);
+  const [calendarOutcome, setCalendarOutcome] = useState<"created" | "simulated" | "failed" | null>(null);
+  const [smsOutcome, setSmsOutcome] = useState<"sent" | "simulated" | "failed" | null>(null);
+
+  // Knowledge documents the test agent can draw on (uploaded in the Setup step).
+  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
+  // Structured business facts (address) — shown so the buyer knows what the
+  // test agent will state to callers asking where the business is.
+  const [businessFacts, setBusinessFacts] = useState<BusinessFactsData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getBusinessKnowledgeFiles().then((res) => {
+      if (!cancelled && res.success && res.data) setKnowledgeFiles(res.data.files);
+    });
+    void getBusinessFacts().then((res) => {
+      if (!cancelled && res.success && res.data) setBusinessFacts(res.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Only verified-ready files count — a PROCESSED record whose stored knowledge
+  // is missing (ready=false) must not be presented as loaded.
+  const readyKnowledge = knowledgeFiles.filter((file) => file.ready);
+  const knowledgeSectionCount = readyKnowledge.reduce((sum, file) => sum + file.actualChunkCount, 0);
+
+  const handleChatResult = useCallback((result: BusinessChatTestResult) => {
+    setChatSummary(result);
+    if (result.calendarError) {
+      setCalendarOutcome("failed");
+    } else if (result.calendarEvent) {
+      setCalendarOutcome(result.calendarEvent.status === "CREATED" ? "created" : "simulated");
+    }
+  }, []);
+
+  const summaryNodes = chatSummary?.executedNodes ?? [];
+  const nodeCounts = {
+    completed: summaryNodes.filter((node) => node.status === "success").length,
+    skipped: summaryNodes.filter((node) => node.status === "skipped").length,
+    failed: summaryNodes.filter((node) => node.status === "error").length
+  };
+
+  const calendarSummary =
+    calendarOutcome === "created"
+      ? { label: "Created", pill: "bg-green-100 text-green-700" }
+      : calendarOutcome === "simulated"
+        ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
+        : calendarOutcome === "failed"
+          ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+          : { label: "Not tested", pill: "bg-slate-100 text-slate-500" };
+
+  const smsSummary =
+    smsOutcome === "sent"
+      ? { label: "Sent", pill: "bg-green-100 text-green-700" }
+      : smsOutcome === "simulated"
+        ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
+        : smsOutcome === "failed"
+          ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+          : { label: "Not tested", pill: "bg-slate-100 text-slate-500" };
 
   return (
     <div className="space-y-6">
@@ -4199,6 +3717,116 @@ function StepTest({
         </svg>
         ~60 seconds
       </span>
+
+      {/* Test details — what this test run is wired to. Rows render only when
+          the setup actually has the data; nothing here is a placeholder. */}
+      <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-5" data-testid="business-test-details">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className={SECTION_TITLE}>Test details</h3>
+          <span
+            className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700"
+            data-testid="business-test-details-mode"
+          >
+            Test Mode
+          </span>
+        </div>
+
+        <dl className="mt-3 space-y-2">
+          {agentName.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-agent">
+              <dt className="shrink-0 text-slate-500">Agent</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{agentName.trim()}</dd>
+            </div>
+          ) : null}
+
+          {timeZone.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-timezone">
+              <dt className="shrink-0 text-slate-500">Business timezone</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
+            </div>
+          ) : null}
+
+          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-appt-source">
+            <dt className="shrink-0 text-slate-500">Appointment Hours</dt>
+            <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+              {apptUseBusinessHours ? "Follow Business Hours" : "Custom Appointment Hours"}
+            </dd>
+          </div>
+
+          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-ai-coverage">
+            <dt className="shrink-0 text-slate-500">AI Call Coverage</dt>
+            <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+              {coverageKind === "always"
+                ? "Answers 24/7"
+                : coverageKind === "business_hours"
+                  ? "During Business Hours"
+                  : "Custom answering schedule"}
+            </dd>
+          </div>
+
+          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-address">
+            <dt className="shrink-0 text-slate-500">Business address</dt>
+            {businessFacts?.addressFormatted ? (
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                {businessFacts.addressFormatted}
+              </dd>
+            ) : (
+              <dd className="min-w-0 truncate text-right text-slate-400">
+                Not configured — add it in the Setup step
+              </dd>
+            )}
+          </div>
+
+          {showCalendarTest && calendarId.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-calendar">
+              <dt className="shrink-0 text-slate-500">Calendar</dt>
+              <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-800">{calendarId.trim()}</dd>
+            </div>
+          ) : null}
+
+          {serviceName.trim() ? (
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-service">
+              <dt className="shrink-0 text-slate-500">Service</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{serviceName.trim()}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <div className="mt-3 text-sm" data-testid="business-test-knowledge-summary">
+          {readyKnowledge.length > 0 ? (
+            <>
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="shrink-0 text-slate-500">Knowledge loaded</span>
+                <span className="min-w-0 text-right font-semibold text-slate-800">
+                  {readyKnowledge.length} document{readyKnowledge.length === 1 ? "" : "s"} ·{" "}
+                  {knowledgeSectionCount} knowledge section{knowledgeSectionCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-400 truncate" data-testid="business-test-knowledge-docs">
+                {readyKnowledge.map((file) => file.filename).join(", ")}
+              </p>
+            </>
+          ) : (
+            <span className="text-slate-400">Knowledge loaded: none — upload documents in the Setup step</span>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-400">
+            Everything on this page runs in Business Test mode — nothing reaches your customers.
+          </p>
+          {onEditConfigure ? (
+            <button
+              type="button"
+              data-testid="business-test-edit-configure"
+              onClick={() => onEditConfigure("hours-availability")}
+              className="text-xs font-semibold text-amber-600 underline hover:text-amber-700"
+            >
+              Edit hours &amp; setup
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       {/* Numbered instructions */}
       {showCallTest ? (
@@ -4234,80 +3862,164 @@ function StepTest({
         </div>
       ) : null}
 
-      {showCallTest ? <MissedCallSimulationSection businessName={businessName} tone={tone} answeringMode={answeringMode} listing={listing} /> : null}
+      {showCallTest ? (
+        <MissedCallSimulationSection
+          businessName={businessName}
+          tone={tone}
+          answeringMode={answeringMode}
+          listing={listing}
+          onOutcome={setSmsOutcome}
+        />
+      ) : null}
 
 
       {showPreview ? <PreviewCallSection /> : null}
 
       {showCalendarTest ? (
-        <BusinessCalendarTestSection calendarConnected={calendarConnected} timeZone={timeZone} />
+        <BusinessCalendarTestSection
+          calendarConnected={calendarConnected}
+          timeZone={timeZone}
+          onResult={handleChatResult}
+        />
       ) : null}
 
       {showCallTest && labels.isVoice ? (
-      <div className={SECTION} data-testid="business-setup-test-routing">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className={SECTION_TITLE}>Test call routing</h3>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Confirm an inbound call to your Triven number will reach this deployed agent.
-            </p>
+        <>
+          {/* Testing summary: the schedule your test conversations answer from. */}
+          <div className={SECTION} data-testid="business-setup-test-hours">
+            <BusinessHoursSummary testIdPrefix="business-setup-test-hours" />
           </div>
 
-          <button
-            type="button"
-            data-testid="business-setup-test-routing-run"
-            disabled={testing}
-            onClick={onTestCallRouting}
-            className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
-          >
-            {testing ? "Testing…" : "Test call routing"}
-          </button>
-        </div>
-
-        {testResult ? (
-          <div className="mt-4">
-            <div
-              className={`rounded-xl px-4 py-3 text-sm font-semibold ${testResult.readyForCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
-                }`}
-              data-testid="business-setup-test-routing-summary"
-            >
-              {testResult.readyForCall
-                ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
-                : "Not ready yet — resolve the failing checks below, then re-test."}
+          <div className={SECTION} data-testid="business-setup-test-routing">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className={SECTION_TITLE}>Test call routing</h3>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Confirm an inbound call to your Triven number will reach this deployed agent.
+              </p>
             </div>
 
-            <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
-              {testResult.checks.map((check) => (
-                <li
-                  key={check.key}
-                  data-testid={`business-setup-test-routing-check-${check.key}`}
-                  className="flex items-center gap-2.5 text-sm"
-                >
-                  <span
-                    className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
-                      }`}
-                  >
-                    {check.ok ? "✓" : "✕"}
-                  </span>
-
-                  <span className="min-w-0">
-                    <span className="block font-semibold text-slate-800">{check.label}</span>
-
-                    {check.message ? (
-                      <span className="block break-all text-xs text-slate-400">{check.message}</span>
-                    ) : null}
-                  </span>
-
-                  <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
-                    {check.ok ? "Pass" : "Fail"}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <button
+              type="button"
+              data-testid="business-setup-test-routing-run"
+              disabled={testing}
+              onClick={onTestCallRouting}
+              className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
+            >
+              {testing ? "Testing…" : "Test call routing"}
+            </button>
           </div>
-        ) : null}
-      </div>
+
+          {testResult ? (
+            <div className="mt-4">
+              <div
+                className={`rounded-xl px-4 py-3 text-sm font-semibold ${testResult.readyForCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
+                  }`}
+                data-testid="business-setup-test-routing-summary"
+              >
+                {testResult.readyForCall
+                  ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
+                  : "Not ready yet — resolve the failing checks below, then re-test."}
+              </div>
+
+              <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
+                {testResult.checks.map((check) => (
+                  <li
+                    key={check.key}
+                    data-testid={`business-setup-test-routing-check-${check.key}`}
+                    className="flex items-center gap-2.5 text-sm"
+                  >
+                    <span
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
+                        }`}
+                    >
+                      {check.ok ? "✓" : "✕"}
+                    </span>
+
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-slate-800">{check.label}</span>
+
+                      {check.message ? (
+                        <span className="block break-all text-xs text-slate-400">{check.message}</span>
+                      ) : null}
+                    </span>
+
+                    <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
+                      {check.ok ? "Pass" : "Fail"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          </div>
+        </>
       ) : null}
+
+      {/* Test summary — a running record of what this step verified. */}
+      <div className={SECTION} data-testid="business-test-summary">
+        <h3 className={SECTION_TITLE}>Test summary</h3>
+        <p className="mt-0.5 text-sm text-slate-500">What you&rsquo;ve verified so far in this test session.</p>
+
+        <dl className="mt-4 space-y-2.5">
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-mode">
+            <dt className="text-slate-500">Execution mode</dt>
+            <dd className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-700">
+              Business test
+            </dd>
+          </div>
+
+          {chatSummary?.testSessionId ? (
+            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-session">
+              <dt className="text-slate-500">Test session</dt>
+              <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-700">
+                {chatSummary.testSessionId}
+              </dd>
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-nodes">
+            <dt className="text-slate-500">Workflow nodes</dt>
+            <dd className="text-right font-semibold text-slate-800">
+              {summaryNodes.length > 0 ? (
+                <>
+                  <span className="text-green-700">{nodeCounts.completed} completed</span>
+                  <span className="text-slate-400"> · </span>
+                  <span className="text-slate-600">{nodeCounts.skipped} skipped</span>
+                  <span className="text-slate-400"> · </span>
+                  <span className={nodeCounts.failed > 0 ? "text-rose-600" : "text-slate-600"}>
+                    {nodeCounts.failed} failed
+                  </span>
+                </>
+              ) : (
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Not tested</span>
+              )}
+            </dd>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-calendar">
+            <dt className="text-slate-500">Calendar booking</dt>
+            <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${calendarSummary.pill}`}>
+              {calendarSummary.label}
+            </dd>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-sms">
+            <dt className="text-slate-500">Text-back SMS</dt>
+            <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${smsSummary.pill}`}>
+              {smsSummary.label}
+            </dd>
+          </div>
+
+          <div
+            className="flex items-center justify-between gap-4 border-t border-slate-100 pt-2.5 text-sm"
+            data-testid="business-test-summary-side-effects"
+          >
+            <dt className="text-slate-500">Production side effects</dt>
+            <dd className="font-semibold text-slate-800">None</dd>
+          </div>
+        </dl>
+      </div>
 
     </div>
   );
@@ -4319,13 +4031,44 @@ function StepGoLive({
   checklist,
   blockers,
   readyToDeploy,
-  assignedNumber
+  assignedNumber,
+  apptNeedsConfirmation,
+  apptUseBusinessHours = true,
+  coverageKind = "always",
+  timeZone = "",
+  calendarConnected = false,
+  onEditConfigure
 }: {
   checklist: ChecklistRow[];
   blockers: string[];
   readyToDeploy: boolean;
   assignedNumber: string | null;
+  /** True when appointment hours are still unconfirmed — non-blocking nudge. */
+  apptNeedsConfirmation: boolean;
+  apptUseBusinessHours?: boolean;
+  coverageKind?: string;
+  timeZone?: string;
+  calendarConnected?: boolean;
+  onEditConfigure?: (sectionId: string) => void;
 }) {
+  // Read-only review data — same sources the Test step shows.
+  const [facts, setFacts] = useState<BusinessFactsData | null>(null);
+  const [readyDocs, setReadyDocs] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getBusinessFacts().then((res) => {
+      if (!cancelled && res.success && res.data) setFacts(res.data);
+    });
+    void getBusinessKnowledgeFiles().then((res) => {
+      if (!cancelled && res.success && res.data) {
+        setReadyDocs(res.data.files.filter((file) => file.ready).length);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   return (
     <div className="space-y-6">
       {/* Icon */}
@@ -4366,6 +4109,87 @@ function StepGoLive({
             All set — you can deploy your live agent.
           </div>
         )}
+
+        {/* Non-blocking nudge: unconfirmed appointment hours (sits just above the deploy button) */}
+        {apptNeedsConfirmation ? (
+          <p
+            className="mt-3 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-700"
+            data-testid="business-setup-appt-golive-note"
+          >
+            Review and confirm your appointment hours in the Configure step so callers are offered the right times.
+          </p>
+        ) : null}
+
+        {/* Go-live review — the exact configuration the live agent will use.
+            Read-only on purpose: the Edit link returns to Configure. */}
+        <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4" data-testid="business-setup-golive-review">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Configuration review</p>
+            {onEditConfigure ? (
+              <button
+                type="button"
+                data-testid="business-setup-golive-edit"
+                onClick={() => onEditConfigure("hours-availability")}
+                className="text-xs font-semibold text-amber-600 underline hover:text-amber-700"
+              >
+                Edit in Configure
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mt-3">
+            <BusinessHoursSummary testIdPrefix="business-setup-golive-hours" />
+          </div>
+
+          <dl className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-appt-source">
+              <dt className="shrink-0 text-slate-500">Appointment Hours</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                {apptUseBusinessHours ? "Follow Business Hours" : "Custom Appointment Hours"}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-ai-coverage">
+              <dt className="shrink-0 text-slate-500">AI Call Coverage</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                {coverageKind === "always"
+                  ? "Answers 24/7"
+                  : coverageKind === "business_hours"
+                    ? "During Business Hours"
+                    : "Custom answering schedule"}
+              </dd>
+            </div>
+            {timeZone.trim() ? (
+              <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-timezone">
+                <dt className="shrink-0 text-slate-500">Timezone</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
+              </div>
+            ) : null}
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-calendar">
+              <dt className="shrink-0 text-slate-500">Calendar</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                {calendarConnected ? "Google Calendar connected" : "Not connected"}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-address">
+              <dt className="shrink-0 text-slate-500">Business address</dt>
+              {facts?.addressFormatted ? (
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{facts.addressFormatted}</dd>
+              ) : (
+                <dd className="min-w-0 truncate text-right text-slate-400">Not configured</dd>
+              )}
+            </div>
+            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-knowledge">
+              <dt className="shrink-0 text-slate-500">Knowledge</dt>
+              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                {readyDocs === null
+                  ? "—"
+                  : readyDocs > 0
+                    ? `${readyDocs} document${readyDocs === 1 ? "" : "s"} ready`
+                    : "No documents (FAQs and business info still apply)"}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </div>
     </div>
   );
@@ -4376,19 +4200,48 @@ function StepGoLive({
 /* business calendar. Never counts as production activity.             */
 /* ------------------------------------------------------------------ */
 
+/** Visual meta for the per-turn node execution timeline. */
+const NODE_STATUS_META: Record<BusinessTestExecutedNode["status"], { label: string; pill: string; dot: string }> = {
+  success: { label: "Completed", pill: "bg-green-100 text-green-700", dot: "bg-green-500" },
+  waiting: { label: "Waiting", pill: "bg-amber-100 text-amber-700", dot: "bg-amber-400" },
+  error: { label: "Failed", pill: "bg-rose-100 text-rose-700", dot: "bg-rose-500" },
+  skipped: { label: "Skipped", pill: "bg-slate-100 text-slate-600", dot: "bg-slate-300" }
+};
+
+/** Visual meta for tool activity entries in the chat test. */
+const TOOL_CALL_STATUS_META: Record<BusinessChatTestToolCall["status"], { label: string; pill: string }> = {
+  simulated: { label: "Simulated", pill: "bg-amber-100 text-amber-700" },
+  skipped: { label: "Skipped", pill: "bg-slate-100 text-slate-600" },
+  error: { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+};
+
+/** Short clock label ("3:42 PM") for a transcript timestamp; empty when invalid. */
+function chatTimeLabel(iso?: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function BusinessCalendarTestSection({
   calendarConnected,
-  timeZone
+  timeZone,
+  onResult
 }: {
   calendarConnected: boolean;
   timeZone: string;
+  /** Reports each turn's full result to the step-level test summary. */
+  onResult?: (result: BusinessChatTestResult) => void;
 }) {
   const [messages, setMessages] = useState<BusinessChatTestMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState("");
   const [configError, setConfigError] = useState<{ code: string; message: string; remediation: string } | null>(null);
+  const [calendarError, setCalendarError] = useState<{ code: string; message: string; remediation: string } | null>(null);
   const [calendarEvent, setCalendarEvent] = useState<BusinessTestCalendarEvent | null>(null);
+  const [toolCalls, setToolCalls] = useState<BusinessChatTestToolCall[]>([]);
+  const [executedNodes, setExecutedNodes] = useState<BusinessTestExecutedNode[]>([]);
   const [deletingEvent, setDeletingEvent] = useState(false);
   const testSessionIdRef = useRef<string>(`bts_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
 
@@ -4411,9 +4264,22 @@ function BusinessCalendarTestSection({
     setSending(false);
 
     if (res.success && res.data) {
-      setMessages(res.data.transcript);
+      // Keep client-side timestamps for entries the server echoes back without one.
+      const receivedAt = new Date().toISOString();
+      setMessages(
+        res.data.transcript.map((entry, index) => ({
+          ...entry,
+          createdAt: entry.createdAt ?? pending[index]?.createdAt ?? receivedAt
+        }))
+      );
+      setToolCalls(res.data.toolCalls ?? []);
+      // Latest turn's node timeline replaces the previous one — including
+      // failed/skipped nodes, which must stay visible.
+      setExecutedNodes(res.data.executedNodes ?? []);
       if (res.data.calendarEvent) setCalendarEvent(res.data.calendarEvent);
-      setConfigError(res.data.configError ?? res.data.calendarError ?? null);
+      setCalendarError(res.data.calendarError ?? null);
+      setConfigError(res.data.configError ?? null);
+      onResult?.(res.data);
     } else {
       setMessages(pending);
       setChatError(res.error ?? "Could not run the test conversation.");
@@ -4463,18 +4329,56 @@ function BusinessCalendarTestSection({
               Try: &ldquo;I&rsquo;d like to book a Test Appointment tomorrow at 3 PM. My name is Alex, my number is +1 555 010 0000.&rdquo;
             </p>
           ) : (
-            messages.map((entry, index) => (
-              <p
-                key={`${entry.role}-${index}`}
-                className={`rounded-lg px-3 py-2 text-sm ${entry.role === "user" ? "bg-amber-50 text-slate-800" : "bg-slate-50 text-slate-700"}`}
-                data-testid={`business-setup-calendar-test-message-${entry.role}`}
-              >
-                <span className="mr-1 font-semibold">{entry.role === "user" ? "You:" : "Agent:"}</span>
-                {entry.content}
-              </p>
-            ))
+            messages.map((entry, index) => {
+              const timeLabel = chatTimeLabel(entry.createdAt);
+
+              return (
+                <div
+                  key={`${entry.role}-${index}`}
+                  className={`rounded-lg px-3 py-2 text-sm ${entry.role === "user" ? "bg-amber-50 text-slate-800" : "bg-slate-50 text-slate-700"}`}
+                  data-testid={`business-setup-calendar-test-message-${entry.role}`}
+                >
+                  <span className="flex items-baseline justify-between gap-3">
+                    <span className="font-semibold">{entry.role === "user" ? "You" : "Agent"}</span>
+                    {timeLabel ? (
+                      <span className="shrink-0 font-mono text-[10px] text-slate-400" data-testid="business-test-chat-timestamp">
+                        {timeLabel}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block">{entry.content}</span>
+                </div>
+              );
+            })
           )}
         </div>
+        {toolCalls.length > 0 ? (
+          <div className="border-t border-gray-100 px-4 py-3" data-testid="business-test-chat-tool-activity">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tool activity — latest turn</p>
+            <ul className="mt-2 space-y-1.5">
+              {toolCalls.map((call, index) => {
+                const meta = TOOL_CALL_STATUS_META[call.status] ?? TOOL_CALL_STATUS_META.skipped;
+
+                return (
+                  <li
+                    key={`${call.name}-${index}`}
+                    className="flex items-start gap-2"
+                    data-testid="business-test-chat-tool-call"
+                  >
+                    <span className={`mt-px shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.pill}`}>
+                      {meta.label}
+                    </span>
+                    <span className="min-w-0 text-xs">
+                      <span className="font-mono font-semibold text-slate-700">{call.name}</span>
+                      {call.message ? <span className="block text-slate-500">{call.message}</span> : null}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="flex gap-2 border-t border-gray-100 p-3">
           <input
             type="text"
@@ -4510,47 +4414,106 @@ function BusinessCalendarTestSection({
         <p className="mt-3 text-sm font-semibold text-rose-600" data-testid="business-setup-calendar-test-error">{chatError}</p>
       ) : null}
 
+      {/* Node execution timeline — every node the graph runner touched this
+          turn, in order. Failed and skipped nodes stay visible on purpose. */}
+      {executedNodes.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4" data-testid="business-test-node-timeline">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Node execution — latest turn</p>
+          <ol className="mt-3">
+            {executedNodes.map((node, index) => {
+              const meta = NODE_STATUS_META[node.status] ?? NODE_STATUS_META.skipped;
+              const isLast = index === executedNodes.length - 1;
+
+              return (
+                <li key={`${node.nodeId}-${index}`} className={`flex gap-3 ${isLast ? "" : "pb-4"}`} data-testid="business-test-node-row">
+                  <span aria-hidden className="flex flex-col items-center">
+                    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${meta.dot}`} />
+                    {isLast ? null : <span className="mt-1 w-px flex-1 bg-slate-200" />}
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{node.label}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.pill}`}
+                        data-testid="business-test-node-status"
+                      >
+                        {meta.label}
+                      </span>
+                    </span>
+                    {node.message ? <span className="mt-0.5 block text-xs text-slate-500">{node.message}</span> : null}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      ) : null}
+
+      {/* Google Calendar result — a "Created" state only ever renders when a
+          real test event exists; failures render as a separate rose card. */}
       {calendarEvent ? (
-        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-calendar-test-event">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-bold text-slate-800" data-testid="business-setup-calendar-test-event-title">{calendarEvent.title}</p>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${calendarEvent.status === "CREATED" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}
-              data-testid="business-setup-calendar-test-event-status"
-            >
-              {calendarEvent.status === "CREATED" ? "Created on your calendar" : "Simulated"}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-start">
-            Starts: {new Date(calendarEvent.startAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })} ({calendarEvent.timeZone})
-          </p>
-          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-end">
-            Ends: {new Date(calendarEvent.endAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })}
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            {calendarEvent.htmlLink ? (
-              <a
-                href={calendarEvent.htmlLink}
-                target="_blank"
-                rel="noreferrer"
-                data-testid="business-setup-calendar-test-event-link"
-                className="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+        <div className="mt-4" data-testid="business-test-calendar-result">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="business-setup-calendar-test-event">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Google Calendar result</p>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-slate-800" data-testid="business-setup-calendar-test-event-title">{calendarEvent.title}</p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${calendarEvent.status === "CREATED" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}
+                data-testid="business-setup-calendar-test-event-status"
               >
-                Open in Google Calendar
-              </a>
+                {calendarEvent.status === "CREATED" ? "Created on your calendar" : "Simulated"}
+              </span>
+            </div>
+            {calendarEvent.serviceName ? (
+              <p className="mt-1 text-xs text-slate-500" data-testid="business-test-calendar-service">
+                Service: <span className="font-semibold text-slate-700">{calendarEvent.serviceName}</span>
+              </p>
             ) : null}
-            {calendarEvent.testEventId ? (
-              <button
-                type="button"
-                onClick={() => void deleteEvent()}
-                disabled={deletingEvent}
-                data-testid="business-setup-calendar-test-event-delete"
-                className="btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
-              >
-                {deletingEvent ? "Deleting…" : "Delete test event"}
-              </button>
-            ) : null}
+            <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-start">
+              Starts: {new Date(calendarEvent.startAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })} ({calendarEvent.timeZone})
+            </p>
+            <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-calendar-test-event-end">
+              Ends: {new Date(calendarEvent.endAt).toLocaleString("en-US", { timeZone: calendarEvent.timeZone })}
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              {calendarEvent.status === "CREATED" && calendarEvent.htmlLink ? (
+                <span className="contents" data-testid="business-test-calendar-open-link">
+                  <a
+                    href={calendarEvent.htmlLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-testid="business-setup-calendar-test-event-link"
+                    className="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-gray-50"
+                  >
+                    Open in Google Calendar
+                  </a>
+                </span>
+              ) : null}
+              {calendarEvent.testEventId ? (
+                <button
+                  type="button"
+                  onClick={() => void deleteEvent()}
+                  disabled={deletingEvent}
+                  data-testid="business-setup-calendar-test-event-delete"
+                  className="btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                >
+                  {deletingEvent ? "Deleting…" : "Delete test event"}
+                </button>
+              ) : null}
+            </div>
           </div>
+        </div>
+      ) : null}
+
+      {calendarError ? (
+        <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3" data-testid="business-test-calendar-error">
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">Failed</span>
+            <span className="font-mono text-[11px] font-semibold text-rose-500">{calendarError.code}</span>
+          </div>
+          <p className="mt-1.5 text-sm font-semibold text-rose-700">{calendarError.message}</p>
+          <p className="mt-0.5 text-xs text-rose-600">{calendarError.remediation}</p>
         </div>
       ) : null}
     </div>

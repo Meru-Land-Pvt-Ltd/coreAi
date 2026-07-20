@@ -16,7 +16,7 @@ import type { AgentProviders } from "./provider-adapters";
 function log(
   context: AgentRuntimeContext,
   node: GraphNode,
-  status: "success" | "waiting" | "error",
+  status: "success" | "waiting" | "error" | "skipped",
   message: string,
   output?: unknown
 ): void {
@@ -60,10 +60,6 @@ export function resolveTemplate(template: string, context: AgentRuntimeContext):
   return resolved;
 }
 
-/**
- * Fill runtime variables from inferred conversation state so node gating can
- * be purely metadata-driven (requiredVariables present -> node may run).
- */
 export function seedConversationVariables(context: AgentRuntimeContext): void {
   const { conversation } = context;
 
@@ -151,11 +147,38 @@ const handleCalendarAvailability: NodeHandler = async (node, context, providers)
     bufferMinutes: Number(node.data?.bufferMinutes) || 10,
     openHour: Number(node.data?.openHour) || undefined,
     closeHour: Number(node.data?.closeHour) || undefined,
-    durationMinutes: Number(node.data?.serviceDurationMinutes) || Number(node.data?.defaultDurationMinutes) || undefined
+    durationMinutes: Number(node.data?.serviceDurationMinutes) || Number(node.data?.defaultDurationMinutes) || undefined,
+    serviceName: stringVariable(context, "service") || conversation.requestedService || undefined
   });
+
+  // Calendar failure is reported honestly — the agent must never offer
+  // invented slots or claim times are booked when nothing was verified.
+  if (result.source === "unavailable") {
+    setVariables(context, {
+      "calendar.available_slots": [],
+      "calendar.status": "unavailable",
+      "calendar.requested_date": conversation.requestedDate,
+      "calendar.timezone": context.business.timezone
+    });
+    context.toolCalls.push({
+      name: "calendar.check_availability",
+      status: "error",
+      message: result.note,
+      input: { date: conversation.requestedDate },
+      output: { source: result.source }
+    });
+    log(context, node, "error", "Live calendar availability could not be confirmed — no slots offered.", {
+      note: result.note
+    });
+    return { status: "executed" };
+  }
 
   setVariables(context, {
     "calendar.available_slots": result.slots,
+    "calendar.spoken_slots": result.spoken ?? result.slots,
+    "calendar.total_free": result.totalFree ?? result.slots.length,
+    "calendar.open_until": result.openUntil ?? "",
+    "calendar.status": "ok",
     "calendar.requested_date": conversation.requestedDate,
     "calendar.timezone": context.business.timezone
   });
@@ -375,8 +398,15 @@ export async function executeNode(
 
   const handler = HANDLERS[nodeCapability(node)] ?? handleUnknown;
 
+  const logsBefore = context.executedNodes.length;
   try {
-    return await handler(node, context, providers);
+    const result = await handler(node, context, providers);
+    // Skipped nodes appear in the execution timeline too — hiding them made
+    // the UI look like the graph never contained them.
+    if (result.status === "skipped" && context.executedNodes.length === logsBefore) {
+      log(context, node, "skipped", "Skipped this turn — the conversation did not reach this step.");
+    }
+    return result;
   } catch (error) {
     log(context, node, "error", error instanceof Error ? error.message : "Node execution failed.");
     return { status: "failed" };

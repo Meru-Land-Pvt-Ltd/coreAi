@@ -132,7 +132,7 @@ export type ArchitectSummary = {
 export type WorkflowRunLog = {
   nodeId: string;
   label: string;
-  status: "success" | "waiting" | "error";
+  status: "success" | "waiting" | "error" | "skipped";
   message: string;
   output?: unknown;
 };

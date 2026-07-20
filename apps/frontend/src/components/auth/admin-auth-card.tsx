@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiPost } from "@/lib/api";
-import { getAuthUser, saveAuthSession, type AuthUser } from "@/lib/auth";
+import { getAuthUser, hasAuthRole, saveAuthSession, type AuthUser } from "@/lib/auth";
 
 type AuthResponse = {
   token: string;
@@ -33,7 +33,7 @@ export function AdminAuthCard() {
 
   useEffect(() => {
     const authUser = getAuthUser();
-    if (authUser?.role === "ADMIN") {
+    if (hasAuthRole(authUser, "ADMIN")) {
       router.replace(ADMIN_DASHBOARD_PATH);
     }
   }, [router]);

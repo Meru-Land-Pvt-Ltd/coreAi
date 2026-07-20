@@ -294,10 +294,19 @@ adminRoutes.patch("/architects/:userId/status", async (c) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, architectProfile: { select: { id: true } } }
+      select: {
+        id: true,
+        role: true,
+        architectProfile: { select: { id: true } },
+        roleMemberships: { select: { role: true } }
+      }
     });
 
-    if (!user || user.role !== "ARCHITECT") {
+    const isArchitect =
+      user?.role === "ARCHITECT" ||
+      user?.roleMemberships.some((membership) => membership.role === "ARCHITECT");
+
+    if (!user || !isArchitect) {
       return errorResponse(c, "Architect not found", 404, "ARCHITECT_NOT_FOUND");
     }
     if (!user.architectProfile) {

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   isBuyerAnswerEmpty,
@@ -22,6 +22,7 @@ import {
 } from "../../lib/phone-locations";
 import { PhoneNumberServiceError } from "../admin/twilio-number-service";
 import {
+  getBusinessPhoneAssignment,
   getProvisioningRequestStatus,
   purchaseNumberForBusiness,
   searchNumbersForBusiness
@@ -50,10 +51,22 @@ import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
+import { extractHoursFromDocuments, resolveScheduleForBusiness } from "./scheduling";
+import { extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
+import {
+  KnowledgeFileError,
+  MAX_FILE_BYTES,
+  deleteKnowledgeFile,
+  ingestKnowledgeFiles,
+  replaceManualKnowledge,
+  listKnowledgeFiles,
+  reprocessKnowledgeFile
+} from "./knowledge-files";
 import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
 import {
   buildInstalledAgentChatTestSetup,
   deployInstalledAgentVoiceAssistant,
+  refreshLiveAssistantKnowledge,
   SetupPreviewCallError,
   startInstalledAgentPreviewCall
 } from "./deploy";
@@ -82,6 +95,7 @@ import {
 } from "../../lib/billing-invoices";
 import { businessSettingsRoutes } from "./settings-routes";
 import { businessOnboardingRoutes } from "./onboarding-routes";
+import { businessHoursRoutes } from "./business-hours";
 
 export const businessRoutes = new Hono();
 
@@ -122,6 +136,7 @@ businessRoutes.get("/billing/usage-invoices", getBusinessUsageInvoices);
 businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessUsageInvoice);
 businessRoutes.route("/settings", businessSettingsRoutes);
 businessRoutes.route("/onboarding", businessOnboardingRoutes);
+businessRoutes.route("/hours", businessHoursRoutes);
 
 /** First moment of the current calendar month (UTC). */
 function currentMonthStart(): Date {
@@ -337,7 +352,7 @@ businessRoutes.get("/dashboard", async (c) => {
   ] = await Promise.all([
     prisma.lead.count({ where: { businessId: business.id } }),
     prisma.conversation.count({ where: { businessId: business.id } }),
-    prisma.appointment.count({ where: { businessId: business.id } }),
+    prisma.appointment.count({ where: { businessId: business.id, executionMode: "LIVE" } }),
     prisma.lead.findMany({
       where: { businessId: business.id },
       orderBy: { createdAt: "desc" },
@@ -397,7 +412,7 @@ businessRoutes.get("/dashboard", async (c) => {
       select: { id: true, phoneNumber: true, name: true, createdAt: true }
     }),
     prisma.vapiCall.findMany({
-      where: { businessId: business.id, createdAt: { gte: chartStart } },
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: chartStart } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -409,12 +424,12 @@ businessRoutes.get("/dashboard", async (c) => {
       }
     }),
     // Month-over-month metric counts (calls handled = AI voice calls + missed calls captured).
-    prisma.vapiCall.count({ where: { businessId: business.id, createdAt: { gte: monthStart } } }),
+    prisma.vapiCall.count({ where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: monthStart } } }),
     prisma.lead.count({
       where: { businessId: business.id, source: { contains: "MISSED_CALL" }, createdAt: { gte: monthStart } }
     }),
     prisma.vapiCall.count({
-      where: { businessId: business.id, createdAt: { gte: prevMonthStart, lt: monthStart } }
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
     }),
     prisma.lead.count({
       where: {
@@ -424,7 +439,7 @@ businessRoutes.get("/dashboard", async (c) => {
       }
     }),
     prisma.appointment.count({
-      where: { businessId: business.id, createdAt: { gte: prevMonthStart, lt: monthStart } }
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
     })
   ]);
 
@@ -508,6 +523,77 @@ const faqItemSchema = z.object({
   answer: z.string().trim().min(1)
 });
 
+const businessAddressSchema = z.object({
+  line1: z.string().trim().min(3).max(120),
+  line2: z.string().trim().max(120).optional(),
+  city: z.string().trim().min(2).max(80),
+  state: z.string().trim().max(80).optional(),
+  postalCode: z.string().trim().max(20).optional(),
+  country: z.string().trim().max(80).optional(),
+  landmark: z.string().trim().max(200).optional(),
+  directions: z.string().trim().max(500).optional(),
+  mapsLink: z.string().trim().url().max(500).optional().or(z.literal("")),
+  /** "manual" or "pdf_suggestion" — how the buyer filled the form. */
+  source: z.enum(["manual", "pdf_suggestion"]).default("manual"),
+  confirm: z.boolean().default(true)
+}).refine((value) => Boolean(value.state?.trim() || value.postalCode?.trim()), {
+  message: "Provide at least a state/province or a postal code."
+});
+
+/** Write the ONE authoritative Business Address (Settings + Setup share it). */
+async function saveBusinessAddress(
+  businessId: string,
+  input: z.infer<typeof businessAddressSchema>
+): Promise<void> {
+  const data = {
+    addressLine1: input.line1,
+    addressLine2: input.line2?.trim() || null,
+    addressCity: input.city,
+    addressState: input.state?.trim() || null,
+    addressPostalCode: input.postalCode?.trim() || null,
+    addressCountry: input.country?.trim() || null,
+    addressLandmark: input.landmark?.trim() || null,
+    addressDirections: input.directions?.trim() || null,
+    addressMapsLink: input.mapsLink?.trim() || null,
+    addressSource: input.source,
+    addressConfirmedAt: input.confirm ? new Date() : null
+  };
+  await prisma.businessProfile.upsert({
+    where: { businessId },
+    update: data,
+    create: { businessId, ...data }
+  });
+}
+
+const dayHoursSchema = z.object({
+  open: z.string().regex(/^\d{1,2}:\d{2}$/),
+  close: z.string().regex(/^\d{1,2}:\d{2}$/),
+  closed: z.boolean().default(false)
+});
+
+const appointmentScheduleSchema = z.object({
+  useBusinessHours: z.boolean().optional(),
+  days: z
+    .object({
+      sunday: dayHoursSchema.optional(),
+      monday: dayHoursSchema.optional(),
+      tuesday: dayHoursSchema.optional(),
+      wednesday: dayHoursSchema.optional(),
+      thursday: dayHoursSchema.optional(),
+      friday: dayHoursSchema.optional(),
+      saturday: dayHoursSchema.optional()
+    })
+    .optional(),
+  defaultDurationMinutes: z.number().int().min(5).max(480).optional(),
+  serviceDurations: z.record(z.string(), z.number().int().min(5).max(480)).optional(),
+  bufferMinutes: z.number().int().min(0).max(120).optional(),
+  slotIntervalMinutes: z.number().int().min(5).max(240).optional(),
+  minNoticeMinutes: z.number().int().min(0).max(10080).optional(),
+  maxAdvanceDays: z.number().int().min(1).max(365).optional(),
+  maxSpokenSuggestions: z.number().int().min(2).max(10).optional(),
+  confirmed: z.boolean().optional()
+});
+
 const knowledgeItemSchema = z.object({
   title: z.string().trim().min(1),
   content: z.string().trim().min(1)
@@ -530,7 +616,9 @@ const businessSetupSchema = z.object({
   forwardToPhone: z.string().trim().optional().or(z.literal("")),
   bookingUrl: z.string().trim().url().optional().or(z.literal("")),
   teamPhone: z.string().trim().optional().or(z.literal("")),
-  timeZone: z.string().trim().default("Asia/Kolkata"),
+  // Optional: the authoritative timezone editor is the Business Hours section
+  // (PUT /business/hours). A setup save without it preserves the saved value.
+  timeZone: z.string().trim().optional().or(z.literal("")),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
 
@@ -538,6 +626,8 @@ const businessSetupSchema = z.object({
   faqs: z.array(faqItemSchema).default([]),
   hours: z.array(hoursItemSchema).default([]),
   knowledge: z.array(knowledgeItemSchema).default([]),
+  appointmentSchedule: appointmentScheduleSchema.optional(),
+  businessAddress: businessAddressSchema.optional(),
 
   vapiAssistantId: z.string().trim().optional().or(z.literal("")),
   vapiPhoneNumberId: z.string().trim().optional().or(z.literal("")),
@@ -547,6 +637,17 @@ const businessSetupSchema = z.object({
   voiceProvider: z.string().trim().optional().or(z.literal("")),
 
   answeringMode: z.string().trim().optional().or(z.literal("")),
+  /** CUSTOM_HOURS answering schedule — separate from Business Hours. */
+  answeringHours: z.array(hoursItemSchema).optional(),
+  // AI Call Coverage: WHEN the AI answers calls. Orthogonal to answeringMode
+  // (the forward condition). "always" = 24/7; "business_hours" reuses the
+  // structured Business Hours; "custom" uses its own weekly schedule.
+  aiCallCoverage: z
+    .object({
+      kind: z.enum(["always", "business_hours", "custom"]),
+      answeringHours: z.array(hoursItemSchema).optional()
+    })
+    .optional(),
   contactName: z.string().trim().optional().or(z.literal("")),
   customInstructions: z.string().trim().optional().or(z.literal("")),
 
@@ -760,6 +861,22 @@ async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string
 // The businessId is ALWAYS derived from the authenticated owner — a
 // browser-supplied businessId is never accepted for phone provisioning.
 async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
+  // Prefer the newest business that actually carries a buyer installed agent
+  // (excluding architect test sandboxes) — uploads, demo tests, and setup then
+  // always target the SAME business the live phone number was purchased for,
+  // even when stray/placeholder Business rows exist for the owner.
+  const withAgent = await prisma.business.findFirst({
+    where: {
+      ownerId,
+      installedAgents: {
+        some: { NOT: { configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" } } }
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  if (withAgent) return withAgent.id;
+
   const business = await prisma.business.findFirst({
     where: { ownerId },
     orderBy: { createdAt: "desc" },
@@ -829,9 +946,18 @@ businessRoutes.get("/phone-numbers/locations", async (c) => {
 
   return successResponse(c, {
     countries: listPhoneCountries(),
-    note: "Number availability depends on Twilio inventory and local regulatory requirements."
+    note: "Number availability depends on carrier inventory and local regulatory requirements."
   });
 });
+
+
+/** Buyer responses never name internal vendors — scrub pass-through messages. */
+function neutralizeProviderText(message: string): string {
+  return message
+    .replace(/twilio/gi, "our phone carrier")
+    .replace(/vapi/gi, "the voice platform")
+    .replace(/elevenlabs/gi, "the voice provider");
+}
 
 const phoneSearchSchema = z.object({
   installedAgentId: z.string().trim().min(1).optional(),
@@ -871,7 +997,7 @@ businessRoutes.post("/phone-numbers/search", async (c) => {
     return successResponse(c, outcome);
   } catch (error) {
     if (error instanceof PhoneNumberServiceError) {
-      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.code ?? "PHONE_SEARCH_FAILED");
+      return errorResponse(c, neutralizeProviderText(error.message), apiErrorStatus(error.status, 500), error.code ?? "PHONE_SEARCH_FAILED");
     }
     console.error("[phone-search] failed", error);
     return errorResponse(c, "Could not search available numbers.", 503, "PHONE_SEARCH_FAILED");
@@ -889,9 +1015,7 @@ const phonePurchaseSchema = z.object({
   city: z.string().trim().max(80).optional(),
   fallbackType: z.enum(["NEARBY_CITY", "SAME_STATE", "NATIONAL", "TOLL_FREE"]).optional(),
   /** The buyer's own business line — stored as the forwarding target. */
-  forwardToPhone: z.string().trim().max(24).optional(),
-  /** Change-number flow: the old number stays active until the new one is configured. */
-  replaceExisting: z.boolean().optional()
+  forwardToPhone: z.string().trim().max(24).optional()
 });
 
 businessRoutes.post("/phone-numbers/purchase", async (c) => {
@@ -913,7 +1037,7 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
   }
 
   try {
-    const outcome = await purchaseNumberForBusiness({
+    const rawOutcome = await purchaseNumberForBusiness({
       businessId: resolved.businessId,
       requestedByUserId: authUser.id,
       installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
@@ -923,17 +1047,34 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
       state: parsed.data.state,
       city: parsed.data.city,
       fallbackType: parsed.data.fallbackType ?? null,
-      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null,
-      replaceExisting: parsed.data.replaceExisting === true
+      forwardToPhone: parsed.data.forwardToPhone ? normalizePhoneNumber(parsed.data.forwardToPhone) : null
     });
+    const outcome = {
+      ...rawOutcome,
+      errorMessage: rawOutcome.errorMessage ? neutralizeProviderText(rawOutcome.errorMessage) : rawOutcome.errorMessage
+    };
     return successResponse(c, outcome);
   } catch (error) {
     if (error instanceof PhoneNumberServiceError) {
-      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.code ?? "PHONE_PURCHASE_FAILED");
+      return errorResponse(c, neutralizeProviderText(error.message), apiErrorStatus(error.status, 500), error.code ?? "PHONE_PURCHASE_FAILED");
     }
     console.error("[phone-purchase] failed", error);
     return errorResponse(c, "Could not complete the number purchase.", 503, "PHONE_PURCHASE_FAILED");
   }
+});
+
+// The business's current active Triven number in the buyer-safe shape — never
+// includes provider/wholesale cost. `assigned: false` when no number is held.
+businessRoutes.get("/phone-numbers/assignment", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+
+  if (!businessId) {
+    return successResponse(c, { assigned: false });
+  }
+
+  const assignment = await getBusinessPhoneAssignment(businessId);
+  return successResponse(c, assignment ?? { assigned: false });
 });
 
 businessRoutes.get("/phone-numbers/provisioning/:clientRequestId", async (c) => {
@@ -1008,6 +1149,209 @@ businessRoutes.get("/setup/phone-numbers", async (c) => {
   const { availablePhoneNumbers } = await loadPhoneOptions(business?.id ?? null);
 
   return successResponse(c, { numbers: availablePhoneNumbers });
+});
+
+/* ----------------------- Buyer knowledge documents ----------------------- */
+
+function knowledgeFileErrorResponse(c: Context, error: unknown) {
+  if (error instanceof KnowledgeFileError) {
+    return errorResponse(c, error.message, apiErrorStatus(error.status, 422), error.code);
+  }
+  console.error("[knowledge-files] failed", error);
+  return errorResponse(c, "The document could not be processed.", 500, "KNOWLEDGE_FILE_FAILED");
+}
+
+// Multipart upload: PDF/DOCX/TXT documents become agent knowledge. Business
+// ownership always comes from the authenticated user — any client-supplied
+// businessId is ignored.
+businessRoutes.post("/setup/knowledge-files", async (c) => {
+  const authUser = c.get("authUser");
+
+  // Early oversize guard before buffering the multipart body.
+  const contentLength = Number(c.req.header("content-length") ?? 0);
+  if (contentLength > MAX_FILE_BYTES * 5 + 1024 * 1024) {
+    return errorResponse(c, "Upload too large. Files can be at most 10 MB each.", 422, "UPLOAD_TOO_LARGE");
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.parseBody({ all: true });
+  } catch {
+    return errorResponse(c, "Could not read the uploaded files.", 400, "INVALID_MULTIPART_BODY");
+  }
+
+  const listingId = typeof body.listingId === "string" ? body.listingId.trim() : undefined;
+  const requestedAgentId = typeof body.installedAgentId === "string" ? body.installedAgentId.trim() : undefined;
+
+  const resolved = await resolveOrBootstrapBusiness(authUser.id, listingId);
+  if (!resolved) {
+    return errorResponse(c, "Purchase an agent before uploading documents.", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, resolved.businessId, requestedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  const rawFiles = body.files ?? body["files[]"];
+  const fileList = (Array.isArray(rawFiles) ? rawFiles : [rawFiles]).filter(
+    (item): item is File => typeof File !== "undefined" && item instanceof File
+  );
+
+  if (fileList.length === 0) {
+    return errorResponse(c, "Attach at least one PDF, DOCX, or TXT document.", 400, "NO_FILES");
+  }
+
+  try {
+    const uploads = [] as Array<{ filename: string; mimeType: string; bytes: Buffer }>;
+    for (const file of fileList) {
+      uploads.push({
+        filename: file.name,
+        mimeType: file.type,
+        bytes: Buffer.from(await file.arrayBuffer())
+      });
+    }
+
+    const results = await ingestKnowledgeFiles({
+      businessId: resolved.businessId,
+      installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
+      files: uploads
+    });
+    // A live assistant's prompt is baked at deploy — synchronize it and
+    // REPORT the result: upload success must never hide a stale live agent.
+    const liveSync = results.some((file) => file.status === "PROCESSED")
+      ? await refreshLiveAssistantKnowledge(resolved.businessId)
+      : { attempted: false, ok: true, assistantId: null, error: null };
+    return successResponse(c, { files: results, liveSync });
+  } catch (error) {
+    return knowledgeFileErrorResponse(c, error);
+  }
+});
+
+businessRoutes.get("/setup/knowledge-files", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return successResponse(c, { files: [] });
+
+  return successResponse(c, { files: await listKnowledgeFiles(businessId) });
+});
+
+businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  try {
+    await deleteKnowledgeFile(businessId, c.req.param("id"));
+    const liveSync = await refreshLiveAssistantKnowledge(businessId);
+    return successResponse(c, { deleted: true, liveSync });
+  } catch (error) {
+    return knowledgeFileErrorResponse(c, error);
+  }
+});
+
+// The resolved appointment schedule + review sources: what hours the agent is
+// ACTUALLY using, where they came from, and any brochure-derived suggestion —
+// applied only after the buyer confirms it via the normal setup save.
+businessRoutes.get("/setup/appointment-schedule", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  const { schedule, installedAgentId } = await resolveScheduleForBusiness({ businessId });
+  const documentSuggestion =
+    schedule.source === "configured"
+      ? null
+      : await extractHoursFromDocuments({ businessId, installedAgentId }).catch(() => null);
+
+  return successResponse(c, {
+    schedule,
+    installedAgentId,
+    needsConfirmation: !schedule.confirmed,
+    documentSuggestion
+  });
+});
+
+// The business facts review payload: the authoritative structured address,
+// completeness/confirmation status, any PDF-derived suggestion, and whether
+// the two conflict. Suggestions become structured data ONLY via an explicit
+// confirmed save.
+businessRoutes.get("/setup/business-facts", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  const facts = await loadBusinessFacts(businessId);
+  const suggestion = await extractAddressFromDocuments({ businessId }).catch(() => null);
+
+  const conflict = Boolean(
+    facts?.addressComplete &&
+      suggestion &&
+      facts.addressFormatted &&
+      facts.addressFormatted.replace(/\s+/g, " ").toLowerCase() !==
+        suggestion.formatted.replace(/\s+/g, " ").toLowerCase()
+  );
+
+  return successResponse(c, {
+    businessName: facts?.businessName ?? null,
+    address: facts?.address ?? null,
+    addressFormatted: facts?.addressFormatted ?? null,
+    addressComplete: facts?.addressComplete ?? false,
+    addressConfirmed: facts?.addressConfirmed ?? false,
+    phone: facts?.phone ?? null,
+    documentSuggestion: facts?.addressConfirmed && !conflict ? null : suggestion,
+    conflict
+  });
+});
+
+// Save the Business Address (also reachable through the setup save) and
+// synchronize the live assistant so calls immediately use the new address.
+businessRoutes.put("/setup/business-address", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  const parsed = businessAddressSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid address", 422, "VALIDATION_ERROR");
+  }
+
+  await saveBusinessAddress(businessId, parsed.data);
+  const liveSync = await refreshLiveAssistantKnowledge(businessId);
+  const facts = await loadBusinessFacts(businessId);
+
+  return successResponse(c, {
+    addressFormatted: facts?.addressFormatted ?? null,
+    addressConfirmed: facts?.addressConfirmed ?? false,
+    liveSync
+  });
+});
+
+// Retry synchronizing the live assistant with the current knowledge set.
+businessRoutes.post("/setup/knowledge-files/sync", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  const liveSync = await refreshLiveAssistantKnowledge(businessId);
+  return successResponse(c, { liveSync });
+});
+
+businessRoutes.post("/setup/knowledge-files/:id/reprocess", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
+
+  try {
+    const file = await reprocessKnowledgeFile(businessId, c.req.param("id"));
+    const liveSync =
+      file.status === "PROCESSED"
+        ? await refreshLiveAssistantKnowledge(businessId)
+        : { attempted: false, ok: true, assistantId: null, error: null };
+    return successResponse(c, { file, liveSync });
+  } catch (error) {
+    return knowledgeFileErrorResponse(c, error);
+  }
 });
 
 function isPublicHttpsUrl(url: string): boolean {
@@ -1103,6 +1447,10 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
       reply: result.reply,
       transcript: result.transcript,
       toolCalls: result.toolCalls,
+      // Node execution timeline for the buyer Test step — every node the graph
+      // runner executed this turn, in graph order, with per-node status.
+      executedNodes: result.executedNodes,
+      finalOutput: result.finalOutput,
       simulated: true,
       executionMode: result.executionMode,
       timeZone: result.timeZone,
@@ -1256,29 +1604,29 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
         ? backendIsTunnel
           ? "Reachable via a tunnel — fine for testing, use the production domain in production."
           : undefined
-        : "BACKEND_URL is not a public HTTPS URL — Twilio cannot reach the webhook."
+        : "The platform URL is not publicly reachable yet — inbound calls cannot reach your agent."
     },
     {
       key: "webhook_configured",
-      label: "Twilio voice webhook URL",
+      label: "Call routing webhook",
       ok: backendPublic,
-      message: `Set the Twilio number's voice webhook to POST ${webhookUrl}`
+      message: "Inbound call routing is configured automatically for your Triven number."
     },
     {
       key: "signature_validation",
-      label: "Twilio signature validation",
+      label: "Call security validation",
       ok: !isProduction || env.TWILIO_VALIDATE_SIGNATURE,
       message: env.TWILIO_VALIDATE_SIGNATURE
         ? undefined
         : isProduction
-          ? "Set TWILIO_VALIDATE_SIGNATURE=true in production."
-          : "Off in dev; set TWILIO_VALIDATE_SIGNATURE=true in production."
+          ? "Platform call security is still being enabled — contact Triven support."
+          : "Relaxed in development; enforced automatically in production."
     },
     {
       key: "no_env_phone_dependency",
       label: "Phone numbers managed in database",
       ok: true,
-      message: "Numbers are resolved from PlatformPhoneNumber/BusinessPhoneNumber."
+      message: "Your Triven number is managed automatically — nothing to configure."
     }
   ];
 
@@ -1366,7 +1714,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     },
     {
       key: "vapi_assistant",
-      label: "Vapi assistant id exists",
+      label: "Voice assistant deployed",
       ok: diagnostics.hasVapiAssistantId,
       message: diagnostics.hasVapiAssistantId
         ? undefined
@@ -1379,7 +1727,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       message: diagnostics.routingMode ? `Mode: ${diagnostics.routingMode}` : "Choose an answering mode in the Connect step."
     },
     { key: "answering_mode", label: "Answering mode allows answering", ok: diagnostics.aiWouldAnswer },
-    { key: "resolver", label: "Twilio resolver can resolve this number", ok: diagnostics.resolved }
+    { key: "resolver", label: "Inbound calls reach this agent", ok: diagnostics.resolved }
   ];
 
   const readyForCall = checks.every((check) => check.ok);
@@ -1538,6 +1886,25 @@ function buildSetupReadiness(
       blocker: profileComplete ? undefined : "Add your business name, type and services."
     },
     {
+      key: "business_address",
+      label: "Business address",
+      required: false,
+      complete: Boolean(profile?.addressLine1 && profile?.addressCity),
+      blocker:
+        profile?.addressLine1 && profile?.addressCity
+          ? undefined
+          : "Add your business address so the agent can tell callers where to come."
+    },
+    {
+      key: "business_hours",
+      label: "Business Hours",
+      required: false,
+      complete: Boolean(profile?.hoursConfirmedAt),
+      blocker: profile?.hoursConfirmedAt
+        ? undefined
+        : "Confirm your Business Hours so the agent can answer open/closed questions."
+    },
+    {
       key: "google_calendar",
       label: "Google Calendar",
       required: needs.has("google_calendar"),
@@ -1652,10 +2019,12 @@ function serializeSetup(
       : null,
     assistantName,
     knowledge:
-      business?.knowledgeBases?.map((item) => ({
-        title: item.title,
-        content: item.content
-      })) ?? [],
+      business?.knowledgeBases
+        ?.filter((item) => !item.sourceFileId)
+        .map((item) => ({
+          title: item.title,
+          content: item.content
+        })) ?? [],
     calendar: { connected: calendar.connected, email: calendar.email },
     webhooks: phone ? buildWebhookUrls() : null,
     requiredConnectors: readiness.requiredConnectors,
@@ -1673,6 +2042,15 @@ function serializeSetup(
       phoneRoutingConfig && typeof phoneRoutingConfig.mode === "string"
         ? phoneRoutingConfig.mode
         : null,
+    answeringHours: Array.isArray(phoneRoutingConfig?.answeringHours)
+      ? phoneRoutingConfig.answeringHours
+      : null,
+    aiCallCoverage:
+      phoneRoutingConfig && typeof phoneRoutingConfig.coverage === "string"
+        ? phoneRoutingConfig.coverage
+        : phoneRoutingConfig?.mode === "CUSTOM_HOURS"
+          ? "custom"
+          : "always",
     contactName: typeof config?.contactName === "string" ? config.contactName : null,
     customInstructions: typeof config?.customInstructions === "string" ? config.customInstructions : null,
     customFields: Array.isArray(config?.customFields)
@@ -1876,6 +2254,7 @@ businessRoutes.post("/setup", async (c) => {
       where: { ownerId: authUser.id },
       orderBy: { createdAt: "desc" },
       include: {
+        profile: { select: { timeZone: true } },
         phoneNumbers: includeActivePhoneNumbers(),
         installedAgents: { orderBy: { createdAt: "desc" } }
       }
@@ -2014,22 +2393,23 @@ businessRoutes.post("/setup", async (c) => {
       };
     }
 
-    const timeZone = normalizeTimeZone(input.timeZone);
+    const timeZone = input.timeZone?.trim()
+      ? normalizeTimeZone(input.timeZone)
+      : normalizeTimeZone(existing?.profile?.timeZone || undefined);
     const assistantName = cleanAssistantName(input.assistantName);
-    const answeringMode = input.answeringMode || "AI_FIRST";
 
     const profileData = {
       bookingUrl: cleanOptional(input.bookingUrl),
       teamPhone: cleanOptional(input.teamPhone),
       calendarId: input.calendarId || "primary",
-      timeZone,
+      ...(input.timeZone?.trim() ? { timeZone } : {}),
       tone: input.tone,
       escalationRules: cleanOptional(input.escalationRules),
       services: input.services,
       faqsJson: input.faqs as never,
-      hoursJson: input.hours as never,
-      vapiAssistantId: cleanOptional(input.vapiAssistantId),
-      vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId)
+      ...(input.hours.length > 0 ? { hoursJson: input.hours as never } : {}),
+      ...(cleanOptional(input.vapiAssistantId) ? { vapiAssistantId: cleanOptional(input.vapiAssistantId) } : {}),
+      ...(cleanOptional(input.vapiPhoneNumberId) ? { vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId) } : {})
     };
 
     const business = existing
@@ -2047,22 +2427,56 @@ businessRoutes.post("/setup", async (c) => {
       create: { businessId: business.id, ...profileData }
     });
 
-    await prisma.businessKnowledgeBase.deleteMany({ where: { businessId: business.id } });
+    // Manual knowledge only — document chunks are owned by the uploaded-file
+    // pipeline and survive every setup save.
+    await replaceManualKnowledge(
+      business.id,
+      input.knowledge.map((item) => ({ title: item.title, content: item.content }))
+    );
 
-    if (input.knowledge.length > 0) {
-      await prisma.businessKnowledgeBase.createMany({
-        data: input.knowledge.map((item) => ({
-          businessId: business.id,
-          title: item.title,
-          content: item.content
-        }))
-      });
+    // One authoritative Business Address: written here AND from Business
+    // Settings — both interfaces always show the same saved value. A save
+    // without the field never clears an existing address.
+    let addressLiveSync: Awaited<ReturnType<typeof refreshLiveAssistantKnowledge>> | null = null;
+    if (input.businessAddress) {
+      await saveBusinessAddress(business.id, input.businessAddress);
+      addressLiveSync = await refreshLiveAssistantKnowledge(business.id);
     }
 
+    // Existing agent config — settings not sent by this save are preserved,
+    // never silently overwritten.
+    const existingAgentRow = input.listingId
+      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
+      : existing?.installedAgents?.[0] ?? null;
+    const existingAgentConfig =
+      existingAgentRow?.configJson && typeof existingAgentRow.configJson === "object" && !Array.isArray(existingAgentRow.configJson)
+        ? (existingAgentRow.configJson as Record<string, unknown>)
+        : {};
+
+    const existingPhoneRouting =
+      typeof existingAgentConfig.phoneRouting === "object" &&
+      existingAgentConfig.phoneRouting !== null &&
+      !Array.isArray(existingAgentConfig.phoneRouting)
+        ? (existingAgentConfig.phoneRouting as Record<string, unknown>)
+        : {};
+
+    const answeringMode =
+      input.answeringMode ||
+      (typeof existingPhoneRouting.mode === "string" && existingPhoneRouting.mode.trim()
+        ? existingPhoneRouting.mode
+        : "AI_FIRST");
+    const coverage = input.aiCallCoverage ?? null;
+    const coverageAnsweringHours =
+      coverage?.kind === "custom" && coverage.answeringHours?.length
+        ? coverage.answeringHours
+        : input.answeringHours?.length
+          ? input.answeringHours
+          : null;
     const configJson = {
+      ...existingAgentConfig,
       connectors: ["TWILIO", "VAPI", "GOOGLE_CALENDAR"],
-      vapiAssistantId: cleanOptional(input.vapiAssistantId),
-      vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId),
+      ...(cleanOptional(input.vapiAssistantId) ? { vapiAssistantId: cleanOptional(input.vapiAssistantId) } : {}),
+      ...(cleanOptional(input.vapiPhoneNumberId) ? { vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId) } : {}),
       calendarId: input.calendarId || "primary",
       assistantName,
       calendar: {
@@ -2075,17 +2489,19 @@ businessRoutes.post("/setup", async (c) => {
         provider: cleanOptional(input.voiceProvider)
       },
       phoneRouting: {
-        mode: answeringMode
+        ...existingPhoneRouting,
+        mode: answeringMode,
+        ...(coverage ? { coverage: coverage.kind } : {}),
+        ...(coverageAnsweringHours ? { answeringHours: coverageAnsweringHours } : {})
       },
       contactName: cleanOptional(input.contactName),
       customInstructions: cleanOptional(input.customInstructions),
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
-      ...(input.customFields.length > 0
+      ...(input.appointmentSchedule ? { appointmentSchedule: input.appointmentSchedule } : {}),
+      ...(input.customFields.length > 0 || buyerSetupFields.length > 0
         ? { customFields: input.customFields.filter((field) => !isBuyerAnswerEmpty(field.value)) }
         : {}),
-      // Snapshot of the listing's buyer setup schema at save time, so the
-      // installed agent stays renderable/validatable even if the listing changes.
       ...(buyerSetupFields.length > 0 ? { buyerSetupSchema: buyerSetupFields } : {}),
       businessDetails: {
         assistantName,
@@ -2155,11 +2571,6 @@ businessRoutes.post("/setup", async (c) => {
     const forward = normalizePhoneNumber(input.forwardToPhone || "");
     let businessPhone: Awaited<ReturnType<typeof prisma.businessPhoneNumber.findFirst>> = null;
 
-    // Number adoption only: a number already reserved/assigned to this buyer
-    // is attached, but numbers are never silently purchased here anymore — the
-    // buyer selects a location and confirms a specific number through
-    // /business/phone-numbers/search + /purchase. The deploy checklist reports
-    // a missing number with that remediation.
     if (!targetPlatform && !existingPhone) {
       const adopted = await findBuyerPlatformNumber({
         buyerUserId: authUser.id,
@@ -2178,9 +2589,6 @@ businessRoutes.post("/setup", async (c) => {
     if (targetPlatform) {
       const targetNumber = normalizePhoneNumber(targetPlatform.phoneNumber);
 
-      // Guard against a mapping actively owned by another business. Inactive
-      // rows are history kept by unassignment (recycled pool numbers) and are
-      // safely taken over by the upsert below.
       const conflicting = await prisma.businessPhoneNumber.findUnique({
         where: { phoneNumber: targetNumber },
         select: { id: true, businessId: true, phoneNumber: true, isActive: true }
@@ -2359,6 +2767,7 @@ businessRoutes.post("/setup", async (c) => {
         installedAgentId: refreshedAgent?.id ?? installedAgent.id,
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
         vapiAssistantId: responseVapiAssistantId,
+        ...(addressLiveSync ? { addressLiveSync } : {}),
         ...phoneOptions
       },
       "Business setup saved"
@@ -2388,10 +2797,28 @@ businessRoutes.get("/connectors/google-calendar/status", async (c) => {
   return successResponse(c, status);
 });
 
+function sanitizeGoogleReturnPath(raw: string | undefined): string {
+  const value = raw?.trim() ?? "";
+
+  if (
+    value.startsWith("/business/") &&
+    !value.includes("\\") &&
+    !value.includes("//") &&
+    value.length <= 512
+  ) {
+    return value;
+  }
+
+  return BUSINESS_SETTINGS_INTEGRATIONS_PATH;
+}
+
 businessRoutes.get("/connectors/google-calendar/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const url = createGmailOAuthUrl(authUser.id, BUSINESS_SETTINGS_INTEGRATIONS_PATH);
+    const url = createGmailOAuthUrl(
+      authUser.id,
+      sanitizeGoogleReturnPath(c.req.query("redirect"))
+    );
     return successResponse(c, { url });
   } catch (error) {
     return errorResponse(

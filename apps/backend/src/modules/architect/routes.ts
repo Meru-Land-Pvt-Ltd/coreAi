@@ -81,20 +81,24 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
   try {
     const code = c.req.query("code");
     const state = c.req.query("state");
+    const oauthError = c.req.query("error");
 
-    if (!code || !state) {
+    if (!code || !state || oauthError) {
       let target = "/architect/profile";
 
       if (state) {
         try {
           target = getGmailOAuthRedirectPath(state) ?? target;
         } catch {
-          // Invalid or expired state: fall back to the architect profile.
+          // Forged/undecodable state: fall back to the architect profile.
         }
       }
 
+      // "denied" = the user rejected the Google consent screen; everything
+      // else (missing code/state, provider error) reads as a plain failure.
+      const result = oauthError === "access_denied" ? "denied" : "failed";
       const separator = target.includes("?") ? "&" : "?";
-      return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=failed`);
+      return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=${result}`);
     }
 
     const { redirectPath } = await handleGmailOAuthCallback({

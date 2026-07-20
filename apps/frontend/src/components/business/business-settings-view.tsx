@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { BusinessHoursSection } from "@/components/business/business-hours-section";
 import {
   deleteBusinessAccount,
   downloadBusinessDataExport,
@@ -11,9 +12,11 @@ import {
   getBusinessCalendarStatus,
   getBusinessLoginHistory,
   getBusinessActiveSessions,
+  getBusinessFacts,
   getBusinessSettingsProfile,
   getBusinessSetup,
   requestBusinessEmailChange,
+  saveBusinessAddressApi,
   revokeBusinessSession,
   revokeOtherBusinessSessions,
   saveBusinessBillingAddress,
@@ -22,6 +25,7 @@ import {
   saveBusinessSettingsProfile,
   saveBusinessSetup,
   verifyBusinessEmailChange,
+  type BusinessFactsData,
   type BusinessLoginHistoryEntry,
   type BusinessSettingsProfile,
   type BusinessSettingsSession,
@@ -556,6 +560,408 @@ function buildProfileForm(
   };
 }
 
+/* ---- Structured Business Address (shared by Settings + Agent Setup) ---- */
+
+const EMPTY_ADDRESS_DRAFT = {
+  line1: "",
+  line2: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  country: "",
+  landmark: "",
+  directions: "",
+  mapsLink: ""
+};
+
+type BusinessAddressDraft = typeof EMPTY_ADDRESS_DRAFT;
+
+const ADDRESS_FIELD_CLASS =
+  "w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100";
+const ADDRESS_LABEL_CLASS = "mb-1.5 block text-sm font-medium text-slate-700";
+
+function addressDraftFromFacts(facts: BusinessFactsData | null): BusinessAddressDraft {
+  const address = facts?.address;
+  return {
+    line1: address?.line1 ?? "",
+    line2: address?.line2 ?? "",
+    city: address?.city ?? "",
+    state: address?.state ?? "",
+    postalCode: address?.postalCode ?? "",
+    country: address?.country ?? "",
+    landmark: address?.landmark ?? "",
+    directions: address?.directions ?? "",
+    mapsLink: address?.mapsLink ?? ""
+  };
+}
+
+/**
+ * Structured Business Address editor shared by Business Settings and the Agent
+ * Setup wizard. Both surfaces read GET /business/setup/business-facts on mount
+ * and save through PUT /business/setup/business-address, so they always show
+ * identical values.
+ */
+export function BusinessAddressSection({
+  embedded = false,
+  onDirtyChange,
+  registerApi
+}: {
+  /**
+   * Embedded mode (Agent Setup): hides the internal Save button — the parent
+   * saves through registerApi as part of the page-level save experience.
+   */
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  registerApi?: (api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null) => void;
+} = {}) {
+  const [facts, setFacts] = useState<BusinessFactsData | null>(null);
+  const [draft, setDraft] = useState<BusinessAddressDraft>(EMPTY_ADDRESS_DRAFT);
+  const [source, setSource] = useState<"manual" | "pdf_suggestion">("manual");
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ line1?: string; city?: string; statePostal?: string }>({});
+  const [serverError, setServerError] = useState("");
+  const [addressSaving, setAddressSaving] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+  const [syncWarning, setSyncWarning] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  const refreshFacts = useCallback(async () => {
+    const res = await getBusinessFacts();
+    if (res.success && res.data) {
+      setFacts(res.data);
+      setDraft(addressDraftFromFacts(res.data));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshFacts();
+  }, [refreshFacts]);
+
+  const suggestion = facts?.documentSuggestion ?? null;
+  const showSuggestion = Boolean(suggestion) && !suggestionDismissed;
+  const conflict = Boolean(facts?.conflict);
+  const hasSavedAddress = Boolean(facts?.address?.line1?.trim());
+
+  const status = conflict
+    ? { label: "Conflicts with uploaded document", cls: "bg-rose-100 text-rose-700" }
+    : facts?.addressConfirmed
+      ? { label: "Confirmed", cls: "bg-green-100 text-green-700" }
+      : hasSavedAddress
+        ? { label: "Incomplete", cls: "bg-amber-100 text-amber-700" }
+        : suggestion
+          ? { label: "Suggested from document", cls: "bg-amber-50 text-amber-700" }
+          : { label: "Not configured", cls: "bg-slate-100 text-slate-500" };
+
+  function setAddressField(key: keyof BusinessAddressDraft, value: string) {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setSavedOk(false);
+    setDirty(true);
+  }
+
+  function applySuggestion() {
+    if (!suggestion) return;
+    setDraft((current) => ({
+      ...current,
+      line1: suggestion.line1,
+      city: suggestion.city ?? current.city,
+      state: suggestion.state ?? current.state,
+      postalCode: suggestion.postalCode ?? current.postalCode
+    }));
+    setSource("pdf_suggestion");
+    setSavedOk(false);
+    setDirty(true);
+    setFieldErrors({});
+  }
+
+  async function performAddressSave(): Promise<{ ok: boolean; error?: string }> {
+    setSavedOk(false);
+    setServerError("");
+    setSyncWarning(false);
+
+    // An entirely empty draft means "no address" — nothing to save, and it
+    // must never block the rest of the Configure page from saving.
+    const isEmpty = Object.values(draft).every((value) => !value.trim());
+    if (isEmpty) {
+      setFieldErrors({});
+      return { ok: true };
+    }
+
+    const errors: { line1?: string; city?: string; statePostal?: string } = {};
+    if (!draft.line1.trim()) errors.line1 = "Address line 1 is required.";
+    if (!draft.city.trim()) errors.city = "City is required.";
+    if (!draft.state.trim() && !draft.postalCode.trim()) {
+      errors.statePostal = "Provide at least a state/province or a postal code.";
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      return { ok: false, error: Object.values(errors)[0] };
+    }
+
+    setAddressSaving(true);
+    const res = await saveBusinessAddressApi({
+      line1: draft.line1.trim(),
+      line2: draft.line2.trim(),
+      city: draft.city.trim(),
+      state: draft.state.trim(),
+      postalCode: draft.postalCode.trim(),
+      country: draft.country.trim(),
+      landmark: draft.landmark.trim(),
+      directions: draft.directions.trim(),
+      mapsLink: draft.mapsLink.trim(),
+      source,
+      confirm: true
+    });
+    setAddressSaving(false);
+
+    if (!res.success || !res.data) {
+      const message = res.error ?? "Could not save the address. Please try again.";
+      setServerError(message);
+      return { ok: false, error: message };
+    }
+
+    const saved = res.data;
+    setSavedOk(true);
+    setDirty(false);
+    if (saved.liveSync.attempted && !saved.liveSync.ok) setSyncWarning(true);
+    setFacts((current) =>
+      current
+        ? { ...current, addressFormatted: saved.addressFormatted, addressConfirmed: saved.addressConfirmed }
+        : current
+    );
+    // Suggestion/conflict/completeness are server-derived — re-read the facts.
+    void refreshFacts();
+    return { ok: true };
+  }
+
+  async function handleAddressSave() {
+    await performAddressSave();
+  }
+
+  // Embedded mode: parent-orchestrated saving; ref refreshed each render so
+  // the registered functions always close over live state.
+  const embeddedAddressApiRef = useRef({
+    save: performAddressSave,
+    isDirty: () => dirty
+  });
+  embeddedAddressApiRef.current = { save: performAddressSave, isDirty: () => dirty };
+
+  useEffect(() => {
+    if (!registerApi) return;
+    registerApi({
+      save: () => embeddedAddressApiRef.current.save(),
+      isDirty: () => embeddedAddressApiRef.current.isDirty()
+    });
+    return () => registerApi(null);
+  }, [registerApi]);
+
+  return (
+    <div data-testid="business-address-section">
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="text-sm font-bold text-slate-900">Business address</h3>
+        <span
+          data-testid="business-address-status"
+          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${status.cls}`}
+        >
+          {status.label}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-slate-500">
+        Your agent shares this address with callers who ask where you are.
+      </p>
+
+      {showSuggestion && suggestion ? (
+        <div
+          data-testid="business-address-suggestion"
+          className={`mt-4 rounded-xl border p-4 ${conflict ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}
+        >
+          <p className={`text-sm font-semibold ${conflict ? "text-rose-800" : "text-amber-800"}`}>
+            Found in {suggestion.sourceFilename ?? "your uploaded document"}: {suggestion.formatted}
+          </p>
+          {conflict ? (
+            <div className="mt-2 text-sm text-rose-700">
+              <p className="font-semibold">This differs from your confirmed address.</p>
+              <p className="mt-1">
+                Confirmed: <span className="font-semibold">{facts?.addressFormatted ?? "—"}</span>
+              </p>
+              <p>
+                From document: <span className="font-semibold">{suggestion.formatted}</span>
+              </p>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              data-testid="business-address-suggestion-apply"
+              onClick={applySuggestion}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${conflict ? "bg-rose-500 hover:bg-rose-600" : "bg-amber-500 hover:bg-amber-600"}`}
+            >
+              Use this address
+            </button>
+            <button
+              type="button"
+              onClick={() => setSuggestionDismissed(true)}
+              className="text-sm font-semibold text-slate-600 hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label htmlFor="business-address-line1" className={ADDRESS_LABEL_CLASS}>
+            Address line 1 <span className="text-rose-500">*</span>
+          </label>
+          <input
+            id="business-address-line1"
+            data-testid="business-address-line1"
+            value={draft.line1}
+            onChange={(e) => setAddressField("line1", e.target.value)}
+            placeholder="123 Main Street"
+            className={ADDRESS_FIELD_CLASS}
+          />
+          {fieldErrors.line1 ? <p className="mt-1.5 text-xs font-semibold text-rose-600">{fieldErrors.line1}</p> : null}
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="business-address-line2" className={ADDRESS_LABEL_CLASS}>
+            Address line 2
+          </label>
+          <input
+            id="business-address-line2"
+            data-testid="business-address-line2"
+            value={draft.line2}
+            onChange={(e) => setAddressField("line2", e.target.value)}
+            placeholder="Suite 200"
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="business-address-city" className={ADDRESS_LABEL_CLASS}>
+            City <span className="text-rose-500">*</span>
+          </label>
+          <input
+            id="business-address-city"
+            data-testid="business-address-city"
+            value={draft.city}
+            onChange={(e) => setAddressField("city", e.target.value)}
+            className={ADDRESS_FIELD_CLASS}
+          />
+          {fieldErrors.city ? <p className="mt-1.5 text-xs font-semibold text-rose-600">{fieldErrors.city}</p> : null}
+        </div>
+        <div>
+          <label htmlFor="business-address-state" className={ADDRESS_LABEL_CLASS}>
+            State/Province
+          </label>
+          <input
+            id="business-address-state"
+            data-testid="business-address-state"
+            value={draft.state}
+            onChange={(e) => setAddressField("state", e.target.value)}
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="business-address-postal" className={ADDRESS_LABEL_CLASS}>
+            Postal code
+          </label>
+          <input
+            id="business-address-postal"
+            data-testid="business-address-postal"
+            value={draft.postalCode}
+            onChange={(e) => setAddressField("postalCode", e.target.value)}
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="business-address-country" className={ADDRESS_LABEL_CLASS}>
+            Country
+          </label>
+          <input
+            id="business-address-country"
+            data-testid="business-address-country"
+            value={draft.country}
+            onChange={(e) => setAddressField("country", e.target.value)}
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+        {fieldErrors.statePostal ? (
+          <p className="sm:col-span-2 -mt-3 text-xs font-semibold text-rose-600">{fieldErrors.statePostal}</p>
+        ) : null}
+        <div className="sm:col-span-2">
+          <label htmlFor="business-address-landmark" className={ADDRESS_LABEL_CLASS}>
+            Landmark
+          </label>
+          <input
+            id="business-address-landmark"
+            data-testid="business-address-landmark"
+            value={draft.landmark}
+            onChange={(e) => setAddressField("landmark", e.target.value)}
+            placeholder="Next to the Central Park pharmacy"
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="business-address-directions" className={ADDRESS_LABEL_CLASS}>
+            Directions
+          </label>
+          <textarea
+            id="business-address-directions"
+            data-testid="business-address-directions"
+            value={draft.directions}
+            onChange={(e) => setAddressField("directions", e.target.value)}
+            rows={2}
+            placeholder="Parking is behind the building; use the side entrance."
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="business-address-maps" className={ADDRESS_LABEL_CLASS}>
+            Google Maps link
+          </label>
+          <input
+            id="business-address-maps"
+            data-testid="business-address-maps"
+            value={draft.mapsLink}
+            onChange={(e) => setAddressField("mapsLink", e.target.value)}
+            placeholder="https://maps.google.com/..."
+            className={ADDRESS_FIELD_CLASS}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        {!embedded ? (
+          <button
+            type="button"
+            data-testid="business-address-save"
+            onClick={() => void handleAddressSave()}
+            disabled={addressSaving}
+            className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
+          >
+            {addressSaving ? "Saving..." : "Save address"}
+          </button>
+        ) : null}
+        {savedOk ? <span className="text-sm font-semibold text-green-600">Confirmed ✓</span> : null}
+      </div>
+      {serverError ? (
+        <p data-testid="business-address-error" className="mt-2 text-sm font-semibold text-rose-600">
+          {serverError}
+        </p>
+      ) : null}
+      {syncWarning ? (
+        <p data-testid="business-address-sync-warning" className="mt-2 text-sm font-semibold text-amber-700">
+          Saved, but your live agent wasn&rsquo;t updated — retry from the Setup page.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function BusinessSettingsView() {
   const authUser = useMemo(() => getAuthUser(), []);
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
@@ -737,10 +1143,20 @@ export function BusinessSettingsView() {
       setExpandedMobile(tab);
     }
 
-    if (params.get("gmail") === "connected") {
+    const gmailResult = params.get("gmail");
+    if (gmailResult === "connected") {
       showToast("Google Calendar connected");
-    } else if (params.get("gmail") === "failed") {
+    } else if (gmailResult === "denied") {
+      showToast("Google connection was cancelled — permission was not granted");
+    } else if (gmailResult === "failed") {
       showToast("Could not connect Google Calendar");
+    }
+
+    if (gmailResult) {
+      // Strip the one-shot result flag so a refresh doesn't re-toast.
+      params.delete("gmail");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
     }
   }, [showToast]);
 
@@ -1437,6 +1853,14 @@ export function BusinessSettingsView() {
                       </button>
                     </div>
                   </form>
+
+                  <hr className="my-7 border-gray-100" />
+
+                  <BusinessAddressSection />
+
+                  <hr className="my-7 border-gray-100" />
+
+                  <BusinessHoursSection />
             </SettingsSection>
 
             <SettingsSection

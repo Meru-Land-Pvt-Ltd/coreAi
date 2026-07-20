@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  getBusinessPhoneAssignment,
   getPhoneCities,
   getPhoneCountries,
   getPhoneStates,
   purchaseBusinessPhoneNumber,
   searchBusinessPhoneNumbers,
   type AvailablePhoneNumber,
+  type BusinessPhoneAssignment,
   type PhoneCountryOption,
   type PhoneNumberSearchResult,
   type PhoneStateOption
@@ -17,7 +19,6 @@ export function PhoneNumberSelectionSection({
   installedAgentId,
   listingId,
   forwardToPhone,
-  replaceExisting = false,
   onProvisioned
 }: {
   installedAgentId: string | null;
@@ -25,14 +26,16 @@ export function PhoneNumberSelectionSection({
   listingId?: string;
   /** The buyer's own line — stored as the forwarding target at purchase. */
   forwardToPhone?: string;
-  /** Change-number flow: the old number is kept until the new one is active. */
-  replaceExisting?: boolean;
   onProvisioned: (phoneNumber: string) => void;
 }) {
   const [countries, setCountries] = useState<PhoneCountryOption[]>([]);
   const [catalogueNote, setCatalogueNote] = useState("");
   const [catalogueLoading, setCatalogueLoading] = useState(true);
   const [catalogueError, setCatalogueError] = useState("");
+  // One active number per business: when an assignment exists, the whole
+  // search/assign flow is hidden and only the assigned number is shown.
+  const [assignment, setAssignment] = useState<BusinessPhoneAssignment | null>(null);
+  const [assignmentChecked, setAssignmentChecked] = useState(false);
   const [country, setCountry] = useState("");
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
@@ -74,6 +77,17 @@ export function PhoneNumberSelectionSection({
   useEffect(() => {
     loadCatalogue();
   }, [loadCatalogue]);
+
+  // Existing assignment check — reloads and new tabs land on the assigned
+  // number instead of the search flow, so a second purchase is impossible.
+  useEffect(() => {
+    void getBusinessPhoneAssignment().then((res) => {
+      setAssignmentChecked(true);
+      if (res.success && res.data && "assigned" in res.data && res.data.assigned) {
+        setAssignment(res.data);
+      }
+    });
+  }, []);
 
   // Country picked → load that country's states (never purchases anything).
   useEffect(() => {
@@ -158,6 +172,13 @@ export function PhoneNumberSelectionSection({
     setSearching(false);
 
     if (res.success && res.data) {
+      // The backend refuses to offer inventory once a number is assigned —
+      // surface the existing assignment instead of a purchasable offer.
+      if (res.data.alreadyAssigned?.assigned) {
+        setAssignment(res.data.alreadyAssigned);
+        setSearchResult(null);
+        return;
+      }
       setSearchResult(res.data);
       // Twilio can return several candidates, but setup deliberately offers
       // only one. Nothing is purchased until the buyer confirms it below.
@@ -168,8 +189,6 @@ export function PhoneNumberSelectionSection({
     }
   }, [city, country, installedAgentId, listingId, state]);
 
-  // Once the complete location is known, immediately offer one exact-location
-  // number. The manual button remains for retries and country/state-only cases.
   useEffect(() => {
     if (!country || !city) return;
     void runSearch();
@@ -183,7 +202,7 @@ export function PhoneNumberSelectionSection({
 
     setPurchasing(true);
     setPurchaseError("");
-    setProgressNote("Rechecking availability and purchasing your number…");
+    setProgressNote("Rechecking availability and assigning your number…");
 
     const res = await purchaseBusinessPhoneNumber({
       installedAgentId: installedAgentId ?? undefined,
@@ -194,8 +213,7 @@ export function PhoneNumberSelectionSection({
       state: state || undefined,
       city: city || undefined,
       fallbackType: fallbackType ?? undefined,
-      forwardToPhone: forwardToPhone?.trim() || undefined,
-      replaceExisting: replaceExisting || undefined
+      forwardToPhone: forwardToPhone?.trim() || undefined
     });
 
     setPurchasing(false);
@@ -222,6 +240,54 @@ export function PhoneNumberSelectionSection({
     }
   };
 
+  // Never flash the search flow before the assignment check answers — an
+  // already-assigned business must not see purchasable inventory at all.
+  if (!assignmentChecked) {
+    return (
+      <div className="flex items-start gap-3.5" data-testid="business-setup-number-selection">
+        <p className="text-sm text-slate-500" data-testid="business-setup-phone-assignment-loading">
+          Checking your Triven AI number…
+        </p>
+      </div>
+    );
+  }
+
+  // Existing active assignment: show the number, never the search/assign flow.
+  if (assignment) {
+    return (
+      <div className="flex items-start gap-3.5" data-testid="business-setup-phone-assignment">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-600 shrink-0 mt-0.5">
+          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+        </svg>
+        <div className="w-full">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-slate-800">Your Triven AI business number</p>
+            <span
+              className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-green-700"
+              data-testid="business-setup-phone-assignment-status"
+            >
+              Active
+            </span>
+          </div>
+          <p className="mt-1 font-mono text-lg font-bold text-slate-900" data-testid="business-setup-phone-assignment-number">
+            {assignment.phoneNumber}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500" data-testid="business-setup-phone-assignment-details">
+            {[assignment.locality, assignment.region, assignment.country].filter(Boolean).join(", ") || "Location on file"}
+            {" · "}
+            {[assignment.capabilities.voice ? "Voice" : null, assignment.capabilities.sms ? "SMS" : null]
+              .filter(Boolean)
+              .join(" · ") || "Voice"}
+            {assignment.assignedAt ? ` · Assigned ${new Date(assignment.assignedAt).toLocaleDateString()}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Included with your Triven AI setup. To replace this number, contact Triven support.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-start gap-3.5" data-testid="business-setup-number-selection">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-amber-500 shrink-0 mt-0.5">
@@ -230,7 +296,7 @@ export function PhoneNumberSelectionSection({
       <div className="w-full">
         <p className="text-sm font-semibold text-slate-800">Choose your Triven AI phone number</p>
         <p className="mt-1 text-xs text-slate-500">
-          {catalogueNote || "Number availability depends on Twilio inventory and local regulatory requirements."}
+          {catalogueNote || "Number availability depends on carrier inventory and local regulatory requirements."}
         </p>
 
         {catalogueLoading ? (
@@ -419,11 +485,9 @@ export function PhoneNumberSelectionSection({
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
-                {selectedNumber.feeCents > 0 ? (
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    {selectedNumber.feeLabel}: ${(selectedNumber.feeCents / 100).toFixed(2)} (one-time)
-                  </span>
-                ) : null}
+                <span className="mt-0.5 block text-xs text-slate-500" data-testid="business-setup-phone-included-note">
+                  Triven AI business number · Included with your Triven AI setup
+                </span>
                 {selectedNumber.regulatoryNote ? (
                   <span className="mt-0.5 block text-xs font-semibold text-amber-700">{selectedNumber.regulatoryNote}</span>
                 ) : null}
@@ -435,7 +499,7 @@ export function PhoneNumberSelectionSection({
                 data-testid="business-setup-phone-confirm"
                 className="mt-3 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
               >
-                {purchasing ? "Provisioning…" : "Confirm and provision this number"}
+                {purchasing ? "Assigning…" : "Confirm and assign"}
               </button>
               {progressNote ? (
                 <p className="mt-2 text-xs text-slate-500" data-testid="business-setup-phone-progress">{progressNote}</p>

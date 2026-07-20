@@ -25,6 +25,14 @@ export type AgentBusinessContext = {
   appointmentService: string;
   services: string[];
   faqs: string[];
+  /** Business knowledge entries (manual + document-derived, shared format). */
+  knowledge?: string[];
+  /** Confirmed structured address (one line) — foundational, never invented. */
+  address?: string;
+  /** Verified business facts lines for the prompt (address, phone, website…). */
+  factsLines?: string[];
+  /** Structured Business Hours block (or the never-guess instruction). */
+  businessHours?: string;
 };
 
 export type AgentCallerContext = {
@@ -36,7 +44,7 @@ export type AgentCallerContext = {
 export type AgentRuntimeLog = {
   nodeId: string;
   label: string;
-  status: "success" | "waiting" | "error";
+  status: "success" | "waiting" | "error" | "skipped";
   message: string;
   output?: unknown;
 };
@@ -49,11 +57,7 @@ export type AgentToolCall = {
   output?: Record<string, unknown>;
 };
 
-/**
- * Conversation state inferred from the transcript each turn. These are small,
- * generic collectors (identity, time, closing) — business behavior comes from
- * the workflow graph and node prompts, never from rules here.
- */
+
 export type AgentConversationState = {
   /** The caller is trying to schedule something (any wording). */
   schedulingIntent: boolean;

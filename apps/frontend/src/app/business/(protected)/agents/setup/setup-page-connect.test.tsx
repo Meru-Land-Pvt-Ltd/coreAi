@@ -16,10 +16,85 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/components/business/features/api", () => ({
   checkMailAliasAvailability: vi.fn().mockResolvedValue({ success: true, data: { available: true } }),
+  deleteBusinessKnowledgeFile: vi.fn().mockResolvedValue({
+    success: true,
+    data: { deleted: true, liveSync: { attempted: false, ok: false, assistantId: null, error: null } }
+  }),
   deleteBusinessTestEvent: vi.fn().mockResolvedValue({ success: true, data: { outcome: "deleted" } }),
   disconnectBusinessCalendar: vi.fn().mockResolvedValue({ success: true }),
+  getAppointmentSchedule: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      schedule: {
+        timeZone: "America/Los_Angeles",
+        days: {
+          sunday: { open: "09:00", close: "17:00", closed: true },
+          monday: { open: "09:00", close: "17:00", closed: false },
+          tuesday: { open: "09:00", close: "17:00", closed: false },
+          wednesday: { open: "09:00", close: "17:00", closed: false },
+          thursday: { open: "09:00", close: "17:00", closed: false },
+          friday: { open: "09:00", close: "17:00", closed: false },
+          saturday: { open: "09:00", close: "17:00", closed: true }
+        },
+        defaultDurationMinutes: 30,
+        serviceDurations: {},
+        bufferMinutes: 10,
+        slotIntervalMinutes: 40,
+        minNoticeMinutes: 60,
+        maxAdvanceDays: 60,
+        maxSpokenSuggestions: 5,
+        calendarId: "primary",
+        source: "business_hours",
+        confirmed: false
+      },
+      installedAgentId: null,
+      needsConfirmation: true,
+      documentSuggestion: null
+    }
+  }),
   getBusinessCalendarOAuthUrl: vi.fn().mockResolvedValue({ success: true, data: { url: "" } }),
+  getBusinessFacts: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      businessName: null,
+      address: null,
+      addressFormatted: null,
+      addressComplete: false,
+      addressConfirmed: false,
+      phone: null,
+      documentSuggestion: null,
+      conflict: false
+    }
+  }),
+  saveBusinessAddressApi: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      addressFormatted: null,
+      addressConfirmed: true,
+      liveSync: { attempted: false, ok: false, assistantId: null, error: null }
+    }
+  }),
+  getBusinessKnowledgeFiles: vi.fn().mockResolvedValue({ success: true, data: { files: [] } }),
   getBusinessMailSetup: vi.fn().mockResolvedValue({ success: true, data: { alias: null } }),
+  reprocessBusinessKnowledgeFile: vi.fn().mockResolvedValue({
+    success: true,
+    data: { file: null, liveSync: { attempted: false, ok: false, assistantId: null, error: null } }
+  }),
+  syncBusinessKnowledge: vi.fn().mockResolvedValue({
+    success: true,
+    data: { liveSync: { attempted: false, ok: false, assistantId: null, error: null } }
+  }),
+  uploadBusinessKnowledgeFiles: vi.fn().mockResolvedValue({
+    success: true,
+    data: { files: [], liveSync: { attempted: false, ok: false, assistantId: null, error: null } }
+  }),
+  getBusinessHours: vi.fn().mockResolvedValue({
+    success: true,
+    data: { weekly: null, special: [], timeZone: "America/Los_Angeles", source: null, confirmedAt: null, configured: false, liveSyncStatus: null }
+  }),
+  putBusinessHours: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  syncBusinessHoursToLiveAgent: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  getBusinessPhoneAssignment: vi.fn().mockResolvedValue({ success: true, data: { assigned: false } }),
   getBusinessSetup: vi.fn(),
   getMarketplaceListing: vi.fn().mockResolvedValue({ success: true, data: { listing: null } }),
   getPhoneCountries: vi.fn(),
@@ -119,7 +194,7 @@ describe("Connect step — number-first flow", () => {
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 
-  it("an assigned number hides the selector behind Change number, then opens it on click", async () => {
+  it("an assigned number shows the Active card and offers no way to search or assign again", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({ phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null } }) as never
     );
@@ -128,12 +203,14 @@ describe("Connect step — number-first flow", () => {
 
     const assigned = await screen.findByTestId("business-setup-assigned-number");
     expect(assigned.textContent).toContain("+12135550999");
-    expect(screen.queryByTestId("business-setup-phone-country")).toBeNull();
+    expect(screen.getByTestId("business-setup-assigned-number-status").textContent).toBe("Active");
 
-    await userEvent.setup().click(screen.getByTestId("business-setup-phone-change-number"));
-    expect(await screen.findByTestId("business-setup-phone-country")).toBeTruthy();
-    // The current number is explicitly kept until the replacement is active.
-    expect(screen.getByText(/stays active until the replacement/i)).toBeTruthy();
+    // Number replacement is an admin/support-only process: no Change number,
+    // no location search, no assign controls.
+    expect(screen.queryByTestId("business-setup-phone-change-number")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-country")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-search")).toBeNull();
+    expect(screen.queryByTestId("business-setup-phone-confirm")).toBeNull();
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 

@@ -9,13 +9,6 @@ import {
 } from "../admin/twilio-number-service";
 import { workflowSupportsSmsReplies } from "../architect/twilio-business-routing";
 import { assignPlatformNumber, unassignPlatformNumber } from "./phone-assignment";
-import { getPhoneNumberFee } from "./phone-provisioning";
-
-/**
- * Buyer-facing phone provisioning: location selection → inventory search →
- * explicit number selection → idempotent purchase driven by a persisted state
- * machine (PhoneProvisioningRequest). Replaces silent auto-assignment.
- */
 
 export type SafeAvailableNumber = {
   phoneNumber: string;
@@ -25,9 +18,6 @@ export type SafeAvailableNumber = {
   locality: string | null;
   capabilities: { voice: boolean; sms: boolean; mms: boolean };
   numberType: "LOCAL";
-  /** One-time platform number fee (the "AI Receptionist No." line). */
-  feeCents: number;
-  feeLabel: string;
   /** Local-number activation can require address/identity verification. */
   regulatoryNote: string | null;
   checkedAt: string;
@@ -40,10 +30,52 @@ export type PhoneSearchOutcome = {
   matchLevel: "EXACT_CITY" | "SAME_STATE" | "NATIONAL";
   fallbackOptions: Array<"NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE">;
   smsRequired: boolean;
-  /** False when Twilio cannot filter this country by state/city — the search
-   * ran country-wide and the UI says so honestly. */
   localityFilterSupported: boolean;
+  alreadyAssigned?: BusinessPhoneAssignment | null;
 };
+
+export type BusinessPhoneAssignment = {
+  assigned: true;
+  phoneNumber: string;
+  status: "ACTIVE";
+  country: string | null;
+  region: string | null;
+  locality: string | null;
+  capabilities: { voice: boolean; sms: boolean };
+  assignedAt: string | null;
+  installedAgentId: string | null;
+};
+
+/** The business's current active Triven number, in the buyer-safe shape. */
+export async function getBusinessPhoneAssignment(businessId: string): Promise<BusinessPhoneAssignment | null> {
+  const number = await prisma.platformPhoneNumber.findFirst({
+    where: { businessId, status: "ASSIGNED", isPlatformSmsSender: false },
+    orderBy: { assignedAt: "desc" },
+    select: {
+      phoneNumber: true,
+      country: true,
+      region: true,
+      locality: true,
+      voiceEnabled: true,
+      smsEnabled: true,
+      assignedAt: true,
+      installedAgentId: true
+    }
+  });
+  if (!number) return null;
+
+  return {
+    assigned: true,
+    phoneNumber: number.phoneNumber,
+    status: "ACTIVE",
+    country: number.country,
+    region: number.region,
+    locality: number.locality,
+    capabilities: { voice: number.voiceEnabled, sms: number.smsEnabled },
+    assignedAt: number.assignedAt?.toISOString() ?? null,
+    installedAgentId: number.installedAgentId
+  };
+}
 
 const REGULATORY_NOTE_BY_COUNTRY: Record<string, string> = {
   GB: "UK local numbers can require a registered address before activation.",
@@ -53,7 +85,7 @@ const REGULATORY_NOTE_BY_COUNTRY: Record<string, string> = {
 /** The buyer is offered one provider-selected number, never a list. */
 const PHONE_SEARCH_RESULT_LIMIT = 1;
 
-function toSafeNumber(item: AvailableNumberResult, fee: { amountCents: number; label: string }): SafeAvailableNumber {
+function toSafeNumber(item: AvailableNumberResult): SafeAvailableNumber {
   return {
     phoneNumber: item.phoneNumber,
     friendlyName: item.friendlyName,
@@ -62,20 +94,15 @@ function toSafeNumber(item: AvailableNumberResult, fee: { amountCents: number; l
     locality: item.locality,
     capabilities: item.capabilities,
     numberType: "LOCAL",
-    feeCents: fee.amountCents,
-    feeLabel: fee.label,
     regulatoryNote: REGULATORY_NOTE_BY_COUNTRY[item.country.toUpperCase()] ?? null,
     checkedAt: new Date().toISOString()
   };
 }
 
-function toSingleSafeNumberList(
-  items: AvailableNumberResult[],
-  fee: { amountCents: number; label: string }
-): SafeAvailableNumber[] {
+function toSingleSafeNumberList(items: AvailableNumberResult[]): SafeAvailableNumber[] {
   // Keep the existing array response contract while enforcing the product rule
   // defensively even if a provider returns more rows than its requested limit.
-  return items.slice(0, PHONE_SEARCH_RESULT_LIMIT).map((item) => toSafeNumber(item, fee));
+  return items.slice(0, PHONE_SEARCH_RESULT_LIMIT).map((item) => toSafeNumber(item));
 }
 
 /** Whether the installed agent's workflow uses SMS (search then requires SMS capability). */
@@ -101,13 +128,27 @@ export async function searchNumbersForBusiness(params: {
   state?: string | null;
   city?: string | null;
 }): Promise<PhoneSearchOutcome> {
+  // One active number per business: once assigned, search never returns
+  // purchasable inventory — only the existing assignment.
+  const alreadyAssigned = await getBusinessPhoneAssignment(params.businessId);
+  if (alreadyAssigned) {
+    return {
+      numbers: [],
+      exactMatchAvailable: false,
+      matchLevel: "NATIONAL",
+      fallbackOptions: [],
+      smsRequired: false,
+      localityFilterSupported: true,
+      alreadyAssigned
+    };
+  }
+
   const location = validatePhoneLocation(params);
   if (!location.ok) {
     throw new PhoneNumberServiceError(location.message, 422, location.errorCode);
   }
 
   const smsRequired = await installedWorkflowNeedsSms(params.businessId, params.installedAgentId);
-  const fee = await getPhoneNumberFee();
 
   const baseFilters = {
     country: location.country.code,
@@ -116,13 +157,11 @@ export async function searchNumbersForBusiness(params: {
     limit: PHONE_SEARCH_RESULT_LIMIT
   };
 
-  // Twilio only honors state/city filters for US/CA local numbers. Everywhere
-  // else the search runs country-wide and says so — never a silent fallback.
   if (!location.localityFilter) {
     const national = await searchAvailableNumbers(baseFilters);
 
     return {
-      numbers: toSingleSafeNumberList(national, fee),
+      numbers: toSingleSafeNumberList(national),
       exactMatchAvailable: national.length > 0,
       matchLevel: "NATIONAL",
       fallbackOptions: [],
@@ -131,8 +170,7 @@ export async function searchNumbersForBusiness(params: {
     };
   }
 
-  // Exact city first, then widen: same state, then national. Never silently —
-  // the match level and fallback options are always reported to the buyer.
+
   if (location.city && location.region) {
     const exact = await searchAvailableNumbers({
       ...baseFilters,
@@ -142,7 +180,7 @@ export async function searchNumbersForBusiness(params: {
 
     if (exact.length > 0) {
       return {
-        numbers: toSingleSafeNumberList(exact, fee),
+        numbers: toSingleSafeNumberList(exact),
         exactMatchAvailable: true,
         matchLevel: "EXACT_CITY",
         fallbackOptions: [],
@@ -165,7 +203,7 @@ export async function searchNumbersForBusiness(params: {
     const regional = await searchAvailableNumbers({ ...baseFilters, inRegion: location.region.code });
 
     return {
-      numbers: toSingleSafeNumberList(regional, fee),
+      numbers: toSingleSafeNumberList(regional),
       exactMatchAvailable: regional.length > 0,
       matchLevel: "SAME_STATE",
       fallbackOptions: regional.length > 0 ? [] : ["NATIONAL"],
@@ -177,7 +215,7 @@ export async function searchNumbersForBusiness(params: {
   const national = await searchAvailableNumbers(baseFilters);
 
   return {
-    numbers: toSingleSafeNumberList(national, fee),
+    numbers: toSingleSafeNumberList(national),
     exactMatchAvailable: national.length > 0,
     matchLevel: "NATIONAL",
     fallbackOptions: [],
@@ -263,11 +301,6 @@ function outcomeFromRequest(request: {
   };
 }
 
-/**
- * Idempotent purchase + assignment. A repeated clientRequestId returns the
- * existing request's result instead of buying another number; a business that
- * already holds an active number is never sold a second one.
- */
 export async function purchaseNumberForBusiness(params: {
   businessId: string;
   requestedByUserId: string;
@@ -278,10 +311,7 @@ export async function purchaseNumberForBusiness(params: {
   state?: string | null;
   city?: string | null;
   fallbackType?: "NEARBY_CITY" | "SAME_STATE" | "NATIONAL" | "TOLL_FREE" | null;
-  /** The buyer's own business line (already normalized) — forwarding target. */
   forwardToPhone?: string | null;
-  /** Change-number flow: purchase and configure the new number FIRST, then
-   * unassign the old one in the same transaction. Never releases early. */
   replaceExisting?: boolean;
 }): Promise<PurchaseOutcome> {
   const location = validatePhoneLocation(params);
@@ -294,33 +324,62 @@ export async function purchaseNumberForBusiness(params: {
     throw new PhoneNumberServiceError("A clientRequestId (max 64 chars) is required.", 422, "CLIENT_REQUEST_ID_REQUIRED");
   }
 
-  // Idempotency: same (businessId, clientRequestId) → same request, no new purchase.
-  const existing = await prisma.phoneProvisioningRequest.findUnique({
-    where: { businessId_clientRequestId: { businessId: params.businessId, clientRequestId } }
-  });
-  if (existing) return outcomeFromRequest(existing, true);
+  const assignmentLockKey = `business-number-assignment:${params.businessId}`;
 
-  // One active number per business: repeated provisioning returns the current
-  // number instead of purchasing a second one. The explicit change-number flow
-  // (replaceExisting) is the only path that may purchase a replacement.
-  const currentNumber = await prisma.platformPhoneNumber.findFirst({
-    where: { businessId: params.businessId, status: "ASSIGNED", isPlatformSmsSender: false },
-    select: { id: true, phoneNumber: true, status: true }
-  });
-  if (currentNumber && !params.replaceExisting) {
-    return {
-      status: "ACTIVE",
-      requestId: "",
-      phoneNumber: currentNumber.phoneNumber,
-      alreadyCompleted: true,
-      errorCode: null,
-      errorMessage: null
+  type PrecheckResult =
+    | { kind: "existing"; outcome: PurchaseOutcome }
+    | {
+      kind: "created";
+      request: NonNullable<Awaited<ReturnType<typeof prisma.phoneProvisioningRequest.findUnique>>>;
     };
-  }
 
-  let request;
-  try {
-    request = await prisma.phoneProvisioningRequest.create({
+  const precheck = await prisma.$transaction(async (tx): Promise<PrecheckResult> => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentLockKey}))`;
+
+    // Idempotency: same (businessId, clientRequestId) → same request, no new purchase.
+    const existing = await tx.phoneProvisioningRequest.findUnique({
+      where: { businessId_clientRequestId: { businessId: params.businessId, clientRequestId } }
+    });
+    if (existing) return { kind: "existing", outcome: outcomeFromRequest(existing, true) };
+    const currentNumber = await tx.platformPhoneNumber.findFirst({
+      where: { businessId: params.businessId, status: "ASSIGNED", isPlatformSmsSender: false },
+      select: { id: true, phoneNumber: true, status: true }
+    });
+    if (currentNumber && !params.replaceExisting) {
+      return {
+        kind: "existing",
+        outcome: {
+          status: "ACTIVE",
+          requestId: "",
+          phoneNumber: currentNumber.phoneNumber,
+          alreadyCompleted: true,
+          errorCode: "PHONE_NUMBER_ALREADY_ASSIGNED",
+          errorMessage: "Your business already has an active Triven AI number."
+        }
+      };
+    }
+
+    // A different in-flight provisioning request must finish or fail before a
+    // new one may start — never two concurrent purchases for one business.
+    const inFlight = await tx.phoneProvisioningRequest.findFirst({
+      where: {
+        businessId: params.businessId,
+        clientRequestId: { not: clientRequestId },
+        status: {
+          in: ["NUMBER_SELECTED", "PURCHASE_PENDING", "PURCHASED", "WEBHOOK_CONFIGURATION_PENDING", "VAPI_MAPPING_PENDING"]
+        }
+      },
+      select: { id: true }
+    });
+    if (inFlight) {
+      throw new PhoneNumberServiceError(
+        "Another number assignment is already in progress for your business. Please wait a moment and refresh.",
+        409,
+        "PROVISIONING_IN_PROGRESS"
+      );
+    }
+
+    const request = await tx.phoneProvisioningRequest.create({
       data: {
         businessId: params.businessId,
         installedAgentId: params.installedAgentId ?? null,
@@ -338,14 +397,11 @@ export async function purchaseNumberForBusiness(params: {
         ] as unknown as Prisma.InputJsonValue
       }
     });
-  } catch (error) {
-    // Concurrent duplicate submit lost the unique-constraint race — return the winner.
-    const winner = await prisma.phoneProvisioningRequest.findUnique({
-      where: { businessId_clientRequestId: { businessId: params.businessId, clientRequestId } }
-    });
-    if (winner) return outcomeFromRequest(winner, true);
-    throw error;
-  }
+    return { kind: "created", request };
+  });
+
+  if (precheck.kind === "existing") return precheck.outcome;
+  const { request } = precheck;
 
   const fail = async (errorCode: string, errorMessage: string): Promise<PurchaseOutcome> => {
     await transitionRequest(request.id, "FAILED", {
@@ -364,8 +420,6 @@ export async function purchaseNumberForBusiness(params: {
 
   await transitionRequest(request.id, "PURCHASE_PENDING", { note: "Rechecking Twilio availability." });
 
-  // Availability recheck: a number shown during search may be gone by purchase
-  // time. The buyer must reselect rather than being silently given another one.
   const nationalDigits = params.phoneNumber.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
   let recheck: AvailableNumberResult[];
   try {
@@ -401,9 +455,7 @@ export async function purchaseNumberForBusiness(params: {
   } catch (error) {
     const code = error instanceof PhoneNumberServiceError ? error.code : "TWILIO_PURCHASE_FAILED";
     const message =
-      error instanceof PhoneNumberServiceError ? error.message : "Twilio could not complete the purchase.";
-    // PURCHASE_SAVED_ON_TWILIO_ONLY: money was spent — reconciliation must
-    // recover this number; never retry with another purchase.
+      error instanceof PhoneNumberServiceError ? error.message : "The number could not be purchased right now. Please try again shortly.";
     return fail(code ?? "TWILIO_PURCHASE_FAILED", message);
   }
 
@@ -433,9 +485,6 @@ export async function purchaseNumberForBusiness(params: {
     );
   }
 
-  // Assignment (DB) — the number becomes this business's inbound line. The
-  // forwarding phone comes from the request itself, an existing routing row,
-  // or the phone remembered on the installed agent config.
   const existingRouting = await prisma.businessPhoneNumber.findFirst({
     where: { businessId: params.businessId },
     orderBy: { updatedAt: "desc" },
@@ -455,13 +504,30 @@ export async function purchaseNumberForBusiness(params: {
   }
 
   try {
-    // Change-number flow: the old number is unassigned in the SAME transaction
-    // that assigns the new one — it stays fully active until this point, and if
-    // the assignment fails the old number keeps working. The old number returns
-    // to the AVAILABLE pool; it is never released on Twilio here.
     await prisma.$transaction(async (tx) => {
-      if (params.replaceExisting && currentNumber && currentNumber.id !== platformNumber.id) {
-        await unassignPlatformNumber(tx, { platform: currentNumber });
+      // Same per-business lock as the precheck: re-verify no other assignment
+      // won the race while the Twilio purchase ran outside the transaction.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentLockKey}))`;
+
+      const activeNow = await tx.platformPhoneNumber.findFirst({
+        where: {
+          businessId: params.businessId,
+          status: "ASSIGNED",
+          isPlatformSmsSender: false,
+          id: { not: platformNumber.id }
+        },
+        select: { id: true, phoneNumber: true, status: true }
+      });
+
+      if (activeNow && !params.replaceExisting) {
+        throw new PhoneNumberServiceError(
+          "Your business already has an active Triven AI number.",
+          409,
+          "PHONE_NUMBER_ALREADY_ASSIGNED"
+        );
+      }
+      if (params.replaceExisting && activeNow && activeNow.id !== platformNumber.id) {
+        await unassignPlatformNumber(tx, { platform: activeNow });
       }
       await assignPlatformNumber(tx, {
         platform: platformNumber,
@@ -472,8 +538,11 @@ export async function purchaseNumberForBusiness(params: {
       });
     });
   } catch (error) {
-    // Twilio purchase succeeded, DB assignment failed: keep the provider
-    // reference on the request for reconciliation; do not purchase again.
+    if (error instanceof PhoneNumberServiceError && error.code === "PHONE_NUMBER_ALREADY_ASSIGNED") {
+      // Purchased on Twilio but a concurrent assignment won: the number stays
+      // unassigned in inventory (reconciliation recovers it); never assign two.
+      return fail(error.code, error.message);
+    }
     return fail(
       "ASSIGNMENT_FAILED",
       "The number was purchased but could not be attached to your business yet. It is reserved for you — retry shortly."
@@ -482,9 +551,6 @@ export async function purchaseNumberForBusiness(params: {
 
   await transitionRequest(request.id, "VAPI_MAPPING_PENDING", { note: "Checking voice assistant mapping." });
 
-  // Inbound voice resolves by the called number (To → BusinessPhoneNumber →
-  // TwiML bridge), so no per-number Vapi phone id is required. If the
-  // assistant isn't deployed yet it attaches during the deploy step.
   const profile = await prisma.businessProfile.findUnique({
     where: { businessId: params.businessId },
     select: { vapiAssistantId: true }

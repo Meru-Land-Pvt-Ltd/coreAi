@@ -2,14 +2,12 @@ import type { PlatformPhoneNumber } from "@prisma/client";
 import { requiredConnectorsForWorkflow } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 
-
-/** Admin pricing-board code holding the per-number fee. */
 export const PHONE_NUMBER_SERVICE_CODE = "phone_number";
 
-/** Buyer-facing invoice label fallback when the pricing row is missing. */
 export const PHONE_NUMBER_LINE_LABEL = "AI Receptionist No.";
 
-/** Connector keys (from the shared node registry) that mean "needs a number". */
+export const PHONE_NUMBER_FEE_ENABLED = false;
+
 const PHONE_CONNECTOR_KEYS = new Set(["phone_provider", "twilio"]);
 
 
@@ -30,11 +28,6 @@ export function workflowNeedsPhoneNumber(workflowJson: unknown): boolean {
   );
 }
 
-/**
- * Whether the listing's agent needs a phone number. The workflow graph is the
- * source of truth; publish-time `requiredConnectors` keys are the fallback for
- * legacy listings whose graph is unreadable.
- */
 export async function listingNeedsPhoneNumber(listingId: string): Promise<boolean> {
   const listing = await prisma.agentListing.findUnique({
     where: { id: listingId },
@@ -56,14 +49,12 @@ export async function listingNeedsPhoneNumber(listingId: string): Promise<boolea
 
 /* --------------------------------- pricing -------------------------------- */
 
-/**
- * The admin-edited per-number fee and buyer-facing label from the pricing
- * board. Falls back to any active PER_UNIT phone/number service so a row
- * created manually through the admin UI (different code) still applies.
- * Returns a zero fee when nothing is configured — the number is still
- * allotted, just not billed.
- */
+
 export async function getPhoneNumberFee(): Promise<{ amountCents: number; label: string }> {
+  if (!PHONE_NUMBER_FEE_ENABLED) {
+    return { amountCents: 0, label: PHONE_NUMBER_LINE_LABEL };
+  }
+
   const service =
     (await prisma.platformUsageService.findFirst({
       where: { code: PHONE_NUMBER_SERVICE_CODE, isActive: true },
@@ -87,10 +78,6 @@ export async function getPhoneNumberFee(): Promise<{ amountCents: number; label:
   };
 }
 
-/**
- * Fee breakdown for an agent purchase charge. The number fee row appears only
- * when a number was actually provisioned for this buyer.
- */
 export function buildAgentPurchaseLineItems(input: {
   agentLabel: string;
   agentPriceCents: number;

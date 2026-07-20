@@ -612,19 +612,47 @@ function genericAssistantTools() {
       messages: [
         {
           type: "request-start",
+          content: "Let me look that up for you."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.lookupKnowledge,
+        description:
+          "Search this business's uploaded documents and knowledge base for specific details (policies, pricing, services, hours, procedures). ALWAYS call this with the caller's question before saying you don't know a business detail.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "The caller's question or the specific topic to look up, in plain words."
+            }
+          },
+          required: ["query"]
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
           content: "Let me check our calendar for available times."
         }
       ],
       function: {
         name: VOICE_TOOL_NAMES.checkAvailability,
         description:
-          "Check the connected business calendar for available appointment slots. Always call this before offering exact times.",
+          "Check the connected business calendar. Without a time it returns a SAMPLE of free times across the whole day plus the total count — unlisted times are NOT booked. When the caller asks about a specific time ('Is 5 PM available?', 'anything after 4?', 'the latest appointment'), call again WITH the time parameter for a direct truthful check.",
         parameters: {
           type: "object",
           properties: {
             date: {
               type: "string",
               description: "Appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
+            },
+            time: {
+              type: "string",
+              description: "Specific time the caller asked about, e.g. '5:00 PM' or '17:00'. When set, the tool verifies exactly this time instead of listing suggestions."
             },
             service_type: {
               type: "string",
@@ -888,6 +916,7 @@ export type DeployVapiAssistantInput = {
   metadata?: Record<string, unknown>;
   /** Restrict attached tools to the connected workflow's capabilities. */
   includeTools?: {
+    knowledgeLookup?: boolean;
     checkAvailability?: boolean;
     bookAppointment?: boolean;
     sendNotification?: boolean;
@@ -944,8 +973,18 @@ export async function deployVapiAssistant({
           content: systemPrompt
         }
       ],
-      tools: env.VAPI_ENABLE_BOOKING_TOOLS
-        ? genericAssistantTools().filter((tool) => {
+      // The knowledge-lookup tool is independent of the booking-tools flag —
+      // PDF retrieval must never be silently disabled by an unrelated env
+      // toggle while the prompt still advertises the tool.
+      tools: genericAssistantTools()
+        .filter((tool) => {
+          const toolName = tool.function.name;
+          if (toolName === VOICE_TOOL_NAMES.lookupKnowledge) {
+            return includeTools?.knowledgeLookup !== false;
+          }
+          return env.VAPI_ENABLE_BOOKING_TOOLS;
+        })
+        .filter((tool) => {
           if (!includeTools) return true;
           const name = tool.function.name;
           if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
@@ -956,9 +995,9 @@ export async function deployVapiAssistant({
           if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
           // Consent capture only matters where SMS can be sent at all.
           if (name === VOICE_TOOL_NAMES.recordSmsConsent) return includeTools.sendNotification !== false;
+          if (name === VOICE_TOOL_NAMES.lookupKnowledge) return true;
           return true;
         })
-        : []
     },
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,
@@ -1009,13 +1048,13 @@ export async function deployVapiAssistant({
   body.voice =
     voiceResolution.config.provider === "11labs"
       ? {
-          ...voiceResolution.config,
-          stability: typeof stability === "number" ? stability : 0.65,
-          similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
-          style: typeof style === "number" ? style : 0.0,
-          useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
-          ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
-        }
+        ...voiceResolution.config,
+        stability: typeof stability === "number" ? stability : 0.65,
+        similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
+        style: typeof style === "number" ? style : 0.0,
+        useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
+        ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
+      }
       : voiceResolution.config;
 
   const voiceIdSuffix = voiceResolution.config.voiceId.slice(-4);

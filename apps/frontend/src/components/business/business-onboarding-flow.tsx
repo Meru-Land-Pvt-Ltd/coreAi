@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
+import { BusinessHoursSection } from "@/components/business/business-hours-section";
 import {
   BUSINESS_MARKETPLACE_PATH,
   publicAgentPath
@@ -681,6 +682,12 @@ export function BusinessOnboardingFlow() {
                       <span>{item}</span>
                     </p>
                   ))}
+                </div>
+
+                {/* Structured weekly Business Hours — configured right here, no
+                    document upload needed. Saved via its own endpoint. */}
+                <div className="mt-6" data-testid="business-onboarding-hours">
+                  <BusinessHoursSection compact title="When is your business open?" />
                 </div>
                 <div className="mt-8">
                   <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useState } from "react";
-import { getAuthUser, logout, type AuthRole, type AuthUser } from "@/lib/auth";
+import { getAuthUser, hasAuthRole, logout, type AuthRole, type AuthUser } from "@/lib/auth";
 
 type Props = {
   role: AuthRole;
@@ -19,7 +19,7 @@ export function DashboardShell({ role, title, subtitle, children }: Props) {
     const authUser = getAuthUser();
     setUser(authUser);
 
-    if (!authUser || authUser.role !== role) {
+    if (!authUser || !hasAuthRole(authUser, role)) {
       window.location.href =
         role === "ADMIN"
           ? "/admin/login"

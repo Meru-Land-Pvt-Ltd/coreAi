@@ -4,6 +4,8 @@ import {
   type ExecutionMode
 } from "@coreai/shared";
 import { runAgentWorkflow } from "../agent-runtime/graph-runner";
+import { retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import { lookupStructuredFacts } from "../business/business-facts";
 import {
   createArchitectTestProviders,
   createBusinessTestProviders,
@@ -13,12 +15,6 @@ import {
 import type { AgentMessage } from "../agent-runtime/runtime-context";
 import { calendarError, publicCalendarError } from "./calendar-errors";
 
-/**
- * Conversation test — a thin wrapper over the shared agent runtime, used by
- * BOTH the Architect dry run and the Business installed-agent test. The same
- * runtime (graph runner + node handlers) powers the live call flow; only the
- * provider adapters differ per execution mode.
- */
 
 export type ArchitectConversationRole = "user" | "assistant";
 
@@ -43,6 +39,10 @@ export type ArchitectConversationTestContext = {
   requestedTime?: string;
   services?: string[];
   faqs?: string[];
+  /** Business knowledge entries (manual + document-derived, shared format). */
+  knowledge?: string[];
+  address?: string;
+  factsLines?: string[];
 };
 
 export type ArchitectConversationToolCall = {
@@ -56,7 +56,7 @@ export type ArchitectConversationToolCall = {
 export type ArchitectConversationNodeLog = {
   nodeId: string;
   label: string;
-  status: "success" | "waiting" | "error";
+  status: "success" | "waiting" | "error" | "skipped";
   message: string;
   output?: unknown;
 };
@@ -224,7 +224,10 @@ export async function runArchitectConversationTest({
     faqs:
       Array.isArray(testContext?.faqs) && testContext.faqs.length > 0
         ? testContext.faqs
-        : ["Pricing depends on the selected service.", "Urgent requests should be escalated to the team."]
+        : ["Pricing depends on the selected service.", "Urgent requests should be escalated to the team."],
+    knowledge: Array.isArray(testContext?.knowledge) ? testContext.knowledge : [],
+    address: testContext?.address?.trim() || undefined,
+    factsLines: Array.isArray(testContext?.factsLines) ? testContext.factsLines : []
   };
 
   const caller = {
@@ -254,6 +257,33 @@ export async function runArchitectConversationTest({
   if (executionMode === "BUSINESS_TEST") {
     if (!businessIdentity?.businessId) {
       throw new Error("BUSINESS_TEST requires businessIdentity.businessId");
+    }
+
+    if (!isCallStart && cleanMessage) {
+      try {
+        const structuredFacts = await lookupStructuredFacts({
+          businessId: businessIdentity.businessId,
+          query: cleanMessage
+        });
+        const documents = await retrieveRelevantKnowledge({
+          businessId: businessIdentity.businessId,
+          installedAgentId: businessIdentity.installedAgentId,
+          query: cleanMessage
+        });
+        const retrieved = [...structuredFacts, ...documents];
+        if (retrieved.length > 0) {
+          const retrievedEntries = retrieved.map((section) =>
+            `${section.title}: ${section.content}`
+          );
+          const baseline = Array.isArray(business.knowledge) ? business.knowledge : [];
+          business.knowledge = [
+            ...retrievedEntries,
+            ...baseline.filter((entry) => !retrievedEntries.includes(entry))
+          ];
+        }
+      } catch (error) {
+        console.error("[conversation-test] knowledge retrieval failed (non-fatal)", error);
+      }
     }
 
     providers = createBusinessTestProviders({
