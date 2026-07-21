@@ -95,7 +95,7 @@ export function AdminSidebar({ open, onClose }: { open: boolean; onClose: () => 
         <Link href={"/admin/dashboard" as Route} onClick={onClose} className="flex min-w-0 items-center gap-3" aria-label="Trivern admin dashboard">
           <Image src={TRIVERN_MARK} alt="Trivern" width={38} height={38} priority className="h-10 w-10 shrink-0 object-contain" />
           <div className="min-w-0">
-            <span className="block truncate text-lg font-extrabold text-slate-950" data-testid="admin-sidebar-brand">Trivern</span>
+            <span className="block truncate text-lg font-extrabold text-slate-950" data-testid="admin-sidebar-brand">Triven.ai</span>
             <span className="block text-[10px] font-bold uppercase tracking-normal text-slate-400">Administration</span>
           </div>
         </Link>

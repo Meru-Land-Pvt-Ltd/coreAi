@@ -5,7 +5,7 @@ import { Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { AdminSidebar } from "./admin-sidebar";
 
-const TRIVERN_MARK = encodeURI("/triven.ai word logo transparent bg.PNG");
+const TRIVEN_MARK = encodeURI("/triven.ai word logo transparent bg.PNG");
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -34,8 +34,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2">
-            <Image src={TRIVERN_MARK} alt="Trivern" width={32} height={32} className="h-8 w-8 object-contain" />
-            <span className="text-sm font-bold text-slate-900">Trivern Admin</span>
+            <Image src={TRIVEN_MARK} alt="Triven" width={32} height={32} className="h-8 w-8 object-contain" />
+            <span className="text-sm font-bold text-slate-900">Triven Admin</span>
           </div>
           <span className="h-10 w-10" aria-hidden="true" />
         </header>

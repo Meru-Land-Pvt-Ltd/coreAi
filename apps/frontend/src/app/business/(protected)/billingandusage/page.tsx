@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { CallRecordingPlayer } from "@/components/common/call-recording-player";
+import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { businessCheckoutPath } from "@/lib/routes";
 
@@ -535,7 +536,11 @@ export default function BusinessBillingUsagePage() {
     if (isLoading) {
         return (
             <div className="billing-root w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
-                <div className="h-7 w-48 animate-pulse rounded bg-gray-200" />
+                <BusinessPageHeader
+                    className="-mx-3 -mt-4 sm:-mx-4 lg:-mx-5"
+                    title="Billing & Usage"
+                    description="Manage your plan, payment methods, and invoices."
+                />
                 <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
                     <div className="h-64 animate-pulse rounded-2xl bg-gray-100 lg:col-span-2" />
                     <div className="h-64 animate-pulse rounded-2xl bg-gray-100" />
@@ -547,7 +552,11 @@ export default function BusinessBillingUsagePage() {
     if (apiError) {
         return (
             <div className="billing-root w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
-                <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
+                <BusinessPageHeader
+                    className="-mx-3 -mt-4 sm:-mx-4 lg:-mx-5"
+                    title="Billing & Usage"
+                    description="Manage your plan, payment methods, and invoices."
+                />
                 <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 p-6 text-sm font-medium text-red-700">
                     {apiError}
                 </div>
@@ -560,8 +569,11 @@ export default function BusinessBillingUsagePage() {
             <style dangerouslySetInnerHTML={{ __html: DOWNLOAD_STYLES }} />
 
             <div className="w-full space-y-4 overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
-                <div className="flex items-center justify-between gap-3">
-                    <h1 className="text-xl font-bold tracking-tight">Billing &amp; Usage</h1>
+                <BusinessPageHeader
+                    className="-mx-3 -mt-4 sm:-mx-4 lg:-mx-5"
+                    title="Billing & Usage"
+                    description="Manage your plan, payment methods, and invoices."
+                    actions={(
                     <button
                         type="button"
                         onClick={downloadAllInvoices}
@@ -572,7 +584,8 @@ export default function BusinessBillingUsagePage() {
                         <span className="hidden sm:inline">Download all invoices</span>
                         <span className="sm:hidden">Invoices</span>
                     </button>
-                </div>
+                    )}
+                />
 
                 {/* 1. Plan summary */}
                 <section className="grid grid-cols-1 gap-6 lg:grid-cols-3" aria-label="Plan summary">

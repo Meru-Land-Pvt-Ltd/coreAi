@@ -1,6 +1,8 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 
 export type AdminSummary = {
+  totalUsers: number;
+  newUsersThisWeek: number;
   totalBusinesses: number;
   totalArchitects: number;
   totalAgentListings: number;
@@ -11,6 +13,31 @@ export type AdminSummary = {
   activeInstalledAgents: number;
   totalAppointments: number;
   totalLeads: number;
+  platformRevenueCents: number | null;
+  platformRevenueCurrency: string | null;
+  performanceRevenueCurrency: string | null;
+  revenueChangePercent: number | null;
+  totalExecutions: number;
+  avgExecutionsPerDay30d: number | null;
+  performance: Array<{
+    date: string;
+    revenueCents: number | null;
+    executions: number;
+    newUsers: number;
+  }>;
+  recentActivity: Array<{
+    id: string;
+    occurredAt: string;
+    type: string;
+    event: string;
+    user: string | null;
+    details: string | null;
+  }>;
+  platformHealth: {
+    apiUptimePercent: number | null;
+    avgResponseTimeMs: number | null;
+    errorRatePercent: number | null;
+  };
 };
 
 export type AdminPaged<T> = { items: T[]; total: number; page: number; limit: number };
@@ -27,6 +54,42 @@ export type AdminBusiness = {
   phoneNumbersCount: number;
   appointmentsCount: number;
   leadsCount: number;
+};
+
+export type AdminBusinessAccount = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  createdAt: string;
+  isSuspended: boolean;
+  accountStatus: "Active" | "Trial" | "Inactive" | "Suspended";
+  phone: string | null;
+  businessName: string | null;
+  lastActiveAt: string | null;
+  totalSpendCents: number | null;
+  currency: string | null;
+  totalExecutions: number | null;
+  subscriptionStatus: string | null;
+  purchasedAgents: AdminBusinessPurchasedAgent[];
+};
+
+export type AdminBusinessPurchasedAgent = {
+  purchaseId: string;
+  purchasedAt: string;
+  purchaseStatus: string;
+  amountCents: number;
+  currency: string;
+  installedAgentId: string | null;
+  installedAgentStatus: string | null;
+  listing: {
+    id: string;
+    name: string;
+    shortDescription: string;
+    category: string | null;
+    pricingModel: string;
+    priceCents: number;
+    architect: { email: string; fullName: string | null } | null;
+  };
 };
 
 export type AdminArchitect = {
@@ -49,20 +112,26 @@ export type AdminAgent = {
   id: string;
   name: string;
   shortDescription: string;
+  description: string | null;
+  category: string | null;
   priceCents: number;
-  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
   tags: string[];
   createdAt: string;
+  submittedAt: string | null;
   workflowId: string | null;
   workflowName: string | null;
   architect: { id: string; email: string; fullName: string | null } | null;
   installedAgentsCount: number;
+  architectTotalInstalls: number | null;
+  architectTier: string | null;
+  priority: "High" | "Standard" | null;
 };
 
 export type ListingStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
 export type ArchitectApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
 
-function query(params: Record<string, string | number | undefined>) {
+function query(params: Record<string, string | number | boolean | undefined>) {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") search.set(key, String(value));
@@ -79,6 +148,12 @@ export function getAdminBusinesses(params: { search?: string; page?: number; lim
   return apiGet<AdminPaged<AdminBusiness>>(`/admin/businesses${query(params)}`);
 }
 
+export function getAdminBusinessAccounts(
+  params: { search?: string; page?: number; limit?: number; all?: boolean } = {}
+) {
+  return apiGet<AdminPaged<AdminBusinessAccount>>(`/admin/business-accounts${query(params)}`);
+}
+
 export function getAdminArchitects(
   params: { search?: string; status?: string; page?: number; limit?: number } = {}
 ) {
@@ -92,7 +167,14 @@ export function getAdminAgents(
 }
 
 export function updateAdminAgentStatus(listingId: string, status: ListingStatus, reason?: string) {
-  return apiPatch<{ listing: unknown }>(`/admin/agents/${listingId}/status`, { status, reason });
+  return apiPatch<{
+    listing: {
+      id: string;
+      status: AdminAgent["status"];
+      reviewStatus?: string;
+      publishStatus?: string;
+    };
+  }>(`/admin/agents/${listingId}/status`, { status, reason });
 }
 
 export function updateAdminArchitectStatus(userId: string, approvalStatus: ArchitectApprovalStatus) {

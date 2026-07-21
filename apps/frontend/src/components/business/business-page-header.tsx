@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { Route } from "next";
+import type { ReactNode } from "react";
 
 type BusinessPageHeaderProps = {
-  eyebrow: string;
-  title: string;
-  description?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
   actionLabel?: string;
   actionHref?: string;
   secondaryActionLabel?: string;
@@ -16,35 +18,35 @@ type BusinessPageHeaderProps = {
  * Matches the visual design of `ArchitectPageHeader` for consistency.
  */
 export function BusinessPageHeader({
-  eyebrow,
   title,
   description,
+  actions,
+  className = "",
   actionLabel,
   actionHref,
   secondaryActionLabel,
   secondaryActionHref
 }: BusinessPageHeaderProps) {
-  return (
-    <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="relative px-4 py-4 sm:px-5">
-        <div className="pointer-events-none absolute right-0 top-0 h-32 w-56 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.16),transparent_62%)]" />
-        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-center">
-          <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-amber-600" data-testid="business-page-header-eyebrow">
-              {eyebrow}
-            </p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-3xl" data-testid="business-page-header-title">
-              {title}
-            </h1>
-            {description ? (
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500" data-testid="business-page-header-description">
-                {description}
-              </p>
-            ) : null}
-          </div>
+  const hasLinkActions = (actionHref && actionLabel) || (secondaryActionHref && secondaryActionLabel);
 
-          {(actionHref && actionLabel) || (secondaryActionHref && secondaryActionLabel) ? (
-            <div className="flex flex-wrap gap-2.5">
+  return (
+    <header className={`border-b border-gray-100 bg-white ${className}`}>
+      <div className="flex min-h-20 items-center justify-between gap-4 px-5 py-4 lg:px-8">
+        <div className="min-w-0">
+          <h1 className="text-xl font-extrabold tracking-tight text-slate-900" data-testid="business-page-header-title">
+            {title}
+          </h1>
+          {description ? (
+            <p className="mt-0.5 hidden text-sm text-slate-500 sm:block" data-testid="business-page-header-description">
+              {description}
+            </p>
+          ) : null}
+        </div>
+
+        {actions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2.5">{actions}</div>
+        ) : hasLinkActions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2.5">
               {secondaryActionHref && secondaryActionLabel ? (
                 <Link
                   href={secondaryActionHref as Route}
@@ -63,10 +65,9 @@ export function BusinessPageHeader({
                   {actionLabel}
                 </Link>
               ) : null}
-            </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
-    </div>
+    </header>
   );
 }

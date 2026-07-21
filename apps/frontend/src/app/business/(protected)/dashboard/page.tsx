@@ -7,12 +7,15 @@ import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { CallRecordingPlayer } from "@/components/common/call-recording-player";
 import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
+import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-confirmation-modal";
+import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
     purchasedAt: string;
     purchaseStatus: string;
+    isTrial?: boolean;
     installedAgentId?: string | null;
     installedAgentStatus?: string | null;
     stats?: {
@@ -26,6 +29,7 @@ type ApiPurchasedAgent = {
         priceCents?: number | null;
         tags?: string[];
         iconUrl?: string | null;
+        trialDays?: number | null;
     };
 };
 
@@ -118,6 +122,7 @@ type Agent = {
     icon: IconName;
     iconUrl?: string | null;
     purchaseStatus: string;
+    trialEnded: boolean;
     isActive: boolean;
     installedAgentId?: string | null;
     installedAgentStatus?: string | null;
@@ -321,6 +326,25 @@ function isActivePurchaseStatus(status: string) {
     return value === "SUCCEEDED" || value === "TRIALING";
 }
 
+function isTrialEnded(
+    purchasedAt: string,
+    status: string,
+    isTrialProp?: boolean,
+    trialDaysLimit?: number | null
+) {
+    const normalizedStatus = status.toUpperCase();
+    const isTrial = normalizedStatus !== "SUCCEEDED" && (normalizedStatus === "TRIALING" || isTrialProp === true);
+    if (!isTrial) return false;
+
+    const trialDays = trialDaysLimit && trialDaysLimit > 0 ? trialDaysLimit : 7;
+    const start = new Date(purchasedAt).getTime();
+    const elapsedDays = Number.isFinite(start)
+        ? Math.floor((Date.now() - start) / (1000 * 60 * 60 * 24))
+        : 0;
+
+    return normalizedStatus === "FAILED" || normalizedStatus === "CANCELED" || elapsedDays >= trialDays;
+}
+
 function formatUsageCostUsd(microUsd: number): string {
     if (microUsd <= 0) return "$0.00";
     return `$${(microUsd / 1_000_000).toFixed(2)}`;
@@ -330,6 +354,13 @@ function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
     const { listing } = entry;
     const runsThisMonth = entry.stats?.runsThisMonth ?? 0;
     const costMicroUsd = entry.stats?.costThisMonthMicroUsd ?? 0;
+    const trialEnded = isTrialEnded(
+        entry.purchasedAt,
+        entry.purchaseStatus,
+        entry.isTrial,
+        entry.listing.trialDays
+    );
+    const installedAgentStatus = (entry.installedAgentStatus ?? "").toUpperCase();
 
     return {
         id: entry.purchaseId,
@@ -341,7 +372,8 @@ function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
         icon: pickAgentIcon(listing.name, listing.tags ?? []),
         iconUrl: listing.iconUrl?.trim() || null,
         purchaseStatus: entry.purchaseStatus,
-        isActive: isActivePurchaseStatus(entry.purchaseStatus),
+        trialEnded,
+        isActive: isActivePurchaseStatus(entry.purchaseStatus) && !trialEnded && installedAgentStatus === "ACTIVE",
         installedAgentId: entry.installedAgentId ?? null,
         installedAgentStatus: entry.installedAgentStatus ?? null
     };
@@ -510,19 +542,21 @@ export default function BusinessDashboardPage() {
 
     return (
         <main className="min-w-0 w-full max-w-full overflow-x-hidden p-3 sm:p-4 lg:p-5">
-            <div className="mb-6 flex flex-wrap items-start justify-between gap-3 sm:mb-8 sm:gap-4">
-                <div className="min-w-0 flex-1">
-                    <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl" data-testid="business-protected-dashboard-get-greeting-user-first-heading">
+            <BusinessPageHeader
+                className="-mx-3 -mt-3 mb-6 sm:-mx-4 sm:-mt-4 sm:mb-8 lg:-mx-5 lg:-mt-5"
+                title={(
+                    <span className="flex flex-wrap items-center gap-2" data-testid="business-protected-dashboard-get-greeting-user-first-heading">
                         <span className="min-w-0 truncate">{getGreeting()}, {userFirstName}</span>
                         <WaveIcon />
-                    </h1>
-
-                    <p className="mt-1 text-sm text-slate-500" data-testid="business-protected-dashboard-here-apos-s-how-your-agents-performed-text">
+                    </span>
+                )}
+                description={(
+                    <span data-testid="business-protected-dashboard-here-apos-s-how-your-agents-performed-text">
                         Here&apos;s how your agents performed today.
-                    </p>
-                </div>
-
-                <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                    </span>
+                )}
+                actions={(
+                    <>
                     <span className="hidden items-center gap-2 rounded-full border border-green-100 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 sm:inline-flex">
                         <span className="relative flex h-2 w-2">
                             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
@@ -546,8 +580,9 @@ export default function BusinessDashboardPage() {
                         <Icon name="plus" className="h-4 w-4" />
                         <span className="hidden sm:inline" data-testid="business-protected-dashboard-add-agent-text">Add Agent</span>
                     </Link>
-                </div>
-            </div>
+                    </>
+                )}
+            />
 
             <section aria-label="Key metrics" className="mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
                 {dashboardMetrics.map((metric) => (
@@ -884,6 +919,7 @@ function AgentRow({
     onTogglePause: () => Promise<string | null>;
 }) {
     const [pausing, setPausing] = useState(false);
+    const [pauseConfirmationOpen, setPauseConfirmationOpen] = useState(false);
     const [menuError, setMenuError] = useState("");
     const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -903,6 +939,8 @@ function AgentRow({
     const paused = (agent.installedAgentStatus ?? "").toUpperCase() === "PAUSED";
     const setupCompleted = Boolean(agent.installedAgentId) &&
         ((agent.installedAgentStatus ?? "").toUpperCase() === "ACTIVE" || (agent.installedAgentStatus ?? "").toUpperCase() === "PAUSED");
+    const purchaseStatus = agent.purchaseStatus.toUpperCase();
+    const canManageAgent = setupCompleted && !agent.trialEnded && purchaseStatus !== "FAILED" && purchaseStatus !== "CANCELED";
 
     async function handleTogglePause() {
         setPausing(true);
@@ -913,7 +951,19 @@ function AgentRow({
             setMenuError(error);
             return;
         }
+        if (open) onToggle();
+        setPauseConfirmationOpen(false);
+    }
+
+    function handlePauseMenuAction() {
+        if (paused) {
+            void handleTogglePause();
+            return;
+        }
+
+        setMenuError("");
         onToggle();
+        setPauseConfirmationOpen(true);
     }
 
     return (
@@ -979,24 +1029,37 @@ function AgentRow({
 
                     {open ? (
                         <AgentRowMenu
-                            setupCompleted={setupCompleted}
+                            canManageAgent={canManageAgent}
                             paused={paused}
                             pausing={pausing}
                             menuError={menuError}
                             onSetup={onSetup}
                             onOpen={onOpen}
                             onToggle={onToggle}
-                            onTogglePause={handleTogglePause}
+                            onTogglePause={handlePauseMenuAction}
                         />
                     ) : null}
                 </div>
             </div>
+
+            {pauseConfirmationOpen ? (
+                <AgentPauseConfirmationModal
+                    agentName={agent.name}
+                    isSubmitting={pausing}
+                    error={menuError}
+                    onCancel={() => {
+                        setMenuError("");
+                        setPauseConfirmationOpen(false);
+                    }}
+                    onConfirm={() => void handleTogglePause()}
+                />
+            ) : null}
         </div>
     );
 }
 
 function AgentRowMenu({
-    setupCompleted,
+    canManageAgent,
     paused,
     pausing,
     menuError,
@@ -1005,7 +1068,7 @@ function AgentRowMenu({
     onToggle,
     onTogglePause
 }: {
-    setupCompleted: boolean;
+    canManageAgent: boolean;
     paused: boolean;
     pausing: boolean;
     menuError: string;
@@ -1016,22 +1079,24 @@ function AgentRowMenu({
 }) {
     return (
         <div className="absolute right-0 top-9 z-30 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg" onClick={(event) => event.stopPropagation()}>
-            <AgentMenuButton
-                icon="settings"
-                label={setupCompleted ? "Edit Configuration" : "Continue Setup"}
-                onClick={() => {
-                    onSetup();
-                    onToggle();
-                }}
-            />
+            {canManageAgent ? (
+                <>
+                    <AgentMenuButton
+                        icon="settings"
+                        label="Edit Configuration"
+                        onClick={() => {
+                            onSetup();
+                            onToggle();
+                        }}
+                    />
 
-            {setupCompleted ? (
-                <AgentMenuButton
-                    icon="pause"
-                    label={pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
-                    disabled={pausing}
-                    onClick={onTogglePause}
-                />
+                    <AgentMenuButton
+                        icon="pause"
+                        label={pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
+                        disabled={pausing}
+                        onClick={onTogglePause}
+                    />
+                </>
             ) : null}
 
             <AgentMenuButton

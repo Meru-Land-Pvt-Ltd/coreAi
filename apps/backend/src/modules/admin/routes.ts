@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth, requireRole } from "../../middleware/auth";
@@ -7,6 +8,8 @@ import { adminPhoneNumberRoutes } from "./phone-numbers";
 import { adminPayoutRoutes } from "./payout-routes";
 import { adminPricingRoutes } from "./pricing-routes";
 import { sendBusinessEmail } from "../email/ses-mail-service";
+import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
+import { getAdminLiveSummaryData } from "./admin-summary";
 
 export const adminRoutes = new Hono();
 
@@ -42,7 +45,6 @@ const suspensionSchema = z.object({
 adminRoutes.get("/summary", async (c) => {
   const [
     totalBusinesses,
-    totalArchitects,
     totalAgentListings,
     pendingAgentListings,
     approvedAgentListings,
@@ -50,10 +52,10 @@ adminRoutes.get("/summary", async (c) => {
     suspendedAgentListings,
     activeInstalledAgents,
     totalAppointments,
-    totalLeads
+    totalLeads,
+    liveSummary
   ] = await Promise.all([
-    prisma.business.count(),
-    prisma.user.count({ where: { role: "ARCHITECT" } }),
+    listRegisteredBusinessAccounts().then((accounts) => accounts.length),
     prisma.agentListing.count(),
     prisma.agentListing.count({ where: { status: "PENDING_REVIEW" } }),
     prisma.agentListing.count({ where: { status: "APPROVED" } }),
@@ -61,12 +63,12 @@ adminRoutes.get("/summary", async (c) => {
     prisma.agentListing.count({ where: { status: "SUSPENDED" } }),
     prisma.installedAgent.count({ where: { status: "ACTIVE" } }),
     prisma.appointment.count(),
-    prisma.lead.count()
+    prisma.lead.count(),
+    getAdminLiveSummaryData()
   ]);
 
   return successResponse(c, {
     totalBusinesses,
-    totalArchitects,
     totalAgentListings,
     pendingAgentListings,
     approvedAgentListings,
@@ -74,7 +76,8 @@ adminRoutes.get("/summary", async (c) => {
     suspendedAgentListings,
     activeInstalledAgents,
     totalAppointments,
-    totalLeads
+    totalLeads,
+    ...liveSummary
   });
 });
 
@@ -133,6 +136,23 @@ adminRoutes.get("/businesses", async (c) => {
   }));
 
   return successResponse(c, { items, total, page, limit });
+});
+
+// Registered buyer identities — unlike /businesses, this endpoint is based on
+// signup accounts, not setup-created Business rows. One normalized email is
+// returned once even when legacy role rows share that email.
+adminRoutes.get("/business-accounts", async (c) => {
+  const { page, limit, skip } = parsePagination(c);
+  const search = (c.req.query("search") ?? "").trim();
+  const includeAll = c.req.query("all") === "true";
+  const accounts = await listRegisteredBusinessAccounts(search, { includePurchasedAgents: true });
+
+  return successResponse(c, {
+    items: includeAll ? accounts : accounts.slice(skip, skip + limit),
+    total: accounts.length,
+    page,
+    limit: includeAll ? accounts.length : limit
+  });
 });
 
 // 3. GET /admin/architects
@@ -216,12 +236,14 @@ adminRoutes.get("/agents", async (c) => {
         name: true,
         shortDescription: true,
         description: true,
+        category: true,
         priceCents: true,
         status: true,
         tags: true,
         requiredConnectors: true,
         supportedLlms: true,
         createdAt: true,
+        submittedAt: true,
         updatedAt: true,
         workflowId: true,
         workflow: { select: { name: true } },
@@ -231,22 +253,45 @@ adminRoutes.get("/agents", async (c) => {
     })
   ]);
 
+  const architectIds = [...new Set(listings.map((listing) => listing.architect.id))];
+  const architectListings = architectIds.length
+    ? await prisma.agentListing.findMany({
+        where: { architectUserId: { in: architectIds } },
+        select: {
+          architectUserId: true,
+          _count: { select: { installedAgents: true } }
+        }
+      })
+    : [];
+  const architectTotalInstalls = new Map<string, number>();
+  for (const listing of architectListings) {
+    architectTotalInstalls.set(
+      listing.architectUserId,
+      (architectTotalInstalls.get(listing.architectUserId) ?? 0) + listing._count.installedAgents
+    );
+  }
+
   const items = listings.map((l) => ({
     id: l.id,
     name: l.name,
     shortDescription: l.shortDescription,
     description: l.description,
+    category: l.category,
     priceCents: l.priceCents,
     status: l.status,
     tags: l.tags,
     requiredConnectors: l.requiredConnectors,
     supportedLlms: l.supportedLlms,
     createdAt: l.createdAt,
+    submittedAt: l.submittedAt,
     updatedAt: l.updatedAt,
     workflowId: l.workflowId,
     workflowName: l.workflow?.name ?? null,
     architect: l.architect,
-    installedAgentsCount: l._count.installedAgents
+    installedAgentsCount: l._count.installedAgents,
+    architectTotalInstalls: architectTotalInstalls.get(l.architect.id) ?? 0,
+    architectTier: null,
+    priority: null
   }));
 
   return successResponse(c, { items, total, page, limit });
@@ -258,23 +303,96 @@ adminRoutes.patch("/agents/:listingId/status", async (c) => {
     const listingId = c.req.param("listingId");
     const input = listingStatusSchema.parse(await c.req.json());
 
-    const existing = await prisma.agentListing.findUnique({ where: { id: listingId }, select: { id: true } });
+    const existing = await prisma.agentListing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        workflowId: true,
+        submittedAt: true,
+        approvedAt: true,
+        publishedAt: true,
+        reviewStatus: true,
+        rejectionReason: true
+      }
+    });
     if (!existing) {
       return errorResponse(c, "Agent listing not found", 404, "LISTING_NOT_FOUND");
     }
 
-    const listing = await prisma.agentListing.update({
-      where: { id: listingId },
-      data: { status: input.status },
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        priceCents: true,
-        workflowId: true,
-        updatedAt: true,
-        architect: { select: { id: true, email: true, fullName: true } }
+    const now = new Date();
+    let listingData: Prisma.AgentListingUpdateInput;
+    let workflowData: Prisma.WorkflowDefinitionUpdateInput;
+
+    if (input.status === "APPROVED") {
+      listingData = {
+        status: "APPROVED",
+        reviewStatus: "APPROVED",
+        publishStatus: "PUBLISHED",
+        rejectionReason: null,
+        approvedAt: existing.approvedAt ?? now,
+        publishedAt: existing.publishedAt ?? now
+      };
+      workflowData = { reviewStatus: "APPROVED", publishStatus: "PUBLISHED" };
+    } else if (input.status === "REJECTED") {
+      listingData = {
+        status: "REJECTED",
+        reviewStatus: "REJECTED",
+        publishStatus: "UNPUBLISHED",
+        rejectionReason: input.reason?.trim() || null
+      };
+      workflowData = { reviewStatus: "REJECTED", publishStatus: "UNPUBLISHED" };
+    } else if (input.status === "PENDING_REVIEW") {
+      // The admin moderation UI uses PENDING_REVIEW for its "Request Changes"
+      // decision. Legacy PENDING_REVIEW locks architect editing, so move the
+      // legacy status to REJECTED while the canonical review status records
+      // the distinct changes-requested decision and its notes.
+      listingData = {
+        status: "REJECTED",
+        reviewStatus: "CHANGES_REQUESTED",
+        publishStatus: "UNPUBLISHED",
+        rejectionReason: input.reason?.trim() || null,
+        submittedAt: existing.submittedAt ?? now
+      };
+      workflowData = { reviewStatus: "CHANGES_REQUESTED", publishStatus: "UNPUBLISHED" };
+    } else {
+      listingData = {
+        status: "SUSPENDED",
+        reviewStatus: existing.reviewStatus,
+        publishStatus: "UNPUBLISHED",
+        rejectionReason: input.reason?.trim() || existing.rejectionReason
+      };
+      workflowData = { reviewStatus: existing.reviewStatus, publishStatus: "UNPUBLISHED" };
+    }
+
+    const listing = await prisma.$transaction(async (tx) => {
+      const updated = await tx.agentListing.update({
+        where: { id: listingId },
+        data: listingData,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          reviewStatus: true,
+          publishStatus: true,
+          priceCents: true,
+          workflowId: true,
+          rejectionReason: true,
+          submittedAt: true,
+          approvedAt: true,
+          publishedAt: true,
+          updatedAt: true,
+          architect: { select: { id: true, email: true, fullName: true } }
+        }
+      });
+
+      if (existing.workflowId) {
+        await tx.workflowDefinition.update({
+          where: { id: existing.workflowId },
+          data: workflowData
+        });
       }
+
+      return updated;
     });
 
     return successResponse(c, { listing }, "Listing status updated");
@@ -340,18 +458,30 @@ adminRoutes.patch("/users/:userId/suspension", async (c) => {
     const userId = c.req.param("userId");
     const input = suspensionSchema.parse(await c.req.json());
 
-    if (userId === authUser.id) {
-      return errorResponse(c, "You cannot change your own suspension state.", 409, "CANNOT_SUSPEND_SELF");
-    }
-
-    const existing = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    const existing = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true }
+    });
     if (!existing) {
       return errorResponse(c, "User not found", 404, "USER_NOT_FOUND");
     }
 
-    const user = await prisma.user.update({
-      where: { id: userId },
+    if (
+      userId === authUser.id ||
+      existing.email.trim().toLowerCase() === authUser.email.trim().toLowerCase()
+    ) {
+      return errorResponse(c, "You cannot change your own suspension state.", 409, "CANNOT_SUSPEND_SELF");
+    }
+
+    // The admin business table is identity-based and deduplicates legacy role
+    // rows by email. Keep every row for that registered identity in sync.
+    await prisma.user.updateMany({
+      where: { email: { equals: existing.email, mode: "insensitive" } },
       data: { isSuspended: input.isSuspended },
+    });
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
       select: { id: true, email: true, fullName: true, role: true, isSuspended: true }
     });
 

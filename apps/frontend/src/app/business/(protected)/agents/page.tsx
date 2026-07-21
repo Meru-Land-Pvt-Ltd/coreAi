@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
+import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-confirmation-modal";
+import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
 import {
     BUSINESS_LOGIN_PATH,
@@ -370,15 +372,19 @@ export default function BusinessMyAgentsPage() {
     return (
         <main className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-900">
             <div className="mx-auto max-w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-black tracking-tight text-slate-900" data-testid="business-my-agents-heading">
+                <BusinessPageHeader
+                    className="-mx-3 -mt-4 sm:-mx-4 lg:-mx-5"
+                    title={(
+                        <span data-testid="business-my-agents-heading">
                             My Agents
-                        </h1>
-                        <p className="mt-1 text-sm text-slate-500" data-testid="business-my-agents-subtitle">
+                        </span>
+                    )}
+                    description={(
+                        <span data-testid="business-my-agents-subtitle">
                             Agents you&apos;ve purchased. Set each one up to put it to work.
-                        </p>
-                    </div>
+                        </span>
+                    )}
+                    actions={(
                     <button
                         type="button"
                         onClick={() => router.push(BUSINESS_MARKETPLACE_PATH)}
@@ -387,7 +393,8 @@ export default function BusinessMyAgentsPage() {
                     >
                         Browse marketplace
                     </button>
-                </div>
+                    )}
+                />
 
                 <div className="mt-8">
                     {isLoading ? (
@@ -461,6 +468,7 @@ function OwnedAgentCard({
     const setupCompleted = isSetupCompleted(agent);
     const paused = isAgentPaused(agent);
     const isPaymentFailed = agent.purchaseStatus.toUpperCase() === "FAILED" || agent.purchaseStatus.toUpperCase() === "CANCELED";
+    const canManageAgent = setupCompleted && !trialEnded && !isPaymentFailed;
 
     const category = agent.category;
     const industries = agent.industryTags && agent.industryTags.length > 0
@@ -481,6 +489,7 @@ function OwnedAgentCard({
             : statusBadge(agent.purchaseStatus);
 
     const [menuOpen, setMenuOpen] = useState(false);
+    const [pauseConfirmationOpen, setPauseConfirmationOpen] = useState(false);
     const [pausing, setPausing] = useState(false);
     const [menuError, setMenuError] = useState("");
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -508,6 +517,18 @@ function OwnedAgentCard({
             return;
         }
         setMenuOpen(false);
+        setPauseConfirmationOpen(false);
+    }
+
+    function handlePauseMenuAction() {
+        if (paused) {
+            void handleTogglePause();
+            return;
+        }
+
+        setMenuError("");
+        setMenuOpen(false);
+        setPauseConfirmationOpen(true);
     }
 
     return (
@@ -556,8 +577,7 @@ function OwnedAgentCard({
                             </span>
                         </div>
 
-                        {setupCompleted ? (
-                            <div ref={menuRef} className="relative">
+                        <div ref={menuRef} className="relative">
                                 <button
                                     type="button"
                                     aria-label="Agent actions"
@@ -581,32 +601,36 @@ function OwnedAgentCard({
                                         className="absolute right-0 top-9 z-20 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-xl"
                                         onClick={(event) => event.stopPropagation()}
                                     >
-                                        <button
-                                            type="button"
-                                            role="menuitem"
-                                            data-testid={`business-my-agent-menu-edit-${agent.listingId}`}
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                onSetup();
-                                            }}
-                                            className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50"
-                                        >
-                                            Edit Configuration
-                                        </button>
+                                        {canManageAgent ? (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    data-testid={`business-my-agent-menu-edit-${agent.listingId}`}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        onSetup();
+                                                    }}
+                                                    className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50"
+                                                >
+                                                    Edit Configuration
+                                                </button>
 
-                                        <button
-                                            type="button"
-                                            role="menuitem"
-                                            disabled={pausing}
-                                            data-testid={`business-my-agent-menu-pause-${agent.listingId}`}
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                void handleTogglePause();
-                                            }}
-                                            className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50 disabled:opacity-50"
-                                        >
-                                            {pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
-                                        </button>
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    disabled={pausing}
+                                                    data-testid={`business-my-agent-menu-pause-${agent.listingId}`}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        handlePauseMenuAction();
+                                                    }}
+                                                    className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50 disabled:opacity-50"
+                                                >
+                                                    {pausing ? "Updating…" : paused ? "Resume Agent" : "Pause Agent"}
+                                                </button>
+                                            </>
+                                        ) : null}
 
                                         <button
                                             type="button"
@@ -632,7 +656,6 @@ function OwnedAgentCard({
                                     </div>
                                 ) : null}
                             </div>
-                        ) : null}
                     </div>
                 </div>
 
@@ -746,6 +769,19 @@ function OwnedAgentCard({
                     </p>
                 ) : null}
             </div>
+
+            {pauseConfirmationOpen ? (
+                <AgentPauseConfirmationModal
+                    agentName={agent.name}
+                    isSubmitting={pausing}
+                    error={menuError}
+                    onCancel={() => {
+                        setMenuError("");
+                        setPauseConfirmationOpen(false);
+                    }}
+                    onConfirm={() => void handleTogglePause()}
+                />
+            ) : null}
         </article>
     );
 }

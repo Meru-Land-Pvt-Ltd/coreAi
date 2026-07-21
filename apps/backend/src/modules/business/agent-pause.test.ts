@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { env } from "../../config/env";
 import { createAuthToken } from "../../lib/jwt";
 import { prisma } from "../../lib/prisma";
-import { handleTwilioInboundSms, handleTwilioVoice } from "../architect/twilio-business-routing";
+import { handleTwilioInboundSms, handleTwilioVoice, handleVapiWebhook } from "../architect/twilio-business-routing";
 import { businessRoutes } from "./routes";
 
 /**
@@ -32,6 +32,7 @@ function buildApp() {
   app.route("/business", businessRoutes);
   app.post("/architect/connectors/twilio/voice", handleTwilioVoice);
   app.post("/architect/connectors/twilio/inbound-sms", handleTwilioInboundSms);
+  app.post("/architect/connectors/vapi/webhook", handleVapiWebhook);
   return app;
 }
 
@@ -147,6 +148,31 @@ describe("pause/resume endpoints", () => {
     });
     expect(conversation?.messages.some((m) => m.direction === "INBOUND")).toBe(true);
     expect(conversation?.messages.some((m) => m.direction === "OUTBOUND")).toBe(false);
+
+    // A Vapi call that was already in progress can still send tool callbacks.
+    // Pausing must stop those callbacks before any workflow node runs.
+    const vapi = await app.request("/architect/connectors/vapi/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          type: "tool-calls",
+          toolCalls: [
+            {
+              id: `tool-${RUN}`,
+              function: { name: "book_appointment", arguments: "{}" }
+            }
+          ],
+          call: { id: `vapi-${RUN}`, customer: { number: "+15557654321" } }
+        },
+        metadata: { businessId, installedAgentId }
+      })
+    });
+    expect(vapi.status).toBe(200);
+    const vapiJson = (await vapi.json()) as { results?: Array<{ result?: string }> };
+    const toolResult = JSON.parse(vapiJson.results?.[0]?.result ?? "{}") as { code?: string; success?: boolean };
+    expect(toolResult).toMatchObject({ success: false, code: "AGENT_PAUSED" });
+    expect(await prisma.appointment.count({ where: { businessId } })).toBe(0);
   });
 
   it("the owner can resume the paused agent", async () => {

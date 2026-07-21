@@ -1626,11 +1626,11 @@ export function BusinessSettingsView() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-900">
-      <main className="mx-auto max-w-5xl overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5 lg:py-5">
+      <main className="w-full max-w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5 lg:py-5">
         <BusinessPageHeader
-          eyebrow="Configure"
+          className="-mx-3 -mt-4 mb-4 sm:-mx-4 lg:-mx-5 lg:-mt-5"
           title="Settings"
-          description="Manage your account, security, and preferences."
+          description="Manage your account, storefront, and agent business."
         />
 
         <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start lg:gap-8">

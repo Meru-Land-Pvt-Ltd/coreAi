@@ -116,7 +116,7 @@ export function AdminAuthCard() {
                   className="text-[1.35rem] font-extrabold tracking-normal text-slate-900"
                   data-testid="auth-admin-auth-card-triven-text"
                 >
-                  Trivern
+                  Triven.ai
                 </span>
               </Link>
 

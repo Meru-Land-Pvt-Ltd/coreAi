@@ -320,6 +320,29 @@ async function latestActiveInstalledAgent(businessId: string) {
   });
 }
 
+/**
+ * Vapi may keep sending tool callbacks for a call that was already in progress
+ * when the buyer paused the agent. Re-check the persisted status for every
+ * callback so pausing also stops booking, messaging, email and other node work.
+ */
+async function isVapiInstalledAgentPaused(businessId: string, installedAgentId?: string) {
+  if (installedAgentId) {
+    const agent = await prisma.installedAgent.findFirst({
+      where: { id: installedAgentId, businessId },
+      select: { status: true }
+    });
+    return agent?.status === "PAUSED";
+  }
+
+  // Older Vapi calls may not carry installedAgentId. Only treat the business
+  // as paused when it has no active agent and at least one paused agent.
+  const [active, paused] = await Promise.all([
+    prisma.installedAgent.findFirst({ where: { businessId, status: "ACTIVE" }, select: { id: true } }),
+    prisma.installedAgent.findFirst({ where: { businessId, status: "PAUSED" }, select: { id: true } })
+  ]);
+  return !active && Boolean(paused);
+}
+
 async function loadBusinessWithContext(businessId: string) {
   return prisma.business.findUnique({
     where: { id: businessId },
@@ -4093,6 +4116,27 @@ export async function handleVapiWebhook(c: Context) {
     const transcript = firstNestedString(body, [["message", "transcript"], ["transcript"]]);
     const metadataInstalledAgentId =
       typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
+
+    const agentPaused = businessContext?.businessId
+      ? await isVapiInstalledAgentPaused(businessContext.businessId, metadataInstalledAgentId)
+      : false;
+
+    if (agentPaused) {
+      console.log("[vapi-webhook] response status", 200, "(agent paused — node execution skipped)");
+      if (toolCalls.length === 0) return c.json({ ok: true, paused: true });
+
+      return c.json({
+        results: toolCalls.map((toolCall) => ({
+          name: toolCall.name,
+          toolCallId: toolCall.id,
+          result: JSON.stringify({
+            success: false,
+            code: "AGENT_PAUSED",
+            message: "This agent is paused. No workflow action was performed."
+          })
+        }))
+      });
+    }
 
     // Best-effort call logging — never blocks a tool response.
     if (businessContext?.businessId && callId) {
