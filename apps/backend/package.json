@@ -21,6 +21,7 @@
     "test:twilio-sms": "tsx scripts/test-twilio-sms.ts",
     "backfill:recording-urls": "tsx scripts/backfill-recording-urls.ts",
     "backfill:live-classification": "tsx scripts/backfill-live-call-classification.ts",
+    "vapi:fix-hipaa": "tsx scripts/fix-vapi-hipaa-recordings.ts",
     "backfill:architect-earnings": "tsx scripts/backfill-architect-earnings.ts",
     "reconcile:payouts": "tsx scripts/reconcile-payouts.ts",
     "test": "vitest run"
