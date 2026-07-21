@@ -4,7 +4,11 @@
 export interface ChatbotContext {
   lastIntent?: string;
   lastMentionedAgentId?: string;
-  awaitingInput?: "calculator_usage" | "calculator_agent" | null;
+  awaitingInput?: "calculator_usage" | "calculator_agent" | "fallback_email" | "fallback_phone" | "fallback_feedback" | "general_feedback" | null;
+  fallbackQuery?: string;
+  fallbackEmail?: string;
+  fallbackPhone?: string;
+  queryCount?: number;
 }
 
 export interface AgentListingSummary {
@@ -25,6 +29,12 @@ export interface ChatbotResponse {
   reply: string;
   context: ChatbotContext;
   suggestions: string[];
+  saveFeedback?: {
+    email: string;
+    phone: string;
+    query: string;
+    feedback: string;
+  } | null;
 }
 
 // ----------------------------------------------------
@@ -357,7 +367,7 @@ export function classifyIntent(query: string): IntentType {
 
   // Heuristic: If we can extract an execution count (number of runs) AND there are pricing-related terms, it's definitely a pricing calculator query!
   const hasCount = extractExecutionCount(query) !== null;
-  const hasPriceTerm = ["price", "cost", "bill", "charge", "fee", "how much", "estimate", "calculate"].some(term => lower.includes(term));
+  const hasPriceTerm = ["pricing", "price", "cost", "bill", "charge", "fee", "how much", "estimate", "calculate"].some(term => lower.includes(term));
   if (hasCount && hasPriceTerm) {
     return "pricing_calculator";
   }
@@ -462,7 +472,7 @@ export function calculateCost(agent: AgentListingSummary, executions: number): C
 // ----------------------------------------------------
 // 6. Main Process Message Core
 // ----------------------------------------------------
-export function processMessage(
+export function processMessageInner(
   message: string,
   context: ChatbotContext,
   listings: AgentListingSummary[]
@@ -471,6 +481,82 @@ export function processMessage(
   let nextContext: ChatbotContext = { ...context };
 
   // A. Handling State Machine / Awaiting Context Inputs first
+  if (context.awaitingInput === "general_feedback") {
+    nextContext.awaitingInput = null;
+    return {
+      reply: "Thank you so much for your feedback! I've shared it with our team to help improve Triven. What else would you like to know?",
+      context: nextContext,
+      suggestions: ["Show all agents", "How does pricing work?", "Estimate my monthly cost"],
+      saveFeedback: {
+        email: "feedback@triven.ai",
+        phone: "N/A",
+        query: "Proactive Feedback Request",
+        feedback: query
+      }
+    };
+  }
+
+  if (context.awaitingInput === "fallback_email") {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailRegex.test(query)) {
+      nextContext.fallbackEmail = query;
+      nextContext.awaitingInput = "fallback_phone";
+      return {
+        reply: "Thank you! Next, what is a good **phone number** our team can reach you at?",
+        context: nextContext,
+        suggestions: []
+      };
+    } else {
+      return {
+        reply: "That doesn't look like a valid email address. Could you please check and type it again? (e.g. name@example.com)",
+        context: nextContext,
+        suggestions: []
+      };
+    }
+  }
+
+  if (context.awaitingInput === "fallback_phone") {
+    const phoneDigits = query.replace(/\D/g, "");
+    if (phoneDigits.length >= 7) {
+      nextContext.fallbackPhone = query;
+      nextContext.awaitingInput = "fallback_feedback";
+      return {
+        reply: "Got it! Lastly, what were you hoping to find today, or how can we improve? (Please share any feedback or questions)",
+        context: nextContext,
+        suggestions: []
+      };
+    } else {
+      return {
+        reply: "That doesn't look like a valid phone number. Please enter a valid phone number (at least 7 digits) so we can reach you.",
+        context: nextContext,
+        suggestions: []
+      };
+    }
+  }
+
+  if (context.awaitingInput === "fallback_feedback") {
+    nextContext.awaitingInput = null;
+    const saveEmail = context.fallbackEmail || "";
+    const savePhone = context.fallbackPhone || "";
+    const saveQuery = context.fallbackQuery || "";
+
+    nextContext.fallbackEmail = undefined;
+    nextContext.fallbackPhone = undefined;
+    nextContext.fallbackQuery = undefined;
+
+    return {
+      reply: "Thank you so much! I have successfully saved your contact details and feedback. Our team will reach out to you shortly. Is there anything else I can help you with?",
+      context: nextContext,
+      suggestions: ["Show all agents", "How does pricing work?", "Estimate my monthly cost"],
+      saveFeedback: {
+        email: saveEmail,
+        phone: savePhone,
+        query: saveQuery,
+        feedback: query
+      }
+    };
+  }
+
   if (context.awaitingInput === "calculator_usage") {
     const executions = extractExecutionCount(query);
     const matchedAgent = context.lastMentionedAgentId 
@@ -802,10 +888,51 @@ ${list}`,
         };
       }
 
+      // Initiate contact and feedback collection loop
+      nextContext.awaitingInput = "fallback_email";
+      nextContext.fallbackQuery = query;
       return {
-        reply: "I'm not sure I understood that question. I am a rule-based assistant designed to help with Triven AI platform questions. Try asking: \n• 'How many agents do you have?'\n• 'How does pricing work?'\n• 'Estimate cost of AI Receptionist with 1,000 runs'\n• 'Which agent supports WhatsApp?'",
+        reply: "I'm sorry, I couldn't find an answer to your question. I would love to have our team contact you to help you directly! To get started, could you please provide your **email address**?",
         context: nextContext,
-        suggestions: ["What is Triven?", "Show all agents", "How does pricing work?", "Estimate my monthly cost"]
+        suggestions: []
       };
   }
+}
+
+export function processMessage(
+  message: string,
+  context: ChatbotContext,
+  listings: AgentListingSummary[]
+): ChatbotResponse {
+  const response = processMessageInner(message, context, listings);
+  let nextContext = { ...response.context };
+
+  // Only trigger proactive feedback if the bot actually responded to a standard query and did not start a fallback/calculator input loop
+  const justFinishedInput = context.awaitingInput !== null && context.awaitingInput !== undefined;
+  const startingNewInput = response.context.awaitingInput !== null && response.context.awaitingInput !== undefined;
+
+  if (!justFinishedInput && !startingNewInput && response.context.lastIntent !== "unknown") {
+    const nextCount = (context.queryCount || 0) + 1;
+    nextContext.queryCount = nextCount;
+    // Ask feedback after every 3rd or 4th query (using 4th query)
+    if (nextCount > 0 && nextCount % 4 === 0) {
+      nextContext.awaitingInput = "general_feedback";
+      return {
+        ...response,
+        reply: response.reply + "\n\n💬 **Quick Question:** You've asked a few questions today. What were you hoping to find, or how can we improve Triven?",
+        context: nextContext,
+        suggestions: [] // Clear suggestions to focus user on the feedback query
+      };
+    }
+  }
+
+  // Preserve query count increment for non-triggering turns
+  if (!justFinishedInput && !startingNewInput) {
+    nextContext.queryCount = (context.queryCount || 0) + 1;
+  }
+  
+  return {
+    ...response,
+    context: nextContext
+  };
 }

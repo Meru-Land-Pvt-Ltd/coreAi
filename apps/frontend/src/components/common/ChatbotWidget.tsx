@@ -15,7 +15,11 @@ interface Message {
 interface ChatbotContext {
   lastIntent?: string;
   lastMentionedAgentId?: string;
-  awaitingInput?: "calculator_usage" | "calculator_agent" | null;
+  awaitingInput?: "calculator_usage" | "calculator_agent" | "fallback_email" | "fallback_phone" | "fallback_feedback" | "general_feedback" | null;
+  fallbackQuery?: string;
+  fallbackEmail?: string;
+  fallbackPhone?: string;
+  queryCount?: number;
 }
 
 interface ChatbotApiResponse {
@@ -40,7 +44,11 @@ export function ChatbotWidget({ style }: { style?: React.CSSProperties }) {
   const [context, setContext] = useState<ChatbotContext>({
     lastIntent: undefined,
     lastMentionedAgentId: undefined,
-    awaitingInput: null
+    awaitingInput: null,
+    fallbackQuery: undefined,
+    fallbackEmail: undefined,
+    fallbackPhone: undefined,
+    queryCount: undefined
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);

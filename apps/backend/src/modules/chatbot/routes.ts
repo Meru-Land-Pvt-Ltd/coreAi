@@ -11,7 +11,18 @@ const messageSchema = z.object({
   context: z.object({
     lastIntent: z.string().optional(),
     lastMentionedAgentId: z.string().optional(),
-    awaitingInput: z.enum(["calculator_usage", "calculator_agent"]).nullable().optional()
+    awaitingInput: z.enum([
+      "calculator_usage",
+      "calculator_agent",
+      "fallback_email",
+      "fallback_phone",
+      "fallback_feedback",
+      "general_feedback"
+    ]).nullable().optional(),
+    fallbackQuery: z.string().optional(),
+    fallbackEmail: z.string().optional(),
+    fallbackPhone: z.string().optional(),
+    queryCount: z.number().optional()
   }).optional()
 });
 
@@ -70,10 +81,26 @@ chatbotRoutes.post("/message", async (c) => {
     const chatbotContext: ChatbotContext = {
       lastIntent: context?.lastIntent,
       lastMentionedAgentId: context?.lastMentionedAgentId,
-      awaitingInput: context?.awaitingInput
+      awaitingInput: context?.awaitingInput as any,
+      fallbackQuery: context?.fallbackQuery,
+      fallbackEmail: context?.fallbackEmail,
+      fallbackPhone: context?.fallbackPhone,
+      queryCount: context?.queryCount
     };
 
     const result = processMessage(message, chatbotContext, mappedListings);
+
+    // Save fallback submission to database asynchronously if chatbot gathered email/phone/feedback
+    if (result.saveFeedback) {
+      await prisma.contactSubmission.create({
+        data: {
+          name: `Chatbot User (Phone: ${result.saveFeedback.phone})`,
+          email: result.saveFeedback.email,
+          subject: `Chatbot Fallback: ${result.saveFeedback.query}`,
+          message: `Feedback: ${result.saveFeedback.feedback}\n\nOriginal Query: ${result.saveFeedback.query}`
+        }
+      });
+    }
 
     return successResponse(c, {
       reply: result.reply,

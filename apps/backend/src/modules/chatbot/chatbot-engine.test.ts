@@ -174,5 +174,97 @@ describe("Chatbot Engine Unit Tests", () => {
       expect(response.reply).toContain("10,000 executions");
       expect(response.reply).toContain("30% off"); // Volume discount for 10k runs (>= 5000 runs is 30% off)
     });
+
+    it("should walk through fallback collection flow", () => {
+      let ctx: ChatbotContext = {};
+
+      // 1. Initial unknown query
+      let res = processMessage("wash my car", ctx, mockListings);
+      expect(res.reply).toContain("provide your **email address**");
+      expect(res.context.awaitingInput).toBe("fallback_email");
+      expect(res.context.fallbackQuery).toBe("wash my car");
+      ctx = res.context;
+
+      // 2. Invalid email check
+      res = processMessage("bad-email", ctx, mockListings);
+      expect(res.reply).toContain("valid email address");
+      expect(res.context.awaitingInput).toBe("fallback_email");
+      ctx = res.context;
+
+      // 3. Valid email check
+      res = processMessage("test@triven.ai", ctx, mockListings);
+      expect(res.reply).toContain("phone number");
+      expect(res.context.awaitingInput).toBe("fallback_phone");
+      expect(res.context.fallbackEmail).toBe("test@triven.ai");
+      ctx = res.context;
+
+      // 4. Invalid phone check
+      res = processMessage("123", ctx, mockListings);
+      expect(res.reply).toContain("valid phone number");
+      expect(res.context.awaitingInput).toBe("fallback_phone");
+      ctx = res.context;
+
+      // 5. Valid phone check
+      res = processMessage("+15551234567", ctx, mockListings);
+      expect(res.reply).toContain("how can we improve");
+      expect(res.context.awaitingInput).toBe("fallback_feedback");
+      expect(res.context.fallbackPhone).toBe("+15551234567");
+      ctx = res.context;
+
+      // 6. Provide feedback (ends loop and sets saveFeedback)
+      res = processMessage("Make a car wash agent", ctx, mockListings);
+      expect(res.reply).toContain("successfully saved your contact details");
+      expect(res.context.awaitingInput).toBeNull();
+      expect(res.saveFeedback).toEqual({
+        email: "test@triven.ai",
+        phone: "+15551234567",
+        query: "wash my car",
+        feedback: "Make a car wash agent"
+      });
+    });
+
+    it("should trigger proactive feedback loop on the 4th query and save it", () => {
+      let ctx: ChatbotContext = {};
+
+      // Query 1
+      let res = processMessage("hello", ctx, mockListings);
+      expect(res.reply).toContain("Welcome to Triven");
+      expect(res.context.queryCount).toBe(1);
+      expect(res.context.awaitingInput).toBeUndefined();
+      ctx = res.context;
+
+      // Query 2
+      res = processMessage("what is triven", ctx, mockListings);
+      expect(res.reply).toContain("AI Agent Marketplace");
+      expect(res.context.queryCount).toBe(2);
+      expect(res.context.awaitingInput).toBeUndefined();
+      ctx = res.context;
+
+      // Query 3
+      res = processMessage("how does pricing work", ctx, mockListings);
+      expect(res.reply).toContain("transparent and pay-for-results");
+      expect(res.context.queryCount).toBe(3);
+      expect(res.context.awaitingInput).toBeUndefined();
+      ctx = res.context;
+
+      // Query 4 (should trigger proactive feedback prompt)
+      res = processMessage("do you offer a free trial", ctx, mockListings);
+      expect(res.reply).toContain("50 executions");
+      expect(res.reply).toContain("Quick Question"); // Should contain the feedback prompt
+      expect(res.context.queryCount).toBe(4);
+      expect(res.context.awaitingInput).toBe("general_feedback");
+      ctx = res.context;
+
+      // Query 5 (User submits feedback response)
+      res = processMessage("I love the marketplace options!", ctx, mockListings);
+      expect(res.reply).toContain("Thank you so much for your feedback");
+      expect(res.context.awaitingInput).toBeNull();
+      expect(res.saveFeedback).toEqual({
+        email: "feedback@triven.ai",
+        phone: "N/A",
+        query: "Proactive Feedback Request",
+        feedback: "I love the marketplace options!"
+      });
+    });
   });
 });
