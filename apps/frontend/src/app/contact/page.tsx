@@ -1,11 +1,17 @@
 "use client";
 
 import type { Route } from "next";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { CoreHeader } from "@/components/common/header";
 import { CoreFooter } from "@/components/common/footer";
 import { BUSINESS_MARKETPLACE_PUBLIC_PATH } from "@/lib/routes";
+import {
+  getHelpCenterCategories,
+  resourceCategories,
+  resources,
+} from "@/app/resources/resources.const";
 
 type SearchType = "faq" | "category" | "article";
 
@@ -16,6 +22,7 @@ type SearchItem = {
   category: string;
   preview: string;
   keywords: string[];
+  href: string;
 };
 
 type CategoryCard = {
@@ -25,6 +32,7 @@ type CategoryCard = {
   count: string;
   icon: "rocket" | "settings" | "card" | "tool" | "shield" | "code";
   iconClass: string;
+  href: string;
 };
 
 type FaqItem = {
@@ -33,55 +41,62 @@ type FaqItem = {
   answer: string;
 };
 
-const categories: CategoryCard[] = [
-  {
-    id: "getting-started",
-    name: "Getting Started",
-    description: "Set up your account, install your first agent, and connect your phone.",
-    count: "8 articles",
-    icon: "rocket",
-    iconClass: "bg-amber-50 text-amber-600 group-hover:bg-amber-100"
-  },
-  {
-    id: "managing-agents",
-    name: "Managing Your Agents",
-    description: "Pause, configure, update messages, change hours, and monitor performance.",
-    count: "12 articles",
-    icon: "settings",
-    iconClass: "bg-violet-50 text-violet-600 group-hover:bg-violet-100"
-  },
-  {
-    id: "billing-payments",
-    name: "Billing & Payments",
-    description: "Understand your charges, download invoices, update payment method, cancel.",
-    count: "9 articles",
-    icon: "card",
-    iconClass: "bg-green-50 text-green-600 group-hover:bg-green-100"
-  },
-  {
-    id: "troubleshooting",
-    name: "Troubleshooting",
-    description: "Agent not responding? Messages not sending? Fix common issues here.",
-    count: "11 articles",
-    icon: "tool",
-    iconClass: "bg-orange-50 text-orange-600 group-hover:bg-orange-100"
-  },
-  {
-    id: "account-security",
-    name: "Account & Security",
-    description: "Change password, update email, manage team access, data privacy.",
-    count: "7 articles",
-    icon: "shield",
-    iconClass: "bg-blue-50 text-blue-600 group-hover:bg-blue-100"
-  },
-  {
-    id: "for-architects",
-    name: "For Architects",
-    description: "Building agents, publishing, payouts, API docs, and marketplace tips.",
-    count: "15 articles",
-    icon: "code",
-    iconClass: "bg-teal-50 text-teal-600 group-hover:bg-teal-100"
+const helpCategories = getHelpCenterCategories();
+
+const categories: CategoryCard[] = helpCategories.map((category) => ({
+  id: category.id,
+  name: category.name,
+  description: category.description,
+  count: category.count,
+  icon: category.icon,
+  iconClass: category.iconClass,
+  href: category.href,
+}));
+
+function articleHref(categoryId: string, slug: string) {
+  const cat = resourceCategories.find((c) => c.id === categoryId);
+  if (cat?.hub === "architect") {
+    return `/resources/architect?article=${encodeURIComponent(slug)}`;
   }
+  return `/resources?category=${encodeURIComponent(categoryId)}&article=${encodeURIComponent(slug)}`;
+}
+
+const searchIndex: SearchItem[] = [
+  ...resources.map((item) => {
+    const categoryTitle =
+      resourceCategories.find((c) => c.id === item.category)?.title ?? item.category;
+    return {
+      type: "article" as const,
+      id: `art-${item.id}`,
+      title: item.title,
+      category: categoryTitle,
+      preview: item.description,
+      keywords: [
+        ...item.keywords,
+        item.slug,
+        item.category,
+        ...(item.proTips ?? []),
+        ...item.sections.flatMap((s) => [s.title, s.body]),
+      ],
+      href: articleHref(item.category, item.slug),
+    };
+  }),
+  ...categories.map((category) => ({
+    type: "category" as const,
+    id: `cat-${category.id}`,
+    title: category.name,
+    category: "Browse topics",
+    preview: category.description,
+    keywords: [
+      category.name,
+      category.description,
+      category.id,
+      "topic",
+      "category",
+      "browse",
+    ],
+    href: category.href,
+  })),
 ];
 
 const faqs: FaqItem[] = [
@@ -143,161 +158,6 @@ const popularSearches = [
   "Agent not responding"
 ];
 
-const searchIndex: SearchItem[] = [
-  {
-    type: "faq",
-    id: "faq-1",
-    title: "How do I change my agent's text message?",
-    category: "Managing Your Agents",
-    preview: "Dashboard → gear icon → Configure → edit the message → Save. Changes apply immediately.",
-    keywords: ["change", "edit", "message", "text", "sms", "configure", "wording", "reply", "auto"]
-  },
-  {
-    type: "faq",
-    id: "faq-2",
-    title: "How do I pause my agent temporarily?",
-    category: "Managing Your Agents",
-    preview: "Click the gear icon on any agent and select Pause. No execution fees while paused.",
-    keywords: ["pause", "stop", "temporarily", "resume", "disable", "turn off", "deactivate"]
-  },
-  {
-    type: "faq",
-    id: "faq-3",
-    title: "When will I be charged after my free trial?",
-    category: "Billing & Payments",
-    preview: "Your 7-day trial starts at setup; the one-time agent fee is charged on day 8.",
-    keywords: ["charge", "charged", "trial", "free", "billing", "payment", "when", "fee"]
-  },
-  {
-    type: "faq",
-    id: "faq-4",
-    title: "My agent isn't sending text messages. What do I do?",
-    category: "Troubleshooting",
-    preview: "Check the agent is active, verify your phone connection, then run the Test button.",
-    keywords: ["not", "sending", "messages", "text", "broken", "responding", "fix", "carrier", "test"]
-  },
-  {
-    type: "faq",
-    id: "faq-5",
-    title: "Can I use Triven AI with multiple phone numbers?",
-    category: "Managing Your Agents",
-    preview: "Yes — connect multiple numbers and assign a different agent to each.",
-    keywords: ["multiple", "phone", "numbers", "many", "second", "add", "assign"]
-  },
-  {
-    type: "faq",
-    id: "faq-6",
-    title: "How do I cancel and get a refund?",
-    category: "Billing & Payments",
-    preview: "Settings → Billing → Cancel Subscription. Full refund within 30 days of purchase.",
-    keywords: ["cancel", "refund", "subscription", "money", "back", "stop", "unsubscribe"]
-  },
-  {
-    type: "faq",
-    id: "faq-7",
-    title: "Is my patient data safe / HIPAA compliant?",
-    category: "Account & Security",
-    preview: "Learn how Triven AI protects patient data, encryption, privacy, and compliance workflows.",
-    keywords: ["hipaa", "patient", "data", "safe", "secure", "privacy", "compliant", "encryption"]
-  },
-  {
-    type: "faq",
-    id: "faq-8",
-    title: "How do I see how much revenue my agent has recovered?",
-    category: "Managing Your Agents",
-    preview: "The Dashboard shows calls handled, bookings, and estimated revenue recovered.",
-    keywords: ["revenue", "recovered", "stats", "analytics", "metrics", "money", "report", "performance"]
-  },
-  {
-    type: "category",
-    id: "cat-getting-started",
-    title: "Getting Started",
-    category: "Browse topics",
-    preview: "Set up your account, install your first agent, and connect your phone.",
-    keywords: ["getting", "started", "setup", "install", "begin", "onboard", "account", "new"]
-  },
-  {
-    type: "category",
-    id: "cat-managing",
-    title: "Managing Your Agents",
-    category: "Browse topics",
-    preview: "Pause, configure, update messages, change hours, and monitor performance.",
-    keywords: ["manage", "agents", "configure", "settings", "control", "performance"]
-  },
-  {
-    type: "category",
-    id: "cat-billing",
-    title: "Billing & Payments",
-    category: "Browse topics",
-    preview: "Understand your charges, download invoices, update payment method, cancel.",
-    keywords: ["billing", "payments", "charges", "invoices", "money", "cost", "price"]
-  },
-  {
-    type: "category",
-    id: "cat-troubleshooting",
-    title: "Troubleshooting",
-    category: "Browse topics",
-    preview: "Agent not responding? Messages not sending? Fix common issues here.",
-    keywords: ["troubleshooting", "fix", "issues", "problem", "error", "help", "broken"]
-  },
-  {
-    type: "category",
-    id: "cat-security",
-    title: "Account & Security",
-    category: "Browse topics",
-    preview: "Change password, update email, manage team access, data privacy.",
-    keywords: ["account", "security", "password", "email", "team", "access", "privacy"]
-  },
-  {
-    type: "category",
-    id: "cat-architects",
-    title: "For Architects",
-    category: "Browse topics",
-    preview: "Building agents, publishing, payouts, API docs, and marketplace tips.",
-    keywords: ["architects", "build", "publish", "payouts", "api", "developer", "marketplace"]
-  },
-  {
-    type: "article",
-    id: "art-pause",
-    title: "How to pause an agent",
-    category: "Managing Your Agents",
-    preview: "Step-by-step: pause and later resume any agent from your Dashboard.",
-    keywords: ["pause", "stop", "resume", "temporarily", "agent"]
-  },
-  {
-    type: "article",
-    id: "art-phone-change",
-    title: "Change my phone number",
-    category: "Account & Security",
-    preview: "Update or replace the business number connected to your agent.",
-    keywords: ["change", "phone", "number", "update", "replace", "connect"]
-  },
-  {
-    type: "article",
-    id: "art-invoices",
-    title: "Download invoices & receipts",
-    category: "Billing & Payments",
-    preview: "Find, view, and download every Triven AI invoice.",
-    keywords: ["invoices", "invoice", "receipts", "download", "pdf", "billing", "statement"]
-  },
-  {
-    type: "article",
-    id: "art-cancel",
-    title: "Cancel your subscription",
-    category: "Billing & Payments",
-    preview: "End your plan and check whether you qualify for a refund.",
-    keywords: ["cancel", "subscription", "stop", "end", "refund", "close"]
-  },
-  {
-    type: "article",
-    id: "art-not-responding",
-    title: "Agent not responding",
-    category: "Troubleshooting",
-    preview: "Diagnose an agent that is offline or not reacting to missed calls.",
-    keywords: ["agent", "not", "responding", "offline", "down", "unresponsive", "fix"]
-  }
-];
-
 const stopWords = new Set([
   "how",
   "to",
@@ -333,6 +193,7 @@ const stopWords = new Set([
 ]);
 
 export default function HelpPage() {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [navScrolled, setNavScrolled] = useState(true);
   const [query, setQuery] = useState("");
@@ -380,18 +241,26 @@ export default function HelpPage() {
     }, 2400);
   }
 
-  function selectResult(item: SearchItem) {
+  function goToArticle(item: SearchItem) {
     setQuery("");
     setActiveIndex(-1);
+    showToast(`Opening ${item.title}…`);
+    router.push(item.href as Route);
+  }
 
-    if (item.type === "faq") {
-      setOpenFaq(item.id);
-      window.history.replaceState(null, "", `#${item.id}`);
-      setTimeout(() => document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  function selectResult(item: SearchItem) {
+    goToArticle(item);
+  }
+
+  function handlePopularClick(tag: string) {
+    const matches = searchItems(tag);
+    if (matches.length) {
+      goToArticle(matches[0]);
       return;
     }
-
-    showToast(`Opening ${item.title}…`);
+    setQuery(tag);
+    setActiveIndex(-1);
+    inputRef.current?.focus();
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -432,11 +301,13 @@ export default function HelpPage() {
       <main id="main">
         <span id="top" />
 
-        <section className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-white to-orange-50 px-5 pb-12 pt-36 text-center sm:px-8 md:pt-40">
-          <div aria-hidden="true" className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-amber-200/40 blur-3xl" />
-          <div aria-hidden="true" className="pointer-events-none absolute -right-20 top-10 h-64 w-64 rounded-full bg-orange-200/40 blur-3xl" />
+        <section className="relative bg-gradient-to-br from-amber-50 via-white to-orange-50 px-5 pb-12 pt-36 text-center sm:px-8 md:pt-40">
+          <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+            <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-amber-200/40 blur-3xl" />
+            <div className="absolute -right-20 top-10 h-64 w-64 rounded-full bg-orange-200/40 blur-3xl" />
+          </div>
 
-          <div className="relative z-10 mx-auto max-w-3xl">
+          <div className="relative mx-auto max-w-3xl">
             <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/80 bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-amber-700 shadow-sm backdrop-blur">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
@@ -453,7 +324,11 @@ export default function HelpPage() {
               Search our knowledge base or browse topics below.
             </p>
 
-            <div className="relative mx-auto mt-8 max-w-2xl text-left">
+            <div
+              className={`relative mx-auto mt-8 max-w-2xl text-left ${
+                showResults ? "z-[60]" : "z-20"
+              }`}
+            >
               <div className="relative">
                 <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <SearchIcon />
@@ -489,7 +364,7 @@ export default function HelpPage() {
                   id="search-results"
                   role="listbox"
                   aria-label="Search results"
-                  className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-gray-100 bg-white shadow-xl shadow-slate-900/10"
+                  className="absolute left-0 right-0 top-full z-[70] mt-2 max-h-80 overflow-y-auto rounded-xl border border-gray-100 bg-white shadow-xl shadow-slate-900/10"
                 >
                   {results.length ? (
                     results.map((item, index) => (
@@ -549,10 +424,7 @@ export default function HelpPage() {
                   key={tag}
                   type="button"
                   data-testid={`help-popular-search-${tag.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  onClick={() => {
-                    setQuery(tag);
-                    inputRef.current?.focus();
-                  }}
+                  onClick={() => handlePopularClick(tag)}
                   className="cursor-pointer rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm text-slate-600 transition-colors hover:border-amber-300 hover:text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                 >
                   {tag}
@@ -565,7 +437,7 @@ export default function HelpPage() {
         <section className="mx-auto mt-14 max-w-5xl px-5 sm:px-8">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {categories.map((category) => (
-              <CategoryCardItem key={category.id} category={category} showToast={showToast} />
+              <CategoryCardItem key={category.id} category={category} />
             ))}
           </div>
         </section>
@@ -710,7 +582,8 @@ function searchItems(query: string) {
         if (item.category.toLowerCase().includes(word)) score += 4;
       });
 
-      if (item.type === "faq") score += 3;
+      if (item.type === "article") score += 5;
+      if (item.type === "category") score += 1;
 
       return { item, score };
     })
@@ -754,18 +627,15 @@ function escapeRegex(value: string) {
 }
 
 function CategoryCardItem({
-  category,
-  showToast
+  category
 }: {
   category: CategoryCard;
-  showToast: (message: string) => void;
 }) {
   return (
     <div>
-      <button
-        type="button"
+      <Link
         data-testid={`help-category-${category.id}`}
-        onClick={() => showToast(`Opening ${category.name}…`)}
+        href={category.href as Route}
         className="group flex h-full w-full cursor-pointer flex-col rounded-2xl border border-gray-100 bg-white p-6 text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
       >
         <span className={`inline-grid h-12 w-12 place-items-center rounded-xl transition-colors ${category.iconClass}`}>
@@ -788,7 +658,7 @@ function CategoryCardItem({
             Go to Architect Docs <span aria-hidden="true">→</span>
           </span>
         ) : null}
-      </button>
+      </Link>
     </div>
   );
 }

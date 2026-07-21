@@ -2,8 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import type { Route } from "next";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
+const RESOURCES_ROUTE = "#footer" as Route;
 
 type CoreHeaderProps = {
   navTop: number;
@@ -63,9 +65,9 @@ export function CoreHeader({
             Contact US
           </Link>
 
-          <a data-testid="header-docs-link" href={"#footer"} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+          <Link data-testid="header-docs-link" href="#footer" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Docs
-          </a>
+          </Link>
         </div>
 
         <div className="hidden shrink-0 items-center gap-2 md:flex lg:gap-3">
@@ -150,13 +152,14 @@ export function CoreHeader({
               Contact US
             </Link>
 
-            <a
+            <Link
+              data-testid="header-docs-link-2"
               href="#footer"
               onClick={onCloseMenu}
               className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
             >
               Docs
-            </a>
+            </Link>
 
             <div className="mt-3 flex flex-col gap-2 border-t border-gray-200 pt-4">
               <Link data-testid="header-login-link-2"

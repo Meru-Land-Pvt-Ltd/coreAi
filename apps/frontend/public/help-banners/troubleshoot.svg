@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Troubleshooting banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF7ED"/>
+      <stop offset="100%" stop-color="#FEF2F2"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <circle cx="220" cy="160" r="80" fill="#FFEDD5" stroke="#F97316" stroke-width="6"/>
+  <text x="200" y="175" fill="#C2410C" font-family="Segoe UI, Arial, sans-serif" font-size="56" font-weight="800">!</text>
+  <rect x="380" y="70" width="700" height="180" rx="20" fill="#FFFFFF" stroke="#FED7AA" stroke-width="2"/>
+  <text x="420" y="120" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800">Quick checks</text>
+  <rect x="420" y="145" width="18" height="18" rx="4" fill="#F59E0B"/>
+  <text x="450" y="160" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">Agent is not paused</text>
+  <rect x="420" y="180" width="18" height="18" rx="4" fill="#F59E0B"/>
+  <text x="450" y="195" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">Forwarding phone verified</text>
+  <rect x="420" y="215" width="18" height="18" rx="4" fill="#F59E0B"/>
+  <text x="450" y="230" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">Test SMS after any change</text>
+</svg>

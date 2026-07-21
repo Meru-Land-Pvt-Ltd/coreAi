@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Voice preview banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FDF4FF"/>
+      <stop offset="100%" stop-color="#FFFBEB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <circle cx="220" cy="160" r="70" fill="#FEF3C7" stroke="#F59E0B" stroke-width="4"/>
+  <path d="M200 145c0-12 10-22 22-22s22 10 22 22v30c0 12-10 22-22 22s-22-10-22-22z" fill="#B45309"/>
+  <path d="M185 165c0 24 18 42 40 42s40-18 40-42" fill="none" stroke="#B45309" stroke-width="4" stroke-linecap="round"/>
+  <line x1="225" y1="207" x2="225" y2="230" stroke="#B45309" stroke-width="4" stroke-linecap="round"/>
+  <rect x="400" y="100" width="640" height="120" rx="18" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <g stroke="#F59E0B" stroke-width="6" stroke-linecap="round">
+    <line x1="450" y1="160" x2="450" y2="140"/><line x1="475" y1="160" x2="475" y2="120"/><line x1="500" y1="160" x2="500" y2="145"/><line x1="525" y1="160" x2="525" y2="110"/><line x1="550" y1="160" x2="550" y2="135"/><line x1="575" y1="160" x2="575" y2="125"/><line x1="600" y1="160" x2="600" y2="150"/><line x1="625" y1="160" x2="625" y2="118"/><line x1="650" y1="160" x2="650" y2="140"/>
+  </g>
+  <text x="700" y="155" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">Preview voice</text>
+  <text x="700" y="185" fill="#64748B" font-family="Segoe UI, Arial, sans-serif" font-size="14">Hear it before buyers do</text>
+</svg>
