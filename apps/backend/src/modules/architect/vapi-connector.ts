@@ -142,26 +142,42 @@ export type VapiCallDetails = {
   durationMs: number | null;
   costUsd: number | null;
   costBreakdown: Record<string, unknown> | null;
-  /** Recording artifact URL when Vapi has one (can lag the end-of-call report). */
   recordingUrl: string | null;
+  recordingUrls: string[];
 };
 
-/** artifact.recordingUrl / stereoRecordingUrl / top-level — first https URL wins. */
-function extractCallRecordingUrl(payload: Record<string, unknown>): string | null {
-  const artifact =
-    typeof payload.artifact === "object" && payload.artifact !== null && !Array.isArray(payload.artifact)
-      ? (payload.artifact as Record<string, unknown>)
-      : {};
+export function extractCallRecordingUrls(payload: Record<string, unknown>): string[] {
+  const record = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+  const artifact = record(payload.artifact);
+  const recording = record(artifact.recording);
+  const mono = record(recording.mono);
+
   const candidates = [
     artifact.recordingUrl,
     artifact.stereoRecordingUrl,
+    recording.url,
+    recording.stereoUrl,
+    mono.combinedUrl,
+    mono.assistantUrl,
+    mono.customerUrl,
     payload.recordingUrl,
     payload.stereoRecordingUrl
   ];
+
+  const urls: string[] = [];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && /^https:\/\//i.test(candidate.trim())) return candidate.trim();
+    if (typeof candidate === "string" && /^https:\/\//i.test(candidate.trim())) {
+      const url = candidate.trim();
+      if (!urls.includes(url)) urls.push(url);
+    }
   }
-  return null;
+
+  return [
+    ...urls.filter((url) => /[?&]X-Amz-Signature=/i.test(url)),
+    ...urls.filter((url) => !/[?&]X-Amz-Signature=/i.test(url))
+  ];
 }
 
 export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails | null> {
@@ -196,7 +212,8 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
       typeof payload.costBreakdown === "object" && payload.costBreakdown !== null
         ? (payload.costBreakdown as Record<string, unknown>)
         : null,
-    recordingUrl: extractCallRecordingUrl(payload)
+    recordingUrl: extractCallRecordingUrls(payload)[0] ?? null,
+    recordingUrls: extractCallRecordingUrls(payload)
   };
 }
 

@@ -183,20 +183,46 @@ describe("GET /business/dashboard", () => {
 });
 
 describe("GET /business/calls/:id/recording-url", () => {
-  it("returns the recording URL by row id or Vapi call id, scoped to the owner", async () => {
+  it("returns a probed-playable URL by call id, null when storage rejects it, 404 for foreign calls", async () => {
     if (!dbAvailable) return;
 
-    const byCallId = await app().request(`/business/calls/${RUN}-live-1/recording-url`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    expect(byCallId.status).toBe(200);
-    const body = (await byCallId.json()) as { data: { url: string | null } };
-    // Vapi is unconfigured in tests — the stored URL is the fallback.
-    expect(body.data.url).toBe("https://recordings.test.local/live-1.wav");
+    // The endpoint probes candidate URLs with a range GET before returning
+    // them — stub outbound fetch so the fake storage URL answers.
+    const originalFetch = globalThis.fetch;
+    const respondWith = (status: number) =>
+      (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("recordings.test.local")) {
+          return new Response("ok", { status });
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
 
-    const missing = await app().request("/business/calls/does-not-exist/recording-url", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    expect(missing.status).toBe(404);
-  });
+    try {
+      globalThis.fetch = respondWith(206);
+      const byCallId = await app().request(`/business/calls/${RUN}-live-1/recording-url`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(byCallId.status).toBe(200);
+      const body = (await byCallId.json()) as { data: { url: string | null } };
+      // Vapi is unconfigured in tests — the stored URL is the probed fallback.
+      expect(body.data.url).toBe("https://recordings.test.local/live-1.wav");
+
+      // A URL the bucket rejects (e.g. unsigned HIPAA storage → 400) is never
+      // handed to the browser.
+      globalThis.fetch = respondWith(400);
+      const rejected = await app().request(`/business/calls/${RUN}-live-1/recording-url`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(rejected.status).toBe(200);
+      const rejectedBody = (await rejected.json()) as { data: { url: string | null } };
+      expect(rejectedBody.data.url).toBeNull();
+
+      const missing = await app().request("/business/calls/does-not-exist/recording-url", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(missing.status).toBe(404);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }, 15000);
 });

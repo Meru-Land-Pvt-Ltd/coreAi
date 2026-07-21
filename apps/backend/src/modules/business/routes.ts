@@ -299,6 +299,19 @@ function buildAgentEventActivities(params: {
   return activities;
 }
 
+async function recordingUrlPlayable(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-1" },
+      signal: AbortSignal.timeout(6000)
+    });
+    return response.status === 200 || response.status === 206;
+  } catch {
+    return false;
+  }
+}
+
 businessRoutes.get("/calls/:id/recording-url", async (c) => {
   const authUser = c.get("authUser");
   const idParam = (c.req.param("id") ?? "").trim();
@@ -317,11 +330,28 @@ businessRoutes.get("/calls/:id/recording-url", async (c) => {
   }
 
   const fresh = await fetchVapiCallById(call.callId).catch(() => null);
-  const url = fresh?.recordingUrl ?? call.recordingUrl ?? null;
+  const candidates = [...(fresh?.recordingUrls ?? []), ...(call.recordingUrl ? [call.recordingUrl] : [])]
+    .filter((url, index, all) => all.indexOf(url) === index)
+    .slice(0, 5);
 
-  if (fresh?.recordingUrl && fresh.recordingUrl !== call.recordingUrl) {
+  let url: string | null = null;
+  for (const candidate of candidates) {
+    if (await recordingUrlPlayable(candidate)) {
+      url = candidate;
+      break;
+    }
+  }
+
+  if (!url && candidates.length > 0) {
+    console.warn("[recording-url] no playable candidate", {
+      callId: call.callId,
+      candidates: candidates.map((candidate) => candidate.split("?")[0])
+    });
+  }
+
+  if (!call.recordingUrl && url) {
     await prisma.vapiCall
-      .update({ where: { id: call.id }, data: { recordingUrl: fresh.recordingUrl } })
+      .update({ where: { id: call.id }, data: { recordingUrl: url.split("?")[0] || url } })
       .catch(() => undefined);
   }
 
