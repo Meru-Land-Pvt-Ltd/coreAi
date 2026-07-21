@@ -932,7 +932,7 @@ export default function BusinessAgentDetailPage() {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-900">{listing.name}</p>
             <p className="truncate text-xs text-slate-500">
-              Start free — $0 for 7 days, then ${price}/mo
+              Start free — $0 for 7 days, then ${price}{(listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME" ? "" : "/mo"}
             </p>
           </div>
 

@@ -122,6 +122,7 @@ function BusinessPaymentSuccessContent() {
 
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
     const [copied, setCopied] = useState(false);
+    const [pricingModel, setPricingModel] = useState<string | null>(null);
     // Backend verification: confirm this listing is actually owned now, so a
     // stale/forged success URL can't show a false "payment successful".
     const [verification, setVerification] = useState<"pending" | "verified" | "unverified">(
@@ -136,13 +137,14 @@ function BusinessPaymentSuccessContent() {
 
         let mounted = true;
 
-        void apiGet<{ hasActiveAccess: boolean; purchaseStatus: string | null }>(
+        void apiGet<{ hasActiveAccess: boolean; purchaseStatus: string | null; pricingModel?: string | null }>(
             `/payments/listing-access/${listingId}`
         ).then((response) => {
             if (!mounted) return;
 
             if (response.success && response.data) {
                 setVerification(response.data.hasActiveAccess ? "verified" : "unverified");
+                setPricingModel(response.data.pricingModel ?? null);
             } else {
                 // Network/auth hiccup — don't scare the buyer over a fetch issue.
                 setVerification("verified");
@@ -315,7 +317,13 @@ function BusinessPaymentSuccessContent() {
                             <dl className="space-y-3 text-sm">
                                 <div className="flex items-center justify-between gap-4">
                                     <dt className="text-slate-500">Plan</dt>
-                                    <dd className="font-medium text-slate-900">Professional — Monthly</dd>
+                                    <dd className="font-medium text-slate-900">
+                                        {pricingModel === "ONE_TIME"
+                                            ? "Professional — One-time"
+                                            : pricingModel === "FREE"
+                                            ? "Free"
+                                            : "Professional — Monthly"}
+                                    </dd>
                                 </div>
                                 {isTrial ? (
                                     <>
@@ -323,7 +331,9 @@ function BusinessPaymentSuccessContent() {
                                             <dt className="text-slate-500">Price after trial</dt>
                                             <dd className="font-medium text-slate-900" data-testid="payment-success-price-after-trial">
                                                 ${displayAmount.toFixed(2)}
-                                                <span className="font-normal text-slate-400">/month</span>
+                                                {pricingModel !== "ONE_TIME" && pricingModel !== "FREE" && (
+                                                    <span className="font-normal text-slate-400">/month</span>
+                                                )}
                                             </dd>
                                         </div>
                                         <div className="flex items-center justify-between gap-4">

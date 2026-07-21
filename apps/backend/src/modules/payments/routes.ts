@@ -970,7 +970,8 @@ paymentRoutes.get("/my-agents", async (c) => {
         workflow: listing.workflow,
         architect: listing.architect,
         freeTrialEnabled: listing.freeTrialEnabled,
-        trialDays: listing.trialDays
+        trialDays: listing.trialDays,
+        pricingModel: listing.pricingModel
       }
     });
   }

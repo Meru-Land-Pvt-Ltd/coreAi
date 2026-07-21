@@ -818,6 +818,11 @@ export default function MarketplacePage() {
               data-testid="business-marketplace-search-input"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  agentListRef.current?.scrollIntoView({ behavior: "smooth" });
+                }
+              }}
               placeholder="Search agents by name, industry, or problem..."
               className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-3 pl-12 pr-4 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-100"
             />
@@ -1400,7 +1405,7 @@ export default function MarketplacePage() {
         </div>
       </section>
 
-      <section className="bg-gray-50 py-12">
+      <section ref={agentListRef} className="bg-gray-50 py-12 scroll-mt-[140px]">
         <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-5">
           {isLoading ? (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">

@@ -252,7 +252,8 @@ function mergeListingImages(agents: ApiPurchasedAgent[], listings: ApiListing[])
                 freeTrialEnabled: agent.listing.freeTrialEnabled ?? publicListing.freeTrialEnabled ?? null,
                 trialDays: agent.listing.trialDays ?? publicListing.trialDays ?? null,
                 industryTags: agent.listing.industryTags ?? publicListing.industryTags ?? undefined,
-                category: agent.listing.category ?? publicListing.category ?? null
+                category: agent.listing.category ?? publicListing.category ?? null,
+                pricingModel: agent.listing.pricingModel ?? publicListing.pricingModel ?? null
             }
         };
     });
