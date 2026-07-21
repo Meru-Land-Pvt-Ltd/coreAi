@@ -127,6 +127,41 @@ export function extractRecordingUrl(message: Record<string, unknown>): string | 
   return null;
 }
 
+const RECORDING_REFETCH_DELAY_MS = 60_000;
+const scheduledRecordingRefetches = new Set<string>();
+
+function scheduleRecordingRefetch(callId: string) {
+  if (!callId || scheduledRecordingRefetches.has(callId)) return;
+  scheduledRecordingRefetches.add(callId);
+
+  const timer = setTimeout(() => {
+    void (async () => {
+      try {
+        const existing = await prisma.vapiCall.findUnique({
+          where: { callId },
+          select: { id: true, recordingUrl: true }
+        });
+        if (!existing || existing.recordingUrl) return;
+
+        const call = await fetchVapiCallById(callId).catch(() => null);
+        if (call?.recordingUrl) {
+          await prisma.vapiCall.update({
+            where: { callId },
+            data: { recordingUrl: call.recordingUrl }
+          });
+          console.log("[usage-billing] recording backfilled after delay", { callId });
+        }
+      } catch (error) {
+        console.error("[usage-billing] delayed recording re-fetch failed (non-fatal)", error);
+      } finally {
+        scheduledRecordingRefetches.delete(callId);
+      }
+    })();
+  }, RECORDING_REFETCH_DELAY_MS);
+  // Never keep the process (or a test runner) alive just for this retry.
+  timer.unref?.();
+}
+
 export async function recordVapiCallUsage({
   businessId,
   installedAgentId,
@@ -270,7 +305,8 @@ export async function recordVapiCallUsage({
   if (endedAt < acquiredAt) return;
   const billingMonth = billingMonthFromDate(endedAt);
 
-  const recordingUrl = extractRecordingUrl(message);
+  const recordingUrl = extractRecordingUrl(message) ?? vapiCall?.recordingUrl ?? null;
+  if (!recordingUrl) scheduleRecordingRefetch(callId);
 
   await prisma.vapiCall.upsert({
     where: { callId },

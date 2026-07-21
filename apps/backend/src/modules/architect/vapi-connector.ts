@@ -142,7 +142,27 @@ export type VapiCallDetails = {
   durationMs: number | null;
   costUsd: number | null;
   costBreakdown: Record<string, unknown> | null;
+  /** Recording artifact URL when Vapi has one (can lag the end-of-call report). */
+  recordingUrl: string | null;
 };
+
+/** artifact.recordingUrl / stereoRecordingUrl / top-level — first https URL wins. */
+function extractCallRecordingUrl(payload: Record<string, unknown>): string | null {
+  const artifact =
+    typeof payload.artifact === "object" && payload.artifact !== null && !Array.isArray(payload.artifact)
+      ? (payload.artifact as Record<string, unknown>)
+      : {};
+  const candidates = [
+    artifact.recordingUrl,
+    artifact.stereoRecordingUrl,
+    payload.recordingUrl,
+    payload.stereoRecordingUrl
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && /^https:\/\//i.test(candidate.trim())) return candidate.trim();
+  }
+  return null;
+}
 
 export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails | null> {
   if (!isVapiConfigured() || !isRealId(callId)) return null;
@@ -175,7 +195,8 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
     costBreakdown:
       typeof payload.costBreakdown === "object" && payload.costBreakdown !== null
         ? (payload.costBreakdown as Record<string, unknown>)
-        : null
+        : null,
+    recordingUrl: extractCallRecordingUrl(payload)
   };
 }
 

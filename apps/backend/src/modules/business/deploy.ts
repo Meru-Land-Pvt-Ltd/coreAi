@@ -500,6 +500,7 @@ export async function deployInstalledAgentVoiceAssistant(
     existingAssistantId,
     metadata: { businessId: plan.businessId, installedAgentId: plan.installedAgentId },
     recordingEnabled: endFlowRecordingEnabled(plan.workflowJson),
+    maxDurationSeconds: LIVE_MAX_CALL_DURATION_SECONDS,
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
@@ -601,6 +602,8 @@ export async function buildInstalledAgentChatTestSetup(
 /* ------------------------- Setup preview call ------------------------- */
 
 const PREVIEW_MAX_DURATION_SECONDS = 300;
+
+export const LIVE_MAX_CALL_DURATION_SECONDS = 43200;
 const SETUP_PREVIEW_PURPOSE = "BUYER_SETUP_PREVIEW";
 
 export class SetupPreviewCallError extends Error {
@@ -638,13 +641,7 @@ async function findLatestTestableInstalledAgent(businessId: string): Promise<{ i
   });
 }
 
-/**
- * Refresh the LIVE assistant's baked-in prompt after knowledge changes.
- * No-op before Go-live (no vapiAssistantId / no ACTIVE agent) and never
- * fails the calling mutation — the next deploy would pick knowledge up anyway.
- */
 export type LiveKnowledgeSyncResult = {
-  /** False when there is no live assistant yet (pre-Go-live) — nothing to sync. */
   attempted: boolean;
   ok: boolean;
   assistantId: string | null;
@@ -732,10 +729,6 @@ export async function startInstalledAgentPreviewCall(businessId: string): Promis
     serverUrl: webhookUrl,
     existingAssistantId,
     metadata: { purpose: SETUP_PREVIEW_PURPOSE, businessId: plan.businessId, installedAgentId: plan.installedAgentId },
-    // Tools mirror the workflow graph exactly (same gating as live), so the
-    // buyer's browser test exercises the real booking path — the webhook books
-    // it as a [TRIVEN BUSINESS TEST] calendar event, never a live appointment.
-    // SMS stays disabled: browser tests must not text real customers.
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
