@@ -1048,10 +1048,11 @@ export async function deployVapiAssistant({
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
       ...(clean(env.VAPI_WEBHOOK_SECRET) ? { secret: env.VAPI_WEBHOOK_SECRET } : {})
     },
-    // End Flow node's "Call recording" toggle. When off, Vapi produces no
-    // recording artifact and no recordingUrl reaches the buyer dashboard.
     artifactPlan: {
       recordingEnabled: recordingEnabled !== false
+    },
+    compliancePlan: {
+      hipaaEnabled: false
     },
     ...(metadata ? { metadata } : {}),
     ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {}),
