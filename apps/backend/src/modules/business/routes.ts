@@ -113,6 +113,26 @@ const businessPhoneNumberLegacySelect = {
   updatedAt: true
 } as const;
 
+/** "inbound" | "outbound" from the stored Vapi webhook body; inbound when unknown. */
+function vapiCallDirection(metadataJson: unknown): "inbound" | "outbound" {
+  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return "inbound";
+  const body = metadataJson as Record<string, unknown>;
+
+  const candidates: unknown[] = [];
+  const message = body.message;
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    candidates.push((message as Record<string, unknown>).call);
+  }
+  candidates.push(body.call, body);
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const type = (candidate as Record<string, unknown>).type;
+    if (typeof type === "string" && /outbound/i.test(type)) return "outbound";
+  }
+  return "inbound";
+}
+
 function includeActivePhoneNumbers(options?: { take?: number }) {
   return {
     where: { isActive: true as const },
@@ -323,6 +343,8 @@ businessRoutes.get("/dashboard", async (c) => {
       },
       activityChart: { days: buildActivityChartDays({ days: 30, appointments: [], missedCallLeads: [], vapiCalls: [] }) },
       agentActivity: [],
+      callHistory: [],
+      executions: [],
       calendarConnected: calendar.connected,
       totalSpendCents,
       activities
@@ -443,6 +465,70 @@ businessRoutes.get("/dashboard", async (c) => {
     })
   ]);
 
+  // Call history + workflow executions for the dashboard panels. Only real
+  // phone traffic (LIVE) appears; browser tests and dry runs never do.
+  const [historyCalls, workflowRuns] = await Promise.all([
+    prisma.vapiCall.findMany({
+      where: { businessId: business.id, executionMode: "LIVE" },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        callId: true,
+        customerPhone: true,
+        status: true,
+        durationSeconds: true,
+        recordingUrl: true,
+        summary: true,
+        createdAt: true,
+        metadataJson: true
+      }
+    }),
+    prisma.workflowRun.findMany({
+      where: {
+        mode: "LIVE",
+        OR: [
+          { businessId: business.id },
+          { installedAgentId: { in: business.installedAgents.map((agent) => agent.id) } }
+        ]
+      },
+      orderBy: { startedAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        finishedAt: true,
+        durationMs: true,
+        errorMessage: true,
+        externalCallId: true,
+        workflow: { select: { name: true } }
+      }
+    })
+  ]);
+
+  const callHistory = historyCalls.map((call) => ({
+    id: call.id,
+    customerPhone: call.customerPhone,
+    direction: vapiCallDirection(call.metadataJson),
+    status: call.status,
+    durationSeconds: call.durationSeconds,
+    recordingUrl: call.recordingUrl,
+    summary: call.summary,
+    createdAt: call.createdAt.toISOString()
+  }));
+
+  const executions = workflowRuns.map((run) => ({
+    id: run.id,
+    status: run.status,
+    workflowName: run.workflow?.name ?? "Workflow",
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
+    durationMs: run.durationMs,
+    errorMessage: run.errorMessage,
+    externalCallId: run.externalCallId
+  }));
+
   const installedAgent = business.installedAgents[0] ?? null;
   const phoneNumber = business.phoneNumbers[0] ?? null;
   const subscriptionStatus = business.subscriptionStatus ?? "inactive";
@@ -512,6 +598,8 @@ businessRoutes.get("/dashboard", async (c) => {
       })
     },
     agentActivity: agentEventActivities.slice(0, 30),
+    callHistory,
+    executions,
     calendarConnected: calendar.connected,
     totalSpendCents,
     activities: mergedActivities

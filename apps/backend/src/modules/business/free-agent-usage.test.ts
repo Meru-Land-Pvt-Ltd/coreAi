@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
 import { recordVapiCallUsage } from "./usage-billing";
-import { isSandboxExecutionBusiness } from "../architect/twilio-business-routing";
+import {
+  isSandboxExecutionBusiness,
+  recallCallContact,
+  rememberCallContact,
+  resolveVapiCallExecutionMode
+} from "../architect/twilio-business-routing";
 
 /**
  * FREE installs have no Payment row — the InstalledAgent is the acquisition
@@ -138,5 +143,47 @@ describe("isSandboxExecutionBusiness — dual-role owners", () => {
       await prisma.installedAgent.deleteMany({ where: { businessId: sandboxOnly.id } });
       await prisma.business.delete({ where: { id: sandboxOnly.id } });
     }
+  });
+});
+
+describe("resolveVapiCallExecutionMode — only phone calls are runs", () => {
+  it("browser (web) calls are never LIVE, even without test metadata", () => {
+    expect(resolveVapiCallExecutionMode({}, false, "webCall")).toBe("BUSINESS_TEST");
+  });
+
+  it("inbound and outbound phone calls stay LIVE", () => {
+    expect(resolveVapiCallExecutionMode({}, false, "inboundPhoneCall")).toBe("LIVE");
+    expect(resolveVapiCallExecutionMode({}, false, "outboundPhoneCall")).toBe("LIVE");
+  });
+
+  it("explicit test purposes always win", () => {
+    expect(resolveVapiCallExecutionMode({ purpose: "BUYER_SETUP_PREVIEW" }, false, "inboundPhoneCall")).toBe(
+      "BUSINESS_TEST"
+    );
+    expect(resolveVapiCallExecutionMode({ purpose: "ARCHITECT_TEST" }, false, "inboundPhoneCall")).toBe(
+      "ARCHITECT_DRY_RUN"
+    );
+  });
+});
+
+describe("per-call contact memory — never re-ask name or number in the same call", () => {
+  it("remembers and recalls the caller's details for the same call only", () => {
+    const callA = `${RUN}-contact-a`;
+    const callB = `${RUN}-contact-b`;
+
+    rememberCallContact(callA, { name: "Alex Morgan" });
+    rememberCallContact(callA, { phone: "+15550160001" });
+
+    expect(recallCallContact(callA)).toEqual({ name: "Alex Morgan", phone: "+15550160001" });
+    expect(recallCallContact(callB)).toEqual({});
+    expect(recallCallContact(undefined)).toEqual({});
+  });
+
+  it("later partial updates never erase earlier details", () => {
+    const callId = `${RUN}-contact-c`;
+    rememberCallContact(callId, { name: "Jamie Fox", phone: "+15550160002" });
+    rememberCallContact(callId, { name: "Jamie Fox" });
+
+    expect(recallCallContact(callId)).toEqual({ name: "Jamie Fox", phone: "+15550160002" });
   });
 });

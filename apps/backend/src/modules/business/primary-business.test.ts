@@ -87,6 +87,19 @@ beforeAll(async () => {
     }
   });
 
+  await prisma.workflowRun.create({
+    data: {
+      workflowId,
+      installedAgentId: agentId,
+      businessId: phoneBusinessId,
+      mode: "LIVE",
+      status: "COMPLETED",
+      callProvider: "VAPI",
+      externalCallId: `${RUN}-live-1`,
+      finishedAt: new Date()
+    }
+  });
+
   // Newer stray business row for the SAME owner — must never win.
   const stray = await prisma.business.create({
     data: { ownerId, name: `${RUN} stray biz`, type: "salon" }
@@ -96,6 +109,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!dbAvailable) return;
+  await prisma.workflowRun.deleteMany({ where: { businessId: phoneBusinessId } });
   await prisma.vapiCall.deleteMany({ where: { businessId: phoneBusinessId } });
   await prisma.lead.deleteMany({ where: { businessId: phoneBusinessId } });
   await prisma.businessPhoneNumber.deleteMany({ where: { businessId: phoneBusinessId } });
@@ -143,6 +157,8 @@ describe("GET /business/dashboard", () => {
         monthlyMetrics: { callsHandled: number };
         activities: Array<{ recordingUrl?: string | null }>;
         agentActivity: unknown[];
+        callHistory: Array<{ customerPhone: string; direction: string; recordingUrl: string | null }>;
+        executions: Array<{ status: string; workflowName: string }>;
       };
     };
 
@@ -155,5 +171,13 @@ describe("GET /business/dashboard", () => {
         (activity) => activity.recordingUrl === "https://recordings.test.local/live-1.wav"
       )
     ).toBe(true);
+
+    // Call history + executions panels are fed from the same business.
+    expect(body.data.callHistory.length).toBe(1);
+    expect(body.data.callHistory[0].customerPhone).toBe("+15550140001");
+    expect(body.data.callHistory[0].direction).toBe("inbound");
+    expect(body.data.callHistory[0].recordingUrl).toBe("https://recordings.test.local/live-1.wav");
+    expect(body.data.executions.length).toBe(1);
+    expect(body.data.executions[0].status).toBe("COMPLETED");
   });
 });

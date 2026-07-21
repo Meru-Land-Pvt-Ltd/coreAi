@@ -2186,11 +2186,6 @@ function argStr(args: Record<string, unknown>, keys: string[]): string | undefin
   return undefined;
 }
 
-/**
- * Canonical + alias arg keys for the caller's name/phone. customer_* is the
- * canonical form; patient_/guest_/lead_/client_ variants keep every industry
- * (and older dental assistants) working.
- */
 const NAME_ARG_KEYS = [
   "customer_name", "patient_name", "guest_name", "lead_name", "client_name", "name", "full_name",
   "customerName", "patientName", "guestName", "leadName", "clientName", "fullName", "patient_full_name"
@@ -2278,13 +2273,33 @@ type VapiToolContext = {
   callId?: string;
   summary: string;
   transcript: string;
-  /** Resolved from trusted call metadata: BUSINESS_TEST for buyer browser
-   * tests — booking then writes marked test events, never live appointments. */
   executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
-  /** Installed agent this call belongs to (assistant metadata) — scopes
-   * knowledge retrieval so agents never see each other's documents. */
   installedAgentId?: string;
 };
+
+const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
+const callContactCache = new Map<string, { name?: string; phone?: string; at: number }>();
+
+export function rememberCallContact(callId: string | undefined, contact: { name?: string; phone?: string }) {
+  if (!callId) return;
+  const now = Date.now();
+  for (const [key, value] of callContactCache) {
+    if (now - value.at > CALL_CONTACT_TTL_MS) callContactCache.delete(key);
+  }
+  const existing = callContactCache.get(callId);
+  callContactCache.set(callId, {
+    name: contact.name || existing?.name,
+    phone: contact.phone || existing?.phone,
+    at: now
+  });
+}
+
+export function recallCallContact(callId: string | undefined): { name?: string; phone?: string } {
+  if (!callId) return {};
+  const entry = callContactCache.get(callId);
+  if (!entry || Date.now() - entry.at > CALL_CONTACT_TTL_MS) return {};
+  return { name: entry.name, phone: entry.phone };
+}
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
   success: false,
@@ -2543,8 +2558,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
-  // Require a real customer full name — never book with a placeholder.
-  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary);
+  const rememberedContact = recallCallContact(ctx.callId);
+  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? rememberedContact.name ?? null;
   if (!patientName) {
     console.log("[vapi-tool] book_appointment missing fields", ["customer_name"]);
     console.warn("[vapi-webhook] book_appointment rejected: no valid customer name", {
@@ -2552,25 +2567,22 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     });
     return NEEDS_CUSTOMER_NAME_RESULT;
   }
+  rememberCallContact(ctx.callId, { name: patientName });
 
   const rawPhone = argStr(args, PHONE_ARG_KEYS);
-  let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone);
+  let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.phone || "";
 
-  // Dry-run bookings accept short/spoken numbers ("8 8 8 2 7 7 4 5 7") so the
-  // test call can complete; live bookings keep strict E.164 normalization.
   if (!patientPhone && ctx.dental?.dryRun) {
     const digits = (rawPhone ?? "").replace(/\D/g, "");
     if (digits.length >= 7) patientPhone = digits;
   }
 
-  // Name is present — only the phone is missing. Never re-ask for the name.
   if (!patientPhone) {
     console.log("[vapi-tool] book_appointment missing fields", ["customer_phone"]);
     return NEEDS_CUSTOMER_PHONE_RESULT;
   }
+  rememberCallContact(ctx.callId, { name: patientName, phone: patientPhone });
 
-  // The caller-stated service is kept verbatim; the buyer-configured booking
-  // label (never a dental-specific word) is the only fallback.
   const service =
     argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) ||
     ctx.dental?.bookingLabel ||
@@ -4036,13 +4048,15 @@ export async function isSandboxExecutionBusiness(
   return agents.every((agent) => agentPurpose(agent.configJson) === "ARCHITECT_TEST");
 }
 
-function resolveVapiCallExecutionMode(
+export function resolveVapiCallExecutionMode(
   metadata: Record<string, unknown>,
-  isSandboxBusiness: boolean
+  isSandboxBusiness: boolean,
+  callType?: string
 ): "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" {
   const purpose = typeof metadata.purpose === "string" ? metadata.purpose : "";
   if (purpose === "ARCHITECT_TEST") return "ARCHITECT_DRY_RUN";
   if (purpose === "BUYER_SETUP_PREVIEW" || purpose === "MARKETPLACE_DEMO") return "BUSINESS_TEST";
+  if ((callType ?? "").toLowerCase() === "webcall") return "BUSINESS_TEST";
   if (isSandboxBusiness) return "ARCHITECT_DRY_RUN";
   return "LIVE";
 }
@@ -4083,7 +4097,8 @@ export async function handleVapiWebhook(c: Context) {
     const sandboxBusiness = businessContext?.businessId
       ? await isSandboxExecutionBusiness(businessContext.businessId, metadataInstalledAgentId)
       : false;
-    const executionMode = resolveVapiCallExecutionMode(metadata, sandboxBusiness);
+    const callType = firstNestedString(body, [["message", "call", "type"], ["call", "type"]]);
+    const executionMode = resolveVapiCallExecutionMode(metadata, sandboxBusiness, callType);
     const callId = firstNestedString(body, [["message", "call", "id"], ["call", "id"], ["id"]]);
     const customerPhone =
       firstNestedString(body, [["message", "call", "customer", "number"], ["call", "customer", "number"]]) ||
