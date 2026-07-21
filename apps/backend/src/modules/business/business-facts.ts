@@ -3,15 +3,6 @@ import { prisma } from "../../lib/prisma";
 import type { RetrievedKnowledgeSection } from "./agent-knowledge";
 import { buildHoursPromptLines, loadBusinessHoursState } from "./business-hours-state";
 
-/**
- * Foundational business facts — the short, critical information (address,
- * phone, hours, …) every agent surface must answer reliably WITHOUT an
- * on-demand document lookup. One authoritative source: the structured
- * BusinessProfile columns (Business Settings and Agent Setup both edit the
- * same rows). Uploaded documents remain knowledge; they can SUGGEST facts,
- * which become structured data only after buyer confirmation.
- */
-
 export type BusinessAddress = {
   line1: string | null;
   line2: string | null;
@@ -141,11 +132,6 @@ export function detectFactIntents(query: string): FactIntent[] {
   return (Object.keys(INTENT_PATTERNS) as FactIntent[]).filter((intent) => INTENT_PATTERNS[intent].test(text));
 }
 
-/**
- * Structured-facts answer sections for a caller question — the TOP of the
- * retrieval priority. Confirmed/complete structured data always beats
- * document text; documents remain the fallback when structure is missing.
- */
 export async function lookupStructuredFacts(input: {
   businessId: string;
   query: string;
@@ -197,13 +183,6 @@ export async function lookupStructuredFacts(input: {
   return sections;
 }
 
-/**
- * Fresh, timezone-correct Business Hours answer computed at LOOKUP time —
- * so live calls, demos and voice tests answer "are you open today / when do
- * you close" from the confirmed structured schedule, never from a stale
- * prompt or invented hours. Unconfigured hours produce an explicit
- * "not confirmed" answer instead of a guess.
- */
 export async function buildHoursFactSection(
   businessId: string,
   businessName: string
@@ -336,4 +315,63 @@ export async function extractAddressFromDocuments(input: {
   }
 
   return null;
+}
+
+/* ------------------------- suggestion comparison -------------------------- */
+
+/** Street-type abbreviations that must compare equal ("Blvd" = "Boulevard"). */
+const STREET_ABBREVIATIONS: Record<string, string> = {
+  blvd: "boulevard",
+  st: "street",
+  rd: "road",
+  ave: "avenue",
+  av: "avenue",
+  dr: "drive",
+  ln: "lane",
+  hwy: "highway",
+  pkwy: "parkway",
+  ct: "court",
+  pl: "place",
+  sq: "square",
+  ter: "terrace"
+};
+
+function normalizeAddressPart(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[.,#]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => STREET_ABBREVIATIONS[word] ?? word)
+    .join(" ");
+}
+
+function streetNumberOf(line1: string | null | undefined): string | null {
+  return (line1 ?? "").match(/\d{1,6}/)?.[0] ?? null;
+}
+
+export function addressesMateriallyDiffer(
+  confirmed: Pick<BusinessAddress, "line1" | "city" | "postalCode">,
+  suggestion: Pick<AddressSuggestion, "line1" | "city" | "postalCode">
+): boolean {
+  const confirmedNumber = streetNumberOf(confirmed.line1);
+  const suggestedNumber = streetNumberOf(suggestion.line1);
+  if (confirmedNumber && suggestedNumber && confirmedNumber !== suggestedNumber) return true;
+
+  const confirmedPostal = (confirmed.postalCode ?? "").replace(/\s+/g, "").toLowerCase();
+  const suggestedPostal = (suggestion.postalCode ?? "").replace(/\s+/g, "").toLowerCase();
+  if (confirmedPostal && suggestedPostal && confirmedPostal !== suggestedPostal) return true;
+
+  const confirmedCity = normalizeAddressPart(confirmed.city);
+  const suggestedCity = normalizeAddressPart(suggestion.city);
+  if (confirmedCity && suggestedCity && confirmedCity !== suggestedCity) return true;
+
+  // Same street number backed by the same postal code or city — same place,
+  // however the street name happens to be abbreviated.
+  const sameNumber = Boolean(confirmedNumber && suggestedNumber && confirmedNumber === suggestedNumber);
+  const samePostal = Boolean(confirmedPostal && suggestedPostal && confirmedPostal === suggestedPostal);
+  const sameCity = Boolean(confirmedCity && suggestedCity && confirmedCity === suggestedCity);
+  if (sameNumber && (samePostal || sameCity)) return false;
+
+  return normalizeAddressPart(confirmed.line1) !== normalizeAddressPart(suggestion.line1);
 }

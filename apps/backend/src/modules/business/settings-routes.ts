@@ -9,6 +9,7 @@ import {
 } from "../../lib/email-otp";
 import { createAuthToken, verifyAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
 import { serializeActiveSession, serializeLoginHistory } from "../../lib/user-session";
 import { buildBusinessDataExportZip } from "./data-export";
@@ -114,9 +115,15 @@ async function getCurrentSid(c: { req: { header: (name: string) => string | unde
 }
 
 async function loadOwnedBusiness(userId: string, businessId?: string) {
+  if (businessId) {
+    return prisma.business.findFirst({
+      where: { id: businessId, ownerId: userId },
+      include: { profile: true }
+    });
+  }
+  const primaryId = await resolvePrimaryBusinessId(userId);
   return prisma.business.findFirst({
-    where: businessId ? { id: businessId, ownerId: userId } : { ownerId: userId },
-    orderBy: { createdAt: "desc" },
+    where: { id: primaryId ?? "" },
     include: { profile: true }
   });
 }

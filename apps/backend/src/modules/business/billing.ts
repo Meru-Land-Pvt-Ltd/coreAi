@@ -9,20 +9,15 @@ import { recordAgentPurchaseFromIntent } from "../payments/purchase-finalize";
 import { applyDisputeToSettlement, applyRefundToSettlement, syncTransferReversalFromStripe } from "../payouts/settlements";
 import { claimStripeEvent, markEventFailed, markEventProcessed } from "../payouts/webhook-events";
 import { canBusinessDeployAgent } from "./deployment-access";
+import { resolvePrimaryBusinessId } from "./primary-business";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 
-function getOwnerBusiness(ownerId: string) {
-  return prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" }
-  });
+async function getOwnerBusiness(ownerId: string) {
+  const primaryId = await resolvePrimaryBusinessId(ownerId);
+  return primaryId ? prisma.business.findUnique({ where: { id: primaryId } }) : null;
 }
 
-/**
- * Resolve a Business from a webhook event and persist the latest subscription
- * state. Tries businessId metadata, then the Stripe customer id, then ownerId.
- */
 async function applySubscriptionState(params: {
   customerId?: string | null;
   subscriptionId?: string | null;
@@ -41,10 +36,8 @@ async function applySubscriptionState(params: {
     business = await prisma.business.findFirst({ where: { stripeCustomerId: params.customerId } });
   }
   if (!business && params.ownerId) {
-    business = await prisma.business.findFirst({
-      where: { ownerId: params.ownerId },
-      orderBy: { createdAt: "desc" }
-    });
+    const primaryId = await resolvePrimaryBusinessId(params.ownerId);
+    business = primaryId ? await prisma.business.findUnique({ where: { id: primaryId } }) : null;
   }
   if (!business) return;
 
@@ -156,8 +149,7 @@ export async function getBillingStatus(c: Context) {
     priceId: business?.subscriptionPriceId ?? null,
     currentPeriodEnd: business?.currentPeriodEnd ?? null,
     stripeCustomerId: business?.stripeCustomerId ?? null,
-    // The explicit deployment permission — clients must use this instead of
-    // inferring access from raw Stripe status.
+
     deploymentAccess: {
       allowed: access.allowed,
       subscriptionEnforcementEnabled: access.subscriptionEnforcementEnabled
@@ -167,9 +159,6 @@ export async function getBillingStatus(c: Context) {
 
 // POST /business/billing/webhook — PUBLIC, raw body, signature-verified.
 export async function handleStripeWebhook(c: Context) {
-  // Gate on the secret key + webhook secret only: the marketplace purchase
-  // flow needs payment_intent events even when the legacy subscription price
-  // id (required by isBillingEnabled) is not configured.
   const stripe = getStripeClient() ?? (isBillingEnabled() ? getStripe() : null);
   if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
     return errorResponse(c, "Billing webhook is not configured", 503, "BILLING_NOT_CONFIGURED");
@@ -189,8 +178,6 @@ export async function handleStripeWebhook(c: Context) {
     return errorResponse(c, "Invalid Stripe signature", 400, "INVALID_SIGNATURE");
   }
 
-  // Exactly-once processing: duplicate deliveries acknowledge without
-  // re-running side effects (double settlements, double adjustments).
   const claim = await claimStripeEvent(event);
   if (claim.duplicate) {
     return c.json({ received: true, duplicate: true });
@@ -211,8 +198,6 @@ export async function handleStripeWebhook(c: Context) {
         break;
       }
       case "payment_intent.succeeded": {
-        // Backstop for marketplace agent purchases whose HTTP response was
-        // lost after the charge — records the missing Payment row (idempotent).
         await recordAgentPurchaseFromIntent(event.data.object as StripeNS.PaymentIntent);
         break;
       }
@@ -253,8 +238,6 @@ export async function handleStripeWebhook(c: Context) {
         break;
       }
       case "transfer.reversed": {
-        // Reversals created outside the app (e.g. Stripe Dashboard) — keep the
-        // settlement ledger in sync with the actual reversed amount.
         const transfer = event.data.object as StripeNS.Transfer;
         await syncTransferReversalFromStripe(transfer);
         break;

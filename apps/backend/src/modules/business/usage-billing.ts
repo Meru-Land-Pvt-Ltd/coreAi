@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
   calculateUsageLineItems,
@@ -429,8 +430,7 @@ export async function getBusinessUsageBill(c: Context) {
   const month = (c.req.query("month") ?? "").trim() || billingMonthFromDate(new Date());
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true, name: true }
   });
 
@@ -589,8 +589,7 @@ function serializeUsageInvoice(invoice: {
 export async function getBusinessUsageInvoices(c: Context) {
   const authUser = c.get("authUser");
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
   if (!business) return successResponse(c, { invoices: [] });

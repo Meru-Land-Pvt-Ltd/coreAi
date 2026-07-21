@@ -13,18 +13,11 @@ import {
   type WeeklyHours
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { extractHoursFromDocuments } from "./scheduling";
 import { deployInstalledAgentVoiceAssistant } from "./deploy";
 import { loadBusinessHoursState, type BusinessHoursState } from "./business-hours-state";
-
-/**
- * Structured weekly Business Hours: the single buyer-confirmed source of
- * truth for "when is this business open". Appointment hours (scheduling.ts)
- * and AI answering hours (configJson.phoneRouting) are separate settings —
- * this module never mutates them. PDF-detected hours are surfaced only as an
- * unconfirmed suggestion; nothing becomes truth until the buyer saves it.
- */
 
 /* -------------------------------- validation ------------------------------- */
 
@@ -59,9 +52,9 @@ const putHoursSchema = z.object({
 export const businessHoursRoutes = new Hono();
 
 async function resolveOwnedBusiness(ownerId: string) {
+  const primaryId = await resolvePrimaryBusinessId(ownerId);
   return prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
+    where: { id: primaryId ?? "" },
     select: { id: true }
   });
 }

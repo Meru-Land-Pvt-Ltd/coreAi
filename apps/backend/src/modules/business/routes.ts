@@ -50,9 +50,10 @@ import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twi
 import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
 import { extractHoursFromDocuments, resolveScheduleForBusiness } from "./scheduling";
-import { extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
+import { addressesMateriallyDiffer, extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
 import {
   KnowledgeFileError,
   MAX_FILE_BYTES,
@@ -279,8 +280,7 @@ businessRoutes.get("/dashboard", async (c) => {
 
   const [business, payments] = await Promise.all([
     prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
         installedAgents: { orderBy: { createdAt: "desc" } },
         phoneNumbers: includeActivePhoneNumbers({ take: 1 })
@@ -799,9 +799,9 @@ async function resolveReceptionistWorkflow(opts: {
 }
 
 async function loadBusinessForOwner(ownerId: string) {
+  const primaryId = await resolvePrimaryBusinessId(ownerId);
   return prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
+    where: { id: primaryId ?? "" },
     include: {
       profile: true,
       knowledgeBases: { orderBy: { createdAt: "asc" } },
@@ -861,28 +861,10 @@ async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string
 // The businessId is ALWAYS derived from the authenticated owner — a
 // browser-supplied businessId is never accepted for phone provisioning.
 async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
-  // Prefer the newest business that actually carries a buyer installed agent
-  // (excluding architect test sandboxes) — uploads, demo tests, and setup then
-  // always target the SAME business the live phone number was purchased for,
+  // Shared resolution (phone-owning business first) so uploads, demo tests,
+  // and setup always target the SAME business the live traffic lands on,
   // even when stray/placeholder Business rows exist for the owner.
-  const withAgent = await prisma.business.findFirst({
-    where: {
-      ownerId,
-      installedAgents: {
-        some: { NOT: { configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" } } }
-      }
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true }
-  });
-  if (withAgent) return withAgent.id;
-
-  const business = await prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
-    select: { id: true }
-  });
-  return business?.id ?? null;
+  return resolvePrimaryBusinessId(ownerId);
 }
 
 /**
@@ -1141,8 +1123,7 @@ businessRoutes.get("/setup/phone-numbers", async (c) => {
   const authUser = c.get("authUser");
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 
@@ -1272,10 +1253,6 @@ businessRoutes.get("/setup/appointment-schedule", async (c) => {
   });
 });
 
-// The business facts review payload: the authoritative structured address,
-// completeness/confirmation status, any PDF-derived suggestion, and whether
-// the two conflict. Suggestions become structured data ONLY via an explicit
-// confirmed save.
 businessRoutes.get("/setup/business-facts", async (c) => {
   const authUser = c.get("authUser");
   const businessId = await requireOwnedBusinessId(authUser.id);
@@ -1287,9 +1264,8 @@ businessRoutes.get("/setup/business-facts", async (c) => {
   const conflict = Boolean(
     facts?.addressComplete &&
       suggestion &&
-      facts.addressFormatted &&
-      facts.addressFormatted.replace(/\s+/g, " ").toLowerCase() !==
-        suggestion.formatted.replace(/\s+/g, " ").toLowerCase()
+      facts.address &&
+      addressesMateriallyDiffer(facts.address, suggestion)
   );
 
   return successResponse(c, {
@@ -1412,8 +1388,7 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
   }
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 
@@ -1509,8 +1484,7 @@ businessRoutes.post("/setup/preview-call", async (c) => {
   }
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 
@@ -1544,8 +1518,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 
   const [business, calendar] = await Promise.all([
     prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
         profile: true,
         phoneNumbers: includeActivePhoneNumbers(),
@@ -1769,8 +1742,7 @@ businessRoutes.post("/setup/test-sms", async (c) => {
   const to = recipient.e164;
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     include: {
       profile: { select: { timeZone: true } },
       phoneNumbers: includeActivePhoneNumbers(),
@@ -2118,7 +2090,7 @@ function serializeAlias(alias: NonNullable<Awaited<ReturnType<typeof getBusiness
 
 businessRoutes.get("/mail-setup", async (c) => {
   const authUser = c.get("authUser");
-  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
+  const business = await prisma.business.findFirst({ where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" } });
 
   const alias = business ? await getBusinessEmailAlias(business.id) : null;
   const suggestedLocalPart = alias
@@ -2141,7 +2113,7 @@ businessRoutes.get("/mail-setup/check", async (c) => {
 
   if (issue) return successResponse(c, { localPart, available: false, reason: issue.message });
 
-  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, select: { id: true } });
+  const business = await prisma.business.findFirst({ where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" }, select: { id: true } });
   const available = await isLocalPartAvailable(localPart, business?.id);
   return successResponse(c, { localPart, available, reason: available ? null : "This alias is already taken." });
 });
@@ -2152,8 +2124,7 @@ businessRoutes.post("/mail-setup", async (c) => {
     const input = mailSetupSchema.parse(await c.req.json());
 
     const business = await prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: { installedAgents: { orderBy: { createdAt: "desc" }, take: 1 } }
     });
     if (!business) {
@@ -2192,7 +2163,7 @@ businessRoutes.post("/mail-setup/test-email", async (c) => {
 
   const body = (await c.req.json().catch(() => ({}))) as { to?: string };
 
-  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
+  const business = await prisma.business.findFirst({ where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" } });
   if (!business) return errorResponse(c, "Business not found.", 404, "BUSINESS_NOT_FOUND");
 
   const alias = await getBusinessEmailAlias(business.id);
@@ -2254,8 +2225,7 @@ businessRoutes.post("/setup", async (c) => {
     }
 
     const existing = await prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
         profile: { select: { timeZone: true } },
         phoneNumbers: includeActivePhoneNumbers(),

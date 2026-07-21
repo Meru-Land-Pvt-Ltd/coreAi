@@ -12,13 +12,6 @@ import {
   type KnowledgeLiveSync
 } from "@/components/business/features/api";
 
-/**
- * Knowledge section of the Configure step: document upload + processing
- * status + live-agent sync on one side, manual FAQs on the other. Document
- * chunks are owned by the upload pipeline — saving the Configure page never
- * deletes them. No document is required: structured business info alone is
- * enough to run the agent.
- */
 
 const KNOWLEDGE_MAX_FILE_BYTES = 10 * 1024 * 1024; // matches backend MAX_FILE_BYTES
 const KNOWLEDGE_ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
@@ -33,8 +26,6 @@ function knowledgeStatusPill(file: Pick<KnowledgeFileSummary, "status" | "ready"
   label: string;
   pill: string;
 } {
-  // "Ready" is only shown when the stored knowledge is verified (ready flag),
-  // never from the raw status alone.
   if (file.ready) return { label: "Ready", pill: "bg-green-100 text-green-700" };
   if (file.status === "PROCESSED") return { label: "Needs repair", pill: "bg-amber-100 text-amber-700" };
   if (file.status === "REUPLOAD_REQUIRED")
@@ -48,21 +39,25 @@ export function KnowledgeSection({
   installedAgentId,
   faqs,
   onFaqs,
-  onSummaryChange
+  onSummaryChange,
+  onKnowledgeChanged,
+  hoursSuggestionReady = false,
+  onReviewHours
 }: {
   listingId?: string;
   installedAgentId?: string | null;
   faqs: BusinessFaq[];
   onFaqs: (faqs: BusinessFaq[]) => void;
-  /** Document counts for the collapsed-card summary. */
   onSummaryChange?: (summary: { files: number; ready: number }) => void;
+
+  onKnowledgeChanged?: () => void;
+  hoursSuggestionReady?: boolean;
+  onReviewHours?: () => void;
 }) {
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<{ key: string; name: string; size: number }[]>([]);
   const [uploadError, setUploadError] = useState("");
   const [busyFileIds, setBusyFileIds] = useState<string[]>([]);
-  // Live-assistant sync feedback: null = no warning; string = warning shown
-  // (the server error text, possibly empty).
   const [liveSyncWarning, setLiveSyncWarning] = useState<string | null>(null);
   const [liveSyncOk, setLiveSyncOk] = useState(false);
   const [syncRetrying, setSyncRetrying] = useState(false);
@@ -158,6 +153,7 @@ export function KnowledgeSection({
       });
       applyLiveSync(res.data.liveSync);
       void refreshKnowledgeFiles();
+      onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Upload failed. Please try again.");
     }
@@ -179,6 +175,7 @@ export function KnowledgeSection({
       setKnowledgeFiles((prev) => prev.filter((file) => file.id !== id));
       applyLiveSync(res.data?.liveSync);
       void refreshKnowledgeFiles();
+      onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Could not remove the document. Please try again.");
     }
@@ -194,6 +191,7 @@ export function KnowledgeSection({
       setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
       applyLiveSync(res.data.liveSync);
       void refreshKnowledgeFiles();
+      onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Could not reprocess the document. Please try again.");
     }
@@ -370,6 +368,27 @@ export function KnowledgeSection({
         <p className="mt-2 text-xs text-green-600" data-testid="business-setup-knowledge-sync-ok">
           Live agent updated.
         </p>
+      ) : null}
+
+      {hoursSuggestionReady ? (
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-2.5"
+          data-testid="business-setup-knowledge-hours-hint"
+        >
+          <p className="text-sm text-amber-800">
+            We found opening hours in your documents — review and apply them.
+          </p>
+          {onReviewHours ? (
+            <button
+              type="button"
+              data-testid="business-setup-knowledge-hours-hint-review"
+              onClick={onReviewHours}
+              className="text-xs font-semibold text-amber-700 underline hover:text-amber-800"
+            >
+              Review timings
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {/* B. FAQs */}

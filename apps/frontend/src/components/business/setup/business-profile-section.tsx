@@ -4,12 +4,6 @@ import { useEffect, useState } from "react";
 import { BusinessAddressSection } from "@/components/business/business-settings-view";
 import { FIELD } from "./ui";
 
-/**
- * Business Profile section of the Configure step: who the business is.
- * The address block is the SAME authoritative record Business Settings edits
- * (embedded mode — saved by the page-level save, not its own button).
- */
-
 const SERVICE_MAP: Record<string, string[]> = {
   dental: ["Consultation", "Root canal", "Cleaning", "Whitening", "Braces"],
   salon: ["Haircut", "Coloring", "Manicure", "Facial", "Massage"],
@@ -39,7 +33,8 @@ export function BusinessProfileSection({
   onContactName,
   onServices,
   onAddressDirtyChange,
-  registerAddressApi
+  registerAddressApi,
+  addressRefreshToken
 }: {
   businessName: string;
   businessType: string;
@@ -53,6 +48,8 @@ export function BusinessProfileSection({
   registerAddressApi?: (
     api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null
   ) => void;
+  /** Bump after document changes so the address section re-reads its suggestion. */
+  addressRefreshToken?: number;
 }) {
   const [selectedServices, setSelectedServices] = useState<string[]>(() =>
     servicesText
@@ -147,6 +144,7 @@ export function BusinessProfileSection({
           embedded
           onDirtyChange={onAddressDirtyChange}
           registerApi={registerAddressApi}
+          refreshToken={addressRefreshToken}
         />
       </div>
 

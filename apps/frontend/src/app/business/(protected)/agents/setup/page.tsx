@@ -522,8 +522,6 @@ function SetupWizard() {
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
-  // Browser test-call outcome — lifted so the Go-live readiness list can show
-  // "Test completed" as a recommendation.
   const [browserTestOutcome, setBrowserTestOutcome] = useState<"passed" | "failed" | null>(null);
 
   const [businessName, setBusinessName] = useState("");
@@ -535,37 +533,29 @@ function SetupWizard() {
   const [bookingUrl, setBookingUrl] = useState("");
   const [tone, setTone] = useState("friendly");
 
-  // AI Call Coverage — WHEN the AI answers calls. Independent of the Connect
-  // step's answering mode (the forward condition) and of Business Hours.
   const [coverageKind, setCoverageKind] = useState<AiCoverageKind>("always");
   const [answeringDays, setAnsweringDays] = useState<AnsweringDayRow[]>(defaultAnsweringDays);
 
-  // Authoritative Business Hours snapshot fed by the embedded editor — powers
-  // the compact summaries (Appointment Hours, AI Coverage, Test, Go-live).
   const [businessHours, setBusinessHoursState] = useState<{
     configured: boolean;
     summary: string[] | null;
     timeZone: string;
-  }>({ configured: false, summary: null, timeZone: "" });
+    suggestion: boolean;
+  }>({ configured: false, summary: null, timeZone: "", suggestion: false });
 
   // Document counts reported by the Knowledge section (collapsed-card summary).
   const [knowledgeSummary, setKnowledgeSummary] = useState({ files: 0, ready: 0 });
 
-  // Page-level unsaved-changes tracking: the wizard form plus the embedded
-  // self-loading sections (Business Hours, Business Address).
+  const [knowledgeVersion, setKnowledgeVersion] = useState(0);
+  const handleKnowledgeChanged = useCallback(() => setKnowledgeVersion((v) => v + 1), []);
+
   const [configDirty, setConfigDirty] = useState(false);
   const [bhDirty, setBhDirty] = useState(false);
   const [addressDirty, setAddressDirty] = useState(false);
   const bhApiRef = useRef<EmbeddedSectionApi | null>(null);
   const addressApiRef = useRef<EmbeddedSectionApi | null>(null);
-  // Timezone last persisted to the server. The Connect step owns the timezone;
-  // saves only send it when it changed this session, so a stale tab can never
-  // clobber a newer value saved elsewhere (e.g. Business Settings).
   const savedTimeZoneRef = useRef("");
 
-  // Appointment schedule (booking hours + slot config). Loaded from its own
-  // endpoint; only included in the save payload once loaded so an unloaded
-  // section never clobbers the server-side config with empty defaults.
   const [apptLoaded, setApptLoaded] = useState(false);
   const [apptDays, setApptDays] = useState<Record<AppointmentWeekday, AppointmentDayHours>>(DEFAULT_APPT_DAYS);
   const [apptFields, setApptFields] = useState<Record<ApptNumberField, number>>({
@@ -656,7 +646,8 @@ function SetupWizard() {
     setBusinessHoursState({
       configured: data.configured,
       summary: data.weeklySummary ?? null,
-      timeZone: data.timeZone
+      timeZone: data.timeZone,
+      suggestion: Boolean(data.suggestion)
     });
   }, []);
 
@@ -901,8 +892,6 @@ function SetupWizard() {
     void loadSetup();
   }, [loadSetup]);
 
-  // Appointment schedule loads once on mount — independent of the main setup
-  // payload so a failure here never blocks the wizard.
   useEffect(() => {
     let cancelled = false;
 
@@ -931,9 +920,6 @@ function SetupWizard() {
     };
   }, []);
 
-  // Seed the Business Hours snapshot on mount so Configure summaries and the
-  // Go-live checklist are accurate before the embedded editor ever mounts.
-  // The editor's own onLoaded/onChange callbacks take over once it renders.
   useEffect(() => {
     let cancelled = false;
 
@@ -943,10 +929,11 @@ function SetupWizard() {
         current.configured
           ? current
           : {
-              configured: res.data!.configured,
-              summary: res.data!.weeklySummary ?? null,
-              timeZone: res.data!.timeZone
-            }
+            configured: res.data!.configured,
+            summary: res.data!.weeklySummary ?? null,
+            timeZone: res.data!.timeZone,
+            suggestion: Boolean(res.data!.suggestion)
+          }
       );
     });
 
@@ -1867,6 +1854,7 @@ function SetupWizard() {
                   onServices={setServicesText}
                   onAddressDirtyChange={setAddressDirty}
                   registerAddressApi={registerAddressApi}
+                  addressRefreshToken={knowledgeVersion}
                 />
               </ConfigureSectionCard>
 
@@ -1884,11 +1872,10 @@ function SetupWizard() {
                 status={!showVoice ? "optional" : voiceComplete ? "complete" : "incomplete"}
                 summary={
                   showVoice
-                    ? `${assistantName.trim() || DEFAULT_ASSISTANT_NAME} · ${
-                        voiceChoice === "custom"
-                          ? "Custom voice"
-                          : VOICE_PRESETS.find((preset) => preset.id === voiceChoice)?.name ?? TRIVEN_VOICE_NAME
-                      } · ${tone}`
+                    ? `${assistantName.trim() || DEFAULT_ASSISTANT_NAME} · ${voiceChoice === "custom"
+                      ? "Custom voice"
+                      : VOICE_PRESETS.find((preset) => preset.id === voiceChoice)?.name ?? TRIVEN_VOICE_NAME
+                    } · ${tone}`
                     : `Tone: ${tone}`
                 }
                 open={Boolean(openSections["agent-identity"])}
@@ -1919,9 +1906,8 @@ function SetupWizard() {
                   </svg>
                 }
                 status={knowledgeSummary.ready > 0 || faqs.some((faq) => faq.question.trim() && faq.answer.trim()) ? "complete" : "optional"}
-                summary={`${knowledgeSummary.files} document${knowledgeSummary.files === 1 ? "" : "s"} · ${
-                  faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length
-                } FAQ${faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length === 1 ? "" : "s"}`}
+                summary={`${knowledgeSummary.files} document${knowledgeSummary.files === 1 ? "" : "s"} · ${faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length
+                  } FAQ${faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length === 1 ? "" : "s"}`}
                 open={Boolean(openSections["knowledge"])}
                 onToggle={(open) => toggleSection("knowledge", open)}
               >
@@ -1931,6 +1917,9 @@ function SetupWizard() {
                   faqs={faqs}
                   onFaqs={dirtyWrap(setFaqs)}
                   onSummaryChange={setKnowledgeSummary}
+                  onKnowledgeChanged={handleKnowledgeChanged}
+                  hoursSuggestionReady={businessHours.suggestion}
+                  onReviewHours={() => jumpToConfigureSection("hours-availability")}
                 />
               </ConfigureSectionCard>
 
@@ -1956,15 +1945,13 @@ function SetupWizard() {
                   bookingRulesBlocked
                     ? "Booking rules need attention before you can save."
                     : businessHours.configured
-                      ? `Business Hours set · Appointments ${
-                          apptUseBusinessHours ? "follow Business Hours" : "use custom hours"
-                        } · AI answers ${
-                          coverageKind === "always"
-                            ? "24/7"
-                            : coverageKind === "business_hours"
-                              ? "during Business Hours"
-                              : "on a custom schedule"
-                        }`
+                      ? `Business Hours set · Appointments ${apptUseBusinessHours ? "follow Business Hours" : "use custom hours"
+                      } · AI answers ${coverageKind === "always"
+                        ? "24/7"
+                        : coverageKind === "business_hours"
+                          ? "during Business Hours"
+                          : "on a custom schedule"
+                      }`
                       : "Set your Business Hours so the agent knows when you're open."
                 }
                 open={Boolean(openSections["hours-availability"])}
@@ -1978,6 +1965,7 @@ function SetupWizard() {
                   onBusinessHoursChange={handleBusinessHoursData}
                   onBusinessHoursDirtyChange={setBhDirty}
                   registerBusinessHoursApi={registerBusinessHoursApi}
+                  businessHoursRefreshToken={knowledgeVersion}
                   businessHoursSummary={businessHours.summary}
                   businessHoursConfigured={businessHours.configured}
                   apptUseBusinessHours={apptUseBusinessHours}
@@ -2126,91 +2114,91 @@ function SetupWizard() {
             </p>
           ) : null}
 
-<div
-  className="sticky bottom-0 z-20 mt-8 -mx-6 rounded-b-2xl border-t border-gray-100 bg-white/95 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur sm:-mx-8 sm:px-8"
-  data-testid="business-setup-footer"
->
-  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            className="sticky bottom-0 z-20 mt-8 -mx-6 rounded-b-2xl border-t border-gray-100 bg-white/95 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur sm:-mx-8 sm:px-8"
+            data-testid="business-setup-footer"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-    {/* Left Actions */}
-    <div className="flex flex-wrap items-center gap-3 justify-between">
-      <button
-        type="button"
-        disabled={step === 1 || saving}
-        onClick={() => setStep((current) => Math.max(1, current - 1))}
-        data-testid="business-setup-back"
-        className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        Back
-      </button>
+              {/* Left Actions */}
+              <div className="flex flex-wrap items-center gap-3 justify-between">
+                <button
+                  type="button"
+                  disabled={step === 1 || saving}
+                  onClick={() => setStep((current) => Math.max(1, current - 1))}
+                  data-testid="business-setup-back"
+                  className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Back
+                </button>
 
-      {step < STEPS.length && (
-        <button
-          type="button"
-          onClick={() =>
-            setStep((current) => Math.min(current + 1, STEPS.length))
-          }
-          disabled={saving}
-          data-testid="business-setup-skip"
-          className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
-        >
-          Skip for now
-        </button>
-      )}
+                {step < STEPS.length && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStep((current) => Math.min(current + 1, STEPS.length))
+                    }
+                    disabled={saving}
+                    data-testid="business-setup-skip"
+                    className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
+                  >
+                    Skip for now
+                  </button>
+                )}
 
-{anyUnsaved && !saving && (
-        <span
-          className="text-center text-xs font-semibold text-amber-600 sm:text-left"
-          data-testid="business-setup-unsaved"
-        >
-          Unsaved changes
-        </span>
-      )}
+                {anyUnsaved && !saving && (
+                  <span
+                    className="text-center text-xs font-semibold text-amber-600 sm:text-left"
+                    data-testid="business-setup-unsaved"
+                  >
+                    Unsaved changes
+                  </span>
+                )}
 
-      <button
-        type="button"
-        onClick={handleSaveProgress}
-        disabled={saving}
-        data-testid="business-setup-save"
-        className="text-center text-sm font-medium text-slate-500 underline transition hover:text-slate-700 disabled:opacity-50"
-      >
-        {saving
-          ? "Saving..."
-          : step === 2
-          ? "Save draft"
-          : "Save progress"}
-      </button>
-    </div>
+                <button
+                  type="button"
+                  onClick={handleSaveProgress}
+                  disabled={saving}
+                  data-testid="business-setup-save"
+                  className="text-center text-sm font-medium text-slate-500 underline transition hover:text-slate-700 disabled:opacity-50"
+                >
+                  {saving
+                    ? "Saving..."
+                    : step === 2
+                      ? "Save draft"
+                      : "Save progress"}
+                </button>
+              </div>
 
-    {/* Right Actions */}
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              {/* Right Actions */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
 
 
 
-      {step < STEPS.length ? (
-        <button
-          type="button"
-          onClick={goNext}
-          disabled={saving || (step === 2 && bookingRulesBlocked)}
-          data-testid="business-setup-next"
-          className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
-        >
-          {step === 2 ? "Save & Continue" : "Continue"}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={handleDeploy}
-          disabled={saving || !readyToDeploy}
-          data-testid="business-setup-submit"
-          className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
-        >
-          {saving ? "Deploying…" : "Go live"}
-        </button>
-      )}
-    </div>
-  </div>
-</div>
+                {step < STEPS.length ? (
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    disabled={saving || (step === 2 && bookingRulesBlocked)}
+                    data-testid="business-setup-next"
+                    className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
+                  >
+                    {step === 2 ? "Save & Continue" : "Continue"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleDeploy}
+                    disabled={saving || !readyToDeploy}
+                    data-testid="business-setup-submit"
+                    className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
+                  >
+                    {saving ? "Deploying…" : "Go live"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2304,9 +2292,6 @@ function StepConnect({
   const [countryCode, setCountryCode] = useState("+1");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
 
-  // Every timezone seen this session stays selectable — an off-list saved zone
-  // must not vanish from the options after switching away from it. Friendly
-  // labels are display-only; the stored value is always the IANA id.
   const seenTimeZonesRef = useRef<Set<string>>(new Set());
   if (timeZone.trim()) seenTimeZonesRef.current.add(timeZone.trim());
   const knownZoneValues = new Set(COMMON_TIMEZONES.map((option) => option.value));
@@ -2332,9 +2317,6 @@ function StepConnect({
         </p>
       </div>
 
-      {/* SECTION 1 — Choose your Triven AI phone number. Always visible when
-          the workflow needs a phone; never gated behind an existing phone,
-          verification, or any other setup section. */}
       {showPhone && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-number-card">
           {assignedNumber ? (
@@ -2572,8 +2554,8 @@ function StepConnect({
           <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
           <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${calendar.connected
-              ? "border-green-100 bg-green-50/30"
-              : "border-gray-100 bg-slate-50"
+            ? "border-green-100 bg-green-50/30"
+            : "border-gray-100 bg-slate-50"
             }`}>
             <div className="flex items-center gap-3">
               {/* Google Calendar Icon */}
@@ -3238,8 +3220,8 @@ function PreviewCallSection({
               aria-pressed={micMuted}
               onClick={toggleMute}
               className={`btn rounded-xl border px-4 py-2.5 text-sm font-bold ${micMuted
-                  ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                  : "border-gray-200 bg-white text-slate-700 hover:border-amber-300"
+                ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                : "border-gray-200 bg-white text-slate-700 hover:border-amber-300"
                 }`}
             >
               {micMuted ? "Unmute mic" : "Mute mic"}
@@ -3278,12 +3260,12 @@ function PreviewCallSection({
         >
           <span
             className={`h-1.5 w-1.5 rounded-full ${state === "live"
-                ? agentSpeaking
-                  ? "bg-violet-500"
-                  : "bg-green-500"
-                : state === "starting"
-                  ? "bg-amber-400"
-                  : "bg-slate-300"
+              ? agentSpeaking
+                ? "bg-violet-500"
+                : "bg-green-500"
+              : state === "starting"
+                ? "bg-amber-400"
+                : "bg-slate-300"
               }`}
           />
           {state === "live"
@@ -4012,13 +3994,12 @@ function StepGoLive({
               >
                 <span
                   aria-hidden="true"
-                  className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
-                    row.complete
+                  className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${row.complete
                       ? "bg-green-100 text-green-600"
                       : row.required
                         ? "bg-amber-100 text-amber-600"
                         : "bg-slate-100 text-slate-400"
-                  }`}
+                    }`}
                 >
                   {row.complete ? "✓" : "•"}
                 </span>
@@ -4054,9 +4035,8 @@ function StepGoLive({
           <li className="flex items-start gap-3 py-2.5" data-testid="business-setup-golive-check-test">
             <span
               aria-hidden="true"
-              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
-                testPassed ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400"
-              }`}
+              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${testPassed ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400"
+                }`}
             >
               {testPassed ? "✓" : "•"}
             </span>
@@ -4187,8 +4167,8 @@ function StepGoLive({
                 <div className={summaryRow} data-testid="business-setup-golive-booking-rules">
                   <dt className="shrink-0 text-slate-500">Booking rules</dt>
                   {Number.isFinite(apptFields.defaultDurationMinutes) &&
-                  Number.isFinite(apptFields.bufferMinutes) &&
-                  Number.isFinite(apptFields.slotIntervalMinutes) ? (
+                    Number.isFinite(apptFields.bufferMinutes) &&
+                    Number.isFinite(apptFields.slotIntervalMinutes) ? (
                     <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
                       {apptFields.defaultDurationMinutes} min + {apptFields.bufferMinutes} min buffer · every{" "}
                       {apptFields.slotIntervalMinutes} min
