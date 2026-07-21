@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { COMMON_TIMEZONES } from "@coreai/shared";
 import { BusinessHoursSection } from "@/components/business/business-hours-section";
 import {
   deleteBusinessAccount,
@@ -239,16 +240,10 @@ const BUSINESS_SIZES = [
   "200+"
 ];
 
-const TIMEZONES = [
-  "America/Los_Angeles (Pacific Time)",
-  "America/Denver (Mountain Time)",
-  "America/Chicago (Central Time)",
-  "America/New_York (Eastern Time)",
-  "America/Anchorage (Alaska Time)",
-  "Pacific/Honolulu (Hawaii Time)",
-  "Europe/London (GMT)",
-  "Asia/Kolkata (India Standard Time)"
-];
+// One shared timezone list (labels embed the IANA id; the backend strips the
+// "(…)" suffix on save). Off-list stored zones are injected into the select so
+// they stay visible and selectable.
+const TIMEZONES = COMMON_TIMEZONES.map((option) => option.label);
 
 const PHONE_COUNTRIES = [
   { dialCode: "+1", label: "+1 US / Canada" },
@@ -1963,7 +1958,10 @@ export function BusinessSettingsView() {
                           onChange={(e) => setProfileForm((c) => ({ ...c, timezone: e.target.value }))}
                           className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
                         >
-                          {TIMEZONES.map((option) => (
+                          {[
+                            ...(TIMEZONES.includes(profileForm.timezone) ? [] : [profileForm.timezone]),
+                            ...TIMEZONES
+                          ].map((option) => (
                             <option key={option} value={option}>
                               {option}
                             </option>

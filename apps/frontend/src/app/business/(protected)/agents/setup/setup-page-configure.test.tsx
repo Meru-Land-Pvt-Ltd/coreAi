@@ -146,8 +146,10 @@ vi.mock("@/components/business/features/api", () => ({
 }));
 
 import {
+  getAppointmentSchedule,
   getBusinessHours,
   getBusinessSetup,
+  getMarketplaceListing,
   putBusinessHours,
   saveBusinessSetup
 } from "@/components/business/features/api";
@@ -201,10 +203,49 @@ async function expandSection(user: ReturnType<typeof userEvent.setup>, id: strin
   await user.click(screen.getByTestId(`business-configure-section-${id}-toggle`));
 }
 
+/** Appointment-schedule payload with overridable booking-rule numbers. */
+function apptSchedule(fields: Partial<Record<string, number>> = {}) {
+  return {
+    success: true as const,
+    data: {
+      schedule: {
+        timeZone: "America/Los_Angeles",
+        days: {
+          sunday: { open: "09:00", close: "17:00", closed: true },
+          monday: { open: "09:00", close: "17:00", closed: false },
+          tuesday: { open: "09:00", close: "17:00", closed: false },
+          wednesday: { open: "09:00", close: "17:00", closed: false },
+          thursday: { open: "09:00", close: "17:00", closed: false },
+          friday: { open: "09:00", close: "17:00", closed: false },
+          saturday: { open: "09:00", close: "17:00", closed: true }
+        },
+        defaultDurationMinutes: 30,
+        serviceDurations: {},
+        bufferMinutes: 10,
+        slotIntervalMinutes: 40,
+        minNoticeMinutes: 60,
+        maxAdvanceDays: 60,
+        maxSpokenSuggestions: 5,
+        calendarId: "primary",
+        source: "business_hours",
+        useBusinessHours: true,
+        confirmed: false,
+        ...fields
+      },
+      installedAgentId: null,
+      needsConfirmation: true,
+      documentSuggestion: null
+    }
+  };
+}
+
 beforeEach(() => {
   cleanup();
   window.sessionStorage.clear();
   vi.mocked(getBusinessSetup).mockReset().mockResolvedValue(setupData() as never);
+  vi.mocked(getMarketplaceListing)
+    .mockReset()
+    .mockResolvedValue({ success: true, data: { listing: null } } as never);
   vi.mocked(getBusinessHours).mockReset().mockResolvedValue({ success: true, data: BH_DATA } as never);
   vi.mocked(putBusinessHours)
     .mockReset()
@@ -326,7 +367,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(payload.hours).toEqual([]);
   });
 
-  it("the setup save carries coverage + preserved answering mode, and no timezone once a profile exists", async () => {
+  it("the setup save carries coverage + preserved answering mode; an unchanged timezone is not resent", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
@@ -336,8 +377,41 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const payload = vi.mocked(saveBusinessSetup).mock.calls[0][0] as Record<string, any>;
     expect(payload.aiCallCoverage).toEqual({ kind: "always" });
     expect(payload.answeringMode).toBe("NO_ANSWER");
-    // The Business Hours editor owns the timezone — setup saves never send it.
+    // The Connect step owns the timezone, but it is only sent when changed
+    // this session — a stale tab must never clobber a newer saved value.
     expect(payload.timeZone).toBeUndefined();
+  });
+
+  it("the timezone is edited in Connect only — the embedded Business Hours editor has no selector", async () => {
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    // Connect step renders the one timezone select.
+    await screen.findByTestId("business-setup-wizard");
+    expect(await screen.findByTestId("business-setup-timezone-select")).toBeTruthy();
+
+    // The Business Hours editor in Configure renders without its own selector.
+    await user.click(screen.getByTestId("business-setup-dot-2"));
+    await screen.findByTestId("business-setup-configure");
+    await expandSection(user, "hours-availability");
+    await screen.findByTestId("business-hours-section");
+    expect(screen.queryByTestId("business-hours-timezone-select")).toBeNull();
+  });
+
+  it("the Test step offers the browser test call and call-your-number card — no SMS simulation", async () => {
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+
+    expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-preview-start")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-call-number")).toBeTruthy();
+
+    // The missed-call text-back simulation is gone.
+    expect(screen.queryByTestId("business-setup-simulate")).toBeNull();
+    expect(screen.queryByTestId("business-setup-simulate-run")).toBeNull();
+    expect(screen.queryByTestId("business-test-summary-sms")).toBeNull();
   });
 
   it("Save draft saves a dirty Business Hours section through its own endpoint", async () => {
@@ -417,5 +491,128 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await user.click(within(review).getByTestId("business-setup-golive-edit"));
     await screen.findByTestId("business-setup-configure");
     expect(screen.getByTestId("business-hours-section")).toBeTruthy();
+  });
+
+  it("Configure shows a read-only timezone note pointing at Connect — never a second selector", async () => {
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await openConfigure(user);
+    await expandSection(user, "hours-availability");
+    await screen.findByTestId("business-hours-section");
+
+    const note = screen.getByTestId("business-hours-timezone-note");
+    expect(note.textContent).toContain("America/Los_Angeles");
+    expect(note.textContent).toContain("Change in Connect");
+    expect(screen.queryByTestId("business-hours-timezone-select")).toBeNull();
+  });
+
+  it("duration 34 + buffer 10 + interval 40 shows the 44-minute warning with a 45-minute quick fix", async () => {
+    vi.mocked(getAppointmentSchedule).mockResolvedValueOnce(
+      apptSchedule({ defaultDurationMinutes: 34, bufferMinutes: 10, slotIntervalMinutes: 40 }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await openConfigure(user);
+    await expandSection(user, "hours-availability");
+
+    const warning = await screen.findByTestId("business-setup-booking-interval-warning");
+    expect(warning.textContent).toContain("44-minute");
+    expect(warning.textContent).toContain("45 minutes is recommended");
+
+    // Save & Continue is blocked while the rules are invalid.
+    expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByTestId("business-setup-save"));
+    expect(saveBusinessSetup).not.toHaveBeenCalled();
+    expect((await screen.findByTestId("business-setup-error")).textContent).toContain("booking rules");
+
+    // The quick fix sets the interval to 45 and unblocks the step.
+    await user.click(screen.getByTestId("business-setup-booking-interval-fix"));
+    expect((screen.getByTestId("business-setup-appt-field-slotIntervalMinutes") as HTMLInputElement).value).toBe("45");
+    expect(screen.queryByTestId("business-setup-booking-interval-warning")).toBeNull();
+    expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("voice/missed-call workflows get a tel: CTA on the call-your-number card", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null }
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+
+    const dial = await screen.findByTestId("business-setup-call-number-dial");
+    expect(dial.getAttribute("href")).toBe("tel:+12135550999");
+    expect(dial.textContent).toContain("Call now");
+
+    // The browser test-call card discloses the calendar side effect.
+    const preview = screen.getByTestId("business-setup-preview-call");
+    expect(preview.textContent).toMatch(/clearly marked test event/i);
+  });
+
+  it("SMS workflows get an sms: CTA labeled Text now — never Call now", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        requiredConnectors: [{ connector: "twilio", label: "Phone", ownedBy: "platform", note: "" }],
+        triggerKind: "inbound_sms"
+      }) as never
+    );
+    vi.mocked(getMarketplaceListing).mockResolvedValue({
+      success: true,
+      data: {
+        listing: {
+          name: "SMS Agent",
+          requiredConnectors: ["twilio"],
+          requiredBuyerSetup: [],
+          buyerSetupInstructions: "",
+          workflowJson: { nodes: [{ data: { type: "inbound_sms" } }], edges: [] }
+        }
+      }
+    } as never);
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+
+    const dial = await screen.findByTestId("business-setup-call-number-dial");
+    expect(dial.getAttribute("href")).toBe("sms:+12135550999");
+    expect(dial.textContent).toContain("Text now");
+    expect(dial.textContent).not.toContain("Call now");
+  });
+
+  it("email workflows get no phone CTA at all", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        requiredConnectors: [{ connector: "gmail", label: "Gmail", ownedBy: "buyer", note: "" }]
+      }) as never
+    );
+    vi.mocked(getMarketplaceListing).mockResolvedValue({
+      success: true,
+      data: {
+        listing: {
+          name: "Email Agent",
+          requiredConnectors: ["gmail"],
+          requiredBuyerSetup: [],
+          buyerSetupInstructions: "",
+          workflowJson: { nodes: [{ data: { type: "gmail_send" } }], edges: [] }
+        }
+      }
+    } as never);
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+
+    await screen.findByTestId("business-test-details");
+    expect(screen.queryByTestId("business-setup-call-number-dial")).toBeNull();
+    expect(screen.queryByTestId("business-setup-call-number")).toBeNull();
   });
 });

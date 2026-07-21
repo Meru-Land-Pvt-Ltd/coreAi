@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { COMMON_TIMEZONES } from "@coreai/shared";
 import {
   getBusinessHours,
   putBusinessHours,
@@ -40,19 +41,6 @@ const DAY_LABELS: Record<BusinessHoursWeekday, string> = {
   saturday: "Saturday",
   sunday: "Sunday"
 };
-
-const COMMON_TIMEZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "America/Phoenix",
-  "Asia/Kolkata",
-  "Asia/Dubai",
-  "Europe/London",
-  "Europe/Berlin",
-  "Australia/Sydney"
-];
 
 const DEFAULT_DAY = (day: BusinessHoursWeekday): BusinessHoursDayInput => ({
   day,
@@ -131,6 +119,7 @@ export function BusinessHoursSection({
   title = "Business Hours",
   compact = false,
   embedded = false,
+  timeZoneOverride,
   onSaved,
   onLoaded,
   onDirtyChange,
@@ -139,12 +128,8 @@ export function BusinessHoursSection({
 }: {
   title?: string;
   compact?: boolean;
-  /**
-   * Embedded mode (Agent Setup): the internal Save button is hidden and the
-   * parent saves through registerApi — one page-level save experience.
-   * Standalone mode (Business Settings, onboarding) keeps its own button.
-   */
   embedded?: boolean;
+  timeZoneOverride?: string;
   onSaved?: (data: BusinessHoursData) => void;
   /** Fires with the server state on initial load (summary for parent UIs). */
   onLoaded?: (data: BusinessHoursData) => void;
@@ -167,6 +152,8 @@ export function BusinessHoursSection({
   const [dirty, setDirty] = useState(false);
   const [openStatusText, setOpenStatusText] = useState("");
   const [suggestion, setSuggestion] = useState<BusinessHoursData["suggestion"]>(null);
+
+  const effectiveTimeZone = timeZoneOverride?.trim() ? timeZoneOverride.trim() : timeZone;
 
   const applyServerData = useCallback((data: BusinessHoursData) => {
     setWeek(normalizeWeek(data.hours));
@@ -199,8 +186,6 @@ export function BusinessHoursSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, [applyServerData]);
 
-  // Unsaved-change warning on tab close / navigation away. In embedded mode
-  // the parent page owns this warning (one warning, not two).
   useEffect(() => {
     if (!dirty || embedded) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -224,7 +209,7 @@ export function BusinessHoursSection({
     if (onChangeRef.current && !loading) {
       onChangeRef.current({
         hours: week,
-        timeZone,
+        timeZone: effectiveTimeZone,
         specialDates,
         source: null,
         confirmedAt,
@@ -235,7 +220,7 @@ export function BusinessHoursSection({
         liveAssistant
       });
     }
-  }, [week, timeZone, specialDates, confirmedAt, configured, dirty, openStatusText, suggestion, liveAssistant, loading]);
+  }, [week, effectiveTimeZone, specialDates, confirmedAt, configured, dirty, openStatusText, suggestion, liveAssistant, loading]);
 
   const dayErrors = useMemo(() => week.map(validateDay), [week]);
   const hasErrors = dayErrors.some(Boolean);
@@ -294,6 +279,26 @@ export function BusinessHoursSection({
           : row
       );
     });
+    setDirty(true);
+  }
+
+  function setWeekdaysNineToFive() {
+    setWeek((current) =>
+      current.map((row) =>
+        WEEKDAYS_MON_FRI.includes(row.day)
+          ? { ...row, closed: false, periods: [{ open: "09:00", close: "17:00" }] }
+          : row
+      )
+    );
+    setDirty(true);
+  }
+
+  function closeWeekends() {
+    setWeek((current) =>
+      current.map((row) =>
+        row.day === "saturday" || row.day === "sunday" ? { ...row, closed: true, periods: [] } : row
+      )
+    );
     setDirty(true);
   }
 
@@ -356,7 +361,7 @@ export function BusinessHoursSection({
     }
 
     setSaving(true);
-    const response = await putBusinessHours({ hours: week, timeZone, specialDates: dates });
+    const response = await putBusinessHours({ hours: week, timeZone: effectiveTimeZone, specialDates: dates });
     setSaving(false);
 
     if (!response.success || !response.data) {
@@ -414,7 +419,10 @@ export function BusinessHoursSection({
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="business-hours-loading">
+      <div
+        className={embedded ? "" : "rounded-2xl border border-gray-100 bg-white p-6 shadow-sm"}
+        data-testid="business-hours-loading"
+      >
         <p className="text-sm text-slate-500">Loading Business Hours…</p>
       </div>
     );
@@ -422,28 +430,30 @@ export function BusinessHoursSection({
 
   return (
     <section
-      className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm"
+      className={embedded ? "" : "rounded-2xl border border-gray-100 bg-white p-6 shadow-sm"}
       data-testid="business-hours-section"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-lg font-bold tracking-tight text-slate-900" data-testid="business-hours-title">
+          <h3
+            className={`${embedded ? "text-sm" : "text-lg tracking-tight"} font-bold text-slate-900`}
+            data-testid="business-hours-title"
+          >
             {title}
           </h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            Days and times customers can reach you. Your AI answers open/closed questions from this schedule —
-            no document upload needed.
+            When customers can reach you. The AI answers open/closed questions from this schedule.
           </p>
         </div>
         <span
           data-testid="business-hours-confirmation-status"
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${
             configured && confirmedAt
               ? "bg-green-50 text-green-700"
               : "bg-amber-50 text-amber-700"
           }`}
         >
-          {configured && confirmedAt ? "Confirmed" : "Business Hours not configured"}
+          {configured && confirmedAt ? "Confirmed" : "Not configured"}
         </span>
       </div>
 
@@ -487,45 +497,79 @@ export function BusinessHoursSection({
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <label className="text-xs font-semibold text-slate-600" htmlFor="business-hours-timezone">
-          Timezone
-        </label>
-        <select
-          id="business-hours-timezone"
-          data-testid="business-hours-timezone-select"
-          value={timeZone}
-          onChange={(event) => {
-            setTimeZone(event.target.value);
-            setDirty(true);
-          }}
-          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-slate-700"
-        >
-          {[timeZone, ...COMMON_TIMEZONES.filter((zone) => zone !== timeZone)].map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </select>
+        {!timeZoneOverride ? (
+          <>
+            <label className="text-xs font-semibold text-slate-600" htmlFor="business-hours-timezone">
+              Timezone
+            </label>
+            <select
+              id="business-hours-timezone"
+              data-testid="business-hours-timezone-select"
+              value={timeZone}
+              onChange={(event) => {
+                setTimeZone(event.target.value);
+                setDirty(true);
+              }}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-slate-700"
+            >
+              {[
+                ...(COMMON_TIMEZONES.some((option) => option.value === timeZone)
+                  ? []
+                  : [{ value: timeZone, label: timeZone }]),
+                ...COMMON_TIMEZONES
+              ].map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <p className="text-xs text-slate-500" data-testid="business-hours-timezone-note">
+            Times shown in <span className="font-semibold text-slate-700">{effectiveTimeZone}</span> · Change in
+            Connect
+          </p>
+        )}
 
-        <button
-          type="button"
-          data-testid="business-hours-copy-monday"
-          onClick={copyMondayToWeekdays}
-          className="ml-auto rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-        >
-          Apply Monday to Mon–Fri
-        </button>
+        <span className="ml-auto flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            data-testid="business-hours-copy-monday"
+            onClick={copyMondayToWeekdays}
+            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+          >
+            Apply Monday to Mon–Fri
+          </button>
+          <button
+            type="button"
+            data-testid="business-hours-weekdays-9-5"
+            onClick={setWeekdaysNineToFive}
+            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+          >
+            Weekdays 9–5
+          </button>
+          <button
+            type="button"
+            data-testid="business-hours-close-weekends"
+            onClick={closeWeekends}
+            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
+          >
+            Close weekends
+          </button>
+        </span>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-3 overflow-hidden rounded-xl border border-gray-100 bg-white">
         {week.map((day, dayIndex) => (
           <div
             key={day.day}
             data-testid={`business-hours-day-${day.day}`}
-            className={`rounded-xl border p-3 ${dayErrors[dayIndex] ? "border-red-200 bg-red-50/40" : "border-gray-100"}`}
+            className={`border-b border-gray-100 px-3.5 py-2.5 last:border-b-0 ${
+              dayErrors[dayIndex] ? "bg-red-50/50" : ""
+            }`}
           >
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex w-28 items-center gap-2 text-sm font-semibold text-slate-700">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <label className="flex w-28 shrink-0 items-center gap-2.5 text-sm font-semibold text-slate-700">
                 <input
                   type="checkbox"
                   data-testid={`business-hours-open-toggle-${day.day}`}
@@ -539,7 +583,7 @@ export function BusinessHoursSection({
                           : day.periods
                     })
                   }
-                  className="h-4 w-4 accent-amber-500"
+                  className="h-4 w-4 rounded border-gray-300 accent-amber-500"
                 />
                 {DAY_LABELS[day.day]}
               </label>
@@ -547,7 +591,7 @@ export function BusinessHoursSection({
               {day.closed ? (
                 <span className="text-sm text-slate-400">Closed</span>
               ) : (
-                <div className="flex flex-1 flex-col gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   {day.periods.map((period, index) => (
                     <div key={index} className="flex flex-wrap items-center gap-2">
                       <input
@@ -555,24 +599,25 @@ export function BusinessHoursSection({
                         data-testid={`business-hours-open-${day.day}-${index}`}
                         value={period.open}
                         onChange={(event) => patchPeriod(day.day, index, "open", event.target.value)}
-                        className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                        className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700"
                       />
-                      <span className="text-xs text-slate-400">to</span>
+                      <span className="text-xs text-slate-400" aria-hidden="true">–</span>
                       <input
                         type="time"
                         data-testid={`business-hours-close-${day.day}-${index}`}
                         value={period.close}
                         onChange={(event) => patchPeriod(day.day, index, "close", event.target.value)}
-                        className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                        className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700"
                       />
                       {day.periods.length > 1 ? (
                         <button
                           type="button"
                           data-testid={`business-hours-remove-period-${day.day}-${index}`}
                           onClick={() => removePeriod(day.day, index)}
-                          className="rounded-lg px-2 py-1 text-xs font-semibold text-red-500 transition hover:bg-red-50"
+                          aria-label={`Remove ${DAY_LABELS[day.day]} period`}
+                          className="rounded-md px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-red-50 hover:text-red-500"
                         >
-                          Remove
+                          ✕
                         </button>
                       ) : null}
                     </div>
@@ -582,18 +627,18 @@ export function BusinessHoursSection({
                       type="button"
                       data-testid={`business-hours-add-period-${day.day}`}
                       onClick={() => addPeriod(day.day)}
-                      className="text-xs font-semibold text-amber-600 transition hover:text-amber-700"
+                      className="shrink-0 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
                     >
-                      + Add break / second period
+                      + Add period
                     </button>
                     {!compact ? (
                       <input
                         type="text"
                         data-testid={`business-hours-note-${day.day}`}
                         value={day.note ?? ""}
-                        placeholder="Note (e.g. Emergency appointments only)"
+                        placeholder="Note (optional)"
                         onChange={(event) => patchDay(day.day, { note: event.target.value || undefined })}
-                        className="flex-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-slate-600"
+                        className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-xs text-slate-600 placeholder-slate-300 transition focus:border-gray-200"
                       />
                     ) : null}
                   </div>
@@ -623,7 +668,7 @@ export function BusinessHoursSection({
             </button>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            These override the weekly schedule for one date — holiday closures, early closing, temporary closures.
+            Single-date overrides — holidays, early closes, temporary closures.
           </p>
           <div className="mt-2 space-y-2">
             {specialDates.map((entry, index) => (
@@ -719,9 +764,9 @@ export function BusinessHoursSection({
         </div>
       ) : null}
 
-      <div className="mt-5 rounded-xl bg-gray-50 p-3" data-testid="business-hours-weekly-summary">
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Weekly schedule preview</p>
-        <ul className="mt-1 space-y-0.5 text-sm text-slate-700">
+      <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3" data-testid="business-hours-weekly-summary">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Weekly preview</p>
+        <ul className="mt-1.5 space-y-0.5 text-xs text-slate-600">
           {summarizeWeek(week).map((line) => (
             <li key={line} data-testid="business-hours-summary-line">
               {line}
@@ -817,7 +862,7 @@ export function BusinessHoursSummary({ testIdPrefix = "business-hours-review" }:
   if (!data?.configured) {
     return (
       <p className="text-xs font-semibold text-amber-700" data-testid={`${testIdPrefix}-not-configured`}>
-        Business Hours not configured — your AI will say hours are not confirmed. Add them in the Business step
+        Business Hours not configured — your AI will say hours are not confirmed. Add them in the Configure step
         or Business Settings.
       </p>
     );

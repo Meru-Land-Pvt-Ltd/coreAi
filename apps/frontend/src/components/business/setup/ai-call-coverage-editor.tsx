@@ -34,23 +34,23 @@ const getDynamicText = (triggerKind: WorkflowTriggerKind) => {
   if (triggerKind === "inbound_sms") {
     return {
       sectionTitle: "AI SMS Coverage",
-      sectionDescription: "When the AI responds to text messages. This is not when your business is open or when appointments can be booked — those are configured above.",
+      sectionDescription: "When the AI responds to texts.",
       badgeTitle: {
         always: "24/7",
         business_hours: "Using Business Hours",
         custom: "Custom AI SMS Schedule"
       },
       optionAlwaysTitle: "Respond to SMS 24/7",
-      optionAlwaysDesc: "The AI never misses a text — nights, weekends, and holidays included.",
+      optionAlwaysDesc: "Nights, weekends, and holidays included.",
       optionBhTitle: "Respond during Business Hours",
-      optionBhDesc: "The AI responds only while your business is open, following your Business Hours.",
+      optionBhDesc: "Only while your business is open.",
       optionCustomTitle: "Use a custom response schedule",
-      optionCustomDesc: "Pick exactly when the AI responds — independent of your Business Hours.",
-      alwaysNote: "Even at 3 AM the AI responds — and it can still tell texters your business is closed and when you reopen, because it knows your Business Hours.",
+      optionCustomDesc: "Set your own days and times.",
+      alwaysNote: "The AI responds around the clock — and still tells texters when you're closed and when you reopen.",
       bhNoteHeading: "The AI responds during these Business Hours",
-      bhNoteFooter: "Texts outside these hours are not responded to by the AI. If hours are ever unknown, the AI responds rather than ignoring the message.",
+      bhNoteFooter: "Texts outside these hours get no AI response. If hours are unknown, the AI responds anyway.",
       customHeading: "Custom AI SMS Schedule",
-      customSubheading: "Separate from Business Hours and Appointment Hours — this only controls when the AI responds to texts.",
+      customSubheading: "Only controls when the AI responds to texts.",
       dayRowLabel: (day: string) => `AI responds on ${day}`,
       closedLabel: "Not responding",
       openStartAria: (day: string) => `${day} responding starts`,
@@ -60,23 +60,23 @@ const getDynamicText = (triggerKind: WorkflowTriggerKind) => {
   if (triggerKind === "missed_call") {
     return {
       sectionTitle: "AI Text-back Coverage",
-      sectionDescription: "When the AI sends text-backs. This is not when your business is open or when appointments can be booked — those are configured above.",
+      sectionDescription: "When the AI sends text-backs.",
       badgeTitle: {
         always: "24/7",
         business_hours: "Using Business Hours",
         custom: "Custom AI Text-back Schedule"
       },
       optionAlwaysTitle: "Text back 24/7",
-      optionAlwaysDesc: "The AI sends text-backs for every missed call — nights, weekends, and holidays included.",
+      optionAlwaysDesc: "Nights, weekends, and holidays included.",
       optionBhTitle: "Text back during Business Hours",
-      optionBhDesc: "The AI sends text-backs only while your business is open, following your Business Hours.",
+      optionBhDesc: "Only while your business is open.",
       optionCustomTitle: "Use a custom text-back schedule",
-      optionCustomDesc: "Pick exactly when the AI sends text-backs — independent of your Business Hours.",
-      alwaysNote: "Even at 3 AM the AI texts back — and it can still tell callers your business is closed and when you reopen, because it knows your Business Hours.",
+      optionCustomDesc: "Set your own days and times.",
+      alwaysNote: "The AI texts back around the clock — and still tells callers when you're closed and when you reopen.",
       bhNoteHeading: "The AI sends text-backs during these Business Hours",
-      bhNoteFooter: "Missed calls outside these hours do not trigger a text-back from the AI. If hours are ever unknown, the AI texts back rather than ignoring the call.",
+      bhNoteFooter: "Missed calls outside these hours get no text-back. If hours are unknown, the AI texts back anyway.",
       customHeading: "Custom AI Text-back Schedule",
-      customSubheading: "Separate from Business Hours and Appointment Hours — this only controls when the AI sends text-backs.",
+      customSubheading: "Only controls when the AI sends text-backs.",
       dayRowLabel: (day: string) => `AI texts back on ${day}`,
       closedLabel: "Not texting back",
       openStartAria: (day: string) => `${day} text-back starts`,
@@ -86,23 +86,23 @@ const getDynamicText = (triggerKind: WorkflowTriggerKind) => {
   // Default to voice / general
   return {
     sectionTitle: "AI Call Coverage",
-    sectionDescription: "When the AI answers calls. This is not when your business is open or when appointments can be booked — those are configured above.",
+    sectionDescription: "When the AI answers calls.",
     badgeTitle: {
       always: "24/7",
       business_hours: "Using Business Hours",
       custom: "Custom AI Answering Schedule"
     },
     optionAlwaysTitle: "Answer calls 24/7",
-    optionAlwaysDesc: "The AI never misses a call — nights, weekends, and holidays included.",
+    optionAlwaysDesc: "Nights, weekends, and holidays included.",
     optionBhTitle: "Answer during Business Hours",
-    optionBhDesc: "The AI answers only while your business is open, following your Business Hours.",
+    optionBhDesc: "Only while your business is open.",
     optionCustomTitle: "Use a custom answering schedule",
-    optionCustomDesc: "Pick exactly when the AI answers — independent of your Business Hours.",
-    alwaysNote: "Even at 3 AM the AI answers — and it can still tell callers your business is closed and when you reopen, because it knows your Business Hours.",
+    optionCustomDesc: "Set your own days and times.",
+    alwaysNote: "The AI answers around the clock — and still tells callers when you're closed and when you reopen.",
     bhNoteHeading: "The AI answers during these Business Hours",
-    bhNoteFooter: "Callers outside these hours are not answered by the AI. If hours are ever unknown, the AI answers rather than dropping the call.",
+    bhNoteFooter: "Calls outside these hours are not answered. If hours are unknown, the AI answers anyway.",
     customHeading: "Custom AI Answering Schedule",
-    customSubheading: "Separate from Business Hours and Appointment Hours — this only controls when the AI picks up.",
+    customSubheading: "Only controls when the AI picks up.",
     dayRowLabel: (day: string) => `AI answers on ${day}`,
     closedLabel: "Not answering",
     openStartAria: (day: string) => `${day} answering starts`,
@@ -150,7 +150,7 @@ export function AiCallCoverageEditor({
     <div data-testid="business-setup-ai-coverage">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-sm font-bold text-slate-800">{t.sectionTitle}</h4>
+          <h4 className="text-sm font-bold text-slate-900">{t.sectionTitle}</h4>
           <p className="mt-0.5 text-xs text-slate-500">{t.sectionDescription}</p>
         </div>
         <span
@@ -227,10 +227,10 @@ export function AiCallCoverageEditor({
           ) : (
             <p className="text-xs font-semibold text-amber-700">
               {triggerKind === "inbound_sms"
-                ? "Business Hours are not configured yet — until they are confirmed, the AI responds to all text messages so nothing is missed."
+                ? "Business Hours are not set yet — the AI responds to all texts until they are."
                 : triggerKind === "missed_call"
-                  ? "Business Hours are not configured yet — until they are confirmed, the AI sends text-backs for all missed calls so nothing is missed."
-                  : "Business Hours are not configured yet — until they are confirmed, the AI answers all calls so nothing is missed."}
+                  ? "Business Hours are not set yet — the AI texts back all missed calls until they are."
+                  : "Business Hours are not set yet — the AI answers all calls until they are."}
             </p>
           )}
         </div>
@@ -247,10 +247,14 @@ export function AiCallCoverageEditor({
           <p className="mt-0.5 text-xs text-slate-400">
             {t.customSubheading}
           </p>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 overflow-hidden rounded-xl border border-gray-100 bg-white">
             {answeringDays.map((row) => (
-              <div key={row.day} className="flex flex-wrap items-center gap-3" data-testid="business-setup-ai-coverage-day-row">
-                <label className="flex w-28 items-center gap-2 text-sm font-medium text-slate-700">
+              <div
+                key={row.day}
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-100 px-3.5 py-2.5 last:border-b-0"
+                data-testid="business-setup-ai-coverage-day-row"
+              >
+                <label className="flex w-28 shrink-0 items-center gap-2.5 text-sm font-semibold text-slate-700">
                   <input
                     type="checkbox"
                     checked={!row.closed}
@@ -271,10 +275,10 @@ export function AiCallCoverageEditor({
                       aria-label={t.openStartAria(row.day)}
                       onChange={(e) => onAnsweringDay(row.day, { open: e.target.value })}
                       data-testid="business-setup-ai-coverage-day-open"
-                      className="field rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                      className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
                     />
-                    <span className="text-slate-400" aria-hidden="true">
-                      →
+                    <span className="text-xs text-slate-400" aria-hidden="true">
+                      –
                     </span>
                     <input
                       type="time"
@@ -282,7 +286,7 @@ export function AiCallCoverageEditor({
                       aria-label={t.openEndAria(row.day)}
                       onChange={(e) => onAnsweringDay(row.day, { close: e.target.value })}
                       data-testid="business-setup-ai-coverage-day-close"
-                      className="field rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                      className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
                     />
                   </>
                 )}

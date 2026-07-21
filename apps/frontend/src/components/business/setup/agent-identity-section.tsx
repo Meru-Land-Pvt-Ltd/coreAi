@@ -16,7 +16,8 @@ const DEFAULT_ASSISTANT_NAME = "AI Assistant";
 
 const VOICE_OPTIONS = VOICE_PRESETS.map((preset) => ({
   value: preset.id,
-  label: `${preset.name} — ${preset.style}`
+  name: preset.name,
+  style: preset.style
 }));
 
 const TONES: { value: string; label: string; emoji: string }[] = [
@@ -121,45 +122,104 @@ export function AgentIdentitySection({
 
       {showVoice ? (
         <div className="mt-6">
-          <span className="block text-sm font-medium text-slate-700 mb-2">Agent voice</span>
-          <p className="text-xs text-slate-400 mb-3 font-semibold">Pick the voice your customers will hear on every call.</p>
-          <div className="flex gap-2">
-            <select
-              id="voice-select"
+          <fieldset>
+            <legend className="block text-sm font-medium text-slate-700 mb-2">Agent voice</legend>
+            <div
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+              role="radiogroup"
+              aria-label="Agent voice"
               data-testid="business-setup-voice-select"
-              value={voiceChoice}
-              onChange={(e) => {
-                onVoiceChoice(normalizeVoiceChoice(e.target.value));
-                onCustomVoiceId("");
-              }}
-              className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-slate-900 focus:outline-none"
             >
-              {VOICE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
+              {VOICE_OPTIONS.map((opt) => {
+                const selected = voiceChoice === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    data-testid={`business-setup-voice-option-${opt.value}`}
+                    onClick={() => {
+                      onVoiceChoice(normalizeVoiceChoice(opt.value));
+                      onCustomVoiceId("");
+                    }}
+                    className={`pick flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left ${
+                      selected ? "selected" : "border-gray-200 bg-white"
+                    }`}
+                  >
+                    <span
+                      className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 ${
+                        selected ? "border-amber-500" : "border-slate-300"
+                      }`}
+                    >
+                      {selected ? <span className="h-2 w-2 rounded-full bg-amber-500" /> : null}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-800">{opt.name}</span>
+                      <span className="block truncate text-xs text-slate-500">{opt.style}</span>
+                    </span>
+                  </button>
+                );
+              })}
+
               {voiceChoice === "custom" ? (
-                <option value="custom">Custom voice (saved with this agent)</option>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked
+                  data-testid="business-setup-voice-option-custom"
+                  className="pick selected flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left"
+                >
+                  <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 border-amber-500">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-800">Custom voice</span>
+                    <span className="block truncate text-xs text-slate-500">Saved with this agent</span>
+                  </span>
+                </button>
               ) : null}
-            </select>
+            </div>
+          </fieldset>
+
+          {voiceChoice === "custom" ? (
+            <div className="mt-2">
+              <label htmlFor="custom-voice-id" className="mb-1 block text-xs font-medium text-slate-600">
+                Custom voice ID
+              </label>
+              <input
+                id="custom-voice-id"
+                data-testid="business-setup-voice-custom-id"
+                type="text"
+                value={customVoiceId}
+                onChange={(e) => onCustomVoiceId(e.target.value)}
+                placeholder="ElevenLabs voice ID"
+                className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+              />
+            </div>
+          ) : null}
+
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
               id="voice-play"
               data-testid="business-setup-voice-play"
               onClick={handleVoicePlay}
               aria-label="Listen to voice sample"
-              className={`shrink-0 w-12 rounded-xl border border-gray-200 text-slate-600 grid place-items-center hover:bg-slate-50 transition-colors ${voicePlaying ? "bg-amber-50 border-amber-300" : ""}`}
+              className={`btn inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 ${voicePlaying ? "border-amber-300 bg-amber-50" : "bg-white"}`}
             >
               {voicePlaying ? (
-                <span className="inline-flex items-end gap-[2px] h-3">
+                <span className="inline-flex items-end gap-[2px] h-3" aria-hidden="true">
                   <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0s" }} />
                   <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "12px", animationDelay: "0.15s" }} />
                   <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0.3s" }} />
                 </span>
               ) : (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M8 5.14v13.72a.5.5 0 0 0 .77.42l10.7-6.86a.5.5 0 0 0 0-.84L8.77 4.72a.5.5 0 0 0-.77.42z" />
                 </svg>
               )}
+              {voicePlaying ? "Playing…" : "Preview voice"}
             </button>
           </div>
           {voicePreviewError ? (

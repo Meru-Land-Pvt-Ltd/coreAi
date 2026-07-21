@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  COMMON_TIMEZONES,
   DEFAULT_SILENCE,
   getAgentSuccessMessage,
   getWorkflowTriggerKind,
@@ -26,6 +27,7 @@ import { KnowledgeSection } from "@/components/business/setup/knowledge-section"
 import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
+import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
 import {
   defaultAnsweringDays,
   type AiCoverageKind,
@@ -39,14 +41,15 @@ import {
   getAppointmentSchedule,
   getBusinessCalendarOAuthUrl,
   getBusinessFacts,
+  getBusinessHours,
   getBusinessKnowledgeFiles,
   getBusinessMailSetup,
   getBusinessSetup,
   getMarketplaceListing,
+  putBusinessHours,
   runBusinessSetupChatTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
-  sendBusinessTestSms,
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
@@ -68,8 +71,7 @@ import {
   type BuyerSetupFieldDef,
   type CallRoutingResult,
   type KnowledgeFileSummary,
-  type PlatformPhoneOption,
-  type TestSmsResult
+  type PlatformPhoneOption
 } from "@/components/business/features/api";
 
 const DASHBOARD_ROUTE = "/business/dashboard" as Route;
@@ -214,18 +216,6 @@ const WIZARD_STYLES = `
 .setup-root .phone-check { opacity: 0; transform: scale(.6); transition: opacity .25s var(--ease), transform .35s var(--ease); }
 .setup-root .phone-wrap.is-valid .phone-check { opacity: 1; transform: scale(1); }
 
-/* OTP */
-.setup-root .otp-box {
-  width: 3rem; height: 3.5rem; text-align: center;
-  font-size: 1.35rem; font-weight: 600; font-family: 'Inter', monospace;
-  border: 1.5px solid #e2e8f0; border-radius: .75rem; background: #fff; color: #0f172a;
-  transition: border-color .2s var(--ease), transform .25s var(--ease), background-color .2s var(--ease);
-  caret-color: #f59e0b;
-}
-.setup-root .otp-box:focus { border-color: #f59e0b; box-shadow: none; }
-.setup-root .otp-box.filled { border-color: #f59e0b; background: #fffbeb; transform: translateY(-1px); }
-@media (max-width: 380px) { .setup-root .otp-box { width: 2.5rem; height: 3rem; font-size: 1.15rem; } }
-
 /* Pick cards */
 .setup-root .pick { transition: border-color .2s var(--ease), background-color .2s var(--ease), transform .2s var(--ease); cursor: pointer; }
 .setup-root .pick:hover { border-color: #fcd34d; }
@@ -238,23 +228,8 @@ const WIZARD_STYLES = `
 .setup-root .day:active { transform: scale(.94); }
 .setup-root .day.on { background: #f59e0b; color: #fff; border-color: #f59e0b; }
 
-/* Status simulation feed */
-.setup-root .feed-item { opacity: 0; transform: translateY(8px); transition: opacity .45s var(--ease), transform .45s var(--ease); }
-.setup-root .feed-item.show { opacity: 1; transform: none; }
-
-.setup-root .dot-pulse { position: relative; }
-.setup-root .dot-pulse::after {
-  content: ''; position: absolute; inset: -4px; border-radius: 9999px;
-  background: currentColor; opacity: .35; animation: ping 1.4s var(--ease) infinite;
-}
-@keyframes ping { 0% { transform: scale(.8); opacity: .5; } 80%, 100% { transform: scale(2.1); opacity: 0; } }
-
 .setup-root .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-.setup-root .bubble { position: relative; }
-.setup-root .phone-frame { border: 8px solid #0f172a; border-radius: 2rem; background: #f8fafc; }
-.setup-root .sms-ring { border: 2px solid #22c55e; }
 
 /* Celebration */
 .setup-root .check-pop { animation: pop .6s var(--ease) both; }
@@ -277,7 +252,7 @@ const WIZARD_STYLES = `
 @keyframes setupToast { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .setup-root .animate-in, .setup-root .check-pop, .setup-root .draw, .setup-root .stagger > *, .setup-root .dot-pulse::after, .setup-root .spin, .setup-root .confetti-piece, .setup-root .toast-in { animation: none !important; }
+  .setup-root .animate-in, .setup-root .check-pop, .setup-root .draw, .setup-root .stagger > *, .setup-root .spin, .setup-root .confetti-piece, .setup-root .toast-in { animation: none !important; }
   .setup-root .draw { stroke-dashoffset: 0; }
   .setup-root .stagger > * { opacity: 1; transform: none; }
   .setup-root .btn:hover, .setup-root .btn:active { transform: none !important; }
@@ -285,8 +260,8 @@ const WIZARD_STYLES = `
 `;
 
 const FIELD =
-  "field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 placeholder-slate-400 focus:outline-none";
-const LABEL = "mb-1.5 block text-sm font-semibold text-slate-700";
+  "field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none";
+const LABEL = "mb-1.5 block text-sm font-medium text-slate-700";
 const CARD = "animate-in rounded-2xl border border-gray-100 bg-white p-6 sm:p-8";
 const H2 = "text-lg font-bold text-slate-900";
 const SUB = "mt-1 text-sm text-slate-500";
@@ -307,6 +282,8 @@ type PersistResult = {
   number: string;
   vapiAssistantId: string | null;
   installedAgentId: string | null;
+  /** True when the main setup save was skipped (live agent) — progress toasts must not claim success. */
+  mainSaveSkipped?: boolean;
 };
 
 type UnknownRecord = Record<string, unknown>;
@@ -548,6 +525,9 @@ function SetupWizard() {
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
+  // Browser test-call outcome — lifted so the Go-live readiness list can show
+  // "Test completed" as a recommendation.
+  const [browserTestOutcome, setBrowserTestOutcome] = useState<"passed" | "failed" | null>(null);
 
   const [businessName, setBusinessName] = useState("");
   const [listing, setListing] = useState<any>(null);
@@ -581,10 +561,10 @@ function SetupWizard() {
   const [addressDirty, setAddressDirty] = useState(false);
   const bhApiRef = useRef<EmbeddedSectionApi | null>(null);
   const addressApiRef = useRef<EmbeddedSectionApi | null>(null);
-  // True once GET /business/setup returned an existing profile — a first-run
-  // save seeds the timezone from the browser; later saves never touch it
-  // (the Business Hours editor owns the timezone).
-  const [profileExists, setProfileExists] = useState(false);
+  // Timezone last persisted to the server. The Connect step owns the timezone;
+  // saves only send it when it changed this session, so a stale tab can never
+  // clobber a newer value saved elsewhere (e.g. Business Settings).
+  const savedTimeZoneRef = useRef("");
 
   // Appointment schedule (booking hours + slot config). Loaded from its own
   // endpoint; only included in the save payload once loaded so an unloaded
@@ -655,7 +635,6 @@ function SetupWizard() {
   // Trigger kind derived from the listing's workflow graph.
   // Drives which phone/forwarding/voice sections are shown.
   const [triggerKind, setTriggerKind] = useState<WorkflowTriggerKind>("none");
-  const [setupTimeEstimate, setSetupTimeEstimate] = useState<string | null>(null);
 
   const setCustomFieldValue = useCallback((key: string, label: string, value: string | string[] | boolean) => {
     setCustomFieldValues((current) => {
@@ -683,9 +662,6 @@ function SetupWizard() {
       summary: data.weeklySummary ?? null,
       timeZone: data.timeZone
     });
-    // One authoritative timezone: the Business Hours editor owns it; the rest
-    // of the page (Connect summary, Test details) just reflects it.
-    if (data.timeZone) setTimeZone(normalizeTimeZone(data.timeZone));
   }, []);
 
   // Warn before leaving while any Configure section has unsaved changes.
@@ -744,6 +720,7 @@ function SetupWizard() {
         setBookingUrl(data.profile.bookingUrl ?? "");
         setTeamPhone(data.profile.teamPhone ?? "");
         setTimeZone(normalizeTimeZone(data.profile.timeZone || defaultTimeZone()));
+        savedTimeZoneRef.current = data.profile.timeZone ? normalizeTimeZone(data.profile.timeZone) : "";
         setTone(data.profile.tone ?? "friendly");
         setServicesText((data.profile.services ?? []).join("\n"));
         setCalendarId(data.profile.calendarId ?? "primary");
@@ -752,7 +729,6 @@ function SetupWizard() {
           setFaqs(data.profile.faqs);
         }
       }
-      setProfileExists(Boolean(data.profile));
 
       // AI Call Coverage (phoneRouting.coverage) + the custom answering
       // schedule rows. Legacy CUSTOM_HOURS mode arrives as coverage "custom".
@@ -849,10 +825,6 @@ function SetupWizard() {
         setTriggerKind(data.triggerKind);
       }
 
-      if (data.setupTimeEstimate) {
-        setSetupTimeEstimate(data.setupTimeEstimate);
-      }
-
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
       let loadedBuyerSetupFields = data.buyerSetupSchema?.filter((field) => field && field.key && field.label) || [];
 
@@ -861,9 +833,6 @@ function SetupWizard() {
 
         if (listingRes.success && listingRes.data?.listing) {
           setListing(listingRes.data.listing);
-          if (listingRes.data.listing.setupTimeEstimate) {
-            setSetupTimeEstimate(listingRes.data.listing.setupTimeEstimate);
-          }
           if (!data.installedAgent) {
             keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
           }
@@ -966,6 +935,30 @@ function SetupWizard() {
     };
   }, []);
 
+  // Seed the Business Hours snapshot on mount so Configure summaries and the
+  // Go-live checklist are accurate before the embedded editor ever mounts.
+  // The editor's own onLoaded/onChange callbacks take over once it renders.
+  useEffect(() => {
+    let cancelled = false;
+
+    void getBusinessHours().then((res) => {
+      if (cancelled || !res.success || !res.data) return;
+      setBusinessHoursState((current) =>
+        current.configured
+          ? current
+          : {
+              configured: res.data!.configured,
+              summary: res.data!.weeklySummary ?? null,
+              timeZone: res.data!.timeZone
+            }
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const updateApptDay = useCallback((day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => {
     setApptDays((current) => ({ ...current, [day]: { ...current[day], ...patch } }));
     setConfigDirty(true);
@@ -1048,8 +1041,24 @@ function SetupWizard() {
 
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
+  // Booking-rules validation guards every save path — invalid or NaN values
+  // must never reach the appointmentSchedule payload.
+  const bookingRules = validateBookingRules(apptFields);
+  const bookingRulesBlocked = apptLoaded && !bookingRules.valid;
+
+  function reportBookingRulesBlocked() {
+    setError("Fix the booking rules in Configure → Hours & Availability before saving.");
+    setOpenSections((current) => ({ ...current, "hours-availability": true }));
+  }
+
   async function persistSetup(deploy: boolean): Promise<PersistResult> {
     const voiceFields = buildVoiceFields();
+    const tzValue = timeZone.trim() || defaultTimeZone();
+
+    if (bookingRulesBlocked) {
+      reportBookingRulesBlocked();
+      return { ok: false, number: "", vapiAssistantId: null, installedAgentId: null };
+    }
 
     // Embedded sections (Business Hours, Business Address) save through their
     // own endpoints first — they work even for live agents, and a failure is
@@ -1058,7 +1067,11 @@ function SetupWizard() {
     if (bhApiRef.current?.isDirty()) {
       const saved = await bhApiRef.current.save();
       if (!saved.ok) sectionFailures.push(`Business Hours: ${saved.error ?? "could not be saved."}`);
-      else setBhDirty(false);
+      else {
+        setBhDirty(false);
+        // The Business Hours save carries the wizard timezone (timeZoneOverride).
+        savedTimeZoneRef.current = tzValue;
+      }
     }
     if (addressApiRef.current?.isDirty()) {
       const saved = await addressApiRef.current.save();
@@ -1067,6 +1080,26 @@ function SetupWizard() {
     }
 
     if (!deploy && liveVapiAssistantId) {
+      // A live agent's timezone change must not wait for a re-deploy — persist
+      // it through the hours endpoint, which safely updates live agents too.
+      // A failed or unavailable save is a real error, never a silent skip.
+      if (tzValue !== savedTimeZoneRef.current) {
+        const hoursRes = await getBusinessHours();
+        if (hoursRes.success && hoursRes.data && (hoursRes.data.hours?.length ?? 0) > 0) {
+          const saved = await putBusinessHours({
+            hours: hoursRes.data.hours ?? [],
+            timeZone: tzValue,
+            specialDates: hoursRes.data.specialDates ?? []
+          });
+          if (saved.success) savedTimeZoneRef.current = tzValue;
+          else sectionFailures.push(`Timezone: ${saved.error ?? "could not be saved."}`);
+        } else {
+          sectionFailures.push(
+            "Timezone: could not be saved for your live agent — set your Business Hours in Configure, then save again."
+          );
+        }
+      }
+
       if (sectionFailures.length > 0) {
         setError(sectionFailures.join(" "));
       } else {
@@ -1075,6 +1108,7 @@ function SetupWizard() {
 
       return {
         ok: sectionFailures.length === 0,
+        mainSaveSkipped: true,
         number: assignedNumber ?? "",
         vapiAssistantId: liveVapiAssistantId,
         installedAgentId: liveInstalledAgentId
@@ -1089,21 +1123,13 @@ function SetupWizard() {
       forwardToPhone: forwardToPhone.trim(),
       bookingUrl: bookingUrl.trim(),
       teamPhone: teamPhone.trim(),
-      // The Business Hours editor owns the timezone. Only the very first save
-      // (no profile yet) seeds it from the browser so bookings work out of
-      // the box; after that, setup saves never touch it.
-      ...(profileExists ? {} : { timeZone: timeZone.trim() || defaultTimeZone() }),
+      ...(tzValue !== savedTimeZoneRef.current ? { timeZone: tzValue } : {}),
       tone,
       services: parseLines(servicesText),
       faqs: faqs
         .filter((faq) => faq.question.trim() && faq.answer.trim())
         .map((faq) => ({ question: faq.question.trim(), answer: faq.answer.trim() })),
-      // Structured Business Hours are owned by the Business Hours editor
-      // (PUT /business/hours) — setup saves never send or overwrite them.
       hours: [],
-      // AI Call Coverage: when the AI answers. The custom weekly schedule is
-      // only sent for "custom"; the Connect-step answering mode is preserved
-      // as-is (it is the forward condition, not the time window).
       aiCallCoverage: {
         kind: coverageKind,
         ...(coverageKind === "custom" ? { answeringHours: buildAnsweringItems() } : {})
@@ -1176,6 +1202,7 @@ function SetupWizard() {
     }
 
     setConfigDirty(false);
+    savedTimeZoneRef.current = tzValue;
 
     const data = res.data;
     const number = data.assignedPhoneNumber ?? data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
@@ -1246,9 +1273,6 @@ function SetupWizard() {
       }
     }
 
-    // Return to THIS setup page (same listing) after the Google consent
-    // screen — not to Business Settings. The wizard step is restored from
-    // sessionStorage and the form was just persisted above.
     const res = await getBusinessCalendarOAuthUrl(
       String(businessSetupPath(listingId || undefined))
     );
@@ -1272,12 +1296,18 @@ function SetupWizard() {
   async function goNext() {
     setError("");
 
+    if (bookingRulesBlocked) {
+      setStep(2);
+      reportBookingRulesBlocked();
+      return;
+    }
+
     if (step < STEPS.length && canPersist) {
       setSaving(true);
       const saved = await persistSetup(false);
       setSaving(false);
 
-      if (saved.ok) {
+      if (saved.ok && !saved.mainSaveSkipped) {
         setStatusMsg("Progress saved");
       }
     }
@@ -1297,13 +1327,19 @@ function SetupWizard() {
     const saved = await persistSetup(false);
     setSaving(false);
 
-    if (saved.ok) {
+    if (saved.ok && !saved.mainSaveSkipped) {
       setStatusMsg("Progress saved");
     }
   }
 
   async function handleDeploy() {
     setError("");
+
+    if (bookingRulesBlocked) {
+      setStep(2);
+      reportBookingRulesBlocked();
+      return;
+    }
 
     if (businessName.trim().length < 2 || businessType.trim().length < 2) {
       setStep(2);
@@ -1386,14 +1422,15 @@ function SetupWizard() {
   const needs = new Set(requiredKeys);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
-  // Configure sections: controlled open/collapse state so Test/Go-live Edit
-  // links can jump straight to the right section. Business Profile starts
-  // open; everything else starts as a compact summary row.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     "business-profile": true
   });
   const toggleSection = useCallback((id: string, open: boolean) => {
-    setOpenSections((current) => ({ ...current, [id]: open }));
+    // On small screens only one section stays open at a time — the page would
+    // otherwise become extremely long. Desktop keeps multi-open behavior.
+    const singleOpen =
+      typeof window !== "undefined" && window.matchMedia?.("(max-width: 639px)").matches;
+    setOpenSections((current) => (open && singleOpen ? { [id]: true } : { ...current, [id]: open }));
   }, []);
   function jumpToConfigureSection(id: string) {
     setError("");
@@ -1410,8 +1447,6 @@ function SetupWizard() {
     };
   }
 
-  // Required + format validation of the agent-specific (architect-defined)
-  // setup fields — mirrors the backend's 422 validation on deploy.
   const buyerSetupIssues = validateBuyerSetupAnswers(buyerSetupFields, customFieldValues, { requireMissing: true });
   const buyerSetupComplete = buyerSetupIssues.length === 0;
   const assistantNameComplete = assistantName.trim().length >= 2;
@@ -1421,10 +1456,6 @@ function SetupWizard() {
   const voiceChoiceComplete = voiceChoice !== "custom" || customVoiceId.trim().length > 0;
   const voiceComplete = assistantNameComplete && voiceChoiceComplete;
 
-  // --- Trigger-aware visibility flags ---
-  // Phone number verification is always shown (all agent types need a number).
-  // Call forwarding and answering mode are only needed for missed-call and voice workflows.
-  // Voice/Vapi setup is only needed when there is a voice node.
   const connectorsKnown = requiredKeys.length > 0 || (!loading && Boolean(listingId));
   const needsCalendar = needs.has("google_calendar");
   const needsGmail = needs.has("gmail");
@@ -1448,9 +1479,6 @@ function SetupWizard() {
   const connectTitle =
     showPhone && showCalendar ? "Connect your phone & calendar" : showPhone ? "Connect your phone" : "Connect your services";
 
-  // Per-step completion for the header indicator — a step is "done" when the
-  // required checklist items that live on it are complete.
-  // Call-forwarding check is only applied when the workflow needs it.
   const connectComplete =
     (!showPhone || phoneSelected) &&
     (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
@@ -1472,6 +1500,22 @@ function SetupWizard() {
       required: true,
       complete: businessComplete,
       blocker: businessComplete ? undefined : "Add your business name and type."
+    },
+    {
+      key: "booking_rules",
+      label: "Booking rules",
+      required: true,
+      complete: !bookingRulesBlocked,
+      blocker: bookingRulesBlocked
+        ? "Fix the booking rules in Configure → Hours & Availability."
+        : undefined
+    },
+    {
+      key: "business_hours",
+      label: "Business Hours",
+      required: false,
+      complete: businessHours.configured,
+      blocker: businessHours.configured ? undefined : "Set your Business Hours so the agent knows when you're open."
     },
     ...(buyerSetupFields.length > 0
       ? [
@@ -1676,12 +1720,23 @@ function SetupWizard() {
     <div className="setup-root bg-gray-50 min-h-screen pb-12" data-testid="business-setup-wizard">
       <style>{WIZARD_STYLES}</style>
 
-      <header className="bg-white border-b border-gray-100 py-4 px-4 sm:px-8 sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 sm:gap-4"></div>
+      <header className="bg-white border-b border-gray-200/80 py-3 px-4 sm:px-6 sticky top-0 z-30">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-slate-900">Agent setup</h1>
+              <p className="truncate text-xs text-slate-500" data-testid="business-setup-header-context">
+                {(typeof listing?.name === "string" && listing.name.trim()) || businessName.trim() || "Your AI agent"}
+              </p>
+            </div>
+
+            <span className="shrink-0 text-xs font-semibold text-slate-500" data-testid="business-setup-step-count">
+              Step {step} of {STEPS.length}
+            </span>
+          </div>
 
           {/* Step indicator */}
-          <nav className="progress" aria-label="Setup progress" data-testid="business-setup-progress-dots">
+          <nav className="progress mt-2.5" aria-label="Setup progress" data-testid="business-setup-progress-dots">
             {STEPS.map((entry, index) => {
               const active = entry.id === step;
               const done = stepDone[entry.id];
@@ -1723,25 +1778,10 @@ function SetupWizard() {
               );
             })}
           </nav>
-
-          {/* Right */}
-          <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-            <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              {(() => {
-                const estimate = setupTimeEstimate || "3 min";
-                const display = estimate.startsWith("~") ? estimate : `~${estimate}`;
-                return display.toLowerCase().includes("setup") ? display : `${display} setup`;
-              })()}
-            </span>
-          </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl px-5 sm:px-6 py-10 sm:py-12">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
         <div className={CARD}>
           {step === 1 ? (
             <StepConnect
@@ -1764,6 +1804,7 @@ function SetupWizard() {
               calendarBusy={calendarBusy}
               calendarId={calendarId}
               timeZone={timeZone}
+              onTimeZone={dirtyWrap(setTimeZone)}
               onSelectPhone={setSelectedPhoneId}
               onForward={setForwardToPhone}
               onTeamPhone={setTeamPhone}
@@ -1785,23 +1826,22 @@ function SetupWizard() {
           {step === 2 ? (
             <div className="space-y-4" data-testid="business-setup-configure">
               <div>
-                <div className="w-14 h-14 bg-violet-50 rounded-2xl grid place-items-center text-violet-600 mb-5" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
-                    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" />
-                    <path d="M5 3v4M19 17v4M3 5h4M17 19h4" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Set up your agent</h2>
-                <p className="text-slate-500 text-base mt-2 max-w-md">
-                  Five short sections — your business, the agent&rsquo;s identity, its knowledge, your
-                  hours, and how it behaves.
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Configure your agent</h2>
+                <p className="mt-1.5 text-sm text-slate-500">
+                  Add the business information and rules your agent will use.
                 </p>
               </div>
 
               <ConfigureSectionCard
                 id="business-profile"
                 title="Business Profile"
-                description="Your business name, type, address, and services."
+                description="Name, type, address, and services."
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                    <rect x="2" y="7" width="20" height="14" rx="2" />
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                  </svg>
+                }
                 status={businessComplete ? "complete" : "incomplete"}
                 summary={
                   businessComplete
@@ -1828,7 +1868,14 @@ function SetupWizard() {
               <ConfigureSectionCard
                 id="agent-identity"
                 title="Agent Identity"
-                description="The agent's name, voice, and conversation tone."
+                description="Name, voice, and tone."
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="22" />
+                  </svg>
+                }
                 status={!showVoice ? "optional" : voiceComplete ? "complete" : "incomplete"}
                 summary={
                   showVoice
@@ -1859,7 +1906,13 @@ function SetupWizard() {
               <ConfigureSectionCard
                 id="knowledge"
                 title="Knowledge"
-                description="Documents, FAQs, and what the agent knows about you."
+                description="Documents and FAQs the agent answers from."
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                }
                 status={knowledgeSummary.ready > 0 || faqs.some((faq) => faq.question.trim() && faq.answer.trim()) ? "complete" : "optional"}
                 summary={`${knowledgeSummary.files} document${knowledgeSummary.files === 1 ? "" : "s"} · ${
                   faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length
@@ -1879,25 +1932,37 @@ function SetupWizard() {
               <ConfigureSectionCard
                 id="hours-availability"
                 title="Hours & Availability"
-                description="Business Hours, Appointment Hours, and AI Call Coverage."
-                status={businessHours.configured ? "complete" : "incomplete"}
+                description="Business Hours, Appointment Availability, and AI Call Coverage."
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                }
+                warningCount={apptLoaded ? Object.keys(bookingRules.errors).length : 0}
+                status={
+                  bookingRulesBlocked ? "attention" : businessHours.configured ? "complete" : "incomplete"
+                }
                 summary={
-                  businessHours.configured
-                    ? `Business Hours set (${businessHours.timeZone}) · Appointments ${
-                        apptUseBusinessHours ? "follow Business Hours" : "use custom hours"
-                      } · AI answers ${
-                        coverageKind === "always"
-                          ? "24/7"
-                          : coverageKind === "business_hours"
-                            ? "during Business Hours"
-                            : "on a custom schedule"
-                      }`
-                    : "Set your Business Hours so the agent knows when you're open."
+                  bookingRulesBlocked
+                    ? "Booking rules need attention before you can save."
+                    : businessHours.configured
+                      ? `Business Hours set · Appointments ${
+                          apptUseBusinessHours ? "follow Business Hours" : "use custom hours"
+                        } · AI answers ${
+                          coverageKind === "always"
+                            ? "24/7"
+                            : coverageKind === "business_hours"
+                              ? "during Business Hours"
+                              : "on a custom schedule"
+                        }`
+                      : "Set your Business Hours so the agent knows when you're open."
                 }
                 open={Boolean(openSections["hours-availability"])}
                 onToggle={(open) => toggleSection("hours-availability", open)}
               >
                 <HoursAvailabilitySection
+                  timeZone={timeZone}
                   onBusinessHoursLoaded={handleBusinessHoursData}
                   onBusinessHoursSaved={handleBusinessHoursData}
                   onBusinessHoursChange={handleBusinessHoursData}
@@ -1911,6 +1976,7 @@ function SetupWizard() {
                   onApptDay={updateApptDay}
                   apptFields={apptFields}
                   onApptField={updateApptField}
+                  apptRulesValidation={bookingRules}
                   apptConfirmed={apptConfirmed}
                   onApptConfirmed={updateApptConfirmed}
                   apptLoaded={apptLoaded}
@@ -1925,7 +1991,20 @@ function SetupWizard() {
               <ConfigureSectionCard
                 id="agent-behavior"
                 title="Agent Behavior"
-                description="Custom instructions, agent-specific details, and advanced call handling."
+                description="Instructions, agent details, and call handling."
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                    <line x1="4" y1="21" x2="4" y2="14" />
+                    <line x1="4" y1="10" x2="4" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12" y2="3" />
+                    <line x1="20" y1="21" x2="20" y2="16" />
+                    <line x1="20" y1="12" x2="20" y2="3" />
+                    <line x1="1" y1="14" x2="7" y2="14" />
+                    <line x1="9" y1="8" x2="15" y2="8" />
+                    <line x1="17" y1="16" x2="23" y2="16" />
+                  </svg>
+                }
                 status={
                   buyerSetupFields.length > 0
                     ? buyerSetupComplete
@@ -1972,10 +2051,10 @@ function SetupWizard() {
               showCallTest={showPhone}
               deployedLive={Boolean(liveVapiAssistantId)}
               assignedNumber={assignedNumber}
-              businessName={businessName}
-              tone={tone}
               testing={testing}
               testResult={testResult}
+              browserOutcome={browserTestOutcome}
+              onBrowserOutcome={setBrowserTestOutcome}
               onTestCallRouting={handleTestCallRouting}
               answeringMode={answeringMode}
               listing={listing}
@@ -2007,7 +2086,28 @@ function SetupWizard() {
               coverageKind={coverageKind}
               timeZone={timeZone}
               calendarConnected={calendar.connected}
+              calendarRequired={needsCalendar || needsGmail}
+              browserTestOutcome={browserTestOutcome}
+              routingReady={testResult ? testResult.readyForCall : null}
+              businessName={businessName}
+              businessType={businessType}
+              assistantName={assistantName}
+              voiceLabel={
+                voiceChoice === "custom"
+                  ? "Custom voice"
+                  : VOICE_PRESETS.find((preset) => preset.id === voiceChoice)?.name ?? TRIVEN_VOICE_NAME
+              }
+              tone={tone}
+              answeringModeLabel={
+                ANSWERING_MODES.find((mode) => mode.value === answeringMode)?.label ?? answeringMode
+              }
+              apptFields={apptFields}
               onEditConfigure={jumpToConfigureSection}
+              onEditConnect={() => {
+                setError("");
+                setStep(1);
+                if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
             />
           ) : null}
 
@@ -2018,11 +2118,7 @@ function SetupWizard() {
           ) : null}
 
 <div
-  className={`mt-8 border-t border-gray-100 pt-5 ${
-    step === 2
-      ? "sticky bottom-0 z-20 bg-white/95 backdrop-blur pb-[calc(env(safe-area-inset-bottom)+12px)]"
-      : ""
-  }`}
+  className="sticky bottom-0 z-20 mt-8 -mx-6 rounded-b-2xl border-t border-gray-100 bg-white/95 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur sm:-mx-8 sm:px-8"
   data-testid="business-setup-footer"
 >
   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -2053,7 +2149,7 @@ function SetupWizard() {
         </button>
       )}
 
-{step === 2 && anyUnsaved && !saving && (
+{anyUnsaved && !saving && (
         <span
           className="text-center text-xs font-semibold text-amber-600 sm:text-left"
           data-testid="business-setup-unsaved"
@@ -2086,22 +2182,9 @@ function SetupWizard() {
         <button
           type="button"
           onClick={goNext}
-          disabled={saving}
+          disabled={saving || (step === 2 && bookingRulesBlocked)}
           data-testid="business-setup-next"
-          className="
-            w-full
-            rounded-xl
-            bg-amber-500
-            px-6
-            py-3
-            text-sm
-            font-bold
-            text-white
-            transition
-            hover:bg-amber-600
-            disabled:opacity-50
-            sm:w-auto
-          "
+          className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
         >
           {step === 2 ? "Save & Continue" : "Continue"}
         </button>
@@ -2111,22 +2194,9 @@ function SetupWizard() {
           onClick={handleDeploy}
           disabled={saving || !readyToDeploy}
           data-testid="business-setup-submit"
-          className="
-            w-full
-            rounded-xl
-            bg-amber-500
-            px-6
-            py-3
-            text-sm
-            font-bold
-            text-white
-            transition
-            hover:bg-amber-600
-            disabled:opacity-50
-            sm:w-auto
-          "
+          className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
         >
-          {saving ? "Deploying..." : "Deploy Live Agent"}
+          {saving ? "Deploying…" : "Go live"}
         </button>
       )}
     </div>
@@ -2168,6 +2238,7 @@ function StepConnect({
   calendarBusy,
   calendarId,
   timeZone,
+  onTimeZone,
   onSelectPhone,
   onForward,
   onTeamPhone,
@@ -2205,6 +2276,7 @@ function StepConnect({
   calendarBusy: boolean;
   calendarId: string;
   timeZone: string;
+  onTimeZone: (v: string) => void;
   onSelectPhone: (id: string) => void;
   onForward: (v: string) => void;
   onTeamPhone: (v: string) => void;
@@ -2223,32 +2295,33 @@ function StepConnect({
   const [countryCode, setCountryCode] = useState("+1");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
 
+  // Every timezone seen this session stays selectable — an off-list saved zone
+  // must not vanish from the options after switching away from it. Friendly
+  // labels are display-only; the stored value is always the IANA id.
+  const seenTimeZonesRef = useRef<Set<string>>(new Set());
+  if (timeZone.trim()) seenTimeZonesRef.current.add(timeZone.trim());
+  const knownZoneValues = new Set(COMMON_TIMEZONES.map((option) => option.value));
+  const timeZoneOptions = [
+    ...[...seenTimeZonesRef.current]
+      .filter((zone) => !knownZoneValues.has(zone))
+      .map((zone) => ({ value: zone, label: zone })),
+    ...COMMON_TIMEZONES
+  ];
+
   const routingMode = answeringMode === "AI_FIRST" ? "direct" : "forward";
 
   const phoneValid = existingPhoneNumber.replace(/\D/g, "").length === 10;
 
   return (
     <div className="space-y-6">
-      {/* Icon */}
-      <div className="w-14 h-14 bg-amber-50 rounded-2xl grid place-items-center text-amber-600 mb-5" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
-          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-        </svg>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h2>
+        <p className="mt-1.5 text-sm text-slate-500">
+          {showCallForwarding
+            ? "Choose your Triven AI number, then decide how customers reach your agent."
+            : "Choose your Triven AI number for this agent."}
+        </p>
       </div>
-
-      <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
-      <p className="text-slate-500 text-base mt-2 max-w-md">
-        {showCallForwarding
-          ? "Choose your dedicated Triven AI phone number first, then decide how customers reach your agent."
-          : "Choose your dedicated Triven AI phone number for this agent."}
-      </p>
-      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
-        ~90 seconds
-      </span>
 
       {/* SECTION 1 — Choose your Triven AI phone number. Always visible when
           the workflow needs a phone; never gated behind an existing phone,
@@ -2534,25 +2607,35 @@ function StepConnect({
             )}
           </div>
 
-          <div className="mt-4">
-            <span className="mb-1.5 block text-sm font-semibold text-slate-700">Business timezone</span>
-
-            {/* Read-only: ONE authoritative timezone, edited in the Business
-                Hours section of the Configure step. */}
-            <p
-              className="rounded-xl border border-gray-100 bg-slate-50 px-5 py-4 text-base font-semibold text-slate-800"
-              data-testid="business-setup-timezone-summary"
-            >
-              {timeZone.trim() || "Set automatically from your browser"}
-            </p>
-
-            <p className="mt-2 text-xs text-slate-400 font-semibold">
-              All availability, bookings, and call times use this timezone. Change it in Configure →
-              Hours &amp; Availability → Business Hours.
-            </p>
-          </div>
         </div>
       ) : null}
+
+      {/* Business timezone — the ONE place it is edited. Availability,
+          bookings, and call times all use this value. */}
+      <div className="mt-6 border-t border-gray-100 pt-6">
+        <h3 className="text-sm font-bold text-slate-900 mb-3">Timezone</h3>
+        <div className="rounded-2xl border border-gray-100 bg-slate-50 p-5">
+          <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="business-timezone">
+            Business timezone
+          </label>
+          <select
+            id="business-timezone"
+            data-testid="business-setup-timezone-select"
+            value={timeZone}
+            onChange={(e) => onTimeZone(e.target.value)}
+            className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none"
+          >
+            {timeZoneOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs font-semibold text-slate-400">
+            Used for availability, bookings, and call times.
+          </p>
+        </div>
+      </div>
 
       {showSmsNote ? (
         <div className={SECTION} data-testid="business-setup-sms-note">
@@ -2898,7 +2981,12 @@ function formatSeconds(total: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function PreviewCallSection() {
+function PreviewCallSection({
+  onOutcome
+}: {
+  /** Reports the session outcome ("passed" once a call completed, "failed" on errors) to the test summary. */
+  onOutcome?: (outcome: "passed" | "failed") => void;
+}) {
   const [state, setState] = useState<PreviewCallState>("idle");
   const [error, setError] = useState("");
   const [agentSpeaking, setAgentSpeaking] = useState(false);
@@ -2912,6 +3000,10 @@ function PreviewCallSection() {
   const detachRef = useRef<(() => void) | null>(null);
   const startInFlightRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedRef = useRef(0);
+  const failedRef = useRef(false);
+  const onOutcomeRef = useRef(onOutcome);
+  onOutcomeRef.current = onOutcome;
 
   useEffect(() => {
     return () => {
@@ -2948,6 +3040,10 @@ function PreviewCallSection() {
     setAgentSpeaking(false);
     setMicMuted(false);
     setState("ended");
+
+    // A call that never connected or errored counts as failed; a completed
+    // conversation counts as passed.
+    onOutcomeRef.current?.(failedRef.current || elapsedRef.current === 0 ? "failed" : "passed");
   }
 
   /** Clears this section's local transcript/error state back to a fresh test. */
@@ -2983,6 +3079,8 @@ function PreviewCallSection() {
     setError("");
     setTranscript([]);
     setElapsedSeconds(0);
+    elapsedRef.current = 0;
+    failedRef.current = false;
     setMicMuted(false);
     setState("starting");
 
@@ -3013,7 +3111,10 @@ function PreviewCallSection() {
         }
         stopTimer();
         timerRef.current = setInterval(() => {
-          setElapsedSeconds((current) => current + 1);
+          setElapsedSeconds((current) => {
+            elapsedRef.current = current + 1;
+            return current + 1;
+          });
           setSecondsLeft((current) => {
             if (current <= 1) {
               endPreview();
@@ -3041,6 +3142,7 @@ function PreviewCallSection() {
             ? "Microphone access is blocked. Allow the mic for this site and try again."
             : "The preview call ended unexpectedly. Try again."
         );
+        failedRef.current = true;
         endPreview();
       };
 
@@ -3073,6 +3175,7 @@ function PreviewCallSection() {
 
       await client.start(nextSession.assistantId, { metadata: { purpose: "BUYER_SETUP_PREVIEW" } });
     } catch {
+      failedRef.current = true;
       endPreview();
       setState("idle");
       setError("Could not start the preview call. Check your microphone and try again.");
@@ -3082,14 +3185,13 @@ function PreviewCallSection() {
   }
 
   return (
-    <div className={SECTION} data-testid="business-setup-preview-call">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6" data-testid="business-setup-preview-call">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className={SECTION_TITLE}>Talk to your agent</h3>
+          <h3 className={SECTION_TITLE}>Start browser test call</h3>
           <p className="mt-0.5 text-sm text-slate-500">
-            A live browser call — it answers with your business details, FAQs, and voice, exactly like the live agent.
-            If your workflow includes booking, it can create a clearly-marked test event on your calendar during this
-            call. SMS and email stay disabled.
+            Talk to your agent in the browser using your current configuration. SMS and email stay disabled in
+            test mode; booking may create a clearly marked test event on your connected calendar.
           </p>
         </div>
 
@@ -3116,7 +3218,7 @@ function PreviewCallSection() {
               type="button"
               data-testid="business-setup-preview-end"
               onClick={() => endPreview()}
-              className="btn rounded-full bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
+              className="btn rounded-xl bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
             >
               End call
             </button>
@@ -3126,7 +3228,7 @@ function PreviewCallSection() {
               data-testid="business-test-call-mute"
               aria-pressed={micMuted}
               onClick={toggleMute}
-              className={`btn rounded-full border px-4 py-2.5 text-sm font-bold ${micMuted
+              className={`btn rounded-xl border px-4 py-2.5 text-sm font-bold ${micMuted
                   ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
                   : "border-gray-200 bg-white text-slate-700 hover:border-amber-300"
                 }`}
@@ -3141,7 +3243,7 @@ function PreviewCallSection() {
               data-testid="business-setup-preview-start"
               disabled={state === "starting"}
               onClick={() => void startPreview()}
-              className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
+              className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
             >
               {state === "starting" ? "Connecting…" : state === "ended" ? "Call again" : "Start test call"}
             </button>
@@ -3152,7 +3254,7 @@ function PreviewCallSection() {
                 data-testid="business-test-call-reset"
                 disabled={state === "starting"}
                 onClick={resetPreview}
-                className="btn rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
+                className="btn rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
               >
                 Reset test
               </button>
@@ -3220,46 +3322,7 @@ function PreviewCallSection() {
   );
 }
 
-/* ------------------ Missed-call simulation (Test step) ------------------ */
-
-type SimulationStage = "idle" | "waiting" | "detected" | "generating" | "sent" | "failed";
-
-/** Text-back message built from the buyer's configured business name + tone. */
-function buildTextBackMessage(businessName: string, tone: string): string {
-  const name = businessName.trim() || "our office";
-
-  if (tone === "professional") {
-    return `Hello, this is ${name}. We're sorry we missed your call. Please reply to this message and a team member will follow up shortly to schedule your visit.`;
-  }
-
-  if (tone === "casual") {
-    return `Hey! Sorry we missed you at ${name} 🤙 Want to grab an appointment? Just reply YES and we'll sort it out!`;
-  }
-
-  return `Hi! Sorry we missed your call at ${name}. 😊 Want to book an appointment? Reply YES and we'll get you scheduled right away.`;
-}
-
-function businessInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  const initials = parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-  return initials || "AI";
-}
-
-function nowTimeLabel(): string {
-  return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-const SIMULATION_BADGES: Record<SimulationStage, { label: string; dot: string; text: string }> = {
-  idle: { label: "Idle", dot: "bg-slate-300", text: "text-slate-400" },
-  waiting: { label: "Listening", dot: "bg-amber-400", text: "text-amber-600" },
-  detected: { label: "Call detected", dot: "bg-green-500", text: "text-green-600" },
-  generating: { label: "Generating", dot: "bg-violet-500", text: "text-violet-600" },
-  sent: { label: "SMS delivered", dot: "bg-green-500", text: "text-green-600" },
-  failed: { label: "Failed", dot: "bg-red-500", text: "text-red-600" }
-};
+/* --------------------------- Test step helpers --------------------------- */
 
 const includesAny = (value: string, needles: string[]) => {
   return needles.some((needle) => value.includes(needle));
@@ -3306,344 +3369,59 @@ const getAnsweringLabels = (mode: string, listing?: any, assignedNumber?: string
     }
   }
 
-  const numLabel = assignedNumber ? ` ${assignedNumber}` : " your Triven number";
+  const numLabel = assignedNumber ?? "your Triven number";
 
   switch (channel) {
     case "sms":
       return {
         isVoice: false,
-        waiting: "Waiting for an incoming text…",
-        detected: "Text message received",
-        action: "Simulate an incoming SMS",
-        subtitle: `Send a text message to${numLabel} and watch the agent reply dynamically.`,
-        instruction1: `Send a text message to${numLabel} from your phone`,
-        instruction2: "Enter your message text",
-        instruction3: "Watch the live feed below update in real time"
+        usesNumber: true,
+        cta: { scheme: "sms:", label: "Text now" },
+        callTitle: "Text your number",
+        callHint: `Send a text to ${numLabel} from your phone. This is a real inbound message to your agent.`
       };
     case "whatsapp":
       return {
         isVoice: false,
-        waiting: "Waiting for a WhatsApp message…",
-        detected: "WhatsApp message received",
-        action: "Simulate a WhatsApp message",
-        subtitle: `Send a WhatsApp message to${numLabel} and watch the agent respond.`,
-        instruction1: `Send a WhatsApp message to${numLabel}`,
-        instruction2: "Verify that the message goes through",
-        instruction3: "Watch the live feed below update in real time"
+        usesNumber: true,
+        cta: null,
+        callTitle: "Message your number",
+        callHint: `Send a WhatsApp message to ${numLabel}. This is a real inbound message to your agent.`
       };
     case "email":
       return {
         isVoice: false,
-        waiting: "Waiting for an email…",
-        detected: "Email received",
-        action: "Simulate an email",
-        subtitle: "Send an email to your address and watch the agent respond.",
-        instruction1: "Send an email to your Triven email alias",
-        instruction2: "Verify email reception",
-        instruction3: "Watch the live feed below update in real time"
+        usesNumber: false,
+        cta: null,
+        callTitle: "Email your agent",
+        callHint: "Send an email to your Triven alias — a real inbound email to your agent."
       };
     case "voice":
       return {
         isVoice: true,
-        waiting: "Waiting for an inbound call…",
-        detected: "Inbound call detected",
-        action: "Simulate an inbound call",
-        subtitle: `Call${numLabel} and speak to your live agent, or simulate a call below.`,
-        instruction1: `Call${numLabel} from your personal phone`,
-        instruction2: "Let the call connect, and speak to the agent",
-        instruction3: "Watch the live feed update as you talk"
+        usesNumber: true,
+        cta: { scheme: "tel:", label: "Call now" },
+        callTitle: "Call your Triven number",
+        callHint: `Call ${numLabel} from your phone. Once deployed, this is a real call handled by your live agent.`
       };
     case "manual":
       return {
         isVoice: false,
-        waiting: "Waiting for a manual trigger…",
-        detected: "Manual trigger detected",
-        action: "Simulate a manual trigger",
-        subtitle: "Run a workflow trigger and watch the agent execute actions.",
-        instruction1: "Start a manual trigger run from the dashboard",
-        instruction2: "Verify trigger parameters",
-        instruction3: "Watch the live feed below update in real time"
+        usesNumber: false,
+        cta: null,
+        callTitle: "Trigger a run",
+        callHint: "Start a trigger run from the dashboard."
       };
     default:
       return {
         isVoice: true,
-        waiting: "Waiting for a missed call…",
-        detected: "Missed call detected",
-        action: "Simulate a missed call",
-        subtitle: `Call${numLabel} and hang up after 3 rings, then watch the agent respond in real time.`,
-        instruction1: `Call${numLabel} from your phone`,
-        instruction2: "Let it ring 3 times, then hang up",
-        instruction3: "Watch the live feed below light up"
+        usesNumber: true,
+        cta: { scheme: "tel:", label: "Call now" },
+        callTitle: "Call your Triven number",
+        callHint: `Call ${numLabel}, let it ring, then hang up. Once deployed, the agent texts the caller back for real.`
       };
   }
 };
-
-const SIMULATION_STAGE_ORDER: SimulationStage[] = ["idle", "waiting", "detected", "generating", "sent"];
-
-function MissedCallSimulationSection({
-  businessName,
-  tone,
-  answeringMode,
-  listing,
-  onOutcome
-}: {
-  businessName: string;
-  tone: string;
-  answeringMode: string;
-  listing?: any;
-  /** Reports the latest SMS test outcome to the step-level test summary. */
-  onOutcome?: (outcome: "sent" | "simulated" | "failed") => void;
-}) {
-  const [phone, setPhone] = useState("");
-  const [stage, setStage] = useState<SimulationStage>("idle");
-  const [error, setError] = useState("");
-  const [detectedAt, setDetectedAt] = useState("");
-  const [sentAt, setSentAt] = useState("");
-  const [result, setResult] = useState<TestSmsResult | null>(null);
-
-  const timersRef = useRef<number[]>([]);
-  const runningRef = useRef(false);
-
-  useEffect(() => {
-    return () => {
-      timersRef.current.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, []);
-
-  const message = buildTextBackMessage(businessName, tone);
-  const running = stage === "waiting" || stage === "detected" || stage === "generating";
-  const badge = SIMULATION_BADGES[stage];
-
-  function stageReached(target: SimulationStage): boolean {
-    if (stage === "failed") return target !== "sent";
-    return SIMULATION_STAGE_ORDER.indexOf(stage) >= SIMULATION_STAGE_ORDER.indexOf(target);
-  }
-
-  function schedule(fn: () => void, ms: number) {
-    timersRef.current.push(window.setTimeout(fn, ms));
-  }
-
-  async function runSimulation() {
-    const to = phone.trim();
-
-    if (!to) {
-      setError("Enter your mobile number to receive the test SMS.");
-      return;
-    }
-
-    if (!to.startsWith("+")) {
-      setError("Include the country code in E.164 format — e.g. +15551234567 for US numbers.");
-      return;
-    }
-
-    if (runningRef.current) return;
-    runningRef.current = true;
-
-    timersRef.current.forEach((timer) => window.clearTimeout(timer));
-    timersRef.current = [];
-
-    setError("");
-    setResult(null);
-    setSentAt("");
-    setDetectedAt("");
-    setStage("waiting");
-
-    schedule(() => {
-      setDetectedAt(nowTimeLabel());
-      setStage("detected");
-    }, 1300);
-
-    schedule(() => setStage("generating"), 2600);
-
-    const minPlaytime = new Promise((resolve) => schedule(() => resolve(null), 4200));
-    const [res] = await Promise.all([sendBusinessTestSms({ to, message }), minPlaytime]);
-
-    runningRef.current = false;
-
-    if (res.success && res.data) {
-      setResult(res.data);
-      setSentAt(nowTimeLabel());
-      setStage("sent");
-      onOutcome?.(res.data.simulated || res.data.testCredentials ? "simulated" : "sent");
-    } else {
-      setError(res.error ?? "Could not send the test SMS.");
-      setStage("failed");
-      onOutcome?.("failed");
-    }
-  }
-
-  const [testConfirmed, setTestConfirmed] = useState(false);
-  const labels = getAnsweringLabels(answeringMode, listing);
-
-  return (
-    <div className="mt-8 border-t border-slate-100 pt-6" data-testid="business-setup-simulate">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-700">Live agent feed</span>
-        <span
-          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${stage === "idle" ? "text-slate-400 bg-slate-50" : badge.text
-            }`}
-          data-testid="business-setup-simulate-badge"
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${badge.dot} ${running ? "animate-pulse" : ""}`} />
-          {badge.label}
-        </span>
-      </div>
-
-      {/* Live status feed container */}
-      {stage !== "idle" && (
-        <div className="rounded-xl border border-slate-100 bg-white divide-y divide-slate-50 overflow-hidden" id="feed">
-          {/* Waiting step */}
-          <div className="feed-item flex items-center gap-3 p-4 show">
-            <span className={`${stage === "waiting" ? "text-amber-400 dot-pulse" : "text-green-500"} w-2.5 h-2.5 rounded-full bg-current shrink-0`} />
-            <span className="text-sm text-slate-700 font-semibold">
-              {labels.waiting}
-            </span>
-          </div>
-
-          {/* Detected step */}
-          {stageReached("detected") && (
-            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-detected">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
-              <span className="flex-1 text-sm text-slate-700 font-semibold">
-                {labels.detected} from <strong className="font-mono">{phone.trim() || "unknown"}</strong>
-              </span>
-              <span className="font-mono text-xs text-slate-400">{detectedAt}</span>
-            </div>
-          )}
-
-          {/* Generating step */}
-          {stageReached("generating") && (
-            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-generating">
-              {stage === "generating" ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="h-4 w-4 shrink-0 spin text-violet-500">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-              ) : (
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-500" />
-              )}
-              <span className="flex-1 text-sm text-slate-700 font-semibold">
-                {stage === "generating" ? "AI generating a personalized response…" : "Personalized response generated"}
-              </span>
-            </div>
-          )}
-
-          {/* Sent / Delivery step */}
-          {stage === "sent" && (
-            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-sent">
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-green-500 text-[11px] font-bold text-white">✓</span>
-              <span className="flex-1 text-sm font-semibold text-green-700">SMS sent successfully</span>
-              <span className="font-mono text-xs text-slate-400">{sentAt}</span>
-            </div>
-          )}
-
-          {/* Failed step */}
-          {stage === "failed" && (
-            <div className="feed-item show flex items-center gap-3 p-4" data-testid="business-setup-simulate-failed">
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">✕</span>
-              <span className="flex-1 text-sm font-semibold text-red-600">SMS could not be sent</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* SMS Preview Mockup */}
-      {stage === "sent" && result && (
-        <div className="mt-6 flex flex-col items-center" data-testid="business-setup-simulate-preview">
-          <div className="phone-frame sms-ring rounded-[2rem] w-64 p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-amber-500 text-xs font-bold text-white">
-                {businessInitials(businessName)}
-              </span>
-              <div className="leading-tight">
-                <span className="block text-xs font-semibold text-slate-800">{businessName.trim() || "Your business"}</span>
-                <span className="block text-[10px] text-slate-400">Text message · now</span>
-              </div>
-            </div>
-
-            <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] leading-snug text-slate-700">
-              {message}
-            </div>
-          </div>
-          <p className="mt-3 text-center text-xs text-slate-400" data-testid="business-setup-simulate-result">
-            {result.simulated
-              ? "Simulated — nothing was delivered."
-              : result.testCredentials
-                ? "Accepted in test mode — nothing was delivered."
-                : `Really sent — check ${result.to}.`}
-            {result.from ? ` Sender: ${result.from}.` : ""}
-          </p>
-        </div>
-      )}
-
-      {/* Input phone & simulate controls */}
-      <div className="mt-6 flex flex-col items-center gap-4">
-        {!running && stage !== "sent" && (
-          <div className="w-full max-w-sm">
-            <label htmlFor="test-phone" className="block text-xs font-semibold text-slate-500 mb-1.5 text-center uppercase tracking-wider">
-              Enter your mobile number to receive the test SMS
-            </label>
-            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 transition-all focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-500/10">
-              <input
-                id="test-phone"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+15551234567"
-                data-testid="business-setup-simulate-phone"
-                className="flex-1 min-w-0 px-3 py-2.5 text-sm bg-transparent outline-none text-slate-900 placeholder-slate-400"
-              />
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1.5 text-center font-semibold">Include country code — e.164 format (e.g. +15551234567)</p>
-          </div>
-        )}
-
-        <div className="flex flex-col items-center gap-3 w-full">
-          <button
-            type="button"
-            data-testid="business-setup-simulate-run"
-            disabled={running}
-            onClick={() => void runSimulation()}
-            className="btn bg-amber-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-amber-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-            </svg>
-            <span>{running ? "Simulating…" : stage === "sent" || stage === "failed" ? "Simulate again" : labels.action}</span>
-          </button>
-
-          {stage === "sent" && !testConfirmed && (
-            <button
-              type="button"
-              data-testid="business-test-sms-received-confirm"
-              onClick={() => setTestConfirmed(true)}
-              className="btn bg-green-500 text-white rounded-xl px-6 py-3 font-semibold hover:bg-green-600 inline-flex items-center gap-2 w-full sm:w-auto justify-center transition-all"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>I received the text</span>
-            </button>
-          )}
-
-          {testConfirmed && (
-            <p className="text-sm font-semibold text-green-600 flex items-center gap-2">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Nice — your agent works. You&rsquo;re ready to go live.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {error ? (
-        <p className="mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600 text-center" data-testid="business-setup-simulate-error">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 /* -------------------------------- Test step -------------------------------- */
 
@@ -3652,10 +3430,10 @@ function StepTest({
   showCallTest,
   deployedLive,
   assignedNumber,
-  businessName,
-  tone,
   testing,
   testResult,
+  browserOutcome = null,
+  onBrowserOutcome,
   onTestCallRouting,
   answeringMode,
   listing,
@@ -3673,10 +3451,11 @@ function StepTest({
   showCallTest: boolean;
   deployedLive: boolean;
   assignedNumber: string | null;
-  businessName: string;
-  tone: string;
   testing: boolean;
   testResult: CallRoutingResult | null;
+  /** Browser test-call outcome held at page level (feeds the Go-live checklist). */
+  browserOutcome?: "passed" | "failed" | null;
+  onBrowserOutcome?: (outcome: "passed" | "failed") => void;
   onTestCallRouting: () => void;
   answeringMode: string;
   listing?: any;
@@ -3693,15 +3472,12 @@ function StepTest({
 }) {
   const labels = getAnsweringLabels(answeringMode, listing, assignedNumber);
 
-  // Step-level test summary state, fed by the chat test + SMS simulation.
+  // Step-level test summary state, fed by the chat test.
   const [chatSummary, setChatSummary] = useState<BusinessChatTestResult | null>(null);
   const [calendarOutcome, setCalendarOutcome] = useState<"created" | "simulated" | "failed" | null>(null);
-  const [smsOutcome, setSmsOutcome] = useState<"sent" | "simulated" | "failed" | null>(null);
 
-  // Knowledge documents the test agent can draw on (uploaded in the Setup step).
+  // Knowledge documents the test agent can draw on (uploaded in Configure).
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
-  // Structured business facts (address) — shown so the buyer knows what the
-  // test agent will state to callers asking where the business is.
   const [businessFacts, setBusinessFacts] = useState<BusinessFactsData | null>(null);
 
   useEffect(() => {
@@ -3717,8 +3493,6 @@ function StepTest({
     };
   }, []);
 
-  // Only verified-ready files count — a PROCESSED record whose stored knowledge
-  // is missing (ready=false) must not be presented as loaded.
   const readyKnowledge = knowledgeFiles.filter((file) => file.ready);
   const knowledgeSectionCount = readyKnowledge.reduce((sum, file) => sum + file.actualChunkCount, 0);
 
@@ -3740,42 +3514,80 @@ function StepTest({
 
   const calendarSummary =
     calendarOutcome === "created"
-      ? { label: "Created", pill: "bg-green-100 text-green-700" }
+      ? { label: "Passed", pill: "bg-green-100 text-green-700" }
       : calendarOutcome === "simulated"
         ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
         : calendarOutcome === "failed"
           ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
-          : { label: "Not tested", pill: "bg-slate-100 text-slate-500" };
+          : { label: "Not run", pill: "bg-slate-100 text-slate-500" };
 
-  const smsSummary =
-    smsOutcome === "sent"
-      ? { label: "Sent", pill: "bg-green-100 text-green-700" }
-      : smsOutcome === "simulated"
-        ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
-        : smsOutcome === "failed"
-          ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
-          : { label: "Not tested", pill: "bg-slate-100 text-slate-500" };
+  const browserSummary =
+    browserOutcome === "passed"
+      ? { label: "Passed", pill: "bg-green-100 text-green-700" }
+      : browserOutcome === "failed"
+        ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+        : { label: "Not run", pill: "bg-slate-100 text-slate-500" };
+
+  const routingSummary = testResult
+    ? testResult.readyForCall
+      ? { label: "Passed", pill: "bg-green-100 text-green-700" }
+      : { label: "Failed", pill: "bg-rose-100 text-rose-700" }
+    : { label: "Not run", pill: "bg-slate-100 text-slate-500" };
 
   return (
     <div className="space-y-6">
-      {/* Icon */}
-      <div className="w-14 h-14 bg-green-50 rounded-2xl grid place-items-center text-green-600 mb-5" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className="w-6 h-6 ml-0.5">
-          <polygon points="6 3 20 12 6 21 6 3" />
-        </svg>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Test your agent</h2>
+        <p className="mt-1.5 text-sm text-slate-500">
+          Verify conversations, booking, knowledge, and routing before going live.
+        </p>
       </div>
 
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Let&rsquo;s test it live</h2>
-      <p className="text-slate-500 text-base mt-2 max-w-md">
-        {labels.subtitle}
-      </p>
-      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
-        ~60 seconds
-      </span>
+      {/* Primary tests — a live browser call and a real call/text to the number. */}
+      {showPreview ? <PreviewCallSection onOutcome={onBrowserOutcome} /> : null}
+
+      {showCallTest && labels.usesNumber ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 sm:p-6" data-testid="business-setup-call-number">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className={SECTION_TITLE}>{labels.callTitle}</h3>
+              <p className="mt-0.5 text-sm text-slate-500">{labels.callHint}</p>
+              {assignedNumber ? (
+                <p
+                  className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
+                  data-testid="business-setup-call-number-value"
+                >
+                  {assignedNumber}
+                </p>
+              ) : (
+                <p
+                  className="mt-3 text-sm font-semibold text-amber-700"
+                  data-testid="business-setup-call-number-missing"
+                >
+                  No number yet — assign one in the Connect step.
+                </p>
+              )}
+            </div>
+            {assignedNumber && labels.cta ? (
+              <a
+                href={`${labels.cta.scheme}${assignedNumber.replace(/[^\d+]/g, "")}`}
+                data-testid="business-setup-call-number-dial"
+                className="btn shrink-0 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
+              >
+                {labels.cta.label}
+              </a>
+            ) : null}
+          </div>
+          {labels.isVoice && !deployedLive ? (
+            <p
+              className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800"
+              data-testid="business-setup-test-predeploy-note"
+            >
+              Not live yet — deploy in the Go live step, then call to test end to end.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Test details — what this test run is wired to. Rows render only when
           the setup actually has the data; nothing here is a placeholder. */}
@@ -3831,7 +3643,7 @@ function StepTest({
               </dd>
             ) : (
               <dd className="min-w-0 truncate text-right text-slate-400">
-                Not configured — add it in the Setup step
+                Not configured — edit in Configure
               </dd>
             )}
           </div>
@@ -3866,13 +3678,19 @@ function StepTest({
               </p>
             </>
           ) : (
-            <span className="text-slate-400">Knowledge loaded: none — upload documents in the Setup step</span>
+            <span className="text-slate-400">Knowledge loaded: none — add documents in Configure</span>
           )}
         </div>
 
+        {showCallTest && labels.isVoice ? (
+          <div className="mt-3 border-t border-slate-100 pt-3" data-testid="business-setup-test-hours">
+            <BusinessHoursSummary testIdPrefix="business-setup-test-hours" />
+          </div>
+        ) : null}
+
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-slate-400">
-            Everything on this page runs in Business Test mode — nothing reaches your customers.
+            Browser and chat tests run in Business Test mode.
           </p>
           {onEditConfigure ? (
             <button
@@ -3881,58 +3699,11 @@ function StepTest({
               onClick={() => onEditConfigure("hours-availability")}
               className="text-xs font-semibold text-amber-600 underline hover:text-amber-700"
             >
-              Edit hours &amp; setup
+              Edit in Configure
             </button>
           ) : null}
         </div>
       </div>
-
-      {/* Numbered instructions */}
-      {showCallTest ? (
-        <div className="mt-8 bg-slate-50 rounded-xl p-5 sm:p-6 border border-slate-100">
-          <ol className="space-y-3.5">
-            <li className="flex items-center gap-3">
-              <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">1</span>
-              <span className="text-sm text-slate-700">
-                {labels.instruction1}
-              </span>
-            </li>
-            <li className="flex items-center gap-3">
-              <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">2</span>
-              <span className="text-sm text-slate-700">{labels.instruction2}</span>
-            </li>
-            <li className="flex items-center gap-3">
-              <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-sm font-bold grid place-items-center shrink-0 font-sans">3</span>
-              <span className="text-sm text-slate-700">{labels.instruction3}</span>
-            </li>
-          </ol>
-        </div>
-      ) : null}
-
-      {/* Pre-deploy note */}
-      {showCallTest && labels.isVoice && !deployedLive ? (
-        <div
-          className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-          data-testid="business-setup-test-predeploy-note"
-        >
-          Your agent is not live yet, so some checks below pass only after you deploy in the{" "}
-          <span className="font-semibold">Go live</span> step. Run the check now to catch setup issues early, then
-          re-test after deploying.
-        </div>
-      ) : null}
-
-      {showCallTest ? (
-        <MissedCallSimulationSection
-          businessName={businessName}
-          tone={tone}
-          answeringMode={answeringMode}
-          listing={listing}
-          onOutcome={setSmsOutcome}
-        />
-      ) : null}
-
-
-      {showPreview ? <PreviewCallSection /> : null}
 
       {showCalendarTest ? (
         <BusinessCalendarTestSection
@@ -3943,18 +3714,12 @@ function StepTest({
       ) : null}
 
       {showCallTest && labels.isVoice ? (
-        <>
-          {/* Testing summary: the schedule your test conversations answer from. */}
-          <div className={SECTION} data-testid="business-setup-test-hours">
-            <BusinessHoursSummary testIdPrefix="business-setup-test-hours" />
-          </div>
-
-          <div className={SECTION} data-testid="business-setup-test-routing">
-          <div className="flex items-center justify-between gap-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-test-routing">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className={SECTION_TITLE}>Test call routing</h3>
+              <h3 className={SECTION_TITLE}>Call routing check</h3>
               <p className="mt-0.5 text-sm text-slate-500">
-                Confirm an inbound call to your Triven number will reach this deployed agent.
+                Confirms calls to your Triven number reach this agent.
               </p>
             </div>
 
@@ -3963,9 +3728,9 @@ function StepTest({
               data-testid="business-setup-test-routing-run"
               disabled={testing}
               onClick={onTestCallRouting}
-              className="btn shrink-0 rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
+              className="btn shrink-0 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
             >
-              {testing ? "Testing…" : "Test call routing"}
+              {testing ? "Testing…" : "Run test"}
             </button>
           </div>
 
@@ -3978,83 +3743,69 @@ function StepTest({
               >
                 {testResult.readyForCall
                   ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
-                  : "Not ready yet — resolve the failing checks below, then re-test."}
+                  : "Not ready yet — resolve the failing checks, then re-test."}
               </div>
 
-              <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
-                {testResult.checks.map((check) => (
-                  <li
-                    key={check.key}
-                    data-testid={`business-setup-test-routing-check-${check.key}`}
-                    className="flex items-center gap-2.5 text-sm"
-                  >
-                    <span
-                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
-                        }`}
+              <details className="mt-3">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
+                  View technical details
+                </summary>
+                <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
+                  {testResult.checks.map((check) => (
+                    <li
+                      key={check.key}
+                      data-testid={`business-setup-test-routing-check-${check.key}`}
+                      className="flex items-center gap-2.5 text-sm"
                     >
-                      {check.ok ? "✓" : "✕"}
-                    </span>
+                      <span
+                        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
+                          }`}
+                      >
+                        {check.ok ? "✓" : "✕"}
+                      </span>
 
-                    <span className="min-w-0">
-                      <span className="block font-semibold text-slate-800">{check.label}</span>
+                      <span className="min-w-0">
+                        <span className="block font-semibold text-slate-800">{check.label}</span>
 
-                      {check.message ? (
-                        <span className="block break-all text-xs text-slate-400">{check.message}</span>
-                      ) : null}
-                    </span>
+                        {check.message ? (
+                          <span className="block break-all text-xs text-slate-400">{check.message}</span>
+                        ) : null}
+                      </span>
 
-                    <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
-                      {check.ok ? "Pass" : "Fail"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                      <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
+                        {check.ok ? "Pass" : "Fail"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             </div>
           ) : null}
-          </div>
-        </>
+        </div>
       ) : null}
 
       {/* Test summary — a running record of what this step verified. */}
-      <div className={SECTION} data-testid="business-test-summary">
+      <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-test-summary">
         <h3 className={SECTION_TITLE}>Test summary</h3>
-        <p className="mt-0.5 text-sm text-slate-500">What you&rsquo;ve verified so far in this test session.</p>
 
         <dl className="mt-4 space-y-2.5">
-          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-mode">
-            <dt className="text-slate-500">Execution mode</dt>
-            <dd className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-700">
-              Business test
-            </dd>
-          </div>
-
-          {chatSummary?.testSessionId ? (
-            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-session">
-              <dt className="text-slate-500">Test session</dt>
-              <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-700">
-                {chatSummary.testSessionId}
+          {showPreview ? (
+            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-browser">
+              <dt className="text-slate-500">Browser test</dt>
+              <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${browserSummary.pill}`}>
+                {browserSummary.label}
               </dd>
             </div>
           ) : null}
 
-          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-nodes">
-            <dt className="text-slate-500">Workflow nodes</dt>
-            <dd className="text-right font-semibold text-slate-800">
-              {summaryNodes.length > 0 ? (
-                <>
-                  <span className="text-green-700">{nodeCounts.completed} completed</span>
-                  <span className="text-slate-400"> · </span>
-                  <span className="text-slate-600">{nodeCounts.skipped} skipped</span>
-                  <span className="text-slate-400"> · </span>
-                  <span className={nodeCounts.failed > 0 ? "text-rose-600" : "text-slate-600"}>
-                    {nodeCounts.failed} failed
-                  </span>
-                </>
-              ) : (
-                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Not tested</span>
-              )}
-            </dd>
-          </div>
+          {showCallTest && labels.isVoice ? (
+            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-routing">
+              <dt className="text-slate-500">Phone routing</dt>
+              <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${routingSummary.pill}`}>
+                {routingSummary.label}
+              </dd>
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-calendar">
             <dt className="text-slate-500">Calendar booking</dt>
@@ -4063,21 +3814,60 @@ function StepTest({
             </dd>
           </div>
 
-          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-sms">
-            <dt className="text-slate-500">Text-back SMS</dt>
-            <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${smsSummary.pill}`}>
-              {smsSummary.label}
-            </dd>
-          </div>
-
           <div
             className="flex items-center justify-between gap-4 border-t border-slate-100 pt-2.5 text-sm"
             data-testid="business-test-summary-side-effects"
           >
-            <dt className="text-slate-500">Production side effects</dt>
-            <dd className="font-semibold text-slate-800">None</dd>
+            <dt className="text-slate-500">Customer messages</dt>
+            <dd className="font-semibold text-slate-800">Disabled in test mode</dd>
+          </div>
+          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-calendar-effects">
+            <dt className="text-slate-500">Calendar</dt>
+            <dd className="font-semibold text-slate-800">Test events may be created</dd>
           </div>
         </dl>
+
+        <details className="mt-3 border-t border-slate-100 pt-3">
+          <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
+            View technical details
+          </summary>
+          <dl className="mt-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-mode">
+              <dt className="text-slate-500">Execution mode</dt>
+              <dd className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-700">
+                Business test
+              </dd>
+            </div>
+
+            {chatSummary?.testSessionId ? (
+              <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-session">
+                <dt className="text-slate-500">Test session</dt>
+                <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-700">
+                  {chatSummary.testSessionId}
+                </dd>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-nodes">
+              <dt className="text-slate-500">Workflow nodes</dt>
+              <dd className="text-right font-semibold text-slate-800">
+                {summaryNodes.length > 0 ? (
+                  <>
+                    <span className="text-green-700">{nodeCounts.completed} completed</span>
+                    <span className="text-slate-400"> · </span>
+                    <span className="text-slate-600">{nodeCounts.skipped} skipped</span>
+                    <span className="text-slate-400"> · </span>
+                    <span className={nodeCounts.failed > 0 ? "text-rose-600" : "text-slate-600"}>
+                      {nodeCounts.failed} failed
+                    </span>
+                  </>
+                ) : (
+                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Not run</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </details>
       </div>
 
     </div>
@@ -4085,6 +3875,20 @@ function StepTest({
 }
 
 /* ------------------------------ Go live step ------------------------------ */
+
+/** Where each readiness item is fixed: the Connect step or a Configure section. */
+const CHECKLIST_TARGETS: Record<string, { kind: "connect" } | { kind: "configure"; section: string }> = {
+  business_profile: { kind: "configure", section: "business-profile" },
+  agent_setup: { kind: "configure", section: "agent-behavior" },
+  voice: { kind: "configure", section: "agent-identity" },
+  booking_rules: { kind: "configure", section: "hours-availability" },
+  business_hours: { kind: "configure", section: "hours-availability" },
+  google_calendar: { kind: "connect" },
+  gmail: { kind: "connect" },
+  phone_routing: { kind: "connect" },
+  sms_sender: { kind: "connect" },
+  mail_setup: { kind: "connect" }
+};
 
 function StepGoLive({
   checklist,
@@ -4096,7 +3900,18 @@ function StepGoLive({
   coverageKind = "always",
   timeZone = "",
   calendarConnected = false,
-  onEditConfigure
+  calendarRequired = false,
+  browserTestOutcome = null,
+  routingReady = null,
+  businessName = "",
+  businessType = "",
+  assistantName = "",
+  voiceLabel = "",
+  tone = "",
+  answeringModeLabel = "",
+  apptFields,
+  onEditConfigure,
+  onEditConnect
 }: {
   checklist: ChecklistRow[];
   blockers: string[];
@@ -4108,7 +3923,18 @@ function StepGoLive({
   coverageKind?: string;
   timeZone?: string;
   calendarConnected?: boolean;
+  calendarRequired?: boolean;
+  browserTestOutcome?: "passed" | "failed" | null;
+  routingReady?: boolean | null;
+  businessName?: string;
+  businessType?: string;
+  assistantName?: string;
+  voiceLabel?: string;
+  tone?: string;
+  answeringModeLabel?: string;
+  apptFields?: Record<ApptNumberField, number>;
   onEditConfigure?: (sectionId: string) => void;
+  onEditConnect?: () => void;
 }) {
   // Read-only review data — same sources the Test step shows.
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
@@ -4128,126 +3954,266 @@ function StepGoLive({
       cancelled = true;
     };
   }, []);
+
+  const testRun = browserTestOutcome !== null || routingReady !== null;
+  const testPassed = browserTestOutcome === "passed" || routingReady === true;
+
+  function editTarget(key: string) {
+    const target = CHECKLIST_TARGETS[key];
+    if (!target) return undefined;
+    if (target.kind === "connect") return onEditConnect;
+    return onEditConfigure ? () => onEditConfigure(target.section) : undefined;
+  }
+
+  const summaryRow = "flex items-baseline justify-between gap-4 text-sm";
+
   return (
     <div className="space-y-6">
-      {/* Icon */}
-      <div className="w-14 h-14 bg-amber-50 rounded-2xl grid place-items-center text-amber-600 mb-5" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Go live</h2>
+        <p className="mt-1.5 text-sm text-slate-500">
+          Your agent will begin handling calls and messages using this configuration.
+        </p>
       </div>
 
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Go live</h2>
-      <p className="text-slate-500 text-base mt-2 max-w-md">
-        Deploy builds your live assistant with your voice, timezone, and instructions, and routes your Triven number
-        {assignedNumber ? <span className="font-mono font-bold text-slate-700"> {assignedNumber}</span> : null} to it.
-      </p>
-      <span className="inline-flex items-center gap-1 text-xs text-slate-400 mt-3 font-semibold mb-6">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
-        ~30 seconds
-      </span>
-
-      <div className={SECTION}>
-        {blockers.length > 0 ? (
-          <div data-testid="business-setup-blockers" className="rounded-xl bg-amber-50 border border-amber-100 p-4 text-sm text-slate-700">
-            <p className="font-semibold text-slate-800">Complete these before you can deploy live:</p>
-
-            <ul className="mt-2 list-disc pl-5 space-y-1">
-              {blockers.map((blocker) => (
-                <li key={blocker} data-testid="business-setup-blocker">
-                  {blocker}
-                </li>
-              ))}
-            </ul>
+      {/* Readiness checklist — every failed requirement links to its fix. */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-golive-checklist">
+        {readyToDeploy ? (
+          <div
+            className="rounded-xl bg-green-50 border border-green-100 px-4 py-3 text-sm font-semibold text-green-800"
+            data-testid="business-setup-ready"
+          >
+            All set — you can go live.
           </div>
         ) : (
-          <div className="rounded-xl bg-green-50 border border-green-100 p-4 text-sm font-semibold text-green-800" data-testid="business-setup-ready">
-            All set — you can deploy your live agent.
+          <div
+            className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm font-semibold text-amber-800"
+            data-testid="business-setup-blockers"
+          >
+            Complete the required items below before going live.
           </div>
         )}
 
-        {/* Non-blocking nudge: unconfirmed appointment hours (sits just above the deploy button) */}
+        <ul className="mt-3 divide-y divide-gray-100">
+          {checklist.map((row) => {
+            const edit = editTarget(row.key);
+            return (
+              <li
+                key={row.key}
+                className="flex items-start gap-3 py-2.5"
+                data-testid={`business-setup-golive-check-${row.key}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                    row.complete
+                      ? "bg-green-100 text-green-600"
+                      : row.required
+                        ? "bg-amber-100 text-amber-600"
+                        : "bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  {row.complete ? "✓" : "•"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-semibold text-slate-800">{row.label}</span>
+                    <span className={`text-xs font-semibold ${row.complete ? "text-green-600" : row.required ? "text-amber-600" : "text-slate-400"}`}>
+                      {row.complete ? "Ready" : row.required ? "Required" : "Recommended"}
+                    </span>
+                  </span>
+                  {!row.complete && row.blocker ? (
+                    <span className="mt-0.5 block text-xs text-slate-500" data-testid="business-setup-blocker">
+                      {row.blocker}
+                    </span>
+                  ) : null}
+                </span>
+                {!row.complete && edit ? (
+                  <button
+                    type="button"
+                    onClick={edit}
+                    data-testid={`business-setup-golive-fix-${row.key}`}
+                    className="shrink-0 text-xs font-semibold text-amber-600 underline hover:text-amber-700"
+                  >
+                    Edit
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+
+          {/* Testing is recommended, never blocking. */}
+          <li className="flex items-start gap-3 py-2.5" data-testid="business-setup-golive-check-test">
+            <span
+              aria-hidden="true"
+              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                testPassed ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {testPassed ? "✓" : "•"}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-semibold text-slate-800">Test completed</span>
+                <span className={`text-xs font-semibold ${testPassed ? "text-green-600" : "text-slate-400"}`}>
+                  {testPassed ? "Ready" : testRun ? "Run again" : "Recommended"}
+                </span>
+              </span>
+            </span>
+          </li>
+        </ul>
+
         {apptNeedsConfirmation ? (
           <p
-            className="mt-3 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-700"
+            className="mt-2 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-700"
             data-testid="business-setup-appt-golive-note"
           >
-            Review and confirm your appointment hours in the Configure step so callers are offered the right times.
+            Review and confirm your booking rules in Configure so callers are offered the right times.
           </p>
         ) : null}
+      </div>
 
-        {/* Go-live review — the exact configuration the live agent will use.
-            Read-only on purpose: the Edit link returns to Configure. */}
-        <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4" data-testid="business-setup-golive-review">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Configuration review</p>
-            {onEditConfigure ? (
-              <button
-                type="button"
-                data-testid="business-setup-golive-edit"
-                onClick={() => onEditConfigure("hours-availability")}
-                className="text-xs font-semibold text-amber-600 underline hover:text-amber-700"
-              >
-                Edit in Configure
-              </button>
-            ) : null}
-          </div>
+      {/* Final summary — the exact configuration the live agent will use.
+          Read-only on purpose: the Edit link returns to Configure. */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-golive-review">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Configuration review</p>
+          {onEditConfigure ? (
+            <button
+              type="button"
+              data-testid="business-setup-golive-edit"
+              onClick={() => onEditConfigure("hours-availability")}
+              className="text-xs font-semibold text-amber-600 underline hover:text-amber-700"
+            >
+              Edit in Configure
+            </button>
+          ) : null}
+        </div>
 
-          <div className="mt-3">
-            <BusinessHoursSummary testIdPrefix="business-setup-golive-hours" />
-          </div>
-
-          <dl className="mt-3 space-y-2 border-t border-gray-100 pt-3">
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-appt-source">
-              <dt className="shrink-0 text-slate-500">Appointment Hours</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                {apptUseBusinessHours ? "Follow Business Hours" : "Custom Appointment Hours"}
-              </dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-ai-coverage">
-              <dt className="shrink-0 text-slate-500">AI Call Coverage</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                {coverageKind === "always"
-                  ? "Answers 24/7"
-                  : coverageKind === "business_hours"
-                    ? "During Business Hours"
-                    : "Custom answering schedule"}
-              </dd>
-            </div>
-            {timeZone.trim() ? (
-              <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-timezone">
-                <dt className="shrink-0 text-slate-500">Timezone</dt>
-                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-phone">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Phone &amp; routing</p>
+            <dl className="mt-2 space-y-1.5">
+              <div className={summaryRow}>
+                <dt className="shrink-0 text-slate-500">Number</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                  {assignedNumber ?? "Not assigned"}
+                </dd>
               </div>
-            ) : null}
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-calendar">
-              <dt className="shrink-0 text-slate-500">Calendar</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                {calendarConnected ? "Google Calendar connected" : "Not connected"}
-              </dd>
+              {answeringModeLabel ? (
+                <div className={summaryRow}>
+                  <dt className="shrink-0 text-slate-500">Routing</dt>
+                  <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{answeringModeLabel}</dd>
+                </div>
+              ) : null}
+              <div className={summaryRow} data-testid="business-setup-golive-ai-coverage">
+                <dt className="shrink-0 text-slate-500">AI Call Coverage</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                  {coverageKind === "always"
+                    ? "Answers 24/7"
+                    : coverageKind === "business_hours"
+                      ? "During Business Hours"
+                      : "Custom answering schedule"}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-identity">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Agent identity</p>
+            <dl className="mt-2 space-y-1.5">
+              <div className={summaryRow}>
+                <dt className="shrink-0 text-slate-500">Name</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{assistantName || "—"}</dd>
+              </div>
+              <div className={summaryRow}>
+                <dt className="shrink-0 text-slate-500">Voice</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{voiceLabel || "—"}</dd>
+              </div>
+              <div className={summaryRow}>
+                <dt className="shrink-0 text-slate-500">Tone</dt>
+                <dd className="min-w-0 truncate text-right font-semibold capitalize text-slate-800">{tone || "—"}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-business">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Business &amp; timezone</p>
+            <dl className="mt-2 space-y-1.5">
+              <div className={summaryRow}>
+                <dt className="shrink-0 text-slate-500">Business</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                  {businessName ? `${businessName}${businessType ? ` · ${businessType}` : ""}` : "—"}
+                </dd>
+              </div>
+              {timeZone.trim() ? (
+                <div className={summaryRow} data-testid="business-setup-golive-timezone">
+                  <dt className="shrink-0 text-slate-500">Timezone</dt>
+                  <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
+                </div>
+              ) : null}
+              <div className={summaryRow} data-testid="business-setup-golive-address">
+                <dt className="shrink-0 text-slate-500">Address</dt>
+                {facts?.addressFormatted ? (
+                  <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{facts.addressFormatted}</dd>
+                ) : (
+                  <dd className="min-w-0 truncate text-right text-slate-400">Not configured</dd>
+                )}
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-hours">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Hours &amp; booking rules</p>
+            <div className="mt-2">
+              <BusinessHoursSummary testIdPrefix="business-setup-golive-hours" />
             </div>
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-address">
-              <dt className="shrink-0 text-slate-500">Business address</dt>
-              {facts?.addressFormatted ? (
-                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{facts.addressFormatted}</dd>
-              ) : (
-                <dd className="min-w-0 truncate text-right text-slate-400">Not configured</dd>
-              )}
-            </div>
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-setup-golive-knowledge">
-              <dt className="shrink-0 text-slate-500">Knowledge</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                {readyDocs === null
-                  ? "—"
-                  : readyDocs > 0
-                    ? `${readyDocs} document${readyDocs === 1 ? "" : "s"} ready`
-                    : "No documents (FAQs and business info still apply)"}
-              </dd>
-            </div>
-          </dl>
+            <dl className="mt-2 space-y-1.5 border-t border-gray-100 pt-2">
+              <div className={summaryRow} data-testid="business-setup-golive-appt-source">
+                <dt className="shrink-0 text-slate-500">Appointment Hours</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                  {apptUseBusinessHours ? "Follow Business Hours" : "Custom Appointment Hours"}
+                </dd>
+              </div>
+              {apptFields ? (
+                <div className={summaryRow} data-testid="business-setup-golive-booking-rules">
+                  <dt className="shrink-0 text-slate-500">Booking rules</dt>
+                  <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                    {apptFields.defaultDurationMinutes} min + {apptFields.bufferMinutes} min buffer · every{" "}
+                    {apptFields.slotIntervalMinutes} min
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-calendar">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Calendar</p>
+            <dl className="mt-2 space-y-1.5">
+              <div className={summaryRow} data-testid="business-setup-golive-calendar">
+                <dt className="shrink-0 text-slate-500">Google Calendar</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                  {calendarConnected ? "Connected" : calendarRequired ? "Not connected" : "Not connected (optional)"}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-knowledge">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Knowledge</p>
+            <dl className="mt-2 space-y-1.5">
+              <div className={summaryRow} data-testid="business-setup-golive-knowledge">
+                <dt className="shrink-0 text-slate-500">Documents</dt>
+                <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                  {readyDocs === null
+                    ? "—"
+                    : readyDocs > 0
+                      ? `${readyDocs} document${readyDocs === 1 ? "" : "s"} ready`
+                      : "No documents (FAQs still apply)"}
+                </dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </div>
     </div>
@@ -4359,13 +4325,12 @@ function BusinessCalendarTestSection({
   };
 
   return (
-    <div className={SECTION} data-testid="business-setup-calendar-test">
-      <div className="flex items-center justify-between gap-3">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-calendar-test">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className={SECTION_TITLE}>Test appointment booking</h3>
           <p className="mt-0.5 text-sm text-slate-500">
-            Chat with your agent and book a test appointment. It creates a clearly-marked test event on your connected
-            calendar — never a real customer booking.
+            Chat with your agent to book a clearly-marked test event on your calendar.
           </p>
         </div>
         <span
