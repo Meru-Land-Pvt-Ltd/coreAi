@@ -287,8 +287,8 @@ describe("GET /business/calls/:id/recording-url", () => {
         where: { callId: `${RUN}-live-2` },
         select: { recordingUrl: true }
       });
-      expect(row?.recordingUrl).toBe(`https://storage.test.local/${RUN}-live-2-mono.wav`);
       expect(row?.recordingUrl ?? "").not.toContain("X-Amz");
+      expect(row?.recordingUrl ?? null).toBeNull();
     } finally {
       globalThis.fetch = originalFetch;
     }

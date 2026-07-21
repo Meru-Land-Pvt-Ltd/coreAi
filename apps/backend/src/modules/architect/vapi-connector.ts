@@ -160,6 +160,8 @@ export function extractCallRecordingUrls(payload: Record<string, unknown>): stri
       if (
         /^https:\/\//i.test(url) &&
         /record|artifact|\.wav(?:$|\?)|\.mp3(?:$|\?)/i.test(`${path} ${url}`) &&
+        // Artifacts also carry non-audio files — never offer those for playback.
+        !/transcript|pcap|video/i.test(`${path} ${url}`) &&
         !urls.includes(url)
       ) {
         urls.push(url);
