@@ -1,7 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+
+// The recording-url route consults Vapi for fresh presigned URLs — mock ONLY
+// that lookup (real Vapi is unreachable in tests); everything else stays real.
+vi.mock("../architect/vapi-connector", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../architect/vapi-connector")>();
+  return { ...actual, fetchVapiCallById: vi.fn().mockResolvedValue(null) };
+});
+
 import { prisma } from "../../lib/prisma";
 import { createAuthToken } from "../../lib/jwt";
+import { fetchVapiCallById } from "../architect/vapi-connector";
 import { businessRoutes } from "./routes";
 import { resolvePrimaryBusinessId } from "./primary-business";
 
@@ -221,6 +230,65 @@ describe("GET /business/calls/:id/recording-url", () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       expect(missing.status).toBe(404);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }, 15000);
+
+  it("probes presigned candidates first, limits AFTER sorting, and never stores signed query params", async () => {
+    if (!dbAvailable) return;
+
+    const presigned = `https://storage.test.local/${RUN}-live-2-mono.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key&X-Amz-Signature=sig123`;
+    const bare = Array.from({ length: 12 }, (_, index) => `https://storage.test.local/${RUN}-live-2-alt-${index}.wav`);
+
+    // Row with NO stored URL — the endpoint must seed it query-stripped.
+    await prisma.vapiCall.create({
+      data: {
+        businessId: phoneBusinessId,
+        installedAgentId: agentId,
+        callId: `${RUN}-live-2`,
+        customerPhone: "+15550140003",
+        executionMode: "LIVE"
+      }
+    });
+
+    // Presigned LAST of 13 raw candidates: only sort-before-slice keeps it.
+    vi.mocked(fetchVapiCallById).mockResolvedValueOnce({
+      id: `${RUN}-live-2`,
+      status: "ended",
+      durationSeconds: null,
+      durationMinutes: null,
+      durationMs: null,
+      costUsd: null,
+      costBreakdown: null,
+      recordingUrl: bare[0],
+      recordingUrls: [...bare, presigned]
+    } as never);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("storage.test.local")) {
+        // Signed variant plays; every bare variant is rejected by the bucket.
+        return new Response("ok", { status: url.includes("X-Amz-Signature") ? 206 : 400 });
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await app().request(`/business/calls/${RUN}-live-2/recording-url`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { data: { url: string | null } };
+      expect(body.data.url).toBe(presigned);
+
+      const row = await prisma.vapiCall.findUnique({
+        where: { callId: `${RUN}-live-2` },
+        select: { recordingUrl: true }
+      });
+      expect(row?.recordingUrl).toBe(`https://storage.test.local/${RUN}-live-2-mono.wav`);
+      expect(row?.recordingUrl ?? "").not.toContain("X-Amz");
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -146,38 +146,53 @@ export type VapiCallDetails = {
   recordingUrls: string[];
 };
 
+export function isPresignedRecordingUrl(url: string): boolean {
+  return /[?&]X-Amz-(?:Signature|Credential|Algorithm)=/i.test(url);
+}
+
 export function extractCallRecordingUrls(payload: Record<string, unknown>): string[] {
-  const record = (value: unknown): Record<string, unknown> =>
-    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
-  const artifact = record(payload.artifact);
-  const recording = record(artifact.recording);
-  const mono = record(recording.mono);
-
-  const candidates = [
-    artifact.recordingUrl,
-    artifact.stereoRecordingUrl,
-    recording.url,
-    recording.stereoUrl,
-    mono.combinedUrl,
-    mono.assistantUrl,
-    mono.customerUrl,
-    payload.recordingUrl,
-    payload.stereoRecordingUrl
-  ];
-
   const urls: string[] = [];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && /^https:\/\//i.test(candidate.trim())) {
-      const url = candidate.trim();
-      if (!urls.includes(url)) urls.push(url);
+
+  function collectUrls(value: unknown, path = ""): void {
+    if (typeof value === "string") {
+      const url = value.trim();
+
+      if (
+        /^https:\/\//i.test(url) &&
+        /record|artifact|\.wav(?:$|\?)|\.mp3(?:$|\?)/i.test(`${path} ${url}`) &&
+        !urls.includes(url)
+      ) {
+        urls.push(url);
+      }
+
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        collectUrls(item, `${path}[${index}]`);
+      });
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      for (const [key, nested] of Object.entries(
+        value as Record<string, unknown>
+      )) {
+        collectUrls(nested, path ? `${path}.${key}` : key);
+      }
     }
   }
 
-  return [
-    ...urls.filter((url) => /[?&]X-Amz-Signature=/i.test(url)),
-    ...urls.filter((url) => !/[?&]X-Amz-Signature=/i.test(url))
-  ];
+  collectUrls(payload);
+
+  const isPresigned = (url: string) =>
+    /[?&]X-Amz-(?:Signature|Credential|Algorithm)=/i.test(url);
+
+  return urls.sort(
+    (left, right) =>
+      Number(isPresigned(right)) - Number(isPresigned(left))
+  );
 }
 
 export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails | null> {
@@ -200,6 +215,7 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
   const durationSeconds = Number(payload.durationSeconds);
   const durationMinutes = Number(payload.durationMinutes);
   const durationMs = Number(payload.durationMs);
+  const recordingUrls = extractCallRecordingUrls(payload);
 
   return {
     id: stringField(payload, "id") ?? callId,
@@ -212,8 +228,8 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
       typeof payload.costBreakdown === "object" && payload.costBreakdown !== null
         ? (payload.costBreakdown as Record<string, unknown>)
         : null,
-    recordingUrl: extractCallRecordingUrls(payload)[0] ?? null,
-    recordingUrls: extractCallRecordingUrls(payload)
+    recordingUrl: recordingUrls[0] ?? null,
+    recordingUrls
   };
 }
 

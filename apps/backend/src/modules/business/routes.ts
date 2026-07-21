@@ -97,7 +97,7 @@ import {
 import { businessSettingsRoutes } from "./settings-routes";
 import { businessOnboardingRoutes } from "./onboarding-routes";
 import { businessHoursRoutes } from "./business-hours";
-import { fetchVapiCallById } from "../architect/vapi-connector";
+import { fetchVapiCallById, isPresignedRecordingUrl } from "../architect/vapi-connector";
 
 export const businessRoutes = new Hono();
 
@@ -330,9 +330,13 @@ businessRoutes.get("/calls/:id/recording-url", async (c) => {
   }
 
   const fresh = await fetchVapiCallById(call.callId).catch(() => null);
-  const candidates = [...(fresh?.recordingUrls ?? []), ...(call.recordingUrl ? [call.recordingUrl] : [])]
-    .filter((url, index, all) => all.indexOf(url) === index)
-    .slice(0, 5);
+  // Presigned candidates are probed first, and limiting happens AFTER the
+  // sort — a playable signed URL must never be sliced away by bare ones.
+  const candidates = Array.from(
+    new Set([...(fresh?.recordingUrls ?? []), ...(call.recordingUrl ? [call.recordingUrl] : [])])
+  )
+    .sort((a, b) => Number(isPresignedRecordingUrl(b)) - Number(isPresignedRecordingUrl(a)))
+    .slice(0, 10);
 
   let url: string | null = null;
   for (const candidate of candidates) {
@@ -349,7 +353,7 @@ businessRoutes.get("/calls/:id/recording-url", async (c) => {
     });
   }
 
-  if (!call.recordingUrl && url) {
+  if (!call.recordingUrl && url && !isPresignedRecordingUrl(url)) {
     await prisma.vapiCall
       .update({ where: { id: call.id }, data: { recordingUrl: url.split("?")[0] || url } })
       .catch(() => undefined);
