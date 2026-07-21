@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { apiGet } from "@/lib/api";
 import { businessCheckoutPath } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -80,6 +81,7 @@ function BusinessPaymentFailedContent() {
     const isTrial = paymentMode === "trial";
 
     const [reserveSeconds, setReserveSeconds] = useState(1800);
+    const [pricingModel, setPricingModel] = useState<string | null>(null);
 
     useEffect(() => {
         const interval = window.setInterval(() => {
@@ -88,6 +90,26 @@ function BusinessPaymentFailedContent() {
 
         return () => window.clearInterval(interval);
     }, []);
+
+    useEffect(() => {
+        if (!listingId) return;
+
+        let mounted = true;
+
+        void apiGet<{ pricingModel?: string | null }>(
+            `/payments/listing-access/${listingId}`
+        ).then((response) => {
+            if (!mounted) return;
+
+            if (response.success && response.data) {
+                setPricingModel(response.data.pricingModel ?? null);
+            }
+        });
+
+        return () => {
+            mounted = false;
+        };
+    }, [listingId]);
 
     function backToCheckout() {
         router.push(businessCheckoutPath(listingId ?? undefined));
@@ -167,7 +189,7 @@ function BusinessPaymentFailedContent() {
                     {amount ? (
                         <p className="mt-3 text-sm text-slate-600" data-testid="payment-failed-amount-note">
                             {isTrial
-                                ? `$${amount.toFixed(2)}/month after your trial — nothing was charged today.`
+                                ? `$${amount.toFixed(2)}${pricingModel === "ONE_TIME" ? "" : "/month"} after your trial — nothing was charged today.`
                                 : `$${amount.toFixed(2)} was not charged. You can retry when ready.`}
                         </p>
                     ) : null}
