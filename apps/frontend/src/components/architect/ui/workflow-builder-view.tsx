@@ -567,6 +567,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     void loadGmailStatus();
     void loadTestDeployment();
   }, [workflowId]);
+
+  // On mobile, open the Components drawer automatically when entering Build.
+  useEffect(() => {
+    if (loading) return;
+
+    if (activeTab !== "build") {
+      setMobilePanel((prev) => (prev === "library" ? null : prev));
+      return;
+    }
+
+    if (typeof window !== "undefined" && window.innerWidth < 1280) {
+      setMobilePanel("library");
+    }
+  }, [activeTab, loading]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -1218,7 +1233,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onUndo={undo}
         onRedo={redo}
         onAgentNameChange={setAgentName}
-        onMobileLibrary={() => setMobilePanel("library")}
         onTabChange={setActiveTab}
         onRunTest={() => void runAgent()}
         onSave={() => void saveAgent()}
@@ -1228,7 +1242,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       {isLive && !isUnderReview ? (
         <div
           data-testid="builder-live-lock-banner"
-          className="fixed left-1/2 top-20 z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 shadow-lg"
+          className="fixed left-1/2 top-[7.5rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 shadow-lg md:top-20"
         >
           <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1251,7 +1265,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       {isUnderReview ? (
         <div
           data-testid="builder-review-lock-banner"
-          className="fixed left-1/2 top-20 z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg"
+          className="fixed left-1/2 top-[7.5rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg md:top-20"
         >
           <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1272,14 +1286,51 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      <main className="fixed bottom-10 left-0 right-0 top-12 overflow-hidden">
+      <main className="fixed bottom-10 left-0 right-0 top-[6.75rem] overflow-hidden sm:top-[7.25rem] md:top-14">
         {activeTab === "build" ? (
-          <section className="builder-view fade-enter flex">
-            <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin">
+          <section className="builder-view fade-enter flex min-w-0">
+            <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin xl:block">
               {library}
             </aside>
 
-            <div className="canvas-grid relative flex-1 overflow-hidden">
+            <div
+              className="canvas-grid relative min-w-0 flex-1 overflow-hidden"
+              onTouchStart={(event) => {
+                if (mobilePanel || window.innerWidth >= 1280) return;
+                const touch = event.touches[0];
+                if (!touch || touch.clientX > 28) return;
+                (event.currentTarget as HTMLElement).dataset.edgeSwipeX = String(touch.clientX);
+              }}
+              onTouchEnd={(event) => {
+                const startRaw = (event.currentTarget as HTMLElement).dataset.edgeSwipeX;
+                delete (event.currentTarget as HTMLElement).dataset.edgeSwipeX;
+                if (!startRaw || mobilePanel || window.innerWidth >= 1280) return;
+                const touch = event.changedTouches[0];
+                if (!touch) return;
+                const startX = Number(startRaw);
+                if (touch.clientX - startX > 48) setMobilePanel("library");
+              }}
+            >
+              {/* Premium left-edge handle — opens swipeable Components drawer on mobile */}
+              {mobilePanel !== "library" ? (
+                <button
+                  type="button"
+                  onClick={() => setMobilePanel("library")}
+                  data-testid="builder-mobile-library"
+                  aria-label="Open components"
+                  title="Open components"
+                  className="absolute left-0 top-1/2 z-20 flex h-16 w-7 -translate-y-1/2 items-center justify-center rounded-r-xl border border-l-0 border-amber-200 bg-white text-amber-600 shadow-[2px_0_12px_-4px_rgba(15,23,42,0.18)] transition hover:w-8 hover:bg-amber-50 hover:text-amber-700 active:scale-[0.98] xl:hidden"
+                >
+                  <span className="flex flex-col items-center gap-1">
+                    <span className="h-5 w-0.5 rounded-full bg-amber-300" aria-hidden="true" />
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M9 6l6 6-6 6" />
+                    </svg>
+                    <span className="h-5 w-0.5 rounded-full bg-amber-300" aria-hidden="true" />
+                  </span>
+                </button>
+              ) : null}
+
               <ReactFlow<BuilderNode, Edge>
                 nodes={nodes}
                 edges={edges}
@@ -1289,7 +1340,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 onConnect={onConnect}
                 onNodeClick={(_, node) => {
                   setSelectedNodeId(node.id);
-                  if (window.innerWidth < 1536) setMobilePanel("settings");
+                  if (window.innerWidth < 1280) setMobilePanel("settings");
                 }}
                 onPaneClick={() => setSelectedNodeId(null)}
                 nodesDraggable={!isUnderReview}
@@ -1302,10 +1353,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 className="bg-transparent"
                 proOptions={{ hideAttribution: true }}
               >
-                <Controls />
+                <Controls showInteractive={false} />
               </ReactFlow>
 
-              <div className="absolute right-4 top-4 z-10 hidden items-center gap-3 rounded-xl border border-gray-200 bg-white/90 px-3 py-2 text-[11px] text-slate-500 shadow-sm backdrop-blur md:flex">
+              <div className="absolute right-2 top-2 z-10 hidden max-w-[calc(100%-1rem)] items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white/90 px-2.5 py-1.5 text-[11px] text-slate-500 shadow-sm backdrop-blur md:right-4 md:top-4 md:flex md:gap-3 md:px-3 md:py-2">
                 <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-scroll-zoom-text">
                   <kbd className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-slate-600">Scroll</kbd> zoom
                 </span>
@@ -1320,7 +1371,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               </div>
             </div>
 
-            <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-100 bg-white scroll-thin">
+            <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-gray-100 bg-white scroll-thin xl:block">
               {inspector}
             </aside>
           </section>

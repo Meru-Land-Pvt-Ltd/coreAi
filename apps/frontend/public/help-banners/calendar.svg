@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Calendar booking banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#EEF2FF"/>
+      <stop offset="100%" stop-color="#FFFBEB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <rect x="120" y="50" width="280" height="220" rx="18" fill="#FFFFFF" stroke="#C7D2FE" stroke-width="2"/>
+  <rect x="120" y="50" width="280" height="48" rx="18" fill="#6366F1"/>
+  <rect x="120" y="80" width="280" height="18" fill="#6366F1"/>
+  <text x="200" y="82" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Calendar</text>
+  <g fill="#E0E7FF">
+    <rect x="150" y="120" width="36" height="28" rx="6"/><rect x="200" y="120" width="36" height="28" rx="6"/><rect x="250" y="120" width="36" height="28" rx="6"/><rect x="300" y="120" width="36" height="28" rx="6"/>
+    <rect x="150" y="160" width="36" height="28" rx="6"/><rect x="200" y="160" width="36" height="28" rx="6" fill="#F59E0B"/><rect x="250" y="160" width="36" height="28" rx="6"/><rect x="300" y="160" width="36" height="28" rx="6"/>
+    <rect x="150" y="200" width="36" height="28" rx="6"/><rect x="200" y="200" width="36" height="28" rx="6"/><rect x="250" y="200" width="36" height="28" rx="6"/><rect x="300" y="200" width="36" height="28" rx="6"/>
+  </g>
+  <rect x="480" y="80" width="560" height="160" rx="18" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <text x="520" y="135" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800">Book on your real calendar</text>
+  <text x="520" y="170" fill="#64748B" font-family="Segoe UI, Arial, sans-serif" font-size="15">Connect Google Calendar · confirm by SMS</text>
+  <rect x="520" y="190" width="160" height="32" rx="10" fill="#F59E0B"/>
+  <text x="545" y="211" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">Connect</text>
+</svg>

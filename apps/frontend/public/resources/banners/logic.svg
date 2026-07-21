@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Logic and conditions banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFFBEB"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <rect x="80" y="120" width="160" height="60" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <text x="105" y="156" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Incoming call</text>
+  <path d="M250 150h80" stroke="#CBD5E1" stroke-width="3"/>
+  <polygon points="330,150 310,140 310,160" fill="#CBD5E1"/>
+  <polygon points="420,80 500,150 420,220 340,150" fill="#FFFBEB" stroke="#F59E0B" stroke-width="3"/>
+  <text x="385" y="145" fill="#92400E" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">Within</text>
+  <text x="372" y="165" fill="#92400E" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">hours?</text>
+  <path d="M500 150h120" stroke="#10B981" stroke-width="3"/>
+  <polygon points="620,150 600,140 600,160" fill="#10B981"/>
+  <text x="530" y="140" fill="#059669" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">Yes</text>
+  <rect x="640" y="120" width="180" height="60" rx="14" fill="#ECFDF5" stroke="#6EE7B7" stroke-width="2"/>
+  <text x="670" y="156" fill="#065F46" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Live / open path</text>
+  <path d="M420 220v40" stroke="#F43F5E" stroke-width="3"/>
+  <polygon points="420,270 410,250 430,250" fill="#F43F5E"/>
+  <text x="435" y="250" fill="#E11D48" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">No</text>
+  <rect x="340" y="275" width="200" height="30" rx="10" fill="#FFF1F2" stroke="#FDA4AF" stroke-width="2"/>
+  <text x="375" y="295" fill="#9F1239" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">After-hours path</text>
+  <text x="880" y="150" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">Logic &amp; conditions</text>
+  <text x="880" y="180" fill="#64748B" font-family="Segoe UI, Arial, sans-serif" font-size="14">One rule · one branch</text>
+</svg>

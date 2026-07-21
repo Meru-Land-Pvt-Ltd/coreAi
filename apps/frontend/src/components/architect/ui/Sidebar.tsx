@@ -168,16 +168,16 @@ function SidebarContent({
   }, [pathname]);
   return (
     <>
-      <div className="flex items-center gap-2.5 border-b border-gray-100 px-5 py-5">
+      <div className="flex min-w-0 items-center gap-0.5 border-b border-gray-100 px-5 py-5">
         <Image
           src={TRIVEN_LOGO_SRC}
           alt="Triven"
-          width={140}
-          height={40}
+          width={36}
+          height={36}
           priority
-          className="h-9 w-auto object-contain"
+          className="h-9 w-9 shrink-0 object-contain"
         />
-        <span className="text-lg font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-brand-text">
+        <span className="truncate text-lg font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-brand-text">
           Triven.ai
         </span>
 
@@ -186,7 +186,7 @@ function SidebarContent({
             type="button"
             onClick={onMobileClose}
             data-testid="architect-sidebar-mobile-close-button"
-            className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
+            className="ml-auto shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-gray-50 lg:hidden"
             aria-label="Close menu"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -329,6 +329,15 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname]);
 
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileNavOpen]);
+
   if (!ready) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50 text-slate-900">
@@ -354,13 +363,13 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
           type="button"
           aria-label="Close menu overlay"
           data-testid="architect-sidebar-overlay"
-          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[1px] lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-900/50 lg:hidden"
           onClick={() => setMobileNavOpen(false)}
         />
       ) : null}
 
       {mobileNavOpen ? (
-        <aside className="fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[84vw] flex-col border-r border-gray-100 bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden">
+        <aside className="fixed inset-y-0 left-0 z-50 flex h-screen w-72 max-w-[84vw] flex-col border-r border-gray-100 bg-white shadow-2xl transition-transform duration-300 ease-out will-change-transform lg:hidden">
           <SidebarContent
             user={user}
             pathname={pathname}
@@ -371,8 +380,8 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
         </aside>
       ) : null}
 
-      <div className="min-h-screen lg:pl-64">
-        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 px-5 py-3 backdrop-blur lg:hidden">
+      <div className="relative z-0 min-h-screen lg:pl-64">
+        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 lg:hidden">
           {!mobileNavOpen ? (
             <button
               type="button"
@@ -389,18 +398,19 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
             <span className="h-10 w-10" aria-hidden="true" />
           )}
 
-          <Image
-            src={TRIVEN_LOGO_SRC}
-            alt="Triven"
-            width={120}
-            height={36}
-            priority
-            className="h-8 w-auto object-contain"
-          />
-
-          <span className="text-xl font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-mobile-brand-text">
-            Triven.ai
-          </span>
+          <div className="flex min-w-0 items-center gap-0.5" data-testid="architect-sidebar-mobile-brand">
+            <Image
+              src={TRIVEN_LOGO_SRC}
+              alt="Triven"
+              width={36}
+              height={36}
+              priority
+              className="h-9 w-9 shrink-0 object-contain"
+            />
+            <span className="truncate text-xl font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-mobile-brand-text">
+              Triven.ai
+            </span>
+          </div>
         </div>
 
         {children}

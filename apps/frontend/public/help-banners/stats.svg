@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Stats and dashboard banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F8FAFC"/>
+      <stop offset="100%" stop-color="#FFFBEB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <rect x="80" y="60" width="240" height="100" rx="16" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <text x="105" y="100" fill="#64748B" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">Calls</text>
+  <text x="105" y="135" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">128</text>
+  <rect x="350" y="60" width="240" height="100" rx="16" fill="#FFFFFF" stroke="#FDE68A" stroke-width="2"/>
+  <text x="375" y="100" fill="#92400E" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">Leads</text>
+  <text x="375" y="135" fill="#B45309" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">46</text>
+  <rect x="620" y="60" width="240" height="100" rx="16" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="2"/>
+  <text x="645" y="100" fill="#047857" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">Bookings</text>
+  <text x="645" y="135" fill="#065F46" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">19</text>
+  <rect x="80" y="190" width="1040" height="90" rx="16" fill="#0F172A"/>
+  <polyline points="120,250 220,230 320,240 420,210 520,220 620,200 720,215 820,195 920,205 1040,185" fill="none" stroke="#F59E0B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="900" y="250" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">Recovered conversations</text>
+</svg>
