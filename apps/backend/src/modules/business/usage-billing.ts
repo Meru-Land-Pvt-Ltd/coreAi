@@ -160,7 +160,7 @@ export async function recordVapiCallUsage({
   const installedAgent = installedAgentId
     ? await prisma.installedAgent.findFirst({
       where: { id: installedAgentId, businessId },
-      select: { id: true, listingId: true, configJson: true }
+      select: { id: true, listingId: true, configJson: true, createdAt: true }
     })
     : null;
 
@@ -215,8 +215,25 @@ export async function recordVapiCallUsage({
     orderBy: { createdAt: "asc" },
     select: { createdAt: true }
   });
-  if (!purchase) {
-    console.log("[usage-billing] skipped: no completed agent purchase", { businessId, installedAgentId });
+
+  let acquiredAt = purchase?.createdAt ?? installedAgent?.createdAt ?? null;
+  if (!acquiredAt) {
+    const anyAgent = await prisma.installedAgent.findMany({
+      where: { businessId },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true, configJson: true }
+    });
+    const realAgent = anyAgent.find((agent) => {
+      const config =
+        agent.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+          ? (agent.configJson as Record<string, unknown>)
+          : {};
+      return config.purpose !== "ARCHITECT_TEST";
+    });
+    acquiredAt = realAgent?.createdAt ?? null;
+  }
+  if (!acquiredAt) {
+    console.log("[usage-billing] skipped: no completed agent purchase or install", { businessId, installedAgentId });
     return;
   }
 
@@ -250,7 +267,7 @@ export async function recordVapiCallUsage({
     Number.isFinite(vapiCostUsd) && vapiCostUsd >= 0 ? Math.round(vapiCostUsd * 1_000_000) : null;
 
   const endedAt = new Date();
-  if (endedAt < purchase.createdAt) return;
+  if (endedAt < acquiredAt) return;
   const billingMonth = billingMonthFromDate(endedAt);
 
   const recordingUrl = extractRecordingUrl(message);
