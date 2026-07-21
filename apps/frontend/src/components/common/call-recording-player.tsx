@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { apiGet } from "@/lib/api";
 
 /** Only one recording plays at a time across every player on the page. */
 let activeAudio: HTMLAudioElement | null = null;
@@ -40,16 +41,33 @@ function PauseIcon() {
 
 export function CallRecordingPlayer({
     src,
+    refreshPath,
     testIdPrefix = "call-recording-player"
 }: {
     src: string;
+    refreshPath?: string | null;
     testIdPrefix?: string;
 }) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const refreshedRef = useRef(false);
     const [playing, setPlaying] = useState(false);
     const [duration, setDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
     const [failed, setFailed] = useState(false);
+
+    async function refreshSource(): Promise<boolean> {
+        if (!refreshPath || refreshedRef.current) return false;
+        refreshedRef.current = true;
+
+        const res = await apiGet<{ url: string | null }>(refreshPath).catch(() => null);
+        const freshUrl = res?.success ? res.data?.url ?? null : null;
+        const audio = audioRef.current;
+
+        if (!freshUrl || !audio) return false;
+        audio.src = freshUrl;
+        audio.load();
+        return true;
+    }
 
     useEffect(() => {
         return () => {
@@ -67,7 +85,20 @@ export function CallRecordingPlayer({
             return;
         }
 
-        void audio.play().catch(() => setFailed(true));
+        void (async () => {
+            // Expiring URLs: always play from a freshly minted URL when we can.
+            if (refreshPath && !refreshedRef.current) await refreshSource();
+            try {
+                await audio.play();
+            } catch {
+                // One retry with a fresh URL before declaring the recording dead.
+                if (await refreshSource()) {
+                    await audio.play().catch(() => setFailed(true));
+                } else {
+                    setFailed(true);
+                }
+            }
+        })();
     }
 
     function seek(value: number) {
@@ -124,7 +155,7 @@ export function CallRecordingPlayer({
             <audio
                 ref={audioRef}
                 src={src}
-                preload="metadata"
+                preload={refreshPath ? "none" : "metadata"}
                 className="hidden"
                 onPlay={(event) => {
                     claimPlayback(event.currentTarget);
@@ -141,7 +172,9 @@ export function CallRecordingPlayer({
                 }}
                 onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
                 onError={() => {
-                    setFailed(true);
+                    if (!refreshPath || refreshedRef.current) {
+                        setFailed(true);
+                    }
                     setPlaying(false);
                 }}
             />

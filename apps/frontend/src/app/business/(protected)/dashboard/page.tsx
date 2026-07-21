@@ -101,6 +101,8 @@ type DashboardActivityApi = {
     createdAt: string;
     /** Call recording playback URL — present only when recording was enabled for the call. */
     recordingUrl?: string | null;
+    /** VapiCall row id — lets the client mint a fresh recording URL at play time. */
+    vapiCallId?: string | null;
 };
 
 type DashboardCallHistoryItem = {
@@ -159,6 +161,7 @@ type Activity = {
     tone: "green" | "amber" | "slate";
     check?: boolean;
     recordingUrl?: string | null;
+    vapiCallId?: string | null;
 };
 
 type ChartMetric = "executions" | "cost";
@@ -474,7 +477,8 @@ export default function BusinessDashboardPage() {
                 badge: activity.badge,
                 tone: activity.tone,
                 check: activity.check,
-                recordingUrl: activity.recordingUrl ?? null
+                recordingUrl: activity.recordingUrl ?? null,
+                vapiCallId: activity.vapiCallId ?? null
             })),
         [overview?.activities]
     );
@@ -858,7 +862,11 @@ export default function BusinessDashboardPage() {
                                         </div>
                                         {call.recordingUrl ? (
                                             <div className="mt-2 pl-8">
-                                                <CallRecordingPlayer src={call.recordingUrl} testIdPrefix="dashboard-call-history-recording" />
+                                                <CallRecordingPlayer
+                                                    src={call.recordingUrl}
+                                                    refreshPath={`/business/calls/${call.id}/recording-url`}
+                                                    testIdPrefix="dashboard-call-history-recording"
+                                                />
                                             </div>
                                         ) : (
                                             <p className="mt-1 pl-8 text-xs text-slate-300" data-testid="dashboard-call-history-no-recording">
@@ -1406,6 +1414,7 @@ function ActivityItem({ activity }: { activity: Activity }) {
                 <div className="mt-2">
                     <CallRecordingPlayer
                         src={activity.recordingUrl}
+                        refreshPath={activity.vapiCallId ? `/business/calls/${activity.vapiCallId}/recording-url` : undefined}
                         testIdPrefix="dashboard-activity-call-recording"
                     />
                 </div>

@@ -181,3 +181,22 @@ describe("GET /business/dashboard", () => {
     expect(body.data.executions[0].status).toBe("COMPLETED");
   });
 });
+
+describe("GET /business/calls/:id/recording-url", () => {
+  it("returns the recording URL by row id or Vapi call id, scoped to the owner", async () => {
+    if (!dbAvailable) return;
+
+    const byCallId = await app().request(`/business/calls/${RUN}-live-1/recording-url`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(byCallId.status).toBe(200);
+    const body = (await byCallId.json()) as { data: { url: string | null } };
+    // Vapi is unconfigured in tests — the stored URL is the fallback.
+    expect(body.data.url).toBe("https://recordings.test.local/live-1.wav");
+
+    const missing = await app().request("/business/calls/does-not-exist/recording-url", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(missing.status).toBe(404);
+  });
+});

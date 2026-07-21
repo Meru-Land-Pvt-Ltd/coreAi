@@ -97,6 +97,7 @@ import {
 import { businessSettingsRoutes } from "./settings-routes";
 import { businessOnboardingRoutes } from "./onboarding-routes";
 import { businessHoursRoutes } from "./business-hours";
+import { fetchVapiCallById } from "../architect/vapi-connector";
 
 export const businessRoutes = new Hono();
 
@@ -246,6 +247,8 @@ function buildAgentEventActivities(params: {
     createdAt: string;
     /** Call recording playback — present only when recording was enabled for the call. */
     recordingUrl?: string;
+    /** VapiCall row id — lets the client mint a fresh recording URL at play time. */
+    vapiCallId?: string;
   }> = [];
 
   for (const appointment of params.appointments) {
@@ -287,6 +290,7 @@ function buildAgentEventActivities(params: {
       text: `${params.agentName} handled an AI voice call with ${call.customerPhone}`,
       badge: "AI call",
       tone: "slate",
+      vapiCallId: call.id,
       createdAt: call.createdAt.toISOString(),
       ...(call.recordingUrl ? { recordingUrl: call.recordingUrl } : {})
     });
@@ -294,6 +298,35 @@ function buildAgentEventActivities(params: {
 
   return activities;
 }
+
+businessRoutes.get("/calls/:id/recording-url", async (c) => {
+  const authUser = c.get("authUser");
+  const idParam = (c.req.param("id") ?? "").trim();
+
+  const businessId = await resolvePrimaryBusinessId(authUser.id);
+  if (!businessId || !idParam) {
+    return errorResponse(c, "Call not found", 404, "CALL_NOT_FOUND");
+  }
+
+  const call = await prisma.vapiCall.findFirst({
+    where: { businessId, OR: [{ id: idParam }, { callId: idParam }] },
+    select: { id: true, callId: true, recordingUrl: true }
+  });
+  if (!call) {
+    return errorResponse(c, "Call not found", 404, "CALL_NOT_FOUND");
+  }
+
+  const fresh = await fetchVapiCallById(call.callId).catch(() => null);
+  const url = fresh?.recordingUrl ?? call.recordingUrl ?? null;
+
+  if (fresh?.recordingUrl && fresh.recordingUrl !== call.recordingUrl) {
+    await prisma.vapiCall
+      .update({ where: { id: call.id }, data: { recordingUrl: fresh.recordingUrl } })
+      .catch(() => undefined);
+  }
+
+  return successResponse(c, { url });
+});
 
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");
@@ -413,8 +446,6 @@ businessRoutes.get("/dashboard", async (c) => {
         createdAt: true
       }
     }),
-    // Last 30 days of raw agent events for the activity chart + agent activity feed.
-    // Test-mode rows never appear as live customer activity.
     prisma.appointment.findMany({
       where: { businessId: business.id, createdAt: { gte: chartStart }, executionMode: "LIVE" },
       orderBy: { createdAt: "desc" },
