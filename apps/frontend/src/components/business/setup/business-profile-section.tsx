@@ -84,9 +84,10 @@ export function BusinessProfileSection({
 
   return (
     <div>
-      <div className="grid sm:grid-cols-2 gap-5">
+      <h4 className="mb-3 text-sm font-bold text-slate-900">Business details</h4>
+      <div className="grid sm:grid-cols-2 gap-4">
         <div>
-          <label htmlFor="biz-contact-name" className="block text-sm font-medium text-slate-700 mb-2">
+          <label htmlFor="biz-contact-name" className="block text-sm font-medium text-slate-700 mb-1.5">
             Your name <span className="text-slate-400 font-normal">(optional)</span>
           </label>
           <input
@@ -141,7 +142,7 @@ export function BusinessProfileSection({
       </div>
 
       {/* Structured business address — the same record as Business Settings */}
-      <div className="mt-6">
+      <div className="mt-6 border-t border-gray-100 pt-5">
         <BusinessAddressSection
           embedded
           onDirtyChange={onAddressDirtyChange}
@@ -150,9 +151,9 @@ export function BusinessProfileSection({
       </div>
 
       {/* Services offered */}
-      <div className="mt-6">
-        <label className="block text-sm font-medium text-slate-700 mb-2">Services offered</label>
-        <p className="text-xs text-slate-400 mb-3 font-semibold">Select what applies, or add your own.</p>
+      <div className="mt-6 border-t border-gray-100 pt-5">
+        <h4 className="mb-1 text-sm font-bold text-slate-900">Services</h4>
+        <p className="text-xs text-slate-500 mb-3">Select what applies, or add your own.</p>
         <div id="serviceChips" className="flex flex-wrap gap-2">
           {selectedServices.map((s, i) => (
             <button
@@ -186,7 +187,7 @@ export function BusinessProfileSection({
               if (e.key === "Enter") { e.preventDefault(); addService(customServiceInput); setCustomServiceInput(""); }
             }}
             placeholder="Add another service"
-            className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+            className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
           />
           <button
             type="button"

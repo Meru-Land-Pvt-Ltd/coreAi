@@ -50,10 +50,39 @@ export function AgentBehaviorSection({
 
   return (
     <div>
+      {/* Agent-specific custom fields (architect-defined) come first — they
+          are the details this template requires from the buyer. */}
+      {setupFields.length > 0 ? (
+        <div className="mb-7 border-b border-gray-100 pb-6" data-testid="business-setup-custom-fields">
+          <h3 className="text-sm font-bold text-slate-900">Agent setup details</h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Details this agent needs to answer callers accurately.
+          </p>
+          {setupInstructions ? (
+            <p
+              className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
+              data-testid="business-setup-buyer-instructions"
+            >
+              {setupInstructions}
+            </p>
+          ) : null}
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {setupFields.map((field) => (
+              <BuyerSetupFieldControl
+                key={field.key}
+                field={field}
+                value={customValues.find((item) => item.key === field.key)?.value}
+                onChange={(value) => onCustomField(field.key, field.label, value)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div data-testid="business-setup-instructions">
         <h3 className="text-sm font-bold text-slate-900">Custom instructions</h3>
         <p className="mt-0.5 text-sm text-slate-500">
-          Tell the AI how to handle calls. Merged into the agent&rsquo;s system prompt at deploy.
+          Tell the AI how to handle calls.
         </p>
 
         <div className="mt-3 flex flex-wrap gap-2" data-testid="business-setup-instruction-chips">
@@ -84,34 +113,6 @@ export function AgentBehaviorSection({
         />
       </div>
 
-      {/* Agent-specific custom fields (architect-defined) */}
-      {setupFields.length > 0 ? (
-        <div className="mt-7 pt-7 border-t border-gray-100" data-testid="business-setup-custom-fields">
-          <h3 className="text-sm font-semibold text-slate-800 mb-1">Agent setup details</h3>
-          <p className="text-xs text-slate-400 mb-3 font-semibold">
-            This agent asks for a few extra details so it can answer callers accurately.
-          </p>
-          {setupInstructions ? (
-            <p
-              className="mb-3 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
-              data-testid="business-setup-buyer-instructions"
-            >
-              {setupInstructions}
-            </p>
-          ) : null}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {setupFields.map((field) => (
-              <BuyerSetupFieldControl
-                key={field.key}
-                field={field}
-                value={customValues.find((item) => item.key === field.key)?.value}
-                onChange={(value) => onCustomField(field.key, field.label, value)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       {/* Advanced behavior — silence handling, re-prompts, goodbye. */}
       {showVoice ? (
         <div className="mt-7 border-t border-gray-100 pt-6">
@@ -123,9 +124,9 @@ export function AgentBehaviorSection({
             className="flex w-full items-center justify-between gap-3 text-left"
           >
             <span>
-              <span className="block text-sm font-bold text-slate-900">Advanced behavior</span>
+              <span className="block text-sm font-bold text-slate-900">Advanced call behavior</span>
               <span className="mt-0.5 block text-xs text-slate-500">
-                Silence handling, re-prompt messages, and the goodbye message.
+                Silence handling and ending the call.
               </span>
             </span>
             <svg

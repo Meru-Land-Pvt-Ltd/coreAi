@@ -11,26 +11,17 @@ import type {
   BusinessHoursData
 } from "@/components/business/features/api";
 import { AppointmentHoursEditor, type ApptNumberField } from "./appointment-hours-editor";
+import type { BookingRulesValidation } from "./booking-rules-panel";
 import {
   AiCallCoverageEditor,
   type AiCoverageKind,
   type AnsweringDayRow
 } from "./ai-call-coverage-editor";
 
-/**
- * Hours & Availability — ONE section, three clearly separated concepts:
- *
- *   A. Business Hours       — when the business is open (THE editor; also the
- *                             one place the business timezone is edited).
- *   B. Appointment Hours    — when bookings can happen; follows Business
- *                             Hours by default, weekly editor only for custom.
- *   C. AI Call Coverage     — when the AI answers calls; never labeled
- *                             "Business Hours".
- *
- * Only the Business Hours editor renders a weekly grid by default — the other
- * two show compact summaries until the buyer explicitly opts into custom.
- */
+
 export function HoursAvailabilitySection({
+  timeZone,
+  persistTimeZone = true,
   onBusinessHoursLoaded,
   onBusinessHoursSaved,
   onBusinessHoursChange,
@@ -44,6 +35,7 @@ export function HoursAvailabilitySection({
   onApptDay,
   apptFields,
   onApptField,
+  apptRulesValidation,
   apptConfirmed,
   onApptConfirmed,
   apptLoaded,
@@ -53,6 +45,10 @@ export function HoursAvailabilitySection({
   onAnsweringDay,
   triggerKind
 }: {
+  /** Authoritative business timezone — owned by the Connect step, passed through to the hours editor. */
+  timeZone: string;
+  /** False until the buyer edits the timezone this session (stale-tab guard). */
+  persistTimeZone?: boolean;
   onBusinessHoursLoaded: (data: BusinessHoursData) => void;
   onBusinessHoursSaved: (data: BusinessHoursData) => void;
   onBusinessHoursChange?: (data: BusinessHoursData) => void;
@@ -66,6 +62,8 @@ export function HoursAvailabilitySection({
   onApptDay: (day: AppointmentWeekday, patch: Partial<AppointmentDayHours>) => void;
   apptFields: Record<ApptNumberField, number>;
   onApptField: (field: ApptNumberField, value: number) => void;
+  /** Page-level booking-rules validation result. */
+  apptRulesValidation: BookingRulesValidation;
   apptConfirmed: boolean;
   onApptConfirmed: (value: boolean) => void;
   /** False until GET /setup/appointment-schedule resolves — editor hidden so an unloaded section can never clobber. */
@@ -83,6 +81,8 @@ export function HoursAvailabilitySection({
         <BusinessHoursSection
           title="Business Hours"
           embedded
+          timeZoneOverride={timeZone}
+          persistOverrideTimeZone={persistTimeZone}
           onLoaded={onBusinessHoursLoaded}
           onSaved={onBusinessHoursSaved}
           onChange={onBusinessHoursChange}
@@ -103,6 +103,7 @@ export function HoursAvailabilitySection({
             onDay={onApptDay}
             fields={apptFields}
             onField={onApptField}
+            rulesValidation={apptRulesValidation}
             confirmed={apptConfirmed}
             onConfirmed={onApptConfirmed}
           />

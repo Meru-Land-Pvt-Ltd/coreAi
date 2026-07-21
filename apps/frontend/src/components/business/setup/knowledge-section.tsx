@@ -201,82 +201,33 @@ export function KnowledgeSection({
 
   return (
     <div>
-      <p className="text-xs font-semibold text-slate-400">
-        Upload brochures, price lists, policies, or service catalogs — or just add FAQs below. No
-        document is required.
+      {/* A. Documents */}
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-bold text-slate-900">Documents</h4>
+        <span className="text-xs text-slate-400">Optional</span>
+      </div>
+      <p className="mt-0.5 text-xs text-slate-500">
+        Brochures, price lists, policies, or service catalogs.
       </p>
 
-      <div className="mt-4 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-700">
-          FAQs <span className="text-slate-400 font-normal">(optional)</span>
-        </span>
-        <button
-          type="button"
-          data-testid="business-setup-faq-add"
-          onClick={() => onFaqs([...faqs, { question: "", answer: "" }])}
-          className="text-sm font-semibold text-amber-600 hover:text-amber-700 inline-flex items-center gap-1"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          Add FAQ
-        </button>
-      </div>
-
-      <div className="mt-2 space-y-3">
-        {faqs.map((faq, index) => (
-          <div key={index} className="border border-gray-200 rounded-xl p-4 flex gap-3" data-testid="business-setup-faq-row">
-            <div className="flex-1 space-y-2">
-              <input
-                type="text"
-                value={faq.question}
-                onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))}
-                className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none"
-                placeholder="Question, e.g. Do you accept insurance?"
-              />
-              <textarea
-                rows={2}
-                value={faq.answer}
-                onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))}
-                className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none resize-none"
-                placeholder="Answer the agent should give"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => onFaqs(faqs.filter((_, i) => i !== index))}
-              className="text-slate-400 hover:text-red-500 shrink-0 self-start mt-1"
-              aria-label="Remove FAQ"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* File upload dropzone — always visible */}
       <label
         htmlFor="file-input"
-        className="dropzone rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-2.5 mt-4 border-2 border-dashed border-gray-200 cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-colors"
+        className="dropzone rounded-2xl p-6 flex flex-col items-center justify-center text-center gap-2 mt-3 border-2 border-dashed border-gray-200 cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-colors"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
           void uploadPickedFiles(Array.from(e.dataTransfer?.files ?? []));
         }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-slate-400">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-slate-400">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" y1="3" x2="12" y2="15" />
         </svg>
         <span className="text-sm text-slate-600">
-          <span className="font-semibold text-amber-600">Click to upload</span> or drag and drop documents
+          <span className="font-semibold text-amber-600">Click to upload</span> or drag and drop
         </span>
-        <span className="text-xs text-slate-400 font-semibold">PDF, DOCX, or TXT · up to 10 MB each · multiple allowed</span>
+        <span className="text-xs text-slate-400 font-semibold">PDF, DOCX, or TXT · up to 10 MB each</span>
         <input
           ref={fileInputRef}
           id="file-input"
@@ -420,6 +371,68 @@ export function KnowledgeSection({
           Live agent updated.
         </p>
       ) : null}
+
+      {/* B. FAQs */}
+      <div className="mt-6 border-t border-gray-100 pt-5">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h4 className="text-sm font-bold text-slate-900">FAQs</h4>
+            <p className="mt-0.5 text-xs text-slate-500">Exact answers the agent should give.</p>
+          </div>
+          <button
+            type="button"
+            data-testid="business-setup-faq-add"
+            onClick={() => onFaqs([...faqs, { question: "", answer: "" }])}
+            className="inline-flex items-center gap-1 text-sm font-semibold text-amber-600 hover:text-amber-700"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add FAQ
+          </button>
+        </div>
+
+        {faqs.length > 0 ? (
+          <div className="mt-3 space-y-3">
+            {faqs.map((faq, index) => (
+              <div key={index} className="border border-gray-200 rounded-xl p-3.5 flex gap-3" data-testid="business-setup-faq-row">
+                <div className="flex-1 space-y-2">
+                  <input
+                    type="text"
+                    value={faq.question}
+                    aria-label={`FAQ ${index + 1} question`}
+                    onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, question: e.target.value } : f)))}
+                    className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none"
+                    placeholder="Question, e.g. Do you accept insurance?"
+                  />
+                  <textarea
+                    rows={2}
+                    value={faq.answer}
+                    aria-label={`FAQ ${index + 1} answer`}
+                    onChange={(e) => onFaqs(faqs.map((f, i) => (i === index ? { ...f, answer: e.target.value } : f)))}
+                    className="field w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none resize-none"
+                    placeholder="Answer the agent should give"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onFaqs(faqs.filter((_, i) => i !== index))}
+                  className="text-slate-400 hover:text-red-500 shrink-0 self-start mt-1"
+                  aria-label={`Remove FAQ ${index + 1}`}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-400">No FAQs yet.</p>
+        )}
+      </div>
     </div>
   );
 }

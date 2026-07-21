@@ -112,11 +112,13 @@ vi.mock("@/components/business/features/api", () => ({
 }));
 
 import {
+  getBusinessHours,
   getBusinessSetup,
   getPhoneCities,
   getPhoneCountries,
   getPhoneStates,
   purchaseBusinessPhoneNumber,
+  putBusinessHours,
   saveBusinessSetup,
   searchBusinessPhoneNumbers
 } from "@/components/business/features/api";
@@ -259,5 +261,124 @@ describe("Connect step — number-first flow", () => {
 
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
     expect(searchBusinessPhoneNumbers).not.toHaveBeenCalled();
+  });
+
+  it("the Connect step owns the business timezone — editable select, saved with the setup", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        business: { id: "biz-1", name: "Test Biz", type: "salon" },
+        profile: {
+          bookingUrl: null,
+          teamPhone: null,
+          calendarId: "primary",
+          timeZone: "America/Los_Angeles",
+          tone: "friendly",
+          escalationRules: null,
+          services: [],
+          faqs: [],
+          hours: [],
+          vapiAssistantId: null,
+          vapiPhoneNumberId: null
+        }
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    const select = await screen.findByTestId("business-setup-timezone-select");
+    expect((select as HTMLSelectElement).value).toBe("America/Los_Angeles");
+
+    await user.selectOptions(select, "America/Chicago");
+    await user.click(screen.getByTestId("business-setup-save"));
+
+    await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
+    const payload = vi.mocked(saveBusinessSetup).mock.calls[0][0] as Record<string, any>;
+    expect(payload.timeZone).toBe("America/Chicago");
+  });
+
+  it("a live agent's timezone change persists via the hours endpoint — no false 'Progress saved' toast", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        vapiAssistantId: "vapi-live-1",
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        profile: {
+          bookingUrl: null,
+          teamPhone: null,
+          calendarId: "primary",
+          timeZone: "America/Los_Angeles",
+          tone: "friendly",
+          escalationRules: null,
+          services: [],
+          faqs: [],
+          hours: [],
+          vapiAssistantId: "vapi-live-1",
+          vapiPhoneNumberId: null
+        }
+      }) as never
+    );
+    vi.mocked(getBusinessHours).mockResolvedValue({
+      success: true,
+      data: {
+        hours: [{ day: "monday", closed: false, periods: [{ open: "09:00", close: "17:00" }] }],
+        timeZone: "America/Los_Angeles",
+        specialDates: [],
+        source: "manual",
+        confirmedAt: null,
+        configured: true,
+        weeklySummary: ["Monday: 9 AM–5 PM"],
+        openStatus: null,
+        suggestion: null,
+        liveAssistant: true
+      }
+    } as never);
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    const select = await screen.findByTestId("business-setup-timezone-select");
+    await user.selectOptions(select, "America/Denver");
+    await user.click(screen.getByTestId("business-setup-save"));
+
+    // The timezone rides the live-safe hours endpoint; the main setup save is
+    // skipped for live agents and no false success toast appears.
+    await waitFor(() => expect(putBusinessHours).toHaveBeenCalled());
+    const put = vi.mocked(putBusinessHours).mock.calls[0][0] as Record<string, any>;
+    expect(put.timeZone).toBe("America/Denver");
+    expect(put.hours.length).toBeGreaterThan(0);
+    expect(saveBusinessSetup).not.toHaveBeenCalled();
+    expect(screen.queryByText("Progress saved")).toBeNull();
+  });
+
+  it("an off-list stored IANA timezone stays displayed and selectable", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        profile: {
+          bookingUrl: null,
+          teamPhone: null,
+          calendarId: "primary",
+          timeZone: "Pacific/Chatham",
+          tone: "friendly",
+          escalationRules: null,
+          services: [],
+          faqs: [],
+          hours: [],
+          vapiAssistantId: null,
+          vapiPhoneNumberId: null
+        }
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    const select = (await screen.findByTestId("business-setup-timezone-select")) as HTMLSelectElement;
+    expect(select.value).toBe("Pacific/Chatham");
+
+    // Switching away must not drop the off-list zone from the options.
+    await user.selectOptions(select, "America/Chicago");
+    expect(select.value).toBe("America/Chicago");
+    await user.selectOptions(select, "Pacific/Chatham");
+    expect(select.value).toBe("Pacific/Chatham");
   });
 });
