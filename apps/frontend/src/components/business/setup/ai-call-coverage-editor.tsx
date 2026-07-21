@@ -275,7 +275,7 @@ export function AiCallCoverageEditor({
                       aria-label={t.openStartAria(row.day)}
                       onChange={(e) => onAnsweringDay(row.day, { open: e.target.value })}
                       data-testid="business-setup-ai-coverage-day-open"
-                      className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
+                      className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
                     />
                     <span className="text-xs text-slate-400" aria-hidden="true">
                       –
@@ -286,7 +286,7 @@ export function AiCallCoverageEditor({
                       aria-label={t.openEndAria(row.day)}
                       onChange={(e) => onAnsweringDay(row.day, { close: e.target.value })}
                       data-testid="business-setup-ai-coverage-day-close"
-                      className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
+                      className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
                     />
                   </>
                 )}

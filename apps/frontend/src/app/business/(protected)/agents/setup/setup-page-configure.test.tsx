@@ -506,21 +506,24 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.queryByTestId("business-hours-timezone-select")).toBeNull();
   });
 
-  it("duration 34 + buffer 10 + interval 40 shows the 44-minute warning with a 45-minute quick fix", async () => {
-    vi.mocked(getAppointmentSchedule).mockResolvedValueOnce(
-      apptSchedule({ defaultDurationMinutes: 34, bufferMinutes: 10, slotIntervalMinutes: 40 }) as never
-    );
-
+  it("editing rules to duration 34 + buffer 10 + interval 40 blocks saving with the 44-minute warning and 45-minute quick fix", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
     await expandSection(user, "hours-availability");
 
+    // Defaults load as 30/10/40 (valid). The buyer edits duration to 34.
+    const duration = (await screen.findByTestId(
+      "business-setup-appt-field-defaultDurationMinutes"
+    )) as HTMLInputElement;
+    await user.clear(duration);
+    await user.type(duration, "34");
+
     const warning = await screen.findByTestId("business-setup-booking-interval-warning");
     expect(warning.textContent).toContain("44-minute");
     expect(warning.textContent).toContain("45 minutes is recommended");
 
-    // Save & Continue is blocked while the rules are invalid.
+    // Save & Continue is blocked while the session-edited rules are invalid.
     expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByTestId("business-setup-save"));
     expect(saveBusinessSetup).not.toHaveBeenCalled();
@@ -531,6 +534,45 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect((screen.getByTestId("business-setup-appt-field-slotIntervalMinutes") as HTMLInputElement).value).toBe("45");
     expect(screen.queryByTestId("business-setup-booking-interval-warning")).toBeNull();
     expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("a legacy schedule conflict loaded from the server warns but never blocks unrelated saves", async () => {
+    vi.mocked(getAppointmentSchedule).mockResolvedValueOnce(
+      apptSchedule({ defaultDurationMinutes: 34, bufferMinutes: 10, slotIntervalMinutes: 40 }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await openConfigure(user);
+    await expandSection(user, "hours-availability");
+
+    // The warning renders, but the buyer never touched the rules — saving works.
+    expect(await screen.findByTestId("business-setup-booking-interval-warning")).toBeTruthy();
+    expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(false);
+
+    await user.click(screen.getByTestId("business-setup-save"));
+    await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
+  });
+
+  it("a Business Hours save from a tab with an untouched timezone keeps the server's timezone (stale-tab guard)", async () => {
+    // Server hours carry a NEWER timezone than the wizard's loaded profile —
+    // an hours-only save must not clobber it with the stale wizard value.
+    vi.mocked(getBusinessHours).mockResolvedValue({
+      success: true,
+      data: { ...BH_DATA, timeZone: "America/Denver" }
+    } as never);
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await openConfigure(user);
+    await expandSection(user, "hours-availability");
+
+    await user.click(await screen.findByTestId("business-hours-open-toggle-saturday"));
+    await user.click(screen.getByTestId("business-setup-save"));
+
+    await waitFor(() => expect(putBusinessHours).toHaveBeenCalledTimes(1));
+    const put = vi.mocked(putBusinessHours).mock.calls[0][0] as Record<string, any>;
+    expect(put.timeZone).toBe("America/Denver");
   });
 
   it("voice/missed-call workflows get a tel: CTA on the call-your-number card", async () => {

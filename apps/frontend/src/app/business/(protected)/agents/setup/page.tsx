@@ -263,11 +263,8 @@ const FIELD =
   "field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none";
 const LABEL = "mb-1.5 block text-sm font-medium text-slate-700";
 const CARD = "animate-in rounded-2xl border border-gray-100 bg-white p-6 sm:p-8";
-const H2 = "text-lg font-bold text-slate-900";
-const SUB = "mt-1 text-sm text-slate-500";
 const SECTION = "mt-8 border-t border-gray-100 pt-8";
 const SECTION_TITLE = "text-sm font-bold text-slate-900";
-const PROVIDER_BADGE = "rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600";
 
 type ChecklistRow = {
   key: string;
@@ -580,6 +577,10 @@ function SetupWizard() {
     maxSpokenSuggestions: 3
   });
   const [apptConfirmed, setApptConfirmed] = useState(false);
+  // True once the buyer edits a booking-rule number this session. A schedule
+  // conflict loaded from the server warns without blocking; one the buyer
+  // introduces (or touches) blocks saving until fixed.
+  const [apptRulesTouched, setApptRulesTouched] = useState(false);
   const [apptNeedsConfirmation, setApptNeedsConfirmation] = useState(false);
   // True (default) = appointment days follow Business Hours; false = the
   // custom weekly editor is authoritative.
@@ -605,6 +606,8 @@ function SetupWizard() {
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
+  const [tzEdited, setTzEdited] = useState(false);
+
   // The buyer's own business line — optional, forwarding target only. No OTP.
   const [existingPhoneNumber, setExistingPhoneNumber] = useState("");
 
@@ -621,8 +624,6 @@ function SetupWizard() {
 
   const [mailAlias, setMailAlias] = useState<BusinessEmailAliasData | null>(null);
 
-  // Buyer-owned Send Email recipients (To/CC/BCC). The architect's Email node
-  // only defines the template/content — who receives it is decided here.
   const [emailRecipientType, setEmailRecipientType] = useState<"customer" | "team" | "custom">("customer");
   const [emailCustomRecipient, setEmailCustomRecipient] = useState("");
   const [emailCc, setEmailCc] = useState("");
@@ -632,8 +633,6 @@ function SetupWizard() {
   const [buyerSetupInstructions, setBuyerSetupInstructions] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState<BuyerCustomFieldValue[]>([]);
 
-  // Trigger kind derived from the listing's workflow graph.
-  // Drives which phone/forwarding/voice sections are shown.
   const [triggerKind, setTriggerKind] = useState<WorkflowTriggerKind>("none");
 
   const setCustomFieldValue = useCallback((key: string, label: string, value: string | string[] | boolean) => {
@@ -647,9 +646,6 @@ function SetupWizard() {
     setConfigDirty(true);
   }, []);
 
-  // Embedded-section wiring (Business Hours + Business Address). The refs hold
-  // each section's save/isDirty handle; the callbacks are stable so the child
-  // effects register exactly once.
   const registerBusinessHoursApi = useCallback((api: EmbeddedSectionApi | null) => {
     bhApiRef.current = api;
   }, []);
@@ -966,6 +962,7 @@ function SetupWizard() {
 
   const updateApptField = useCallback((field: ApptNumberField, value: number) => {
     setApptFields((current) => ({ ...current, [field]: value }));
+    setApptRulesTouched(true);
     setConfigDirty(true);
   }, []);
 
@@ -1041,14 +1038,17 @@ function SetupWizard() {
 
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
-  // Booking-rules validation guards every save path — invalid or NaN values
-  // must never reach the appointmentSchedule payload.
   const bookingRules = validateBookingRules(apptFields);
-  const bookingRulesBlocked = apptLoaded && !bookingRules.valid;
+  const onlyLoadedConflict =
+    !apptRulesTouched &&
+    bookingRules.intervalConflict !== null &&
+    Object.keys(bookingRules.errors).length === 1 &&
+    Boolean(bookingRules.errors.slotIntervalMinutes);
+  const bookingRulesBlocked = apptLoaded && !bookingRules.valid && !onlyLoadedConflict;
 
   function reportBookingRulesBlocked() {
     setError("Fix the booking rules in Configure → Hours & Availability before saving.");
-    setOpenSections((current) => ({ ...current, "hours-availability": true }));
+    openSection("hours-availability");
   }
 
   async function persistSetup(deploy: boolean): Promise<PersistResult> {
@@ -1060,17 +1060,16 @@ function SetupWizard() {
       return { ok: false, number: "", vapiAssistantId: null, installedAgentId: null };
     }
 
-    // Embedded sections (Business Hours, Business Address) save through their
-    // own endpoints first — they work even for live agents, and a failure is
-    // reported per-section without losing the other sections' changes.
     const sectionFailures: string[] = [];
     if (bhApiRef.current?.isDirty()) {
       const saved = await bhApiRef.current.save();
       if (!saved.ok) sectionFailures.push(`Business Hours: ${saved.error ?? "could not be saved."}`);
       else {
         setBhDirty(false);
-        // The Business Hours save carries the wizard timezone (timeZoneOverride).
-        savedTimeZoneRef.current = tzValue;
+        if (tzEdited) {
+          savedTimeZoneRef.current = tzValue;
+          setTzEdited(false);
+        }
       }
     }
     if (addressApiRef.current?.isDirty()) {
@@ -1080,9 +1079,6 @@ function SetupWizard() {
     }
 
     if (!deploy && liveVapiAssistantId) {
-      // A live agent's timezone change must not wait for a re-deploy — persist
-      // it through the hours endpoint, which safely updates live agents too.
-      // A failed or unavailable save is a real error, never a silent skip.
       if (tzValue !== savedTimeZoneRef.current) {
         const hoursRes = await getBusinessHours();
         if (hoursRes.success && hoursRes.data && (hoursRes.data.hours?.length ?? 0) > 0) {
@@ -1091,8 +1087,13 @@ function SetupWizard() {
             timeZone: tzValue,
             specialDates: hoursRes.data.specialDates ?? []
           });
-          if (saved.success) savedTimeZoneRef.current = tzValue;
+          if (saved.success) {
+            savedTimeZoneRef.current = tzValue;
+            setTzEdited(false);
+          }
           else sectionFailures.push(`Timezone: ${saved.error ?? "could not be saved."}`);
+        } else if (!hoursRes.success) {
+          sectionFailures.push("Timezone: could not be saved — please try again.");
         } else {
           sectionFailures.push(
             "Timezone: could not be saved for your live agent — set your Business Hours in Configure, then save again."
@@ -1103,7 +1104,7 @@ function SetupWizard() {
       if (sectionFailures.length > 0) {
         setError(sectionFailures.join(" "));
       } else {
-        setStatusMsg("Live agent is already deployed. Click Deploy live agent to apply new changes.");
+        setStatusMsg("Live agent is already deployed. Click Go live to apply new changes.");
       }
 
       return {
@@ -1154,16 +1155,11 @@ function SetupWizard() {
           value: typeof field.value === "string" ? field.value.trim() : field.value
         }))
         .filter((field) => field.key && field.label && !isBuyerAnswerEmpty(field.value))
-        // When the schema is known, drop answers for keys no longer in it
-        // (e.g. the architect removed a field) — the backend rejects unknowns.
         .filter((field) =>
           buyerSetupFields.length === 0 || buyerSetupFields.some((schemaField) => schemaField.key === field.key)
         ),
       selectedPlatformPhoneNumberId: selectedPhoneId || undefined,
       calendarId: calendarId.trim() || "primary",
-      // Only sent after the GET has loaded — never clobbers the saved
-      // schedule with unloaded empty state. Custom day rows are always kept
-      // so switching back from "Use Business Hours" restores them.
       ...(apptLoaded
         ? {
           appointmentSchedule: {
@@ -1203,6 +1199,7 @@ function SetupWizard() {
 
     setConfigDirty(false);
     savedTimeZoneRef.current = tzValue;
+    setTzEdited(false);
 
     const data = res.data;
     const number = data.assignedPhoneNumber ?? data.phoneNumber?.phoneNumber ?? assignedNumber ?? "";
@@ -1235,8 +1232,6 @@ function SetupWizard() {
 
     setCalendar(data.calendar ?? calendar);
 
-    // The main save succeeded, but a section save failed — surface exactly
-    // which section so the buyer knows what still needs attention.
     if (sectionFailures.length > 0) {
       setError(sectionFailures.join(" "));
       return {
@@ -1425,17 +1420,26 @@ function SetupWizard() {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     "business-profile": true
   });
-  const toggleSection = useCallback((id: string, open: boolean) => {
-    // On small screens only one section stays open at a time — the page would
-    // otherwise become extremely long. Desktop keeps multi-open behavior.
+
+  const openSection = useCallback((id: string) => {
     const singleOpen =
       typeof window !== "undefined" && window.matchMedia?.("(max-width: 639px)").matches;
-    setOpenSections((current) => (open && singleOpen ? { [id]: true } : { ...current, [id]: open }));
+    setOpenSections((current) => (singleOpen ? { [id]: true } : { ...current, [id]: true }));
   }, []);
+  const toggleSection = useCallback(
+    (id: string, open: boolean) => {
+      if (open) {
+        openSection(id);
+        return;
+      }
+      setOpenSections((current) => ({ ...current, [id]: false }));
+    },
+    [openSection]
+  );
   function jumpToConfigureSection(id: string) {
     setError("");
     setStep(2);
-    setOpenSections((current) => ({ ...current, [id]: true }));
+    openSection(id);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1607,9 +1611,6 @@ function SetupWizard() {
   ];
 
   const readyToDeploy = checklist.every((row) => !row.required || row.complete);
-  const blockers = checklist
-    .filter((row) => row.required && !row.complete && row.blocker)
-    .map((row) => row.blocker as string);
 
   if (loading) {
     return (
@@ -1804,7 +1805,11 @@ function SetupWizard() {
               calendarBusy={calendarBusy}
               calendarId={calendarId}
               timeZone={timeZone}
-              onTimeZone={dirtyWrap(setTimeZone)}
+              onTimeZone={(value) => {
+                setTimeZone(value);
+                setTzEdited(true);
+                setConfigDirty(true);
+              }}
               onSelectPhone={setSelectedPhoneId}
               onForward={setForwardToPhone}
               onTeamPhone={setTeamPhone}
@@ -1941,7 +1946,11 @@ function SetupWizard() {
                 }
                 warningCount={apptLoaded ? Object.keys(bookingRules.errors).length : 0}
                 status={
-                  bookingRulesBlocked ? "attention" : businessHours.configured ? "complete" : "incomplete"
+                  bookingRulesBlocked || bookingRules.intervalConflict
+                    ? "attention"
+                    : businessHours.configured
+                      ? "complete"
+                      : "attention"
                 }
                 summary={
                   bookingRulesBlocked
@@ -1963,6 +1972,7 @@ function SetupWizard() {
               >
                 <HoursAvailabilitySection
                   timeZone={timeZone}
+                  persistTimeZone={tzEdited}
                   onBusinessHoursLoaded={handleBusinessHoursData}
                   onBusinessHoursSaved={handleBusinessHoursData}
                   onBusinessHoursChange={handleBusinessHoursData}
@@ -2078,7 +2088,6 @@ function SetupWizard() {
           {step === 4 ? (
             <StepGoLive
               checklist={checklist}
-              blockers={blockers}
               readyToDeploy={readyToDeploy}
               assignedNumber={assignedNumber}
               apptNeedsConfirmation={apptLoaded && apptNeedsConfirmation}
@@ -2492,7 +2501,7 @@ function StepConnect({
                 id="answering-mode"
                 value={answeringMode}
                 onChange={(e) => onAnsweringMode(e.target.value)}
-                className="field w-full rounded-xl border border-gray-200 bg-white px-5 py-4 text-base text-slate-900 focus:outline-none"
+                className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none"
               >
                 {ANSWERING_MODES.filter(m => m.value !== "AI_FIRST").map((mode) => (
                   <option key={mode.value} value={mode.value}>
@@ -2545,7 +2554,7 @@ function StepConnect({
                   <li>Wait for your carrier&apos;s confirmation tone or message — that means forwarding is active.</li>
                   <li>
                     Try it: call your business number from another phone and let it ring. Your AI agent should answer. The Test step&apos;s{" "}
-                    <span className="font-semibold text-slate-700">Test call routing</span> check verifies this too.
+                    <span className="font-semibold text-slate-700">Call routing check</span> verifies this too.
                   </li>
                 </ol>
                 <p className="mt-3 text-[11px] text-slate-400">
@@ -2904,7 +2913,7 @@ function MailSetupSection({
           data-testid="business-setup-mail-save"
           onClick={() => void handleSave()}
           disabled={busy || !localPart.trim() || !displayName.trim()}
-          className="btn rounded-full bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
+          className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
         >
           {busy ? "Working…" : savedAlias ? "Update mail setup" : "Save mail setup"}
         </button>
@@ -2913,7 +2922,7 @@ function MailSetupSection({
           data-testid="business-setup-mail-test"
           onClick={() => void handleTestEmail()}
           disabled={busy || !savedAlias}
-          className="btn rounded-full border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
+          className="btn rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
         >
           Send test email
         </button>
@@ -3185,7 +3194,7 @@ function PreviewCallSection({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6" data-testid="business-setup-preview-call">
+    <div className="rounded-2xl border border-gray-200 bg-white p-6" data-testid="business-setup-preview-call">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className={SECTION_TITLE}>Start browser test call</h3>
@@ -3547,7 +3556,7 @@ function StepTest({
       {showPreview ? <PreviewCallSection onOutcome={onBrowserOutcome} /> : null}
 
       {showCallTest && labels.usesNumber ? (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 sm:p-6" data-testid="business-setup-call-number">
+        <div className="rounded-2xl border border-gray-200 bg-slate-50/50 p-5 sm:p-6" data-testid="business-setup-call-number">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <h3 className={SECTION_TITLE}>{labels.callTitle}</h3>
@@ -3591,7 +3600,7 @@ function StepTest({
 
       {/* Test details — what this test run is wired to. Rows render only when
           the setup actually has the data; nothing here is a placeholder. */}
-      <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-5" data-testid="business-test-details">
+      <div className="rounded-2xl border border-gray-200 bg-slate-50/60 p-5" data-testid="business-test-details">
         <div className="flex items-center justify-between gap-3">
           <h3 className={SECTION_TITLE}>Test details</h3>
           <span
@@ -3892,7 +3901,6 @@ const CHECKLIST_TARGETS: Record<string, { kind: "connect" } | { kind: "configure
 
 function StepGoLive({
   checklist,
-  blockers,
   readyToDeploy,
   assignedNumber,
   apptNeedsConfirmation,
@@ -3914,7 +3922,6 @@ function StepGoLive({
   onEditConnect
 }: {
   checklist: ChecklistRow[];
-  blockers: string[];
   readyToDeploy: boolean;
   assignedNumber: string | null;
   /** True when appointment hours are still unconfirmed — non-blocking nudge. */
@@ -4032,6 +4039,7 @@ function StepGoLive({
                   <button
                     type="button"
                     onClick={edit}
+                    aria-label={`Edit ${row.label}`}
                     data-testid={`business-setup-golive-fix-${row.key}`}
                     className="shrink-0 text-xs font-semibold text-amber-600 underline hover:text-amber-700"
                   >
@@ -4178,10 +4186,16 @@ function StepGoLive({
               {apptFields ? (
                 <div className={summaryRow} data-testid="business-setup-golive-booking-rules">
                   <dt className="shrink-0 text-slate-500">Booking rules</dt>
-                  <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                    {apptFields.defaultDurationMinutes} min + {apptFields.bufferMinutes} min buffer · every{" "}
-                    {apptFields.slotIntervalMinutes} min
-                  </dd>
+                  {Number.isFinite(apptFields.defaultDurationMinutes) &&
+                  Number.isFinite(apptFields.bufferMinutes) &&
+                  Number.isFinite(apptFields.slotIntervalMinutes) ? (
+                    <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
+                      {apptFields.defaultDurationMinutes} min + {apptFields.bufferMinutes} min buffer · every{" "}
+                      {apptFields.slotIntervalMinutes} min
+                    </dd>
+                  ) : (
+                    <dd className="min-w-0 truncate text-right font-semibold text-amber-700">Needs attention</dd>
+                  )}
                 </div>
               ) : null}
             </dl>

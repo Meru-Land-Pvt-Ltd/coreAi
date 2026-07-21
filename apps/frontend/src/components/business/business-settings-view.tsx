@@ -761,6 +761,9 @@ export function BusinessAddressSection({
 
   useEffect(() => {
     onDirtyChange?.(dirty);
+    // Unsaved edits die with the editor (local state) — clear the parent's
+    // dirty flag on unmount so no stale "Unsaved changes" badge survives.
+    return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange]);
 
   const refreshFacts = useCallback(async () => {

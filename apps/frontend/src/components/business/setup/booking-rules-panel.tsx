@@ -3,13 +3,6 @@
 import { useId } from "react";
 import type { ApptNumberField } from "./appointment-hours-editor";
 
-/**
- * Booking rules panel of the Appointment Availability section: labeled numeric
- * controls with units, plain-language helper text, presets, an example
- * schedule preview, and inline validation. Field keys match the existing
- * appointmentSchedule API payload exactly.
- */
-
 export type BookingRulesValues = Record<ApptNumberField, number>;
 
 export type BookingRulesValidation = {
@@ -17,46 +10,30 @@ export type BookingRulesValidation = {
   errors: Partial<Record<ApptNumberField, string>>;
   /** True when the configuration can be saved. */
   valid: boolean;
-  /**
-   * Set when the start-time interval is shorter than duration + buffer: the
-   * occupied minutes and the recommended interval (next multiple of 5).
-   */
   intervalConflict: { occupiedMinutes: number; recommendedMinutes: number } | null;
 };
 
-const MAX_SUGGESTIONS = 10;
+const RULE_BOUNDS: Record<ApptNumberField, { min: number; max: number; label: string }> = {
+  defaultDurationMinutes: { min: 5, max: 480, label: "Duration" },
+  bufferMinutes: { min: 0, max: 120, label: "Buffer" },
+  slotIntervalMinutes: { min: 5, max: 240, label: "Interval" },
+  minNoticeMinutes: { min: 0, max: 10080, label: "Notice" },
+  maxAdvanceDays: { min: 1, max: 365, label: "Booking window" },
+  maxSpokenSuggestions: { min: 2, max: 10, label: "Suggestions" }
+};
 
 export function validateBookingRules(values: BookingRulesValues): BookingRulesValidation {
   const errors: Partial<Record<ApptNumberField, string>> = {};
 
-  const invalidNumber = (value: number) => !Number.isFinite(value);
-
-  if (invalidNumber(values.defaultDurationMinutes) || values.defaultDurationMinutes < 1) {
-    errors.defaultDurationMinutes = "Duration must be at least 1 minute.";
-  }
-  if (invalidNumber(values.bufferMinutes) || values.bufferMinutes < 0) {
-    errors.bufferMinutes = "Buffer cannot be negative.";
-  }
-  if (invalidNumber(values.slotIntervalMinutes) || values.slotIntervalMinutes < 1) {
-    errors.slotIntervalMinutes = "Interval must be at least 1 minute.";
-  }
-  if (invalidNumber(values.minNoticeMinutes) || values.minNoticeMinutes < 0) {
-    errors.minNoticeMinutes = "Notice cannot be negative.";
-  }
-  if (invalidNumber(values.maxAdvanceDays) || values.maxAdvanceDays < 1) {
-    errors.maxAdvanceDays = "Booking window must be at least 1 day.";
-  }
-  if (
-    invalidNumber(values.maxSpokenSuggestions) ||
-    values.maxSpokenSuggestions < 1 ||
-    values.maxSpokenSuggestions > MAX_SUGGESTIONS
-  ) {
-    errors.maxSpokenSuggestions = `Between 1 and ${MAX_SUGGESTIONS} suggestions.`;
+  for (const key of Object.keys(RULE_BOUNDS) as ApptNumberField[]) {
+    const bounds = RULE_BOUNDS[key];
+    const value = values[key];
+    if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
+      errors[key] = `${bounds.label} must be a whole number between ${bounds.min} and ${bounds.max}.`;
+    }
   }
 
-  // Adjacent start times must fit a full appointment + buffer. Only checked
-  // once the individual fields are themselves valid numbers.
-  let intervalConflict: BookingRulesValidation["intervalConflict"] = null;
+let intervalConflict: BookingRulesValidation["intervalConflict"] = null;
   if (!errors.defaultDurationMinutes && !errors.bufferMinutes && !errors.slotIntervalMinutes) {
     const occupiedMinutes = values.defaultDurationMinutes + values.bufferMinutes;
     if (values.slotIntervalMinutes < occupiedMinutes) {
@@ -82,49 +59,42 @@ const RULE_FIELDS: {
   label: string;
   unit: string;
   help: string;
-  min: number;
 }[] = [
   {
     key: "defaultDurationMinutes",
     label: "Appointment duration",
     unit: "minutes",
-    help: "How long the actual appointment lasts.",
-    min: 1
+    help: "How long the actual appointment lasts."
   },
   {
     key: "bufferMinutes",
     label: "Buffer after appointment",
     unit: "minutes",
-    help: "Reserved time after an appointment.",
-    min: 0
+    help: "Reserved time after an appointment."
   },
   {
     key: "slotIntervalMinutes",
     label: "Available start times every",
     unit: "minutes",
-    help: "How frequently potential start times are generated.",
-    min: 1
+    help: "How frequently potential start times are generated."
   },
   {
     key: "minNoticeMinutes",
     label: "Minimum booking notice",
     unit: "minutes",
-    help: "How soon the next appointment may begin.",
-    min: 0
+    help: "How soon the next appointment may begin."
   },
   {
     key: "maxAdvanceDays",
     label: "Booking window",
     unit: "days ahead",
-    help: "How far in advance customers can book.",
-    min: 1
+    help: "How far in advance customers can book."
   },
   {
     key: "maxSpokenSuggestions",
     label: "Suggestions per call",
     unit: "times",
-    help: "Maximum available times the agent offers in one response.",
-    min: 1
+    help: "Available times the agent offers in one response (2\u201310)."
   }
 ];
 
@@ -156,9 +126,7 @@ export function BookingRulesPanel({
   const previewNextStart = addMinutesLabel(9, 0, Math.max(values.slotIntervalMinutes || 0, 0));
 
   function applyPreset(preset: (typeof PRESETS)[number]) {
-    // Presets only touch duration + interval — buffers, notice, window, and
-    // suggestion counts are left exactly as configured.
-    onField("defaultDurationMinutes", preset.duration);
+onField("defaultDurationMinutes", preset.duration);
     onField("slotIntervalMinutes", Math.max(preset.interval, preset.duration + (values.bufferMinutes || 0)));
   }
 
@@ -182,7 +150,7 @@ export function BookingRulesPanel({
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-        {RULE_FIELDS.map(({ key, label, unit, help, min }) => {
+        {RULE_FIELDS.map(({ key, label, unit, help }) => {
           const fieldError = errors[key];
           const inputId = `appt-${key}`;
           const helpId = `${baseId}-${key}-help`;
@@ -197,7 +165,9 @@ export function BookingRulesPanel({
                 <input
                   id={inputId}
                   type="number"
-                  min={min}
+                  min={RULE_BOUNDS[key].min}
+                  max={RULE_BOUNDS[key].max}
+                  step={1}
                   value={Number.isFinite(values[key]) ? values[key] : ""}
                   onChange={(e) => {
                     const parsed = Number(e.target.value);
@@ -228,6 +198,7 @@ export function BookingRulesPanel({
       {intervalConflict ? (
         <div
           role="alert"
+          id={`${baseId}-slotIntervalMinutes-error`}
           className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3.5 py-2.5"
           data-testid="business-setup-booking-interval-warning"
         >
@@ -246,7 +217,11 @@ export function BookingRulesPanel({
           </button>
         </div>
       ) : errors.slotIntervalMinutes ? (
-        <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">
+        <p
+          role="alert"
+          id={`${baseId}-slotIntervalMinutes-error`}
+          className="mt-3 text-xs font-semibold text-rose-600"
+        >
           {errors.slotIntervalMinutes}
         </p>
       ) : null}

@@ -120,6 +120,7 @@ export function BusinessHoursSection({
   compact = false,
   embedded = false,
   timeZoneOverride,
+  persistOverrideTimeZone = true,
   onSaved,
   onLoaded,
   onDirtyChange,
@@ -130,6 +131,12 @@ export function BusinessHoursSection({
   compact?: boolean;
   embedded?: boolean;
   timeZoneOverride?: string;
+  /**
+   * Stale-tab guard: when false, saves keep the server's own timezone instead
+   * of persisting timeZoneOverride (which is display-only until the buyer
+   * actually edits it this session).
+   */
+  persistOverrideTimeZone?: boolean;
   onSaved?: (data: BusinessHoursData) => void;
   /** Fires with the server state on initial load (summary for parent UIs). */
   onLoaded?: (data: BusinessHoursData) => void;
@@ -198,6 +205,9 @@ export function BusinessHoursSection({
 
   useEffect(() => {
     onDirtyChange?.(dirty);
+    // Unsaved edits die with the editor (local state) — clear the parent's
+    // dirty flag on unmount so no stale "Unsaved changes" badge survives.
+    return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange]);
 
   const onChangeRef = useRef(onChange);
@@ -361,7 +371,8 @@ export function BusinessHoursSection({
     }
 
     setSaving(true);
-    const response = await putBusinessHours({ hours: week, timeZone: effectiveTimeZone, specialDates: dates });
+    const persistedTimeZone = timeZoneOverride?.trim() && !persistOverrideTimeZone ? timeZone : effectiveTimeZone;
+    const response = await putBusinessHours({ hours: week, timeZone: persistedTimeZone, specialDates: dates });
     setSaving(false);
 
     if (!response.success || !response.data) {
@@ -510,7 +521,7 @@ export function BusinessHoursSection({
                 setTimeZone(event.target.value);
                 setDirty(true);
               }}
-              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-slate-700"
+              className="field rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-slate-700"
             >
               {[
                 ...(COMMON_TIMEZONES.some((option) => option.value === timeZone)
@@ -599,7 +610,7 @@ export function BusinessHoursSection({
                         data-testid={`business-hours-open-${day.day}-${index}`}
                         value={period.open}
                         onChange={(event) => patchPeriod(day.day, index, "open", event.target.value)}
-                        className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700"
+                        className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700"
                       />
                       <span className="text-xs text-slate-400" aria-hidden="true">–</span>
                       <input
@@ -607,7 +618,7 @@ export function BusinessHoursSection({
                         data-testid={`business-hours-close-${day.day}-${index}`}
                         value={period.close}
                         onChange={(event) => patchPeriod(day.day, index, "close", event.target.value)}
-                        className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700"
+                        className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700"
                       />
                       {day.periods.length > 1 ? (
                         <button
@@ -638,7 +649,7 @@ export function BusinessHoursSection({
                         value={day.note ?? ""}
                         placeholder="Note (optional)"
                         onChange={(event) => patchDay(day.day, { note: event.target.value || undefined })}
-                        className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-xs text-slate-600 placeholder-slate-300 transition focus:border-gray-200"
+                        className="field min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-xs text-slate-600 placeholder-slate-300 transition focus:border-gray-200"
                       />
                     ) : null}
                   </div>
@@ -678,7 +689,7 @@ export function BusinessHoursSection({
                   data-testid={`business-hours-special-date-${index}`}
                   value={entry.date}
                   onChange={(event) => patchSpecialDate(index, { date: event.target.value })}
-                  className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                  className="field rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
                 />
                 <select
                   value={entry.kind}
@@ -724,7 +735,7 @@ export function BusinessHoursSection({
                               )
                             })
                           }
-                          className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                          className="field rounded-lg border border-gray-200 px-2 py-1 text-sm"
                         />
                         <span className="text-xs text-slate-400">–</span>
                         <input
@@ -737,7 +748,7 @@ export function BusinessHoursSection({
                               )
                             })
                           }
-                          className="rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                          className="field rounded-lg border border-gray-200 px-2 py-1 text-sm"
                         />
                       </span>
                     ))
@@ -748,7 +759,7 @@ export function BusinessHoursSection({
                   value={entry.note ?? ""}
                   placeholder="Note (optional)"
                   onChange={(event) => patchSpecialDate(index, { note: event.target.value || undefined })}
-                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-slate-600"
+                  className="field flex-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-slate-600"
                 />
                 <button
                   type="button"

@@ -21,6 +21,7 @@ import {
 
 export function HoursAvailabilitySection({
   timeZone,
+  persistTimeZone = true,
   onBusinessHoursLoaded,
   onBusinessHoursSaved,
   onBusinessHoursChange,
@@ -46,6 +47,8 @@ export function HoursAvailabilitySection({
 }: {
   /** Authoritative business timezone — owned by the Connect step, passed through to the hours editor. */
   timeZone: string;
+  /** False until the buyer edits the timezone this session (stale-tab guard). */
+  persistTimeZone?: boolean;
   onBusinessHoursLoaded: (data: BusinessHoursData) => void;
   onBusinessHoursSaved: (data: BusinessHoursData) => void;
   onBusinessHoursChange?: (data: BusinessHoursData) => void;
@@ -79,6 +82,7 @@ export function HoursAvailabilitySection({
           title="Business Hours"
           embedded
           timeZoneOverride={timeZone}
+          persistOverrideTimeZone={persistTimeZone}
           onLoaded={onBusinessHoursLoaded}
           onSaved={onBusinessHoursSaved}
           onChange={onBusinessHoursChange}

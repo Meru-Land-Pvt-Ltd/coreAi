@@ -168,6 +168,7 @@ export function AgentIdentitySection({
                   role="radio"
                   aria-checked
                   data-testid="business-setup-voice-option-custom"
+                  onClick={() => onVoiceChoice("custom")}
                   className="pick selected flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left"
                 >
                   <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 border-amber-500">

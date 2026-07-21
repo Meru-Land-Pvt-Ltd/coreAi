@@ -145,7 +145,7 @@ export function AppointmentHoursEditor({
                   aria-label={`${label} booking opens`}
                   onChange={(e) => onDay(key, { open: e.target.value })}
                   data-testid="business-setup-appt-day-open"
-                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none disabled:opacity-40"
+                  className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none disabled:opacity-40"
                 />
                 <span className="text-xs text-slate-400" aria-hidden="true">
                   –
@@ -157,7 +157,7 @@ export function AppointmentHoursEditor({
                   aria-label={`${label} booking closes`}
                   onChange={(e) => onDay(key, { close: e.target.value })}
                   data-testid="business-setup-appt-day-close"
-                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none disabled:opacity-40"
+                  className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none disabled:opacity-40"
                 />
                 <label className="ml-auto flex items-center gap-1.5 text-xs font-medium text-slate-500">
                   <input
