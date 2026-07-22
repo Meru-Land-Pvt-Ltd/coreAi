@@ -33,6 +33,7 @@ import {
 } from "@/components/business/features/api";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { apiGet } from "@/lib/api";
+import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
 import { BUSINESS_BILLING_PATH } from "@/lib/routes";
@@ -489,6 +490,7 @@ type BillingPaymentMethod = {
 type BillingInvoice = {
   id: string;
   createdAt: string;
+  description?: string | null;
   amountCents: number;
   displayAmountCents?: number;
   status: string;
@@ -508,6 +510,10 @@ type BillingData = {
 
 function formatUsd(cents: number) {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function invoiceNumberFor(id: string) {
+  return `INV-${id.slice(-8).toUpperCase()}`;
 }
 
 function formatDate(iso: string) {
@@ -1144,6 +1150,7 @@ export function BusinessSettingsView() {
   const [deleting, setDeleting] = useState(false);
   const [billingAddressEditing, setBillingAddressEditing] = useState(false);
   const [billingAddressSaving, setBillingAddressSaving] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
   const [billingAddressForm, setBillingAddressForm] = useState({ address: "", pincode: "" });
   const [exportingData, setExportingData] = useState(false);
   const [requestingDpa, setRequestingDpa] = useState(false);
@@ -1514,6 +1521,22 @@ export function BusinessSettingsView() {
     );
     setBillingAddressEditing(false);
     showToast("Billing address updated");
+  }
+
+  async function handleDownloadInvoice(invoice: BillingInvoice) {
+    if (downloadingInvoiceId) return;
+
+    setDownloadingInvoiceId(invoice.id);
+    showToast(`Preparing ${invoice.description || "invoice"} PDF…`);
+
+    try {
+      await downloadInvoicePdf(invoice.id, `invoice-${invoiceNumberFor(invoice.id)}.pdf`);
+      showToast(`Downloaded ${invoice.description || "invoice"}`);
+    } catch {
+      showToast("Could not download invoice PDF");
+    } finally {
+      setDownloadingInvoiceId(null);
+    }
   }
 
   async function handleExportData() {
@@ -2432,10 +2455,11 @@ export function BusinessSettingsView() {
                                   type="button"
                                   aria-label={`Download invoice from ${formatDate(invoice.createdAt)}`}
                                   data-testid={`business-settings-download-invoice-${invoice.id}`}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-gray-100 hover:text-slate-700"
-                                  onClick={() => showToast("Invoice downloaded")}
+                                  disabled={downloadingInvoiceId !== null}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-gray-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50"
+                                  onClick={() => void handleDownloadInvoice(invoice)}
                                 >
-                                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" className={`h-4 w-4 ${downloadingInvoiceId === invoice.id ? "animate-pulse" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                                     <path d="M7 10l5 5 5-5" />
                                     <path d="M12 15V3" />

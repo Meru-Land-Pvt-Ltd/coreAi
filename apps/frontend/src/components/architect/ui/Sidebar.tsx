@@ -160,12 +160,6 @@ function SidebarContent({
   showMobileClose?: boolean;
   onMobileClose?: () => void;
 }) {
-
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-
-  useEffect(() => {
-    setProfileMenuOpen(false);
-  }, [pathname]);
   return (
     <>
       <div className="flex min-w-0 items-center gap-0.5 border-b border-gray-100 px-5 py-5">
@@ -247,40 +241,28 @@ function SidebarContent({
           </span>
 
           <button
-            data-testid="architect-sidebar-user-menu-trigger"
+            data-testid="architect-sidebar-logout"
             type="button"
-            aria-label="Open user menu"
-            aria-expanded={profileMenuOpen}
-            onClick={() => setProfileMenuOpen((open) => !open)}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            aria-label="Logout"
+            title="Logout"
+            onClick={logout}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
           >
             <svg
               viewBox="0 0 24 24"
               className="h-5 w-5"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden="true"
             >
-              <circle cx="5" cy="12" r="1.8" />
-              <circle cx="12" cy="12" r="1.8" />
-              <circle cx="19" cy="12" r="1.8" />
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="m16 17 5-5-5-5" />
+              <path d="M21 12H9" />
             </svg>
           </button>
-
-          {profileMenuOpen ? (
-            <div className="absolute bottom-full right-2 mb-2 w-36 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl shadow-slate-900/10">
-              <button
-                data-testid="architect-sidebar-logout"
-                type="button"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  logout();
-                }}
-                className="w-full rounded-lg px-3 py-2 text-left text-xs font-bold text-slate-600 transition hover:bg-red-50 hover:text-red-600"
-              >
-                Logout
-              </button>
-            </div>
-          ) : null}
         </div>
       </div>
     </>

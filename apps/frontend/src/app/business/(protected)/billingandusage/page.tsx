@@ -694,64 +694,8 @@ export default function BusinessBillingUsagePage() {
                     </div>
                 </section>
 
-                {/* Call history & recordings */}
-                <section
-                    className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm"
-                    aria-label="Call history"
-                    data-testid="usage-call-history"
-                >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <h2 className="text-lg font-bold" data-testid="usage-call-history-heading">Call History</h2>
-                        <span className="text-xs text-slate-400">
-                            {usageCalls.length === 0
-                                ? "No calls this month"
-                                : `${usageCalls.length} call${usageCalls.length === 1 ? "" : "s"} this month`}
-                        </span>
-                    </div>
-
-                    <div className="mt-4 max-h-[28rem] divide-y divide-gray-100 overflow-y-auto rounded-xl border border-gray-100">
-                        {usageCalls.length === 0 ? (
-                            <p className="px-4 py-6 text-sm text-slate-400" data-testid="usage-call-history-empty">
-                                Calls will appear here after your agent answers them. Recordings are available when
-                                call recording is enabled for the agent.
-                            </p>
-                        ) : (
-                            usageCalls.map((call) => (
-                                <div key={call.callId} className="bg-white px-4 py-4" data-testid="usage-call-row">
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="min-w-0">
-                                            <p className="truncate text-sm font-semibold text-slate-900" data-testid="usage-call-phone">
-                                                {call.customerPhone}
-                                            </p>
-                                            <p className="mt-1 text-xs text-slate-400" data-testid="usage-call-meta">
-                                                {agentNameById.get(call.installedAgentId ?? "") ?? "AI agent"}
-                                                {call.recordedAt ? ` · ${formatCallTimestamp(call.recordedAt)}` : ""}
-                                                {` · ${formatCallDuration(call)}`}
-                                            </p>
-                                        </div>
-                                        <span className="shrink-0 font-mono text-sm font-bold text-slate-700" data-testid="usage-call-cost">
-                                            ${call.billedCostUsd.toFixed(2)}
-                                        </span>
-                                    </div>
-
-                                    {call.recordingUrl ? (
-                                        <div className="mt-3">
-                                            <CallRecordingPlayer
-                                                src={call.recordingUrl}
-                                                refreshPath={`/business/calls/${encodeURIComponent(call.callId)}/recording-url`}
-                                                testIdPrefix="usage-call-recording"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <p className="mt-2 text-[11px] font-medium text-slate-300" data-testid="usage-call-no-recording">
-                                            No recording for this call
-                                        </p>
-                                    )}
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </section>
+           
+                
 
                 {/* 3. Invoice history */}
                 <section className="rounded-2xl border border-gray-100 bg-white shadow-sm" aria-label="Invoice history">
