@@ -8,13 +8,6 @@ import {
   type AgentPromptInput
 } from "./prompt-builder";
 
-/**
- * Regression coverage for architect-written {{variables}} in prompts and
- * first messages. Unresolved tokens used to reach Vapi's Liquid engine —
- * unknown variables rendered EMPTY (the custom first message "disappeared")
- * and malformed ones errored the browser call.
- */
-
 describe("fillPromptTemplateTokens", () => {
   const values = {
     assistantName: "Ava",
@@ -107,14 +100,6 @@ describe("custom first message survives variable filling", () => {
   });
 });
 
-/**
- * The emotional-support directives are a product requirement: the agent must
- * acknowledge feelings, answer the caller's actual question with cautious
- * guidance, escalate immediate safety risks, and never collapse into
- * booking-only or robotic replies. These tests pin the prompt contract for
- * every business type — live Vapi deploys and chat/test runtimes both build
- * from this prompt.
- */
 describe("buildAgentSystemPrompt emotional support", () => {
   const baseInput = (overrides: Partial<AgentPromptInput> = {}): AgentPromptInput => ({
     assistantName: "Ava",
@@ -185,6 +170,29 @@ describe("buildAgentSystemPrompt emotional support", () => {
     expect(prompt).toMatch(/legal deadline/);
     expect(prompt).toMatch(/bill or missed payment/);
     expect(prompt).toContain("never limit yourself to these");
+  });
+
+  it("tool mode (default) emits the legal SMS consent flow; simulated mode emits the ask-once rule", () => {
+    const withText = baseInput({ capabilities: { canCheckAvailability: true, canBook: true, canText: true } });
+
+    const toolPrompt = buildAgentSystemPrompt(withText);
+    expect(toolPrompt).toContain("SMS consent rules (follow these EXACTLY — they are a legal requirement)");
+    expect(toolPrompt).toContain("record_sms_consent");
+
+    const simulatedPrompt = buildAgentSystemPrompt({ ...withText, smsConsentMode: "simulated" });
+    expect(simulatedPrompt).toContain("SMS consent rules (test conversation");
+    expect(simulatedPrompt).toContain("ask ONCE");
+    expect(simulatedPrompt).toContain("do not try to call a consent tool");
+    expect(simulatedPrompt).not.toContain("legal requirement");
+  });
+
+  it("email-only workflows get the email offer and never any SMS consent flow", () => {
+    const prompt = buildAgentSystemPrompt(
+      baseInput({ capabilities: { canCheckAvailability: true, canBook: true, canText: false, canEmail: true } })
+    );
+    expect(prompt).toContain("Offer an email confirmation and collect the caller's email address");
+    expect(prompt).not.toContain("SMS consent rules");
+    expect(prompt).not.toContain("record_sms_consent");
   });
 
   it("stays generic: adapts guidance to the configured business and booking label", () => {

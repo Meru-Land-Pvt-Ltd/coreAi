@@ -268,7 +268,7 @@ const PREVIEW_TOOL_NOTES = `
 Preview call handling:
 - This is a browser test call placed by the business owner, not a live customer call.
 - Booking works exactly like the live agent when the workflow supports it: ask for a preferred date and time, call check_availability once a date is known, and call book_appointment only after name, date, and time are confirmed. The booking creates a clearly-marked TEST event on the business calendar — say so when confirming.
-- SMS and email are disabled during the test — never promise a text or an email.
+- The SMS consent flow also works exactly like the live agent: read the disclosure, wait for the answer, and call record_sms_consent. A decline means no text — complete the booking normally. Because this is a test call, NO real text or email is ever delivered; if the caller asks, say the confirmation would be sent on a real call.
 - Never say "Y-Y-Y-Y, M-M, D-D"; say dates in plain spoken language.
 `.trim();
 
@@ -504,7 +504,8 @@ export async function deployInstalledAgentVoiceAssistant(
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
-      sendNotification: plan.capabilities.canText
+      sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
+      recordSmsConsent: plan.capabilities.canText
     }
   });
 
@@ -519,10 +520,6 @@ export async function deployInstalledAgentVoiceAssistant(
     });
   }
 
-  // Record the assistant's ACTUAL provider pipeline (from the payload just
-  // sent to Vapi) so the Limited Use guard validates the real providers on
-  // every webhook tool call — never an env-level guess. Re-read configJson so
-  // a concurrent buyer save between plan build and here is not clobbered.
   const agentRow = await prisma.installedAgent.findUnique({
     where: { id: plan.installedAgentId },
     select: { configJson: true }
@@ -746,7 +743,8 @@ export async function startInstalledAgentPreviewCall(businessId: string): Promis
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
-      sendNotification: false
+      sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
+      recordSmsConsent: plan.capabilities.canText
     },
     silenceTimeoutSeconds: 60,
     maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,

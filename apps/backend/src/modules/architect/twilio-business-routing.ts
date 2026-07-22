@@ -3628,16 +3628,6 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     return { success: false, error: "business_not_resolved", consent_recorded: false };
   }
 
-  // Buyer browser test: acknowledge without writing a real consent record.
-  if (ctx.executionMode === "BUSINESS_TEST") {
-    return {
-      success: true,
-      business_test: true,
-      consent_recorded: false,
-      message: "Test call — consent noted for the conversation but not recorded. No texts are sent during tests."
-    };
-  }
-
   const affirmative = args["affirmative"];
   if (typeof affirmative !== "boolean") {
     return {
@@ -3645,6 +3635,18 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
       error: "affirmative_must_be_boolean",
       consent_recorded: false,
       message: "Ask the yes/no consent question and call again with affirmative true or false."
+    };
+  }
+
+  if (ctx.executionMode === "BUSINESS_TEST") {
+    return {
+      success: true,
+      business_test: true,
+      consent_recorded: false,
+      sms_allowed: affirmative,
+      message: affirmative
+        ? "Test call — consent noted for this conversation only (not recorded). A real text would be sent on a live call; none is sent during tests."
+        : "Test call — declined noted. Do not send texts. Continue the booking normally."
     };
   }
 
@@ -4349,10 +4351,6 @@ export async function handleVapiWebhook(c: Context) {
                     : { success: false };
       }
 
-      // Limited Use: every calendar-tool result is rebuilt through an explicit
-      // whitelist before it reaches the model — Google event ids/links,
-      // calendar ids, customer phone numbers, internal DB ids, and provider
-      // metadata cannot leak by construction (compliance/ai-safe-results.ts).
       if (payload && typeof payload === "object") {
         if (isCheck) payload = toAiSafeAvailabilityResult(payload as Record<string, unknown>);
         else if (isBook) payload = toAiSafeBookingResult(payload as Record<string, unknown>);

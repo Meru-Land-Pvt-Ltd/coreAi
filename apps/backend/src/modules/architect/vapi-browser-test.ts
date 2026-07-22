@@ -300,7 +300,8 @@ const currentDate = dateInZone(now, timeZone);
     capabilities: {
       canCheckAvailability: capabilities.canCheckAvailability,
       canBook: capabilities.canBook,
-      canText: capabilities.canText
+      canText: capabilities.canText,
+      canEmail: capabilities.canEmail
     },
     nodeInstructions,
     extraSections: [
@@ -380,7 +381,8 @@ Live call handling:
       includeTools: {
         checkAvailability: capabilities.canCheckAvailability,
         bookAppointment: capabilities.canBook,
-        sendNotification: capabilities.canText
+        sendNotification: capabilities.canText || capabilities.canEmail === true,
+        recordSmsConsent: capabilities.canText
       }
     });
   } catch (error) {
@@ -412,7 +414,8 @@ Live call handling:
         includeTools: {
           checkAvailability: capabilities.canCheckAvailability,
           bookAppointment: capabilities.canBook,
-          sendNotification: capabilities.canText
+          sendNotification: capabilities.canText || capabilities.canEmail === true,
+          recordSmsConsent: capabilities.canText
         }
       });
     } else {

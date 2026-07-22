@@ -312,9 +312,8 @@ const handleSendSms: NodeHandler = async (node, context, providers) => {
   const required = nodeRequiredVariables(node);
   const missing = required.filter((key) => !hasVariable(context, key));
 
-  // SMS runs when a prior node produced something to notify about this turn,
-  // or the caller explicitly asked to be texted — and its inputs exist.
-  const shouldRun = turn.bookedThisTurn || (conversation.smsRequested && !conversation.ending);
+  const consented = conversation.smsRequested && !conversation.smsDeclined;
+  const shouldRun = consented && (turn.bookedThisTurn || !conversation.ending);
 
   if (!shouldRun) return { status: "skipped" };
 

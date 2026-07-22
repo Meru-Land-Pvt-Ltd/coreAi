@@ -67,8 +67,10 @@ export type AgentConversationState = {
   ending: boolean;
   /** The current message asks a question. */
   isQuestion: boolean;
-  /** The caller asked to receive something by text. */
+  /** The caller asked for a text, or clearly agreed when the assistant offered one. */
   smsRequested: boolean;
+  /** The caller declined a text when the assistant offered one — never send. */
+  smsDeclined: boolean;
   /** The caller pointed out their details were never collected. */
   detailsComplaint: boolean;
   /** The current message asks to leave a message for the team. */
@@ -360,6 +362,18 @@ export function wantsSmsMessage(message: string): boolean {
   return /\b(text|sms|send me|notify)\b/i.test(message);
 }
 
+/** The assistant offered a text ("Would you like a text confirmation?"). */
+export function offersTextConfirmation(message: string): boolean {
+  return /\b(text|sms)\b/i.test(message) && /\b(would you like|want|shall i|should i|can i send|like me to (send|text))\b/i.test(message) && message.includes("?");
+}
+
+/** A clear, unambiguous yes to an offer — anything else is NOT agreement. */
+export function affirmsOffer(message: string): boolean {
+  const text = message.toLowerCase().trim();
+  if (/\b(no|nope|don'?t|do not|nah|stop|later|maybe)\b/.test(text)) return false;
+  return /\b(yes|yeah|yep|sure|please|ok(ay)?|sounds good|that('?s| is) fine|go ahead)\b/.test(text);
+}
+
 export function wantsEnding(message: string): boolean {
   const text = message.toLowerCase().trim();
 
@@ -429,8 +443,6 @@ export function inferConversationState(params: {
     }
   }
 
-  // An architect/business-typed caller identity counts as a matched contact;
-  // placeholder defaults never count as confirmed customer details.
   if (!collectedName && caller.name && !DEFAULT_CALLER_NAMES.has(caller.name.toLowerCase())) {
     collectedName = caller.name;
   }
@@ -445,12 +457,25 @@ export function inferConversationState(params: {
     Boolean(extractName(message)) ||
     Boolean(extractPhone(message));
 
-  // Message-taking flow: if the assistant just asked what to pass along, the
-  // caller's current turn is the message content itself.
   const lastAssistant = [...history].reverse().find((item) => item.role === "assistant")?.content ?? "";
   const messageFollowUp =
     /what would you like me to pass along|what message would you like/i.test(lastAssistant) &&
     !wantsEnding(message);
+
+  let smsDeclined = false;
+  const fullTurns = [...history, { role: "user" as const, content: message }];
+  for (let index = 1; index < fullTurns.length; index += 1) {
+    const previous = fullTurns[index - 1];
+    const current = fullTurns[index];
+    if (previous.role !== "assistant" || current.role !== "user") continue;
+    if (!offersTextConfirmation(previous.content)) continue;
+    if (affirmsOffer(current.content)) {
+      smsRequested = true;
+      smsDeclined = false;
+    } else {
+      smsDeclined = true;
+    }
+  }
 
   return {
     schedulingIntent,
@@ -458,6 +483,7 @@ export function inferConversationState(params: {
     ending: wantsEnding(message),
     isQuestion: asksQuestion(message),
     smsRequested,
+    smsDeclined,
     detailsComplaint: asksAboutMissingDetails(message),
     wantsMessage: wantsToLeaveMessage(message),
     messageFollowUp,

@@ -111,6 +111,7 @@ export type AgentPromptInput = {
   /** Architect-defined buyer setup answers (industry-specific facts) as label/value pairs. */
   customFields?: Array<{ label: string; value: string }>;
   smsConsentStatusText?: string;
+  smsConsentMode?: "tool" | "simulated";
   /** Mode-specific appendices (runtime turn state, live tool notes). */
   extraSections?: string[];
 };
@@ -205,7 +206,7 @@ Booking rules:
     }
 - After a booking is complete, answer whatever the caller asks next — do not keep repeating the confirmation.`.trim());
 
-  if (capabilities.canText) {
+  if (capabilities.canText && (input.smsConsentMode ?? "tool") === "tool") {
     const consentStatus = clean(input.smsConsentStatusText) || "unknown";
     sections.push(`
 SMS consent rules (follow these EXACTLY — they are a legal requirement):
@@ -219,6 +220,16 @@ SMS consent rules (follow these EXACTLY — they are a legal requirement):
 - Never treat giving a phone number, or completing a booking, as consent. Never skip the disclosure. Never pressure the caller.
 - If they decline (or consent was not recorded): say something like "No problem." and complete the ${bookingLabel} or request normally — consent is never required to finish. Do NOT call send_notification for the customer and never promise a text.
 - Only after record_sms_consent returned sms_allowed=true may you call send_notification to text the caller.`.trim());
+  }
+
+  if (capabilities.canText && input.smsConsentMode === "simulated") {
+    sections.push(`
+SMS consent rules (test conversation — follow these EXACTLY):
+- The record_sms_consent tool and the full legal disclosure run on live phone calls, not in this simulation. Do not read the legal disclosure script here and do not try to call a consent tool.
+- After a ${bookingLabel} or confirmed request, ask ONCE, briefly, whether the caller would like a text confirmation (for example: "Would you like a text confirmation of this?").
+- Only a clear, unambiguous yes counts as agreement. A no, silence, hesitation, or an unclear answer means NO text — say something like "No problem." and complete the ${bookingLabel} normally. Never ask again.
+- Never treat giving a phone number, or completing a booking, as agreement to receive texts.
+- Never say a text was sent unless the current state this turn says one was prepared.`.trim());
   }
 
   if (capabilities.canBook) {

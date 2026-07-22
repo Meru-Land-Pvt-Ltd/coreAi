@@ -284,8 +284,10 @@ ${workflowMap}
     capabilities: {
       canCheckAvailability: hasCapability(tools, "calendar.check_availability"),
       canBook: hasCapability(tools, "calendar.book_appointment"),
-      canText: hasCapability(tools, "sms.send")
+      canText: hasCapability(tools, "sms.send"),
+      canEmail: hasCapability(tools, "email.send")
     },
+    smsConsentMode: "simulated",
     nodeInstructions,
     extraSections: [
       ...(business.factsLines?.length

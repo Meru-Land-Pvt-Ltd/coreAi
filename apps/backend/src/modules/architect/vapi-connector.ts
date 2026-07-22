@@ -976,7 +976,9 @@ export type DeployVapiAssistantInput = {
     knowledgeLookup?: boolean;
     checkAvailability?: boolean;
     bookAppointment?: boolean;
+    /** send_notification (SMS and/or email delivery) — include when the workflow can text OR email. */
     sendNotification?: boolean;
+    recordSmsConsent?: boolean;
   };
   /** Seconds of caller silence before Vapi ends the call (Vapi default: 30). */
   silenceTimeoutSeconds?: number;
@@ -1050,8 +1052,11 @@ export async function deployVapiAssistant({
           if (name === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
           if (name === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
           if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
-          // Consent capture only matters where SMS can be sent at all.
-          if (name === VOICE_TOOL_NAMES.recordSmsConsent) return includeTools.sendNotification !== false;
+          // Consent capture only matters where SMS can be sent — email-only
+          // workflows get send_notification WITHOUT the SMS consent tool.
+          if (name === VOICE_TOOL_NAMES.recordSmsConsent) {
+            return (includeTools.recordSmsConsent ?? includeTools.sendNotification) !== false;
+          }
           if (name === VOICE_TOOL_NAMES.lookupKnowledge) return true;
           return true;
         })
