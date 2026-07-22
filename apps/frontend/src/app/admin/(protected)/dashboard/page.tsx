@@ -117,6 +117,7 @@ function PerformanceChart({
   metric: PerformanceMetric;
   revenueCurrency: string | null | undefined;
 }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const chart = useMemo(() => {
     const validPoints = points.flatMap((point) => {
       const value = performanceValue(point, metric);
@@ -130,6 +131,10 @@ function PerformanceChart({
     const average = values.length > 0 ? values.reduce((total, value) => total + value, 0) / values.length : 0;
 
     return { validPoints, values, ceiling, average };
+  }, [metric, points]);
+
+  useEffect(() => {
+    setHoveredIndex(null);
   }, [metric, points]);
 
   if (chart.validPoints.length === 0 || (metric === "revenue" && !revenueCurrency)) {
@@ -152,65 +157,110 @@ function PerformanceChart({
   const barWidth = Math.max(4, Math.min(20, columnWidth * 0.62));
   const y = (value: number) => top + innerHeight - (value / chart.ceiling) * innerHeight;
   const labelEvery = Math.max(1, Math.ceil(chart.validPoints.length / 7));
+  const hoveredEntry = hoveredIndex === null ? null : chart.validPoints[hoveredIndex] ?? null;
+  const hoveredX = hoveredIndex === null
+    ? 0
+    : left + hoveredIndex * columnWidth + columnWidth / 2;
+  const tooltipLeft = Math.min(90, Math.max(10, (hoveredX / width) * 100));
+  const tooltipTop = hoveredEntry
+    ? Math.max(10, (y(hoveredEntry.value) / height) * 100)
+    : 0;
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-[260px] w-full sm:h-[300px]"
-      role="img"
-      aria-label={`${METRIC_CONFIG[metric].label} performance for the last 30 days`}
-    >
-      <defs>
-        <linearGradient id={`admin-performance-${metric}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#f59e0b" />
-          <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.55" />
-        </linearGradient>
-      </defs>
-      {Array.from({ length: 5 }, (_, index) => {
-        const value = (chart.ceiling / 4) * index;
-        const lineY = y(value);
-        return (
-          <g key={index}>
-            <line x1={left} y1={lineY} x2={width - right} y2={lineY} stroke="#f1f5f9" />
-            <text x={left - 10} y={lineY + 4} textAnchor="end" fontSize="11" fill="#94a3b8">
-              {formatPerformanceValue(Math.round(value), metric, revenueCurrency)}
-            </text>
-          </g>
-        );
-      })}
-      {chart.validPoints.map(({ point, value }, index) => {
-        const barX = left + index * columnWidth + (columnWidth - barWidth) / 2;
-        const barY = y(value);
-        return (
-          <g key={`${point.date}-${index}`}>
-            <rect
-              x={barX}
-              y={barY}
-              width={barWidth}
-              height={Math.max(1, top + innerHeight - barY)}
-              rx={Math.min(4, barWidth / 2)}
-              fill={`url(#admin-performance-${metric})`}
-            >
-              <title>{`${formatShortDate(point.date)}: ${formatPerformanceValue(value, metric, revenueCurrency)}`}</title>
-            </rect>
-            {(index % labelEvery === 0 || index === chart.validPoints.length - 1) && (
-              <text x={barX + barWidth / 2} y={height - 8} textAnchor="middle" fontSize="11" fill="#94a3b8">
-                {formatShortDate(point.date)}
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-[260px] w-full sm:h-[300px]"
+        role="img"
+        aria-label={`${METRIC_CONFIG[metric].label} performance for the last 30 days`}
+        onMouseLeave={() => setHoveredIndex(null)}
+      >
+        <defs>
+          <linearGradient id={`admin-performance-${metric}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f59e0b" />
+            <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.55" />
+          </linearGradient>
+        </defs>
+        {Array.from({ length: 5 }, (_, index) => {
+          const value = (chart.ceiling / 4) * index;
+          const lineY = y(value);
+          return (
+            <g key={index}>
+              <line x1={left} y1={lineY} x2={width - right} y2={lineY} stroke="#f1f5f9" />
+              <text x={left - 10} y={lineY + 4} textAnchor="end" fontSize="11" fill="#94a3b8">
+                {formatPerformanceValue(Math.round(value), metric, revenueCurrency)}
               </text>
-            )}
-          </g>
-        );
-      })}
-      <line
-        x1={left}
-        y1={y(chart.average)}
-        x2={width - right}
-        y2={y(chart.average)}
-        stroke="#94a3b8"
-        strokeWidth="2"
-        strokeDasharray="6 5"
-      />
-    </svg>
+            </g>
+          );
+        })}
+        {chart.validPoints.map(({ point, value }, index) => {
+          const barX = left + index * columnWidth + (columnWidth - barWidth) / 2;
+          const barY = y(value);
+          const accessibleValue = `${formatShortDate(point.date)}: ${formatPerformanceValue(value, metric, revenueCurrency)}`;
+          return (
+            <g key={`${point.date}-${index}`}>
+              <rect
+                x={barX}
+                y={barY}
+                width={barWidth}
+                height={Math.max(1, top + innerHeight - barY)}
+                rx={Math.min(4, barWidth / 2)}
+                fill={`url(#admin-performance-${metric})`}
+                opacity={hoveredIndex === null || hoveredIndex === index ? 1 : 0.5}
+              >
+                <title>{accessibleValue}</title>
+              </rect>
+              <rect
+                data-testid={`admin-performance-point-${point.date}`}
+                x={left + index * columnWidth}
+                y={top}
+                width={columnWidth}
+                height={innerHeight}
+                fill="transparent"
+                tabIndex={0}
+                aria-label={accessibleValue}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onFocus={() => setHoveredIndex(index)}
+                onBlur={() => setHoveredIndex(null)}
+                className="cursor-crosshair outline-none"
+              />
+              {(index % labelEvery === 0 || index === chart.validPoints.length - 1) && (
+                <text x={barX + barWidth / 2} y={height - 8} textAnchor="middle" fontSize="11" fill="#94a3b8">
+                  {formatShortDate(point.date)}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        <line
+          x1={left}
+          y1={y(chart.average)}
+          x2={width - right}
+          y2={y(chart.average)}
+          stroke="#94a3b8"
+          strokeWidth="2"
+          strokeDasharray="6 5"
+        />
+      </svg>
+
+      {hoveredEntry ? (
+        <div
+          data-testid="admin-performance-tooltip"
+          role="status"
+          className="pointer-events-none absolute z-10 min-w-32 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-xl"
+          style={{
+            left: `${tooltipLeft}%`,
+            top: `${tooltipTop}%`,
+            transform: "translate(-50%, calc(-100% - 8px))"
+          }}
+        >
+          <p className="font-semibold text-slate-300">{formatShortDate(hoveredEntry.point.date)}</p>
+          <p className="mt-0.5 font-bold tabular-nums">
+            {METRIC_CONFIG[metric].label}: {formatPerformanceValue(hoveredEntry.value, metric, revenueCurrency)}
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -244,7 +294,7 @@ function HealthCard({ label, value, suffix, detail, healthy }: { label: string; 
 export default function AdminDashboardPage() {
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  const [performanceMetric, setPerformanceMetric] = useState<PerformanceMetric>("revenue");
+  const [performanceMetric, setPerformanceMetric] = useState<PerformanceMetric>("executions");
 
   useEffect(() => {
     let active = true;
