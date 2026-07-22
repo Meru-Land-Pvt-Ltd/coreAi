@@ -27,7 +27,7 @@ export function ConfigureSectionCard({
   /** Stable id — used for data-testids (`business-configure-section-${id}`). */
   id: string;
   title: string;
-  description: string;
+  description?: string;
   status: ConfigureSectionStatus;
   /** Compact one-line summary shown while collapsed. */
   summary?: ReactNode;
@@ -44,7 +44,7 @@ export function ConfigureSectionCard({
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const open = controlledOpen ?? internalOpen;
   const regionId = useId();
-  const meta = STATUS_META[status];
+  const isComplete = status === "complete";
 
   function toggle() {
     const next = !open;
@@ -65,59 +65,76 @@ export function ConfigureSectionCard({
         aria-expanded={open}
         aria-controls={regionId}
         data-testid={`business-configure-section-${id}-toggle`}
-        className="flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition-colors hover:bg-slate-50/60 sm:px-5"
+        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left transition-colors hover:bg-slate-50/60 sm:px-5"
       >
-        {icon ? (
-          <span
-            aria-hidden="true"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-50 text-slate-500"
-          >
-            {icon}
-          </span>
-        ) : null}
-
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold text-slate-900">{title}</span>
+        <div className="flex items-center gap-3 min-w-0">
+          {icon ? (
             <span
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${meta.pill}`}
-              data-testid={`business-configure-section-${id}-status`}
+              aria-hidden="true"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100/80 text-slate-600"
             >
-              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-              {meta.label}
-            </span>
-            {warningCount > 0 ? (
-              <span
-                className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700"
-                data-testid={`business-configure-section-${id}-warnings`}
-              >
-                {warningCount} to fix
-              </span>
-            ) : null}
-          </span>
-          <span className="mt-0.5 block text-xs text-slate-500">{description}</span>
-          {!open && summary ? (
-            <span
-              className="mt-1 block truncate text-xs font-medium text-slate-600"
-              data-testid={`business-configure-section-${id}-summary`}
-            >
-              {summary}
+              {icon}
             </span>
           ) : null}
-        </span>
+          <span className="text-sm font-bold text-slate-900 truncate">{title}</span>
+        </div>
 
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        <div className="flex items-center gap-3 shrink-0">
+          <div data-testid={`business-configure-section-${id}-status`}>
+            {isComplete ? (
+              <span
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"
+                aria-label="Completed"
+                title="Completed"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </span>
+            ) : (
+              <span
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400"
+                aria-label="Not completed"
+                title="Not completed"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5"
+                >
+                  <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
+                </svg>
+              </span>
+            )}
+          </div>
+
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
       </button>
 
       <div id={regionId} hidden={!open} className="border-t border-gray-100 px-4 py-5 sm:px-5">

@@ -239,6 +239,46 @@ describe("Connect step — number-first flow", () => {
     expect(screen.queryByText(/verification code/i)).toBeNull();
   });
 
+  it("shows the View Steps button in forwarding mode and opens a modal with instructions when clicked", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        answeringMode: "AI_FIRST"
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    // Wait for loading to finish and routing card to appear
+    await screen.findByTestId("business-setup-routing-card");
+
+    // Switch to forwarding mode
+    await user.click(screen.getByTestId("business-setup-routing-forward"));
+
+    // Find the View Steps button
+    const viewStepsBtn = await screen.findByTestId("business-setup-view-steps");
+    expect(viewStepsBtn).toBeTruthy();
+
+    // Verify modal is not in the DOM initially
+    expect(screen.queryByTestId("business-setup-forwarding-steps-modal")).toBeNull();
+
+    // Click the button to open the modal
+    await user.click(viewStepsBtn);
+
+    // Verify modal and forwarding steps are visible
+    const modal = await screen.findByTestId("business-setup-forwarding-steps-modal");
+    expect(modal).toBeTruthy();
+    expect(screen.getByText(/conditional-forwarding code for your carrier/i)).toBeTruthy();
+
+    // Click Close to close the modal
+    const closeBtn = screen.getAllByRole("button", { name: /close/i })[0];
+    await user.click(closeBtn);
+
+    // Verify modal is closed
+    expect(screen.queryByTestId("business-setup-forwarding-steps-modal")).toBeNull();
+  });
+
   it("Continue and Save Progress never purchase a number and are not blocked by a missing phone", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({

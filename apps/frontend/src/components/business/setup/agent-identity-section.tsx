@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { VOICE_PRESETS } from "@coreai/shared";
 import { getVoiceSamplePreview } from "@/components/business/features/api";
 import { FIELD } from "./ui";
@@ -59,8 +59,21 @@ export function AgentIdentitySection({
 }) {
   const [voicePlaying, setVoicePlaying] = useState(false);
   const [voicePreviewError, setVoicePreviewError] = useState("");
+  const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   // data: URLs of already-generated samples, keyed by voice choice.
   const voiceAudioCacheRef = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setVoiceDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   async function handleVoicePlay() {
     if (voicePlaying) return;
@@ -121,70 +134,155 @@ export function AgentIdentitySection({
       ) : null}
 
       {showVoice ? (
-        <div className="mt-6">
-          <fieldset>
-            <legend className="block text-sm font-medium text-slate-700 mb-2">Agent voice</legend>
-            <div
-              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
-              role="radiogroup"
-              aria-label="Agent voice"
-              data-testid="business-setup-voice-select"
-            >
-              {VOICE_OPTIONS.map((opt) => {
-                const selected = voiceChoice === opt.value;
-                return (
+        <div className="mt-5">
+          <label htmlFor="agent-voice-select" className="block text-sm font-medium text-slate-700 mb-1.5">
+            Agent voice
+          </label>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1" ref={dropdownRef}>
+              <button
+                type="button"
+                id="agent-voice-select"
+                data-testid="business-setup-voice-select"
+                aria-haspopup="listbox"
+                aria-expanded={voiceDropdownOpen}
+                onClick={() => setVoiceDropdownOpen(!voiceDropdownOpen)}
+                className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-left shadow-sm transition-all hover:border-slate-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 cursor-pointer"
+              >
+                <div className="min-w-0 pr-2">
+                  <span className="block truncate text-sm font-bold text-slate-900 leading-snug">
+                    {voiceChoice === "custom"
+                      ? "Custom voice"
+                      : VOICE_OPTIONS.find((v) => v.value === voiceChoice)?.name || "Select voice"}
+                  </span>
+                  <span className="block truncate text-xs font-medium text-slate-500 leading-snug">
+                    {voiceChoice === "custom"
+                      ? "ElevenLabs voice ID"
+                      : VOICE_OPTIONS.find((v) => v.value === voiceChoice)?.style || "Choose assistant voice"}
+                  </span>
+                </div>
+                <svg
+                  className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${
+                    voiceDropdownOpen ? "rotate-180 text-amber-600" : ""
+                  }`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {voiceDropdownOpen ? (
+                <div
+                  role="listbox"
+                  className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl transition-all"
+                >
+                  {VOICE_OPTIONS.map((opt) => {
+                    const isSelected = voiceChoice === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        data-testid={`business-setup-voice-option-${opt.value}`}
+                        onClick={() => {
+                          onVoiceChoice(normalizeVoiceChoice(opt.value));
+                          onCustomVoiceId("");
+                          setVoiceDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left transition-colors cursor-pointer ${
+                          isSelected
+                            ? "bg-amber-50/80 text-amber-900 font-semibold"
+                            : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        <div className="min-w-0 pr-2">
+                          <div className="text-sm font-bold text-slate-900 leading-snug">{opt.name}</div>
+                          <div className="text-xs font-medium text-slate-500 leading-snug mt-0.5">{opt.style}</div>
+                        </div>
+                        {isSelected ? (
+                          <svg
+                            className="w-4 h-4 text-amber-600 shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+
                   <button
-                    key={opt.value}
                     type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    data-testid={`business-setup-voice-option-${opt.value}`}
+                    role="option"
+                    aria-selected={voiceChoice === "custom"}
+                    data-testid="business-setup-voice-option-custom"
                     onClick={() => {
-                      onVoiceChoice(normalizeVoiceChoice(opt.value));
-                      onCustomVoiceId("");
+                      onVoiceChoice("custom");
+                      setVoiceDropdownOpen(false);
                     }}
-                    className={`pick flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left ${
-                      selected ? "selected" : "border-gray-200 bg-white"
+                    className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left transition-colors cursor-pointer border-t border-slate-100 mt-1 ${
+                      voiceChoice === "custom"
+                        ? "bg-amber-50/80 text-amber-900 font-semibold"
+                        : "hover:bg-slate-50 text-slate-700"
                     }`}
                   >
-                    <span
-                      className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 ${
-                        selected ? "border-amber-500" : "border-slate-300"
-                      }`}
-                    >
-                      {selected ? <span className="h-2 w-2 rounded-full bg-amber-500" /> : null}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{opt.name}</span>
-                      <span className="block truncate text-xs text-slate-500">{opt.style}</span>
-                    </span>
+                    <div className="min-w-0 pr-2">
+                      <div className="text-sm font-bold text-slate-900 leading-snug">Custom voice</div>
+                      <div className="text-xs font-medium text-slate-500 leading-snug mt-0.5">Use your ElevenLabs voice ID</div>
+                    </div>
+                    {voiceChoice === "custom" ? (
+                      <svg
+                        className="w-4 h-4 text-amber-600 shrink-0"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : null}
                   </button>
-                );
-              })}
-
-              {voiceChoice === "custom" ? (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked
-                  data-testid="business-setup-voice-option-custom"
-                  onClick={() => onVoiceChoice("custom")}
-                  className="pick selected flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left"
-                >
-                  <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full border-2 border-amber-500">
-                    <span className="h-2 w-2 rounded-full bg-amber-500" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-slate-800">Custom voice</span>
-                    <span className="block truncate text-xs text-slate-500">Saved with this agent</span>
-                  </span>
-                </button>
+                </div>
               ) : null}
             </div>
-          </fieldset>
+
+            <button
+              type="button"
+              id="voice-play"
+              data-testid="business-setup-voice-play"
+              onClick={handleVoicePlay}
+              aria-label="Listen to voice sample"
+              title="Listen to voice sample"
+              className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl border px-4 py-3 text-xs font-semibold shadow-sm transition-all ${
+                voicePlaying
+                  ? "border-amber-300 bg-amber-50 text-amber-700 ring-2 ring-amber-500/20"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300"
+              }`}
+            >
+              {voicePlaying ? (
+                <span className="inline-flex items-end gap-[2px] h-3" aria-hidden="true">
+                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0s" }} />
+                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "12px", animationDelay: "0.15s" }} />
+                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0.3s" }} />
+                </span>
+              ) : (
+                <svg className="w-3.5 h-3.5 text-amber-600" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5.14v13.72a.5.5 0 0 0 .77.42l10.7-6.86a.5.5 0 0 0 0-.84L8.77 4.72a.5.5 0 0 0-.77.42z" />
+                </svg>
+              )}
+              <span>{voicePlaying ? "Playing…" : "Preview voice"}</span>
+            </button>
+          </div>
 
           {voiceChoice === "custom" ? (
-            <div className="mt-2">
+            <div className="mt-2.5">
               <label htmlFor="custom-voice-id" className="mb-1 block text-xs font-medium text-slate-600">
                 Custom voice ID
               </label>
@@ -195,34 +293,11 @@ export function AgentIdentitySection({
                 value={customVoiceId}
                 onChange={(e) => onCustomVoiceId(e.target.value)}
                 placeholder="ElevenLabs voice ID"
-                className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+                className="field w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
               />
             </div>
           ) : null}
 
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              id="voice-play"
-              data-testid="business-setup-voice-play"
-              onClick={handleVoicePlay}
-              aria-label="Listen to voice sample"
-              className={`btn inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 ${voicePlaying ? "border-amber-300 bg-amber-50" : "bg-white"}`}
-            >
-              {voicePlaying ? (
-                <span className="inline-flex items-end gap-[2px] h-3" aria-hidden="true">
-                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0s" }} />
-                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "12px", animationDelay: "0.15s" }} />
-                  <span className="w-[2.5px] bg-amber-500 rounded-sm animate-bounce" style={{ height: "4px", animationDelay: "0.3s" }} />
-                </span>
-              ) : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M8 5.14v13.72a.5.5 0 0 0 .77.42l10.7-6.86a.5.5 0 0 0 0-.84L8.77 4.72a.5.5 0 0 0-.77.42z" />
-                </svg>
-              )}
-              {voicePlaying ? "Playing…" : "Preview voice"}
-            </button>
-          </div>
           {voicePreviewError ? (
             <p className="mt-2 text-xs font-semibold text-rose-600" data-testid="business-setup-voice-preview-error">
               {voicePreviewError}
