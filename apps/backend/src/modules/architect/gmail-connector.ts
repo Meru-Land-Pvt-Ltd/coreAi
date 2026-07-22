@@ -265,7 +265,38 @@ export async function getGmailConnectionStatus(userId: string) {
   };
 }
 
+const GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
+
+async function revokeGoogleTokens(tokens: Array<string | null>): Promise<boolean> {
+  for (const token of tokens) {
+    if (!token) continue;
+    try {
+      const response = await fetch(GOOGLE_OAUTH_REVOKE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token }).toString()
+      });
+      if (response.ok) return true;
+    } catch {
+    }
+  }
+  return false;
+}
+
 export async function disconnectGmail(userId: string) {
+  const credential = await prisma.connectorCredential.findUnique({
+    where: { userId_provider: { userId, provider: "GMAIL" } },
+    select: { refreshTokenEnc: true, accessTokenEnc: true }
+  });
+
+  if (credential) {
+    const revoked = await revokeGoogleTokens([
+      credential.refreshTokenEnc ? decryptSecret(credential.refreshTokenEnc) : null,
+      credential.accessTokenEnc ? decryptSecret(credential.accessTokenEnc) : null
+    ]);
+    console.log("[google-disconnect] grant revocation", { userId, revoked });
+  }
+
   await prisma.connectorCredential.deleteMany({
     where: {
       userId,

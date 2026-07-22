@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { handleVapiWebhook } from "./twilio-business-routing";
+import { appointmentAiRef } from "../compliance/ai-safe-results";
 
 /**
  * reschedule_appointment — security/privacy + move behavior at the webhook
@@ -220,7 +221,8 @@ describe("caller-number verification", () => {
     expect(result.rescheduled).toBe(false);
     expect(result.code).toBe("CONFIRMATION_REQUIRED");
     const found = result.appointment as Record<string, unknown>;
-    expect(found.appointment_id).toBe(appointment.id);
+    expect(found.appointment_id).toBe(appointmentAiRef(appointment.id));
+    expect(found.appointment_id).not.toBe(appointment.id);
     expect(found.service).toBe("Cleaning");
     expect(String(result.message)).toContain("What new day and time");
 

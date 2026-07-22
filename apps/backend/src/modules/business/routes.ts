@@ -51,6 +51,12 @@ import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
 import { resolvePrimaryBusinessId } from "./primary-business";
+import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
+import {
+  DisclosureConsentError,
+  hasFreshDisclosureConsent,
+  recordDisclosureConsent
+} from "../compliance/disclosure-consent";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
 import { extractHoursFromDocuments, resolveScheduleForBusiness } from "./scheduling";
 import { addressesMateriallyDiffer, extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
@@ -2938,9 +2944,44 @@ function sanitizeGoogleReturnPath(raw: string | undefined): string {
   return BUSINESS_SETTINGS_INTEGRATIONS_PATH;
 }
 
+businessRoutes.post("/connectors/google-calendar/disclosure-consent", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const businessId = await resolvePrimaryBusinessId(authUser.id).catch(() => null);
+    const body = await c.req.json().catch(() => ({}));
+    const record = await recordDisclosureConsent({
+      userId: authUser.id,
+      businessId,
+      integration: GOOGLE_CALENDAR_INTEGRATION,
+      disclosureVersion: typeof body?.disclosureVersion === "string" ? body.disclosureVersion : "",
+      action: typeof body?.action === "string" ? body.action : ""
+    });
+    return successResponse(c, { disclosureVersion: record.disclosureVersion });
+  } catch (error) {
+    if (error instanceof DisclosureConsentError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    return errorResponse(c, "Could not record the disclosure agreement", 500, "DISCLOSURE_CONSENT_FAILED");
+  }
+});
+
 businessRoutes.get("/connectors/google-calendar/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
+
+    const consented = await hasFreshDisclosureConsent({
+      userId: authUser.id,
+      integration: GOOGLE_CALENDAR_INTEGRATION
+    });
+    if (!consented) {
+      return errorResponse(
+        c,
+        "Review and agree to the Google data disclosure before connecting.",
+        428,
+        "DISCLOSURE_CONSENT_REQUIRED"
+      );
+    }
+
     const url = createGmailOAuthUrl(
       authUser.id,
       sanitizeGoogleReturnPath(c.req.query("redirect"))

@@ -822,13 +822,13 @@ export function getBusinessCalendarStatus() {
   return apiGet<BusinessCalendarStatus>("/business/connectors/google-calendar/status");
 }
 
-/**
- * @param redirect In-app business path ("/business/...") the OAuth callback
- * should return the browser to. Omitted → Business Settings integrations tab.
- */
 export function getBusinessCalendarOAuthUrl(redirect?: string) {
   const query = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
   return apiGet<{ url: string }>(`/business/connectors/google-calendar/oauth-url${query}`);
+}
+
+export function postBusinessCalendarDisclosureConsent(body: { disclosureVersion: string; action: string }) {
+  return apiPost<{ disclosureVersion: string }>("/business/connectors/google-calendar/disclosure-consent", body);
 }
 
 /* ----------------------- structured Business Hours ----------------------- */

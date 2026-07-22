@@ -17,6 +17,11 @@ vi.mock("../../lib/prisma", () => ({
       create: mocks.createProfile,
       findUnique: vi.fn().mockResolvedValue(null)
     },
+    // Deploy mirrors the resolved voice pipeline into InstalledAgent.configJson.
+    installedAgent: {
+      findUnique: vi.fn().mockResolvedValue({ configJson: {} }),
+      update: vi.fn().mockResolvedValue({})
+    },
     businessSpecialHours: { findMany: vi.fn().mockResolvedValue([]) },
     // Shared knowledge loader reads these; empty is fine for target selection.
     businessKnowledgeBase: { findMany: vi.fn().mockResolvedValue([]) },

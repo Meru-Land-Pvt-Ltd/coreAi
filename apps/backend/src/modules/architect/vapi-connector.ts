@@ -1,4 +1,5 @@
 import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
+import { normalizeAiProvider, type ResolvedVoicePipeline } from "../compliance/workspace-ai-guard";
 import { PLATFORM_DEFAULT_VOICE_ID, isKnownVoicePresetId, resolvePresetVoiceId } from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -1006,7 +1007,7 @@ export async function deployVapiAssistant({
   silenceTimeoutSeconds,
   maxDurationSeconds,
   recordingEnabled
-}: DeployVapiAssistantInput): Promise<{ id: string; created: boolean }> {
+}: DeployVapiAssistantInput): Promise<{ id: string; created: boolean; pipeline: ResolvedVoicePipeline }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
   }
@@ -1160,8 +1161,18 @@ export async function deployVapiAssistant({
     throw new Error(`Vapi assistant deploy failed: ${vapiErrorMessage(result.json, result.status, "Assistant deploy failed")}`);
   }
 
+  // The Limited Use guard validates the EXACT providers this assistant runs
+  // on, so capture them from the payload we just sent — not from env guesses.
+  const pipeline: ResolvedVoicePipeline = {
+    orchestrator: "vapi",
+    llmProvider: normalizeAiProvider(resolvedModel.provider),
+    transcriberProvider: normalizeAiProvider(env.VAPI_TRANSCRIBER_PROVIDER),
+    voiceProvider: normalizeAiProvider(voiceResolution.config.provider)
+  };
+
   return {
     id: deployedAssistantId,
-    created: !updating
+    created: !updating,
+    pipeline
   };
 }

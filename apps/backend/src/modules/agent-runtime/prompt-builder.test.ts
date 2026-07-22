@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   LIVE_VAPI_RUNTIME_VARIABLES,
   buildAgentFirstMessage,
-  fillPromptTemplateTokens
+  buildAgentSystemPrompt,
+  fillPromptTemplateTokens,
+  type AgentPromptInput
 } from "./prompt-builder";
 
 /**
@@ -102,5 +104,102 @@ describe("custom first message survives variable filling", () => {
       customFirstMessage: filled
     });
     expect(firstMessage).toBe("Hello, this is Ava from Bright Smile Dental. How can I help you today?");
+  });
+});
+
+/**
+ * The emotional-support directives are a product requirement: the agent must
+ * acknowledge feelings, answer the caller's actual question with cautious
+ * guidance, escalate immediate safety risks, and never collapse into
+ * booking-only or robotic replies. These tests pin the prompt contract for
+ * every business type — live Vapi deploys and chat/test runtimes both build
+ * from this prompt.
+ */
+describe("buildAgentSystemPrompt emotional support", () => {
+  const baseInput = (overrides: Partial<AgentPromptInput> = {}): AgentPromptInput => ({
+    assistantName: "Ava",
+    businessName: "Cool Breeze HVAC",
+    businessType: "AC repair company",
+    services: ["AC installation", "AC repair"],
+    faqs: [],
+    timezoneText: "America/New_York",
+    currentDateTimeText: "Tuesday, July 22, 2026 10:00 AM",
+    currentDateText: "2026-07-22",
+    tomorrowDateText: "2026-07-23",
+    capabilities: { canCheckAvailability: true, canBook: true, canText: false },
+    ...overrides
+  });
+
+  it("instructs the agent to acknowledge the caller's feelings first", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toContain("Emotional support:");
+    expect(prompt).toContain("acknowledge how they feel FIRST");
+    expect(prompt).toMatch(/pain, discomfort, worry, stress, frustration/);
+  });
+
+  it("requires answering the actual question and forbids booking-only replies", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toContain("answer the caller's ACTUAL question directly");
+    expect(prompt).toContain("Never skip straight to booking");
+    expect(prompt).toContain("do NOT deflect or ignore it");
+  });
+
+  it("sets safe professional boundaries without shutting down empathy", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toContain("never diagnose a condition");
+    expect(prompt).toMatch(/recommend or dose medication/);
+    expect(prompt).toMatch(/legal opinions/);
+    expect(prompt).toMatch(/financial or investment advice/);
+    expect(prompt).toMatch(/guarantee any outcome/);
+    // "do not invent" must stay scoped to business facts, not empathy.
+    expect(prompt).toContain("it never means refusing to comfort the caller");
+  });
+
+  it("escalates immediate safety risks over everything else", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toContain("OVERRIDES everything else");
+    expect(prompt).toMatch(/medical emergency/);
+    expect(prompt).toMatch(/fire/);
+    expect(prompt).toMatch(/sparking or smoking electrics/);
+    expect(prompt).toMatch(/self-harm/);
+    expect(prompt).toMatch(/violence/);
+    expect(prompt).toContain("call their local emergency number (911 in the US)");
+    expect(prompt).toContain("988 Suicide and Crisis Lifeline");
+  });
+
+  it("keeps the tone natural and non-robotic, not excessively emotional", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toContain("at most one empathy sentence per reply");
+    expect(prompt).toContain("never repeat the same sympathetic phrase twice in a row");
+    expect(prompt).toContain("never let sympathy replace answering the question");
+    expect(prompt).toContain("Sound like a real human receptionist, not a script.");
+  });
+
+  it("covers multi-industry situational examples, not just dental", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toMatch(/Tooth pain/);
+    expect(prompt).toMatch(/Feeling unwell before a visit/);
+    expect(prompt).toMatch(/Broken AC/);
+    expect(prompt).toMatch(/salon treatment/);
+    expect(prompt).toMatch(/Water leak or urgent home issue/);
+    expect(prompt).toMatch(/legal deadline/);
+    expect(prompt).toMatch(/bill or missed payment/);
+    expect(prompt).toContain("never limit yourself to these");
+  });
+
+  it("stays generic: adapts guidance to the configured business and booking label", () => {
+    const lawFirm = buildAgentSystemPrompt(
+      baseInput({
+        businessName: "Harbor Legal Group",
+        businessType: "law firm",
+        bookingLabel: "consultation"
+      })
+    );
+    expect(lawFirm).toContain("relevant to Harbor Legal Group's field");
+    expect(lawFirm).toContain("a consultation, a callback, or a message to the team");
+
+    const dental = buildAgentSystemPrompt(baseInput({ businessName: "Bright Smile Dental", businessType: "dental practice" }));
+    expect(dental).toContain("relevant to Bright Smile Dental's field");
+    expect(dental).toContain("an appointment, a callback, or a message to the team");
   });
 });

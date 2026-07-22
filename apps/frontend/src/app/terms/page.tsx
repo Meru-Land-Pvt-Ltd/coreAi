@@ -88,6 +88,7 @@ const termsSections: LegalSectionData[] = [
     title: "6. AI Services and Human Oversight",
     body: [
       "AI-generated outputs may be inaccurate, incomplete, outdated, offensive, delayed, or unsuitable for a particular purpose. The Platform does not guarantee that an agent will produce correct results or operate without interruption.",
+      "All AI processing on the Platform is inference-only. Triven does not use Customer Data, end-user interaction data, or data received from connected third-party services (including Google Workspace APIs) to create, train, or improve AI or machine-learning models, and does not permit its AI service providers to do so with data sent through the Platform.",
       "You must not rely on an agent as the sole basis for decisions that could create legal, medical, financial, employment, housing, insurance, safety, or other material consequences without appropriate qualified human review.",
       "Triven does not provide legal, medical, financial, tax, employment, or other professional advice through the Platform unless expressly stated in a separate written agreement.",
       "Business Owners are responsible for determining when human review, approval, correction, disclosure, or intervention is required."
@@ -200,7 +201,7 @@ const termsSections: LegalSectionData[] = [
     body: [
       "As between Triven and a Business Owner, the Business Owner retains its rights in customer data submitted to or generated through its installed agents, subject to end-user privacy rights and applicable law.",
       "The Business Owner represents that it has all rights and permissions necessary to provide customer data to Triven and instruct Triven and its service providers to process it.",
-      "Triven may process customer data to provide, secure, support, monitor, and improve the Platform, comply with law, and perform the Business Owner's authorized instructions, as further described in our Privacy Policy and any applicable data-processing agreement.",
+      "Triven may process customer data to provide, secure, support, monitor, and improve the Platform, comply with law, and perform the Business Owner's authorized instructions, as further described in our Privacy Policy and any applicable data-processing agreement. \"Improving the Platform\" never includes training AI or machine-learning models on customer data or Google user data.",
       "Business Owners must respond appropriately to end-user privacy requests and cooperate with Triven where necessary to fulfill those requests."
     ]
   },
@@ -210,6 +211,8 @@ const termsSections: LegalSectionData[] = [
     body: [
       "The Platform may rely on or integrate with third-party services, including AI-model providers, voice providers, speech-recognition providers, telecommunications providers, payment processors, email providers, calendar providers, hosting services, and analytics tools.",
       "Your use of a third-party service may be subject to that provider's terms, privacy policy, pricing, limits, and approval requirements. You are responsible for maintaining valid accounts and permissions where required.",
+      "Google services: Triven's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements. Connecting a Google account requires an explicit, recorded agreement to a pre-connection disclosure; raw Google Calendar event contents never leave Triven's backend systems; Google user data is never used to train AI/ML models, never sold, and never used for advertising; and disconnecting the integration revokes Triven's access with Google and deletes the stored encrypted credentials. Details are in the Privacy Policy section \"Google API Services and Limited Use.\"",
+      "AI service providers process data from the Platform on an inference-only basis under terms that prohibit training on that data. Triven applies fail-closed technical controls so that data derived from connected Google Workspace services cannot reach an AI provider unless the provider's no-training posture has been affirmatively confirmed.",
       "Triven is not responsible for third-party outages, policy changes, account suspensions, message filtering, carrier rejections, model errors, data loss, or other failures outside Triven's reasonable control."
     ]
   },
@@ -246,8 +249,8 @@ const termsSections: LegalSectionData[] = [
       "Triven and its licensors own the Platform, Triven branding, software, interfaces, infrastructure, documentation, and other materials provided by Triven, excluding content owned by users or third parties.",
       "AI Architects retain their rights in original agent logic, workflows, prompts, and materials they create, subject to the licenses granted to Triven and buyers through the Platform.",
       "Business Owners retain their rights in business content and customer data they lawfully provide, subject to the licenses necessary for Triven to operate the Platform.",
-      "You grant Triven a worldwide, non-exclusive license to host, reproduce, process, display, transmit, adapt, and use content you submit solely as necessary to operate, secure, support, promote, and improve the Platform and fulfill marketplace transactions.",
-      "You may provide feedback, and Triven may use that feedback without restriction or compensation, provided it does not identify confidential customer data."
+      "You grant Triven a worldwide, non-exclusive license to host, reproduce, process, display, transmit, adapt, and use content you submit solely as necessary to operate, secure, support, promote, and improve the Platform and fulfill marketplace transactions. This license never authorizes using raw or derived Google Workspace API user data to create, train, or improve AI/ML models, to improve any AI provider's services, or for shared model evaluation or fine-tuning.",
+      "You may provide feedback, and Triven may use that feedback without restriction or compensation, provided it does not identify confidential customer data and does not contain raw or derived Google Workspace API user data. Feedback use never extends to AI/ML model training on Google user data or customer data."
     ]
   },
   {

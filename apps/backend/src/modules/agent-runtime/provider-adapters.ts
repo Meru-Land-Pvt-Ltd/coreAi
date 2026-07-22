@@ -1,5 +1,6 @@
 import { zonedWallClockToUtc, type ExecutionMode } from "@coreai/shared";
 import { env } from "../../config/env";
+import { isWorkspaceDerivedAllowedForChatRuntime } from "../compliance/workspace-ai-guard";
 import { checkBusinessExactTime, computeBusinessAvailability } from "../business/scheduling";
 import { classifyCalendarError } from "../architect/calendar-errors";
 import { listAvailableSlots } from "../architect/google-calendar-connector";
@@ -279,6 +280,17 @@ async function readCalendarAvailability(
   ownerLabel: string,
   input: CalendarAvailabilityInput
 ): Promise<CalendarAvailabilityResult> {
+  // Limited Use guard: Google-derived availability may only feed the chat LLM
+  // when the OpenAI confirmations are in place. Fail closed to business-hours
+  // test slots — no live calendar read at all.
+  if (!isWorkspaceDerivedAllowedForChatRuntime()) {
+    return {
+      slots: fallbackTestSlots(input),
+      source: "test",
+      note: "Live calendar reads are disabled by platform compliance settings. Used business-hours test slots; no Google Calendar data was read."
+    };
+  }
+
   try {
     const availability = await listAvailableSlots({
       userId: ownerUserId,
@@ -324,6 +336,16 @@ async function readBusinessAvailability(
   options: { businessId: string; installedAgentId?: string },
   input: CalendarAvailabilityInput
 ): Promise<CalendarAvailabilityResult> {
+  // Limited Use guard — same fail-closed rule as readCalendarAvailability;
+  // the runtime reports honestly that live availability is unavailable.
+  if (!isWorkspaceDerivedAllowedForChatRuntime()) {
+    return {
+      slots: [],
+      source: "unavailable",
+      note: "Live Google Calendar availability is disabled by platform compliance settings. No slots were offered."
+    };
+  }
+
   try {
     const availability = await computeBusinessAvailability({
       businessId: options.businessId,

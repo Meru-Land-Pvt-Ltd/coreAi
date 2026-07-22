@@ -12,6 +12,12 @@ import {
   getGmailOAuthRedirectPath,
   handleGmailOAuthCallback
 } from "./gmail-connector";
+import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
+import {
+  DisclosureConsentError,
+  hasFreshDisclosureConsent,
+  recordDisclosureConsent
+} from "../compliance/disclosure-consent";
 import {
   handleTwilioInboundSms,
   handleTwilioMessageStatus,
@@ -973,9 +979,44 @@ architectRoutes.get("/connectors/gmail/status", async (c) => {
   return successResponse(c, status);
 });
 
+architectRoutes.post("/connectors/gmail/disclosure-consent", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const body = await c.req.json().catch(() => ({}));
+    const record = await recordDisclosureConsent({
+      userId: authUser.id,
+      integration: GOOGLE_CALENDAR_INTEGRATION,
+      disclosureVersion: typeof body?.disclosureVersion === "string" ? body.disclosureVersion : "",
+      action: typeof body?.action === "string" ? body.action : ""
+    });
+    return successResponse(c, { disclosureVersion: record.disclosureVersion });
+  } catch (error) {
+    if (error instanceof DisclosureConsentError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    return errorResponse(c, "Could not record the disclosure agreement", 500, "DISCLOSURE_CONSENT_FAILED");
+  }
+});
+
 architectRoutes.get("/connectors/gmail/oauth-url", async (c) => {
   try {
     const authUser = c.get("authUser");
+
+    // OAuth may begin only after an explicit, recorded agreement to the
+    // CURRENT disclosure version — enforced here, not just in the UI.
+    const consented = await hasFreshDisclosureConsent({
+      userId: authUser.id,
+      integration: GOOGLE_CALENDAR_INTEGRATION
+    });
+    if (!consented) {
+      return errorResponse(
+        c,
+        "Review and agree to the Google data disclosure before connecting.",
+        428,
+        "DISCLOSURE_CONSENT_REQUIRED"
+      );
+    }
+
     // Same-app path only — the callback prefixes FRONTEND_URL, so a full URL
     // or protocol-relative value can never leave the app.
     const redirect = c.req.query("redirect");

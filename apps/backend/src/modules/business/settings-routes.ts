@@ -13,6 +13,7 @@ import { resolvePrimaryBusinessId } from "./primary-business";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
 import { serializeActiveSession, serializeLoginHistory } from "../../lib/user-session";
 import { buildBusinessDataExportZip } from "./data-export";
+import { pseudonymizeDisclosureConsentsForUser } from "../compliance/disclosure-consent";
 
 export const businessSettingsRoutes = new Hono();
 
@@ -738,6 +739,12 @@ businessSettingsRoutes.post("/danger/delete-account", async (c) => {
         feeBilledAt: null
       }
     });
+
+    // Disclosure-consent rows have no FK by design — pseudonymize them so the
+    // compliance evidence survives without identifying the deleted person.
+    await pseudonymizeDisclosureConsentsForUser(authUser.id).catch((error) =>
+      console.error("[delete-account] consent pseudonymization failed (non-fatal)", error)
+    );
 
     // Hard delete — cascades erase every business-owned record.
     await prisma.user.delete({ where: { id: authUser.id } });

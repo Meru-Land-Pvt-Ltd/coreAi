@@ -16,7 +16,14 @@ import {
 import "@xyflow/react/dist/style.css";
 import Link from "next/link";
 import type { Route } from "next";
-import { BROWSER_CALL_START_MESSAGE, VOICE_NODE_TYPES, normalizeTimeZone } from "@coreai/shared";
+import {
+  BROWSER_CALL_START_MESSAGE,
+  GOOGLE_CALENDAR_DISCLOSURE,
+  GOOGLE_DISCLOSURE_ACTION_AGREED,
+  VOICE_NODE_TYPES,
+  normalizeTimeZone
+} from "@coreai/shared";
+import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
@@ -26,6 +33,7 @@ import {
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
+  postGmailDisclosureConsent,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
   runArchitectWorkflowTest,
@@ -109,6 +117,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
+  const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
   const [price, setPrice] = useState("149");
@@ -453,7 +462,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
-  async function connectGmail() {
+  /** Opens the mandatory pre-OAuth disclosure — OAuth starts only from its agree action. */
+  function connectGmail() {
+    setGoogleDisclosureOpen(true);
+  }
+
+  async function handleGoogleDisclosureAgreed() {
     setConnectingGmail(true);
     setMessage("Connecting Google...");
     const returnTo = new URL(window.location.href);
@@ -478,15 +492,30 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       // Storage unavailable/full — the connection itself must still proceed.
     }
 
-    const result = await getGmailOAuthUrl(`${returnTo.pathname}${returnTo.search}`);
+    try {
+      const consent = await postGmailDisclosureConsent({
+        disclosureVersion: GOOGLE_CALENDAR_DISCLOSURE.version,
+        action: GOOGLE_DISCLOSURE_ACTION_AGREED
+      });
+      if (!consent.success) {
+        throw new Error(consent.error ?? "Could not record your agreement.");
+      }
 
-    if (result.success && result.data) {
-      window.location.href = result.data.url;
-      return;
+      const result = await getGmailOAuthUrl(`${returnTo.pathname}${returnTo.search}`);
+
+      if (result.success && result.data) {
+        window.location.href = result.data.url;
+        return;
+      }
+
+      throw new Error(result.error ?? "Could not connect Google");
+    } catch (connectError) {
+      setConnectingGmail(false);
+      const failure =
+        connectError instanceof Error ? connectError : new Error("Could not connect Google");
+      setMessage(failure.message);
+      throw failure;
     }
-
-    setMessage(result.error ?? "Could not connect Google");
-    setConnectingGmail(false);
   }
 
   async function disconnectGoogle() {
@@ -1217,6 +1246,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#f8fafc] text-slate-900">
       <WorkflowBuilderStyles />
+
+      <GoogleDisclosureModal
+        open={googleDisclosureOpen}
+        onAgree={handleGoogleDisclosureAgreed}
+        onCancel={() => setGoogleDisclosureOpen(false)}
+      />
 
       <BuilderHeader
         agentName={agentName}

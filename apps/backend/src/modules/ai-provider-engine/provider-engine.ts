@@ -3,6 +3,18 @@ import { ProviderExecutionError, CapabilityNotSupportedError } from "./errors";
 import { ProviderSelector } from "./provider-selector";
 import type { AIProviderAdapter, AIExecuteRequest, AIContinueRequest, AIExecuteResponse, CostEstimate, ValidationResult, SelectionExplanation, ProviderCapability } from "./types";
 import { ModelCacheManager } from "./model-cache-manager";
+import { DATA_CLASSIFICATION, workspaceAiBlockReason } from "../compliance/workspace-ai-guard";
+
+function assertClassificationAllowed(providerId: string, request: AIExecuteRequest): void {
+  const classification = request.classification ?? DATA_CLASSIFICATION.GENERAL;
+  const blockReason = workspaceAiBlockReason(providerId, classification);
+  if (blockReason) {
+    throw new ProviderExecutionError(
+      providerId,
+      `Blocked by Google Workspace Limited Use guard (${blockReason}): ${classification} data may not be sent to ${providerId}.`
+    );
+  }
+}
 
 export class AIProviderEngine {
   private readonly validProviderIds = new Set<string>();
@@ -31,6 +43,7 @@ export class AIProviderEngine {
   async executeAI(request: AIExecuteRequest): Promise<AIExecuteResponse> {
     const enriched = this.enrichRequestWithContext(request);
     const adapter = ProviderSelector.select(enriched, this.registry.all(), this.validProviderIds);
+    assertClassificationAllowed(adapter.providerId, enriched);
     return this.callAdapter(adapter, (a) => a.execute(enriched));
   }
 
@@ -41,12 +54,14 @@ export class AIProviderEngine {
     if (!adapter.capabilities.includes(capability)) {
       throw new CapabilityNotSupportedError(capability, providerId);
     }
+    assertClassificationAllowed(adapter.providerId, enriched);
     return this.callAdapter(adapter, (a) => a.execute(enriched));
   }
 
   async continueConversation(providerId: string, request: AIContinueRequest): Promise<AIExecuteResponse> {
     const enriched = this.enrichRequestWithContext(request) as AIContinueRequest;
     const adapter = this.registry.resolve(providerId);
+    assertClassificationAllowed(adapter.providerId, enriched);
     return this.callAdapter(adapter, (a) => a.continueConversation(enriched));
   }
 

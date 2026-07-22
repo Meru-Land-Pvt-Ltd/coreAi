@@ -43,10 +43,10 @@ export type ModelInfo = {
 };
 
 export type AIExecuteRequest = {
-  // defaults to "llm" when omitted
   capability?: ProviderCapability;
   model?: string;
   metadata?: Record<string, unknown>;
+  classification?: "GENERAL" | "GOOGLE_WORKSPACE_RAW" | "GOOGLE_WORKSPACE_DERIVED";
 
   // LLM
   messages?: AIMessage[];

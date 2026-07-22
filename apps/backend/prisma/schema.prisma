@@ -1637,3 +1637,19 @@ model SmsConsent {
   @@index([vapiCallId])
   @@index([installedAgentId])
 }
+
+model IntegrationDisclosureConsent {
+  id                String   @id @default(cuid())
+  userId            String
+  businessId        String?
+  /// Integration identifier (e.g. GOOGLE_CALENDAR).
+  integration       String
+  /// Exact disclosure version the user saw (from @coreai/shared).
+  disclosureVersion String
+  /// AGREED is the only consent-granting action.
+  action            String
+  createdAt         DateTime @default(now())
+
+  @@index([userId, integration, createdAt])
+  @@index([businessId])
+}
