@@ -42,9 +42,9 @@ export function StepProgress({
                 <span
                   className={
                     isDone
-                      ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-amber-500 bg-amber-500 text-sm font-bold text-white shadow-sm transition-all"
+                      ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-green-500 bg-green-500 text-sm font-bold text-white shadow-sm transition-all"
                       : isCurrent
-                        ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-amber-500 bg-white text-sm font-bold text-amber-600 shadow-[0_0_0_4px_rgba(245,158,11,.15)] transition-all"
+                        ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-amber-500 bg-amber-500 text-sm font-bold text-white shadow-sm transition-all"
                         : "flex h-9 w-9 items-center justify-center rounded-full border-2 border-gray-200 bg-white text-sm font-bold text-slate-400 transition-all"
                   }
                 >
@@ -59,10 +59,10 @@ export function StepProgress({
                 <span
                   className={
                     isCurrent
-                      ? "hidden whitespace-nowrap text-xs font-semibold text-slate-900 sm:block"
+                      ? "hidden whitespace-nowrap text-xs font-bold text-slate-900 sm:block"
                       : isDone
-                        ? "hidden whitespace-nowrap text-xs font-semibold text-amber-600 sm:block"
-                        : "hidden whitespace-nowrap text-xs font-semibold text-slate-400 sm:block"
+                        ? "hidden whitespace-nowrap text-xs font-medium text-green-600 sm:block"
+                        : "hidden whitespace-nowrap text-xs font-medium text-slate-400 sm:block"
                   }
                 >
                   {label}
@@ -72,7 +72,7 @@ export function StepProgress({
                 <span
                   className={
                     isDone
-                      ? "mx-2 mt-[17px] h-[3px] flex-1 rounded-full bg-amber-400 transition-colors sm:mx-3"
+                      ? "mx-2 mt-[17px] h-[3px] flex-1 rounded-full bg-green-500 transition-colors sm:mx-3"
                       : "mx-2 mt-[17px] h-[3px] flex-1 rounded-full bg-gray-100 transition-colors sm:mx-3"
                   }
                 />

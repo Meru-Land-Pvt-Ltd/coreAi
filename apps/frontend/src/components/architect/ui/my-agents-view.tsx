@@ -2076,7 +2076,7 @@ export function MyAgentsView() {
     <div className="min-h-screen bg-gray-50 text-slate-900">
       <style dangerouslySetInnerHTML={{ __html: MY_AGENTS_STYLES }} />
 
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
+      <header className="border-b border-gray-100 bg-white px-4 py-4 sm:px-6 lg:sticky lg:top-0 lg:z-30 lg:backdrop-blur lg:px-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 " data-testid="architect-ui-my-agents-view-agents-heading">

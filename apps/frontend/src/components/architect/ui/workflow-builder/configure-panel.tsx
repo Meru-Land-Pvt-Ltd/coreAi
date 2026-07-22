@@ -19,8 +19,8 @@ import {
   RECEPTIONIST_DEFAULT_TAGLINE,
   validateBuyerSetupFields,
   validateConfigureForSubmit,
+  validateConfigureForTemplateGallery,
   workflowUsesSms,
-  workflowUsesVoice,
   type AgentConfigureBasics,
   type AgentConfigureCompliance,
   type AgentConfigureData,
@@ -34,6 +34,7 @@ import {
   getWorkflowConfigure,
   saveWorkflowConfigureDraft,
   submitWorkflowForReview,
+  updateArchitectWorkflow,
   type WorkflowConfigureListingSummary
 } from "@/components/architect/features/api";
 import { BuilderIcon } from "./icons";
@@ -45,6 +46,7 @@ import { PricingSelector } from "./configure/pricing-selector";
 import { RequiredIntegrationsSelector } from "./configure/required-integrations-selector";
 import { RichDescriptionEditor } from "./configure/rich-description-editor";
 import { StepProgress } from "./configure/step-progress";
+import { defaultAgentDescription, defaultAgentName } from "./node-defaults";
 
 // Step order: 1 Details · 2 Description · 3 Pricing · 4 Requirements & Compliance · 5 Review.
 // Compliance is edited in Step 4 ONLY; Step 5 is a read-only review.
@@ -153,6 +155,86 @@ function plainTextLength(html: string): number {
   return plainText(html).length;
 }
 
+const GENERIC_AGENT_NAMES = new Set(
+  ["", "untitled agent", "new agent", defaultAgentName.trim().toLowerCase()].filter(Boolean)
+);
+
+function isGenericAgentName(value: string): boolean {
+  return GENERIC_AGENT_NAMES.has(value.trim().toLowerCase());
+}
+
+function isGenericTagline(value: string): boolean {
+  const v = value.trim();
+  if (!v) return true;
+  if (v === defaultAgentDescription.trim()) return true;
+  if (v === RECEPTIONIST_DEFAULT_TAGLINE.trim()) return true;
+  if (v.includes("→")) return true;
+  return false;
+}
+
+function isGenericShortDescription(value: string): boolean {
+  const v = value.trim();
+  if (!v) return true;
+  if (v === defaultAgentDescription.trim()) return true;
+  if (v === RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION.trim()) return true;
+  if (v.includes("→")) return true;
+  return false;
+}
+
+function sanitizeStep1Basics(basics: AgentConfigureBasics): AgentConfigureBasics {
+  const agentName = isGenericAgentName(basics.agentName) ? "" : basics.agentName;
+  const tagline = isGenericTagline(basics.tagline) ? "" : basics.tagline;
+  const shortDescription = isGenericShortDescription(basics.shortDescription) ? "" : basics.shortDescription;
+  const looksUntouched =
+    !agentName.trim() &&
+    !tagline.trim() &&
+    !shortDescription.trim() &&
+    basics.industryTags.length === 0;
+
+  return {
+    ...basics,
+    agentName,
+    tagline,
+    shortDescription,
+    category: looksUntouched && basics.category === "Communication" ? "" : basics.category
+  };
+}
+
+function sanitizeConfigureStep1(config: AgentConfigureData): AgentConfigureData {
+  return {
+    ...config,
+    basics: sanitizeStep1Basics(config.basics)
+  };
+}
+
+function isGenericFullDescription(value: string): boolean {
+  const v = plainText(value).trim();
+  if (!v) return true;
+  if (v === defaultAgentDescription.trim()) return true;
+  if (v === RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION.trim()) return true;
+  if (v === plainText(RECEPTIONIST_DEFAULT_FULL_DESCRIPTION).trim()) return true;
+  if (v.includes("→")) return true;
+  return false;
+}
+
+function sanitizeStep2Media(media: AgentConfigureMedia): AgentConfigureMedia {
+  return {
+    ...media,
+    fullDescription: isGenericFullDescription(media.fullDescription) ? "" : media.fullDescription
+  };
+}
+
+function sanitizeConfigureSteps(config: AgentConfigureData): AgentConfigureData {
+  return sanitizeConfigureStep2(sanitizeConfigureStep1(config));
+}
+
+function sanitizeConfigureStep2(config: AgentConfigureData): AgentConfigureData {
+  return {
+    ...config,
+    media: sanitizeStep2Media(config.media)
+  };
+}
+
 export function ConfigurePanel({
   workflowId,
   architectName,
@@ -170,7 +252,8 @@ export function ConfigurePanel({
   ensureWorkflowId,
   onSubmitted,
   onSave,
-  onGoPublish
+  onGoPublish,
+  onGoBuild
 }: {
   workflowId: string;
   architectName: string;
@@ -191,14 +274,18 @@ export function ConfigurePanel({
   onSave?: () => void;
   /** Last-step Review CTA: leave Configure and open the Publish tab. */
   onGoPublish?: () => void;
+  /** Switch to Build tab when template save needs workflow nodes. */
+  onGoBuild?: () => void;
 }) {
   const [configure, setConfigure] = useState<AgentConfigureData>(() =>
-    defaultAgentConfigure({
-      name: agentName,
-      tagline,
-      priceDollars: Number(price) || null,
-      workflowJson: workflowFlow
-    })
+    sanitizeConfigureSteps(
+      defaultAgentConfigure({
+        name: agentName,
+        tagline,
+        priceDollars: Number(price) || null,
+        workflowJson: workflowFlow
+      })
+    )
   );
   const [loading, setLoading] = useState(Boolean(workflowId));
   const [step, setStep] = useState(1);
@@ -211,6 +298,10 @@ export function ConfigurePanel({
   const [serverLocked, setServerLocked] = useState(false);
   const [serverLockedMessage, setServerLockedMessage] = useState("");
   const [listing, setListing] = useState<WorkflowConfigureListingSummary | null>(null);
+  const [templateSaveModalOpen, setTemplateSaveModalOpen] = useState(false);
+  const [templateModalErrors, setTemplateModalErrors] = useState<Record<string, string>>({});
+  const [templateModalWorkflowError, setTemplateModalWorkflowError] = useState("");
+  const [savingAsTemplate, setSavingAsTemplate] = useState(false);
   const toastIdRef = useRef(0);
   const configureRef = useRef(configure);
   const workflowFlowRef = useRef(workflowFlow);
@@ -252,39 +343,9 @@ export function ConfigurePanel({
       if (result.success && result.data) {
         const loaded = result.data.configure;
 
-        // Prefer the live builder values for name/tagline when the stored
-        // configure has none yet (older drafts).
-        if (!loaded.basics.agentName.trim() && agentName.trim()) {
-          loaded.basics.agentName = agentName;
-        }
-        if (!loaded.basics.tagline.trim() && tagline.trim()) {
-          loaded.basics.tagline = tagline;
-        }
-
-        // Marketplace copy defaults — prefill ONLY empty fields, and replace
-        // the old node-chain template seeds ("Incoming call → … → send SMS")
-        // that used to leak into tagline/descriptions. Never appends.
-        const voiceAgent = workflowUsesVoice(workflowFlowRef.current);
-        const isSeedChain = (text: string) => text.includes("→");
-        if (voiceAgent) {
-          if (!loaded.basics.tagline.trim() || isSeedChain(loaded.basics.tagline)) {
-            loaded.basics.tagline = RECEPTIONIST_DEFAULT_TAGLINE;
-          }
-          if (!loaded.basics.shortDescription.trim() || isSeedChain(loaded.basics.shortDescription)) {
-            loaded.basics.shortDescription = RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION;
-          }
-          if (!plainText(loaded.media.fullDescription).trim() || isSeedChain(plainText(loaded.media.fullDescription))) {
-            loaded.media.fullDescription = RECEPTIONIST_DEFAULT_FULL_DESCRIPTION;
-          }
-        }
-        // Short and full description should not be identical copies of the seed.
-        if (
-          loaded.basics.shortDescription.trim() &&
-          loaded.basics.shortDescription.trim() === plainText(loaded.media.fullDescription)
-        ) {
-          const firstSentence = loaded.basics.shortDescription.split(/(?<=[.!?])\s+/)[0] ?? "";
-          loaded.basics.shortDescription = (voiceAgent ? RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION : firstSentence).slice(0, 200);
-        }
+        // Step 1 & 2: no template/marketing prefills — empty fields + placeholders only.
+        Object.assign(loaded.basics, sanitizeStep1Basics(loaded.basics));
+        loaded.media = sanitizeStep2Media(loaded.media);
 
         // Single source of truth for industries: Step 1 "Industry tags".
         // Older drafts that only filled Step 4's supportedIndustries migrate up.
@@ -401,12 +462,14 @@ export function ConfigurePanel({
 
   /* ---- Persistence ---- */
   const persistDraft = useCallback(
-    async (options: { toast?: boolean } = {}): Promise<boolean> => {
+    async (options: { toast?: boolean; quietMissingWorkflow?: boolean } = {}): Promise<boolean> => {
       if (isLocked) return false;
 
       const id = workflowId || (await ensureWorkflowId());
       if (!id) {
-        pushToast("Add a node in Build so the draft can be saved first.", "error");
+        if (!options.quietMissingWorkflow) {
+          pushToast("Add a node in Build so the draft can be saved first.", "error");
+        }
         return false;
       }
 
@@ -439,6 +502,9 @@ export function ConfigurePanel({
         }
         if (configure.basics.industryTags.length === 0) {
           errors.industryTags = "Pick at least one industry.";
+        }
+        if (!configure.basics.category.trim()) {
+          errors.category = "Select a category for your agent.";
         }
       }
 
@@ -575,6 +641,106 @@ export function ConfigurePanel({
     pushToast("Submitted for review — we'll email you within 24–48 hours.");
   }, [configure, ensureWorkflowId, goToStep, isLocked, pushToast, submitting, workflowId]);
 
+  const buildTemplateModalErrors = useCallback(
+    (data: AgentConfigureData) => {
+      const nodeCount = workflowFlowRef.current?.nodes?.length ?? 0;
+      const issues = validateConfigureForTemplateGallery(data, { nodeCount });
+      const errors: Record<string, string> = {};
+      for (const issue of issues) {
+        if (issue.field !== "workflowNodes") {
+          errors[issue.field] = issue.message;
+        }
+      }
+      const workflowError = issues.find((issue) => issue.field === "workflowNodes")?.message ?? "";
+      return { errors, workflowError };
+    },
+    []
+  );
+
+  const openTemplateSaveModal = useCallback(() => {
+    if (isLocked) return;
+    const { errors, workflowError } = buildTemplateModalErrors(configure);
+    setTemplateModalErrors(errors);
+    setTemplateModalWorkflowError(workflowError);
+    setTemplateSaveModalOpen(true);
+  }, [buildTemplateModalErrors, configure, isLocked]);
+
+  const closeTemplateSaveModal = useCallback(() => {
+    if (savingAsTemplate) return;
+    setTemplateSaveModalOpen(false);
+    setTemplateModalErrors({});
+    setTemplateModalWorkflowError("");
+  }, [savingAsTemplate]);
+
+  const clearTemplateModalFieldError = useCallback((field: string) => {
+    setTemplateModalErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
+  const handleConfirmTemplateSave = useCallback(async () => {
+    if (isLocked || savingAsTemplate) return;
+
+    const { errors, workflowError } = buildTemplateModalErrors(configureRef.current);
+    setTemplateModalErrors(errors);
+    setTemplateModalWorkflowError(workflowError);
+
+    if (Object.keys(errors).length > 0 || workflowError) {
+      return;
+    }
+
+    setSavingAsTemplate(true);
+    const id = workflowId || (await ensureWorkflowId());
+    if (!id) {
+      setTemplateModalWorkflowError(
+        "Add at least one node in the Build tab first, then save again."
+      );
+      setSavingAsTemplate(false);
+      return;
+    }
+
+    const draftSaved = await persistDraft({ toast: false, quietMissingWorkflow: true });
+    if (!draftSaved) {
+      setTemplateModalWorkflowError(
+        "Could not save the draft. Add a node in Build, then try again."
+      );
+      setSavingAsTemplate(false);
+      return;
+    }
+
+    const flow = workflowFlowRef.current;
+    const current = configureRef.current;
+    try {
+      await updateArchitectWorkflow(id, {
+        isTemplate: true,
+        name: current.basics.agentName.trim(),
+        description: current.basics.tagline.trim() || current.basics.shortDescription.trim(),
+        ...(flow ? { workflowJson: flow } : {})
+      });
+      onSave?.();
+      setTemplateSaveModalOpen(false);
+      setTemplateModalErrors({});
+      setTemplateModalWorkflowError("");
+      pushToast("Template saved successfully.");
+    } catch {
+      pushToast("Could not save as template. Try again.", "error");
+    } finally {
+      setSavingAsTemplate(false);
+    }
+  }, [
+    buildTemplateModalErrors,
+    ensureWorkflowId,
+    isLocked,
+    onSave,
+    persistDraft,
+    pushToast,
+    savingAsTemplate,
+    workflowId
+  ]);
+
   /* ---- Buyer setup field helpers (step 4) ---- */
   // Compact cards: fields render collapsed; only one editor is open at a time.
   const [expandedFieldIndex, setExpandedFieldIndex] = useState<number | null>(null);
@@ -683,20 +849,11 @@ export function ConfigurePanel({
 
   const workflowHasSms = workflowUsesSms(workflowFlow);
 
-  /** Integrations the current workflow nodes actually require — used for auto-seed and badge. */
+  /** Integrations the current workflow nodes actually require — used for auto-seed and sync. */
   const workflowDerivedIntegrations = useMemo(
     () => deriveRequiredIntegrationsFromWorkflow(workflowFlow),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(workflowFlow)]
-  );
-
-  /** Keys auto-derived from the graph (for the "workflow" badge on the selector). */
-  const workflowDetectedKeys = useMemo(
-    () =>
-      (Object.keys(workflowDerivedIntegrations) as RequiredIntegrationKey[]).filter(
-        (key) => workflowDerivedIntegrations[key]
-      ),
-    [workflowDerivedIntegrations]
   );
 
   /**
@@ -771,11 +928,10 @@ export function ConfigurePanel({
               Submit <span className="text-amber-500">{displayName}</span> to the Marketplace
             </h2>
             <p
-              className="mt-2 max-w-2xl text-[15px] text-slate-600"
+              className="mt-2 max-w-2xl text-sm font-normal leading-relaxed text-slate-500"
               data-testid="architect-ui-workflow-builder-configure-panel-these-details-shape-how-your-agent-appears-text"
             >
-              Five quick steps and your agent is in review. Most architects finish in under ten
-              minutes — we&apos;ve pre-filled what we could from your build.
+              Five quick steps and your agent is ready for review. Most architects finish in under 10 minutes. We've pre-filled everything we could from your build.
             </p>
           </div>
           <div className="flex flex-none items-center gap-2.5">
@@ -845,7 +1001,7 @@ export function ConfigurePanel({
                   maxLength={50}
                   value={configure.basics.agentName}
                   disabled={isLocked}
-                  placeholder="e.g. Smart Receptionist Pro"
+                  placeholder="e.g. After-Hours AI Receptionist"
                   onChange={(event) => updateBasics({ agentName: event.target.value })}
                   className={fieldClass(Boolean(fieldErrors.agentName))}
                 />
@@ -866,11 +1022,10 @@ export function ConfigurePanel({
                   maxLength={100}
                   value={configure.basics.tagline}
                   disabled={isLocked}
-                  placeholder="One sentence that sells your agent"
+                  placeholder="e.g. Answer missed calls and book appointments automatically"
                   onChange={(event) => updateBasics({ tagline: event.target.value })}
                   className={fieldClass(Boolean(fieldErrors.tagline))}
                 />
-                <p className="mt-1.5 text-[12.5px] text-slate-400">This is the hook buyers read first.</p>
                 <FieldError message={fieldErrors.tagline} testId="configure-error-tagline" />
               </div>
 
@@ -888,14 +1043,20 @@ export function ConfigurePanel({
                       onChange={(event) => updateBasics({ category: event.target.value })}
                       className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
                     >
+                      <option value="" disabled>
+                        Select a category
+                      </option>
                       {AGENT_CATEGORIES.map((category) => (
-                        <option key={category}>{category}</option>
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
                       ))}
                     </select>
                     <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                       <BuilderIcon name="chevron" className="h-4 w-4" />
                     </span>
                   </div>
+                  <FieldError message={fieldErrors.category} testId="configure-error-category" />
                 </div>
 
                 <div>
@@ -911,7 +1072,7 @@ export function ConfigurePanel({
                 <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">
                   Industry tags <span className="text-amber-500">*</span>
                 </span>
-                <p className="mb-3 text-[12.5px] text-slate-400">Pick every industry your agent serves well — buyers filter by these.</p>
+                <p className="mb-3 text-[12.5px] text-slate-400">Pick every industry your agent serves well - buyers filter by these.</p>
                 <IndustryPills
                   options={AGENT_INDUSTRIES}
                   selected={configure.basics.industryTags}
@@ -962,7 +1123,7 @@ export function ConfigurePanel({
                   value={configure.basics.shortDescription}
                   disabled={isLocked}
                   maxLength={200}
-                  placeholder="One or two sentences shown on the listing card."
+                  placeholder="Brief summary shown on your marketplace listing card"
                   onChange={(event) => updateBasics({ shortDescription: event.target.value })}
                   className="h-[74px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
                 />
@@ -991,6 +1152,7 @@ export function ConfigurePanel({
                 <RichDescriptionEditor
                   value={configure.media.fullDescription}
                   disabled={isLocked}
+                  placeholder="Describe what your agent does, who it's for, and what buyers get after they install it…"
                   onChange={(fullDescription) => {
                     const nextLength = plainTextLength(fullDescription);
                     const currentLength = plainTextLength(configure.media.fullDescription);
@@ -1124,54 +1286,85 @@ export function ConfigurePanel({
               subtitle="What buyers need to connect, and the checks that keep the Marketplace trusted."
             />
             <div className="space-y-8 px-6 py-7 sm:px-8">
-              {/* 1 · Template setup summary */}
-              <div className="grid gap-7 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="configure-template-type" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                    Template type
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="configure-template-type"
-                      data-testid="configure-template-type-select"
-                      value={configure.template.templateType}
-                      disabled={isLocked}
-                      onChange={(event) => updateTemplate({ templateType: event.target.value })}
-                      className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
-                    >
-                      {AGENT_TEMPLATE_TYPES.map((type) => (
-                        <option key={type}>{type}</option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                      <BuilderIcon name="chevron" className="h-4 w-4" />
-                    </span>
+              {/* 1 · Template gallery */}
+              <div
+                className="overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/40 via-white to-white"
+                data-testid="configure-template-gallery-card"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-amber-100/80 px-5 py-4 sm:px-6">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                        <BuilderIcon name="layout-template" className="h-4 w-4" />
+                      </span>
+                      <h4 className="text-[15px] font-bold text-slate-900">Template gallery</h4>
+                    </div>
+                    <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-slate-600">
+                      Save this workflow as a reusable template other architects can discover and fork.
+                    </p>
                   </div>
+                  {!isLocked ? (
+                    <button
+                      type="button"
+                      data-testid="configure-save-as-template"
+                      onClick={openTemplateSaveModal}
+                      disabled={savingAsTemplate}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-2.5 text-[13px] font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                    >
+                      <BuilderIcon name="layout-template" className="h-4 w-4" />
+                      {savingAsTemplate ? "Saving..." : "Save as template"}
+                    </button>
+                  ) : null}
                 </div>
 
-                <div>
-                  <label htmlFor="configure-setup-time" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                    Setup time estimate
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                      <BuilderIcon name="clock" className="h-[18px] w-[18px]" />
-                    </span>
-                    <select
-                      id="configure-setup-time"
-                      data-testid="configure-setup-time-select"
-                      value={configure.template.setupTimeEstimate}
-                      disabled={isLocked}
-                      onChange={(event) => updateTemplate({ setupTimeEstimate: event.target.value })}
-                      className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
-                    >
-                      {SETUP_TIME_OPTIONS.map((option) => (
-                        <option key={option}>{option}</option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                      <BuilderIcon name="chevron" className="h-4 w-4" />
-                    </span>
+                <div className="grid gap-7 px-5 py-5 sm:grid-cols-2 sm:px-6 sm:py-6">
+                  <div>
+                    <label htmlFor="configure-template-type" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                      Template type
+                    </label>
+                    <div className="relative">
+                      <select
+                        id="configure-template-type"
+                        data-testid="configure-template-type-select"
+                        value={configure.template.templateType}
+                        disabled={isLocked}
+                        onChange={(event) => updateTemplate({ templateType: event.target.value })}
+                        className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                      >
+                        {AGENT_TEMPLATE_TYPES.map((type) => (
+                          <option key={type}>{type}</option>
+                        ))}
+                      </select>
+                      <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                        <BuilderIcon name="chevron" className="h-4 w-4" />
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="configure-setup-time" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                      Setup time estimate
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                        <BuilderIcon name="clock" className="h-[18px] w-[18px]" />
+                      </span>
+                      <select
+                        id="configure-setup-time"
+                        data-testid="configure-setup-time-select"
+                        value={configure.template.setupTimeEstimate}
+                        disabled={isLocked}
+                        onChange={(event) => updateTemplate({ setupTimeEstimate: event.target.value })}
+                        className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                      >
+                        {SETUP_TIME_OPTIONS.map((option) => (
+                          <option key={option}>{option}</option>
+                        ))}
+                      </select>
+                      <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                        <BuilderIcon name="chevron" className="h-4 w-4" />
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1219,20 +1412,12 @@ export function ConfigurePanel({
                   ) : null}
                 </div>
                 <p className="mb-3 text-[12.5px] text-slate-400">Turn on what the buyer must connect for your agent to work.</p>
-                {workflowDetectedKeys.length > 0 ? (
-                  <div className="mb-3 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[12.5px] text-blue-900/90">
-                    <BuilderIcon name="info" className="mt-0.5 h-4 w-4 flex-none text-blue-500" />
-                    <span>
-                      Integrations marked <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">workflow</span> are automatically detected from your workflow nodes and pre-checked. You can still add or remove any toggle.
-                    </span>
-                  </div>
-                ) : null}
+
                 <RequiredIntegrationsSelector
                   value={configure.template.requiredIntegrations}
                   onToggle={toggleIntegration}
                   disabled={isLocked}
                   hiddenKeys={workflowHasSms || configure.template.requiredIntegrations.sms ? [] : ["sms"]}
-                  detectedKeys={workflowDetectedKeys}
                 />
                 {workflowHasSms ? (
                   <p
@@ -1260,13 +1445,7 @@ export function ConfigurePanel({
                     </button>
                   ) : null}
                 </div>
-                <p className="mb-1 text-[12.5px] text-slate-400">
-                  Extra info buyers must provide during setup — never secrets or API keys; Triven collects the
-                  buyer&apos;s phone numbers, calendars, and connections during their onboarding.
-                </p>
-                <p className="mb-3 text-[12.5px] font-semibold text-amber-600" data-testid="configure-buyer-setup-warning">
-                  These fields will be shown to buyers during installation.
-                </p>
+
 
                 {!isLocked && configure.template.requiredBuyerSetup.length === 0 ? (
                   <div className="mb-3 flex flex-wrap items-center gap-1.5" data-testid="configure-buyer-setup-suggestions">
@@ -1307,7 +1486,7 @@ export function ConfigurePanel({
 
                 {configure.template.requiredBuyerSetup.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-3 text-[12.5px] text-slate-400" data-testid="configure-buyer-setup-empty">
-                    No extra fields — buyers only connect the integrations above.
+                    No extra fields - buyers only connect the integrations above.
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -1878,19 +2057,318 @@ export function ConfigurePanel({
                 </div>
               ) : null}
 
-              <div className="pointer-events-none fixed bottom-5 right-6 z-[210] flex flex-col items-end gap-2.5">
+              {templateSaveModalOpen ? (
+                <div
+                  className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+                  data-testid="configure-template-save-modal"
+                  onClick={closeTemplateSaveModal}
+                >
+                  <div
+                    className="flex max-h-[min(92vh,760px)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="border-b border-gray-100 px-6 py-5 sm:px-8">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                          <BuilderIcon name="layout-template" className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-extrabold tracking-tight text-slate-900">
+                            Save to template gallery
+                          </h3>
+                          <p className="mt-1.5 text-[14px] leading-relaxed text-slate-600">
+                            Fill in the listing details below. Required fields are marked with *.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5 sm:px-8" data-testid="configure-template-save-form">
+                      {templateModalWorkflowError ? (
+                        <div
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3"
+                          data-testid="configure-template-save-workflow-error"
+                        >
+                          <p className="text-[13px] font-medium text-red-700">{templateModalWorkflowError}</p>
+                          {onGoBuild ? (
+                            <button
+                              type="button"
+                              data-testid="configure-template-save-go-build"
+                              onClick={() => {
+                                closeTemplateSaveModal();
+                                onGoBuild();
+                              }}
+                              className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-[12px] font-bold text-red-700 transition hover:bg-red-100/40"
+                            >
+                              Go to Build
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label htmlFor="template-modal-agent-name" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Agent name <span className="text-amber-500">*</span>
+                          </label>
+                          <input
+                            id="template-modal-agent-name"
+                            data-testid="configure-template-modal-agent-name"
+                            type="text"
+                            maxLength={50}
+                            value={configure.basics.agentName}
+                            onChange={(event) => {
+                              updateBasics({ agentName: event.target.value });
+                              clearTemplateModalFieldError("agentName");
+                            }}
+                            placeholder="e.g. After-Hours AI Receptionist"
+                            className={fieldClass(Boolean(templateModalErrors.agentName))}
+                          />
+                          <FieldError message={templateModalErrors.agentName} testId="configure-template-error-agent-name" />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label htmlFor="template-modal-tagline" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Tagline <span className="text-amber-500">*</span>
+                          </label>
+                          <input
+                            id="template-modal-tagline"
+                            data-testid="configure-template-modal-tagline"
+                            type="text"
+                            maxLength={100}
+                            value={configure.basics.tagline}
+                            onChange={(event) => {
+                              updateBasics({ tagline: event.target.value });
+                              clearTemplateModalFieldError("tagline");
+                            }}
+                            placeholder="e.g. Answer missed calls and book appointments automatically"
+                            className={fieldClass(Boolean(templateModalErrors.tagline))}
+                          />
+                          <FieldError message={templateModalErrors.tagline} testId="configure-template-error-tagline" />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label htmlFor="template-modal-short-description" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Short description <span className="text-amber-500">*</span>
+                          </label>
+                          <textarea
+                            id="template-modal-short-description"
+                            data-testid="configure-template-modal-short-description"
+                            value={configure.basics.shortDescription}
+                            maxLength={200}
+                            onChange={(event) => {
+                              updateBasics({ shortDescription: event.target.value });
+                              clearTemplateModalFieldError("shortDescription");
+                            }}
+                            placeholder="Brief summary shown on your template card"
+                            className={`h-[74px] w-full resize-none rounded-xl border bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition focus:ring-2 disabled:opacity-60 ${
+                              templateModalErrors.shortDescription
+                                ? "border-red-300 focus:border-red-400 focus:ring-red-400/40"
+                                : "border-gray-100 focus:border-amber-300 focus:ring-amber-400/50"
+                            }`}
+                          />
+                          <FieldError message={templateModalErrors.shortDescription} testId="configure-template-error-short-description" />
+                        </div>
+
+                        <div>
+                          <label htmlFor="template-modal-category" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Category <span className="text-amber-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <select
+                              id="template-modal-category"
+                              data-testid="configure-template-modal-category"
+                              value={configure.basics.category}
+                              onChange={(event) => {
+                                updateBasics({ category: event.target.value });
+                                clearTemplateModalFieldError("category");
+                              }}
+                              className={`w-full cursor-pointer appearance-none rounded-xl border bg-gray-50/40 px-4 py-3 pr-10 text-[14px] font-medium text-slate-800 outline-none transition focus:ring-2 ${
+                                templateModalErrors.category
+                                  ? "border-red-300 focus:border-red-400 focus:ring-red-400/40"
+                                  : "border-gray-100 focus:border-amber-300 focus:ring-amber-400/50"
+                              }`}
+                            >
+                              <option value="" disabled>
+                                Select a category
+                              </option>
+                              {AGENT_CATEGORIES.map((category) => (
+                                <option key={category} value={category}>
+                                  {category}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                              <BuilderIcon name="chevron" className="h-4 w-4" />
+                            </span>
+                          </div>
+                          <FieldError message={templateModalErrors.category} testId="configure-template-error-category" />
+                        </div>
+
+                        <div>
+                          <label htmlFor="template-modal-type" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Template type <span className="text-amber-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <select
+                              id="template-modal-type"
+                              data-testid="configure-template-modal-type"
+                              value={configure.template.templateType}
+                              onChange={(event) => {
+                                updateTemplate({ templateType: event.target.value });
+                                clearTemplateModalFieldError("templateType");
+                              }}
+                              className={`w-full cursor-pointer appearance-none rounded-xl border bg-gray-50/40 px-4 py-3 pr-10 text-[14px] font-medium text-slate-800 outline-none transition focus:ring-2 ${
+                                templateModalErrors.templateType
+                                  ? "border-red-300 focus:border-red-400 focus:ring-red-400/40"
+                                  : "border-gray-100 focus:border-amber-300 focus:ring-amber-400/50"
+                              }`}
+                            >
+                              {AGENT_TEMPLATE_TYPES.map((type) => (
+                                <option key={type}>{type}</option>
+                              ))}
+                            </select>
+                            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                              <BuilderIcon name="chevron" className="h-4 w-4" />
+                            </span>
+                          </div>
+                          <FieldError message={templateModalErrors.templateType} testId="configure-template-error-template-type" />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <span className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Industry tags <span className="text-amber-500">*</span>
+                          </span>
+                          <IndustryPills
+                            options={AGENT_INDUSTRIES}
+                            selected={configure.basics.industryTags}
+                            onToggle={(industry) => {
+                              const industryTags = configure.basics.industryTags.includes(industry)
+                                ? configure.basics.industryTags.filter((tag) => tag !== industry)
+                                : [...configure.basics.industryTags, industry];
+                              updateBasics({ industryTags });
+                              updateTemplate({ supportedIndustries: industryTags });
+                              clearTemplateModalFieldError("industryTags");
+                            }}
+                          />
+                          <FieldError message={templateModalErrors.industryTags} testId="configure-template-error-industry-tags" />
+                        </div>
+
+                        <div>
+                          <label htmlFor="template-modal-setup-time" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Setup time <span className="text-amber-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                              <BuilderIcon name="clock" className="h-4 w-4" />
+                            </span>
+                            <select
+                              id="template-modal-setup-time"
+                              data-testid="configure-template-modal-setup-time"
+                              value={configure.template.setupTimeEstimate}
+                              onChange={(event) => {
+                                updateTemplate({ setupTimeEstimate: event.target.value });
+                                clearTemplateModalFieldError("setupTimeEstimate");
+                              }}
+                              className={`w-full cursor-pointer appearance-none rounded-xl border bg-gray-50/40 py-3 pl-10 pr-10 text-[14px] font-medium text-slate-800 outline-none transition focus:ring-2 ${
+                                templateModalErrors.setupTimeEstimate
+                                  ? "border-red-300 focus:border-red-400 focus:ring-red-400/40"
+                                  : "border-gray-100 focus:border-amber-300 focus:ring-amber-400/50"
+                              }`}
+                            >
+                              {SETUP_TIME_OPTIONS.map((option) => (
+                                <option key={option}>{option}</option>
+                              ))}
+                            </select>
+                            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                              <BuilderIcon name="chevron" className="h-4 w-4" />
+                            </span>
+                          </div>
+                          <FieldError message={templateModalErrors.setupTimeEstimate} testId="configure-template-error-setup-time" />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label htmlFor="template-modal-full-description" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Full description <span className="text-amber-500">*</span>
+                          </label>
+                          <textarea
+                            id="template-modal-full-description"
+                            data-testid="configure-template-modal-full-description"
+                            value={plainText(configure.media.fullDescription)}
+                            maxLength={2000}
+                            onChange={(event) => {
+                              updateMedia({ fullDescription: event.target.value });
+                              clearTemplateModalFieldError("fullDescription");
+                            }}
+                            placeholder="Describe what this template does, who it's for, and what's included (at least 100 characters)."
+                            className={`h-32 w-full resize-y rounded-xl border bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition focus:ring-2 ${
+                              templateModalErrors.fullDescription
+                                ? "border-red-300 focus:border-red-400 focus:ring-red-400/40"
+                                : "border-gray-100 focus:border-amber-300 focus:ring-amber-400/50"
+                            }`}
+                          />
+                          <FieldError message={templateModalErrors.fullDescription} testId="configure-template-error-full-description" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-6 py-4 sm:px-8">
+                      <button
+                        type="button"
+                        data-testid="configure-template-save-dismiss"
+                        onClick={closeTemplateSaveModal}
+                        disabled={savingAsTemplate}
+                        className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="configure-template-save-confirm"
+                        onClick={() => void handleConfirmTemplateSave()}
+                        disabled={savingAsTemplate}
+                        className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                      >
+                        <BuilderIcon name="layout-template" className="h-4 w-4" />
+                        {savingAsTemplate ? "Saving..." : "Save as template"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="pointer-events-none fixed bottom-5 right-6 z-[210] flex flex-col items-end gap-3">
                 {toasts.map((toast) => (
                   <div
                     key={toast.id}
                     data-testid="configure-toast"
-                    className="pointer-events-auto flex max-w-sm items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 text-[13.5px] font-medium text-slate-700 shadow-xl"
+                    className={
+                      toast.type === "error"
+                        ? "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl border border-red-100 bg-white px-4 py-3.5 text-[13.5px] font-medium text-slate-700 shadow-[0_16px_40px_rgba(15,23,42,0.12)]"
+                        : "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3.5 text-[13.5px] font-medium text-slate-700 shadow-[0_16px_40px_rgba(15,23,42,0.12)]"
+                    }
                   >
                     {toast.type === "error" ? (
-                      <BuilderIcon name="info" className="h-5 w-5 flex-none text-red-500" />
+                      <span className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl bg-red-50 text-red-500">
+                        <BuilderIcon name="info" className="h-5 w-5" />
+                      </span>
                     ) : (
-                      <BuilderIcon name="check" className="h-5 w-5 flex-none text-green-500" />
+                      <span className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+                        <BuilderIcon name="check" className="h-5 w-5" />
+                      </span>
                     )}
-                    <span>{toast.message}</span>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <p
+                        className={
+                          toast.type === "error"
+                            ? "text-[12px] font-bold uppercase tracking-[0.14em] text-red-500"
+                            : "text-[12px] font-bold uppercase tracking-[0.14em] text-emerald-500"
+                        }
+                      >
+                        {toast.type === "error" ? "Error" : "Success"}
+                      </p>
+                      <p className="mt-1 leading-relaxed text-slate-700">{toast.message}</p>
+                    </div>
                   </div>
                 ))}
               </div>

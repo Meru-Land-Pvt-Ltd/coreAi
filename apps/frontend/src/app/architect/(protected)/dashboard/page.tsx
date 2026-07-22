@@ -556,7 +556,7 @@ export default function ArchitectDashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-slate-900">
-      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-gray-100 bg-white/90 px-4 py-3.5 shadow-sm backdrop-blur-md sm:px-6 lg:px-8" data-testid="architect-dashboard-topbar">
+      <header className="flex items-center gap-3 border-b border-gray-100 bg-white/90 px-4 py-3.5 shadow-sm sm:px-6 lg:sticky lg:top-0 lg:z-30 lg:backdrop-blur-md lg:px-8" data-testid="architect-dashboard-topbar">
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <Link
@@ -568,7 +568,7 @@ export default function ArchitectDashboardPage() {
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            <span className="hidden sm:inline">Create New Agent</span>
+            <span className="">Create New Agent</span>
           </Link>
         </div>
       </header>

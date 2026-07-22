@@ -527,7 +527,7 @@ export default function ArchitectAgentAnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-900" data-testid="architect-analytics-page">
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-md sm:px-6 lg:px-8">
+      <header className="border-b border-gray-100 bg-white/90 px-4 py-3 shadow-sm sm:px-6 lg:sticky lg:top-0 lg:z-30 lg:backdrop-blur-md lg:px-8">
         <div className="flex min-h-10 flex-col gap-3 md:flex-row md:items-center">
           <h1 className="whitespace-nowrap text-xl font-bold tracking-tight sm:text-2xl">Agent Analytics</h1>
           <div className="flex flex-1 justify-center">

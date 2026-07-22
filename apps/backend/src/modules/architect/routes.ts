@@ -41,6 +41,11 @@ import {
   listTemplateCards
 } from "./templates";
 import {
+  cloneSavedTemplateWorkflow,
+  getSavedTemplateBySlug,
+  listSavedTemplateCards
+} from "./saved-templates";
+import {
   loadArchitectEarnings,
   countSalesByListingIds,
   effectiveEarningStatus,
@@ -1447,14 +1452,22 @@ architectRoutes.post("/phone-routing/test", async (c) => {
   return successResponse(c, await testPhoneRouting(body));
 });
 
-/* ---- Template gallery (static seed, served by API; frontend never hardcodes) ---- */
+/* ---- Template gallery (static seed + architect-saved workflows) ---- */
 
-architectRoutes.get("/templates", (c) => {
-  return successResponse(c, { templates: listTemplateCards() });
+architectRoutes.get("/templates", async (c) => {
+  const saved = await listSavedTemplateCards();
+  const seed = listTemplateCards();
+  return successResponse(c, { templates: [...saved, ...seed] });
 });
 
-architectRoutes.get("/templates/:slug", (c) => {
-  const template = getTemplateBySlug(c.req.param("slug"));
+architectRoutes.get("/templates/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  const saved = await getSavedTemplateBySlug(slug);
+  if (saved) {
+    return successResponse(c, { template: saved });
+  }
+
+  const template = getTemplateBySlug(slug);
   if (!template) {
     return errorResponse(c, "Template not found", 404, "TEMPLATE_NOT_FOUND");
   }
@@ -1468,7 +1481,55 @@ architectRoutes.get("/templates/:slug", (c) => {
  */
 architectRoutes.post("/templates/:slug/use", async (c) => {
   const authUser = c.get("authUser");
-  const template = getTemplateBySlug(c.req.param("slug"));
+  const slug = c.req.param("slug");
+
+  const saved = await getSavedTemplateBySlug(slug);
+  if (saved) {
+    const body = (await c.req.json().catch(() => ({}))) as { workflowId?: unknown };
+    const targetWorkflowId = typeof body.workflowId === "string" ? body.workflowId : undefined;
+    const workflowJson = cloneSavedTemplateWorkflow(saved);
+
+    let workflow = null;
+    if (targetWorkflowId) {
+      const existing = await prisma.workflowDefinition.findFirst({
+        where: { id: targetWorkflowId, architectUserId: authUser.id }
+      });
+      if (existing) {
+        workflow = await prisma.workflowDefinition.update({
+          where: { id: existing.id },
+          data: {
+            name: saved.title,
+            description: saved.description,
+            workflowJson: workflowJson as never
+          }
+        });
+      }
+    }
+
+    if (!workflow) {
+      workflow = await prisma.workflowDefinition.create({
+        data: {
+          architectUserId: authUser.id,
+          name: saved.title,
+          description: saved.description,
+          workflowJson: workflowJson as never
+        }
+      });
+    }
+
+    return successResponse(
+      c,
+      {
+        workflowId: workflow.id,
+        name: workflow.name,
+        description: workflow.description,
+        workflowJson
+      },
+      "Template imported"
+    );
+  }
+
+  const template = getTemplateBySlug(slug);
   if (!template) {
     return errorResponse(c, "Template not found", 404, "TEMPLATE_NOT_FOUND");
   }

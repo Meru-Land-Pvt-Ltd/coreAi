@@ -1014,6 +1014,80 @@ export function validateConfigureForSubmit(data: AgentConfigureData): ConfigureV
   return issues;
 }
 
+export type TemplateGalleryValidationOptions = {
+  nodeCount?: number;
+};
+
+/** Metadata required before an architect workflow can be saved to the template gallery. */
+export function validateConfigureForTemplateGallery(
+  data: AgentConfigureData,
+  options: TemplateGalleryValidationOptions = {}
+): ConfigureValidationIssue[] {
+  const issues: ConfigureValidationIssue[] = [];
+
+  if (data.basics.agentName.trim().length < 2) {
+    issues.push({
+      step: 1,
+      field: "agentName",
+      message: "Agent name must be at least 2 characters."
+    });
+  }
+  if (data.basics.tagline.trim().length < 10) {
+    issues.push({
+      step: 1,
+      field: "tagline",
+      message: "Tagline must be at least 10 characters."
+    });
+  }
+  if (data.basics.shortDescription.trim().length < 20) {
+    issues.push({
+      step: 1,
+      field: "shortDescription",
+      message: "Short description must be at least 20 characters."
+    });
+  }
+  if (!data.basics.category.trim()) {
+    issues.push({ step: 1, field: "category", message: "Pick a category." });
+  }
+  if (data.basics.industryTags.length === 0) {
+    issues.push({
+      step: 1,
+      field: "industryTags",
+      message: "Pick at least one industry tag."
+    });
+  }
+
+  const plainDescription = data.media.fullDescription
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plainDescription.length < 100) {
+    issues.push({
+      step: 2,
+      field: "fullDescription",
+      message: "Full description must be at least 100 characters."
+    });
+  }
+
+  if (!data.template.templateType.trim()) {
+    issues.push({ step: 4, field: "templateType", message: "Select a template type." });
+  }
+  if (!data.template.setupTimeEstimate.trim()) {
+    issues.push({ step: 4, field: "setupTimeEstimate", message: "Select a setup time estimate." });
+  }
+
+  const nodeCount = options.nodeCount ?? 0;
+  if (nodeCount < 1) {
+    issues.push({
+      step: 4,
+      field: "workflowNodes",
+      message: "Add at least one node in Build before saving as a template."
+    });
+  }
+
+  return issues;
+}
+
 /** Marketplace preview card payload derived from configure data. */
 export type AgentMarketplacePreview = {
   name: string;

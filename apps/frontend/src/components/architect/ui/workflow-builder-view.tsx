@@ -1242,7 +1242,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       {isLive && !isUnderReview ? (
         <div
           data-testid="builder-live-lock-banner"
-          className="fixed left-1/2 top-[7.5rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 shadow-lg md:top-20"
+          className="fixed left-1/2 top-[7.25rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 shadow-lg md:top-20"
         >
           <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1265,7 +1265,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       {isUnderReview ? (
         <div
           data-testid="builder-review-lock-banner"
-          className="fixed left-1/2 top-[7.5rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg md:top-20"
+          className="fixed left-1/2 top-[7.25rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg md:top-20"
         >
           <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1286,7 +1286,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      <main className="fixed bottom-10 left-0 right-0 top-[6.75rem] overflow-hidden sm:top-[7.25rem] md:top-14">
+      <main className="fixed bottom-10 left-0 right-0 top-[6.5rem] overflow-hidden md:top-14">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex min-w-0">
             <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin xl:block">
@@ -1476,6 +1476,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               void loadWorkflow("Applying configuration...");
             }}
             onGoPublish={() => setActiveTab("publish")}
+            onGoBuild={() => setActiveTab("build")}
             onSave={() => void saveAgent()}
           />
         ) : null}

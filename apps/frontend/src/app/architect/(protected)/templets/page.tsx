@@ -456,10 +456,10 @@ export default function ArchitectTemplateGalleryPage() {
   }
 
   const selectClass =
-    "cursor-pointer rounded-xl border border-slate-200 bg-white py-2.5 pl-3.5 pr-9 text-sm font-medium text-slate-700 transition hover:border-slate-300 focus:border-amber-300 focus:outline-none";
+    "w-full min-w-0 cursor-pointer rounded-xl border border-slate-200 bg-white py-2.5 pl-3.5 pr-9 text-sm font-medium text-slate-700 transition hover:border-slate-300 focus:border-amber-300 focus:outline-none sm:w-auto";
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-800 antialiased">
+    <div className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-800 antialiased">
       <style
         dangerouslySetInnerHTML={{
           __html: `
@@ -475,18 +475,18 @@ export default function ArchitectTemplateGalleryPage() {
         }}
       />
 
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/85 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-full items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl" data-testid="architect-templates-title-heading">
+      <header className="border-b border-gray-100 bg-white/85 lg:sticky lg:top-0 lg:z-30 lg:backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-full flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-6 lg:px-8">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl" data-testid="architect-templates-title-heading">
               Template Gallery
             </h1>
-            <p className="hidden truncate text-sm font-medium text-slate-500 sm:block">
+            <p className="mt-1 text-sm font-medium text-slate-500 sm:truncate">
               Start with a proven blueprint. Customize and publish in minutes.
             </p>
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="w-full sm:ml-auto sm:w-auto sm:flex-none">
             <div className="relative">
               <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8" />
@@ -499,7 +499,7 @@ export default function ArchitectTemplateGalleryPage() {
                 placeholder="Search templates"
                 aria-label="Search templates"
                 data-testid="architect-templates-search-input"
-                className="w-40 rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm font-medium text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none sm:w-72"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm font-medium text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none sm:w-72"
               />
             </div>
           </div>
@@ -507,7 +507,7 @@ export default function ArchitectTemplateGalleryPage() {
       </header>
 
       {featured ? (
-      <section className="mx-auto w-full max-w-full px-4 pt-8 sm:px-6 lg:px-8 lg:pt-10">
+      <section className="mx-auto w-full max-w-full px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10">
         <div className="mb-3 flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Featured template</span>
           <span className="h-px flex-1 bg-gradient-to-r from-amber-200 to-transparent" />
@@ -518,8 +518,8 @@ export default function ArchitectTemplateGalleryPage() {
             <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-amber-200/30 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-orange-100/40 blur-3xl" />
 
-            <div className="relative grid items-center gap-8 p-7 sm:p-9 lg:grid-cols-2 lg:gap-12 lg:p-10">
-              <div>
+            <div className="relative grid items-center gap-6 p-5 sm:gap-8 sm:p-7 lg:grid-cols-2 lg:gap-12 lg:p-10">
+              <div className="min-w-0">
                 <div className="mb-5 flex flex-wrap items-center gap-2.5">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700">
                     <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
@@ -533,8 +533,8 @@ export default function ArchitectTemplateGalleryPage() {
                   </span>
                 </div>
 
-                <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 lg:text-[2.5rem] lg:leading-[1.05]">{featured.title}</h2>
-                <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600 lg:text-lg">
+                <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl lg:text-[2.5rem] lg:leading-[1.05]">{featured.title}</h2>
+                <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-600 sm:mt-4 sm:text-base lg:text-lg">
                   {featured.description}
                 </p>
 
@@ -550,13 +550,13 @@ export default function ArchitectTemplateGalleryPage() {
                   </div>
                 </div>
 
-                <div className="mt-8 flex flex-wrap items-center gap-4">
+                <div className="mt-6 flex flex-wrap items-center gap-4 sm:mt-8">
                   <button
                     type="button"
                     onClick={() => useTemplate(featured.slug)}
                     disabled={usingSlug === featured.slug}
                     data-testid="architect-templates-featured-use"
-                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-[0_10px_26px_-8px_rgba(245,158,11,.55)] transition hover:bg-amber-600 hover:shadow-lg active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-70"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-[0_10px_26px_-8px_rgba(245,158,11,.55)] transition hover:bg-amber-600 hover:shadow-lg active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
                   >
                     {usingSlug === featured.slug ? "Opening…" : "Use this template"}
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -577,8 +577,8 @@ export default function ArchitectTemplateGalleryPage() {
                 </div>
               </div>
 
-              <div>
-                <div className="canvas-grid-amber rounded-2xl border border-amber-100 p-6 shadow-[0_1px_2px_rgba(15,23,42,.04),0_1px_3px_rgba(15,23,42,.06)]">
+              <div className="min-w-0">
+                <div className="canvas-grid-amber rounded-2xl border border-amber-100 p-4 shadow-[0_1px_2px_rgba(15,23,42,.04),0_1px_3px_rgba(15,23,42,.06)] sm:p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-600/70">Workflow</span>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
@@ -598,10 +598,10 @@ export default function ArchitectTemplateGalleryPage() {
       </section>
       ) : null}
 
-      <div className="sticky top-[73px] z-20 mt-8 border-y border-gray-100 bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-full flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6 lg:flex-nowrap lg:px-8">
-          <div className="order-1 w-full min-w-0 overflow-x-auto no-scrollbar lg:w-auto lg:flex-1">
-            <div className="flex w-max items-center gap-2" role="group" aria-label="Filter by category">
+      <div className="sticky top-14 z-20 mt-6 border-y border-gray-100 bg-white/95 backdrop-blur-md sm:mt-8 lg:top-[73px]">
+        <div className="mx-auto flex w-full max-w-full flex-col gap-3 px-4 py-3.5 sm:px-6 lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3 lg:px-8">
+          <div className="min-w-0 overflow-x-auto no-scrollbar lg:flex-1">
+            <div className="flex w-max max-w-full items-center gap-2 pb-0.5 lg:pb-0" role="group" aria-label="Filter by category">
               {categories.map((c) => {
                 const on = c === category;
                 return (
@@ -624,7 +624,7 @@ export default function ArchitectTemplateGalleryPage() {
               })}
             </div>
           </div>
-          <div className="order-2 flex flex-shrink-0 items-center gap-2 overflow-x-auto no-scrollbar lg:overflow-visible">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-shrink-0 lg:items-center lg:gap-2">
             <select aria-label="Filter by industry" value={industry} onChange={(e) => setIndustry(e.target.value)} className={selectClass} data-testid="architect-templates-industry-select">
               <option value="all">All industries</option>
               {industries.map((tag) => (
@@ -648,13 +648,13 @@ export default function ArchitectTemplateGalleryPage() {
         </div>
       </div>
 
-      <section className="mx-auto w-full max-w-full px-4 pt-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex items-end justify-between gap-4">
-          <div>
+      <section className="mx-auto w-full max-w-full px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8">
+        <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <div className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-amber-600">All templates</div>
-            <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">Browse the gallery</h2>
+            <h2 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">Browse the gallery</h2>
           </div>
-          <div className="pb-1 text-sm font-medium text-slate-400" data-testid="architect-templates-count-text">
+          <div className="text-sm font-medium text-slate-400 sm:pb-1" data-testid="architect-templates-count-text">
             {visible.length} {visible.length === 1 ? "template" : "templates"}
           </div>
         </div>
@@ -682,19 +682,19 @@ export default function ArchitectTemplateGalleryPage() {
                   className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_1px_3px_rgba(15,23,42,.06)] transition-all duration-300 hover:-translate-y-1 hover:border-amber-100 hover:shadow-[0_1px_2px_rgba(15,23,42,.04),0_10px_28px_-10px_rgba(15,23,42,.12)]"
                 >
                   <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-amber-400 to-orange-400 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-                  <div className="flex flex-1 flex-col p-6">
-                    <div className="mb-4 flex items-center justify-between gap-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cat.pill}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${cat.dot}`} />
-                        {t.category}
+                  <div className="flex flex-1 flex-col p-5 sm:p-6">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cat.pill}`}>
+                        <span className={`h-1.5 w-1.5 flex-none rounded-full ${cat.dot}`} />
+                        <span className="truncate">{t.category}</span>
                       </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                        <span className={`h-1.5 w-1.5 rounded-full ${complexityDot(t.difficulty)}`} />
-                        {t.difficulty} · {t.nodeCount} nodes
+                      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 sm:text-xs">
+                        <span className={`h-1.5 w-1.5 flex-none rounded-full ${complexityDot(t.difficulty)}`} />
+                        <span className="truncate">{t.difficulty} · {t.nodeCount} nodes</span>
                       </span>
                     </div>
 
-                    <h3 className="text-lg font-extrabold tracking-tight text-slate-900">{t.title}</h3>
+                    <h3 className="text-base font-extrabold tracking-tight text-slate-900 sm:text-lg">{t.title}</h3>
                     <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-600">{t.description}</p>
 
                     <div className="mt-5 flex min-h-[76px] items-center justify-center rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-3" dangerouslySetInnerHTML={{ __html: compactWorkflowSVG(chainWorkflow(t.nodeCount)) }} />
@@ -722,7 +722,7 @@ export default function ArchitectTemplateGalleryPage() {
                         ))}
                       </div>
 
-                      <div className="mt-6 flex items-center gap-3 border-t border-slate-100 pt-5">
+                      <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -731,7 +731,7 @@ export default function ArchitectTemplateGalleryPage() {
                           }}
                           disabled={usingSlug === t.slug}
                           data-testid={`architect-templates-use-${t.id}`}
-                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-70"
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-70 sm:flex-1"
                         >
                           {usingSlug === t.slug ? "Opening…" : "Use template"}
                         </button>
@@ -742,7 +742,7 @@ export default function ArchitectTemplateGalleryPage() {
                             setModalId(t.id);
                           }}
                           data-testid={`architect-templates-preview-${t.id}`}
-                          className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:scale-[.98]"
+                          className="inline-flex w-full items-center justify-center gap-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:scale-[.98] sm:w-auto"
                         >
                           Preview
                         </button>
@@ -781,7 +781,7 @@ export default function ArchitectTemplateGalleryPage() {
           <div className="pointer-events-none absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-amber-100/40 blur-3xl" />
           <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-orange-100/30 blur-3xl" />
 
-          <div className="relative flex flex-col items-center justify-between gap-8 px-7 py-11 sm:px-10 lg:flex-row lg:px-14 lg:py-14">
+          <div className="relative flex flex-col items-center justify-between gap-6 px-5 py-8 sm:gap-8 sm:px-10 sm:py-11 lg:flex-row lg:px-14 lg:py-14">
             <div className="max-w-xl text-center lg:text-left">
               <h3 className="text-2xl font-extrabold tracking-tight text-slate-900 lg:text-3xl">Can&apos;t find what you need?</h3>
               <p className="mt-3 leading-relaxed text-slate-600">
@@ -813,7 +813,7 @@ export default function ArchitectTemplateGalleryPage() {
               </div>
             </div>
 
-            <div className="flex-shrink-0 rounded-2xl border border-amber-100 bg-amber-50/70 px-9 py-7 text-center">
+            <div className="w-full flex-shrink-0 rounded-2xl border border-amber-100 bg-amber-50/70 px-6 py-6 text-center sm:w-auto sm:px-9 sm:py-7">
               <div className="text-4xl font-extrabold tracking-tight text-amber-600">4.2 hrs</div>
               <div className="mt-1.5 max-w-[12rem] text-sm font-medium text-slate-500">saved per agent, on average, by starting from a template</div>
             </div>

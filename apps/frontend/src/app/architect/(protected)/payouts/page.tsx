@@ -278,7 +278,7 @@ export default function ArchitectPayoutsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800">
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-100 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+      <header className="flex h-16 items-center justify-between border-b border-gray-100 bg-white/95 px-4 sm:px-6 lg:sticky lg:top-0 lg:z-20 lg:backdrop-blur lg:px-8">
         <h1 className="text-xl font-bold text-slate-900" data-testid="architect-payouts-title">
           Payouts &amp; Earnings
         </h1>

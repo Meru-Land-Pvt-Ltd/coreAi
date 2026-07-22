@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { BusinessPageHeader } from "@/components/business/business-page-header";
 import {
   deleteArchitectAccount,
   downloadArchitectDataExport,
@@ -314,9 +315,91 @@ function buildStorefrontFormFromAuth(user: AuthUser | null) {
   };
 }
 
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={`h-5 w-5 text-slate-400 transition ${open ? "rotate-180" : ""}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function SettingsSection({
+  tabId,
+  activeTab,
+  expandedMobile,
+  label,
+  danger,
+  testId,
+  onMobileToggle,
+  children
+}: {
+  tabId: SettingsTab;
+  activeTab: SettingsTab;
+  expandedMobile: SettingsTab | null;
+  label: string;
+  danger?: boolean;
+  testId: string;
+  onMobileToggle: (tab: SettingsTab) => void;
+  children: ReactNode;
+}) {
+  const mobileOpen = expandedMobile === tabId;
+  const desktopVisible = activeTab === tabId;
+
+  const inner = (
+    <>
+      <button
+        type="button"
+        className={`flex w-full items-center justify-between px-5 py-4 text-left lg:hidden ${danger ? "text-red-700" : ""}`}
+        aria-expanded={mobileOpen}
+        data-testid={`architect-settings-mobile-tab-${tabId}`}
+        onClick={() => onMobileToggle(tabId)}
+      >
+        <span className={`text-base font-semibold ${danger ? "text-red-700" : "text-slate-900"}`}>{label}</span>
+        <ChevronIcon open={mobileOpen} />
+      </button>
+      <div
+        className={`${mobileOpen ? "block" : "hidden"} p-4 sm:p-5 lg:block lg:p-5`}
+        role="tabpanel"
+        tabIndex={0}
+      >
+        {children}
+      </div>
+    </>
+  );
+
+  if (danger) {
+    return (
+      <section className="block lg:block" data-testid={testId}>
+        <div className={`overflow-hidden rounded-2xl border-2 border-red-200 bg-red-50/50 ${desktopVisible ? "lg:block" : "lg:hidden"}`}>
+          {inner}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className={`block overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm ${desktopVisible ? "lg:block" : "lg:hidden"}`}
+      data-testid={testId}
+    >
+      {inner}
+    </section>
+  );
+}
+
 export default function ArchitectSettingsPage() {
   const authUser = useMemo(() => getAuthUser(), []);
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [expandedMobile, setExpandedMobile] = useState<SettingsTab | null>("profile");
   const [settings, setSettings] = useState<ArchitectSettingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
@@ -754,6 +837,16 @@ export default function ArchitectSettingsPage() {
     });
   }
 
+  function handleMobileToggle(tab: SettingsTab) {
+    setActiveTab(tab);
+    setExpandedMobile((current) => (current === tab ? null : tab));
+  }
+
+  function handleDesktopTab(tab: SettingsTab) {
+    setActiveTab(tab);
+    setExpandedMobile(tab);
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6" data-testid="architect-settings-loading">
@@ -766,56 +859,52 @@ export default function ArchitectSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-5 py-4 backdrop-blur lg:px-8">
-        <h1 className="text-xl font-extrabold tracking-tight text-slate-900" data-testid="architect-settings-title">Settings</h1>
-        <p className="hidden text-sm text-slate-500 sm:block">Manage your account, storefront, and agent business.</p>
-      </header>
+    <div className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-900">
+      <main className="w-full max-w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5 lg:py-5">
+        <BusinessPageHeader
+          className="-mx-3 -mt-4 mb-4 sm:-mx-4 lg:-mx-5 lg:-mt-5"
+          title={<span data-testid="architect-settings-title">Settings</span>}
+          description="Manage your account, storefront, and agent business."
+        />
 
-      <main className="px-5 py-6 lg:px-8 lg:py-8">
-        <div className="mx-auto flex w-full max-w-full flex-col gap-6 lg:flex-row lg:gap-8">
-          <div className="hidden w-56 shrink-0 lg:block">
-            <div role="tablist" aria-label="Settings sections" className="sticky top-24 space-y-1">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  data-testid={`architect-settings-tab-${tab.id}`}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full rounded-xl px-4 py-2.5 text-left text-sm font-medium transition ${
-                    activeTab === tab.id
-                      ? tab.danger
-                        ? "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700"
-                        : "border-l-2 border-amber-500 bg-amber-50 font-semibold text-amber-700"
-                      : tab.danger
-                        ? "border-l-2 border-transparent text-red-600 hover:bg-gray-50"
-                        : "border-l-2 border-transparent text-slate-600 hover:bg-gray-50"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+          <nav
+            className="mb-4 hidden lg:flex lg:flex-col lg:gap-1 lg:sticky lg:top-10"
+            role="tablist"
+            aria-label="Settings sections"
+          >
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                data-testid={`architect-settings-tab-${tab.id}`}
+                onClick={() => handleDesktopTab(tab.id)}
+                className={`w-full rounded-xl px-4 py-2.5 text-left text-sm font-medium transition ${
+                  activeTab === tab.id
+                    ? tab.danger
+                      ? "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700"
+                      : "border-l-2 border-amber-500 bg-amber-50 font-semibold text-amber-700"
+                    : tab.danger
+                      ? "border-l-2 border-transparent text-red-600 hover:bg-red-50"
+                      : "border-l-2 border-transparent text-slate-600 hover:bg-gray-50"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
 
-          <div className="min-w-0 flex-1">
-            <div className="mb-4 flex gap-2 overflow-x-auto lg:hidden">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${activeTab === tab.id ? "bg-amber-500 text-white" : "bg-white text-slate-600"}`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {activeTab === "profile" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-profile">
+          <div className="flex min-w-0 flex-col gap-4">
+            <SettingsSection
+              tabId="profile"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Profile"
+              testId="architect-settings-panel-profile"
+              onMobileToggle={handleMobileToggle}
+            >
                 <h2 className="text-lg font-bold text-slate-900">Personal Information</h2>
                 <p className="mt-1 text-sm text-slate-500">Your private account details. Not shown publicly.</p>
                 <form onSubmit={handleSaveProfile} className="mt-6 space-y-6">
@@ -951,11 +1040,17 @@ export default function ArchitectSettingsPage() {
                     <button type="button" onClick={() => void loadSettings()} className="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
                   </div>
                 </form>
-              </section>
-            ) : null}
+            </SettingsSection>
 
-            {activeTab === "storefront" ? (
-              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-storefront">
+            <SettingsSection
+              tabId="storefront"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Public Storefront"
+              testId="architect-settings-panel-storefront"
+              onMobileToggle={handleMobileToggle}
+            >
+                <div className="space-y-8">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Public Profile &amp; Storefront</h2>
                   <p className="mt-1 text-sm text-slate-500">This is how buyers see you on the Triven marketplace.</p>
@@ -1105,11 +1200,17 @@ export default function ArchitectSettingsPage() {
                     <p className="text-xs text-slate-400">Changes use your saved storefront data.</p>
                   </div>
                 </form>
-              </section>
-            ) : null}
+                </div>
+            </SettingsSection>
 
-            {activeTab === "security" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-security">
+            <SettingsSection
+              tabId="security"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Security"
+              testId="architect-settings-panel-security"
+              onMobileToggle={handleMobileToggle}
+            >
                 <h2 className="text-lg font-bold text-slate-900">Security</h2>
                 <p className="mt-1 text-sm text-slate-500">Active sessions and login history for your architect account.</p>
                 <div className="mt-8 border-t border-gray-100 pt-7">
@@ -1159,11 +1260,16 @@ export default function ArchitectSettingsPage() {
                     </table>
                   </div>
                 </div>
-              </section>
-            ) : null}
+            </SettingsSection>
 
-            {activeTab === "notifications" ? (
-              <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-notifications">
+            <SettingsSection
+              tabId="notifications"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Notifications"
+              testId="architect-settings-panel-notifications"
+              onMobileToggle={handleMobileToggle}
+            >
                 <h2 className="text-lg font-bold text-slate-900">Notification Preferences</h2>
                 <p className="mt-1 text-sm text-slate-500">Choose how and when Triven contacts you about your agent business.</p>
                 <div className="mt-6 overflow-x-auto">
@@ -1205,11 +1311,17 @@ export default function ArchitectSettingsPage() {
                   </table>
                 </div>
                 <button type="button" onClick={() => void handleSaveNotifications()} disabled={saving} data-testid="architect-settings-save-notifications" className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save preferences</button>
-              </section>
-            ) : null}
+            </SettingsSection>
 
-            {activeTab === "payouts" ? (
-              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-payouts">
+            <SettingsSection
+              tabId="payouts"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Payouts"
+              testId="architect-settings-panel-payouts"
+              onMobileToggle={handleMobileToggle}
+            >
+                <div className="space-y-8">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Payout Settings</h2>
                   <p className="mt-1 text-sm text-slate-500">Manage how and when you receive earnings from agent sales.</p>
@@ -1401,11 +1513,18 @@ export default function ArchitectSettingsPage() {
                   </div>
                 </div>
                 <Link href={ARCHITECT_PAYOUTS_PATH} className="inline-block text-sm font-semibold text-amber-700 hover:text-amber-800" data-testid="architect-settings-open-payouts">Open full payouts page →</Link>
-              </section>
-            ) : null}
+                </div>
+            </SettingsSection>
 
-            {activeTab === "data" ? (
-              <section className="space-y-8 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" data-testid="architect-settings-panel-data">
+            <SettingsSection
+              tabId="data"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Data & Privacy"
+              testId="architect-settings-panel-data"
+              onMobileToggle={handleMobileToggle}
+            >
+                <div className="space-y-8">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Data &amp; Privacy</h2>
                   <p className="mt-1 text-sm text-slate-500">Control your data, privacy preferences, and marketplace visibility.</p>
@@ -1445,11 +1564,18 @@ export default function ArchitectSettingsPage() {
                 <div className="border-t border-gray-100 pt-6">
                   <button type="button" onClick={() => void handleSavePrivacy()} disabled={saving} data-testid="architect-settings-save-privacy" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
                 </div>
-              </section>
-            ) : null}
+                </div>
+            </SettingsSection>
 
-            {activeTab === "danger" ? (
-              <section className="rounded-2xl border-2 border-red-200 bg-red-50/50 p-6" data-testid="architect-settings-panel-danger">
+            <SettingsSection
+              tabId="danger"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="Danger Zone"
+              danger
+              testId="architect-settings-panel-danger"
+              onMobileToggle={handleMobileToggle}
+            >
                 <h2 className="text-lg font-bold text-red-700">Danger Zone</h2>
                 <p className="mt-1 text-sm text-red-600/80">These actions affect your published agents and buyer access.</p>
                 <div className="mt-6 space-y-4">
@@ -1489,8 +1615,7 @@ export default function ArchitectSettingsPage() {
                     <button type="button" onClick={() => setDeleteModalOpen(true)} className="shrink-0 rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-600" data-testid="architect-settings-open-delete">Delete my account</button>
                   </div>
                 </div>
-              </section>
-            ) : null}
+            </SettingsSection>
           </div>
         </div>
       </main>

@@ -237,7 +237,8 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 </div>
             </aside>
 
-            <div className="relative z-0 min-h-screen min-w-0 w-full overflow-x-hidden lg:pl-64">
+            
+            <div className="relative min-h-screen min-w-0 w-full overflow-x-hidden lg:pl-64">
                 <div className="sticky top-0 z-30 flex w-full min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-gray-100 bg-gray-50 px-2 py-2.5 lg:hidden">
                     <button
                         type="button"
