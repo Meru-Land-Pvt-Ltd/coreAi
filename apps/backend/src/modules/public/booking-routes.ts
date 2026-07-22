@@ -205,6 +205,8 @@ publicBookingRoutes.post("/booking/:slug", async (c) => {
       body: `${business.name} via Triven.ai: Hi ${input.customerName}, we received your ${input.service ? `${input.service} ` : ""}request for ${whenText}. The team will confirm shortly. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "WORKFLOW_SMS",
       businessId: business.id,
+      businessName: business.name,
+      smsPurpose: "BOOKING_ACKNOWLEDGEMENT",
       appointmentId: appointment.id,
       dedupeKey: `booking-request:${appointment.id}`
     }).catch(() => null);

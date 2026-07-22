@@ -244,7 +244,9 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
 
   it("email sending never touches billable call usage", async () => {
     if (!dbAvailable) return;
-    const before = await prisma.vapiCall.count();
+    // Scoped to THIS business: a global count races with other test files
+    // creating VapiCall rows concurrently on the shared dev database.
+    const before = await prisma.vapiCall.count({ where: { businessId: bizA } });
     await sendBusinessEmail({
       businessId: bizA,
       to: `${RUN}-nobill@test.local`,
@@ -252,7 +254,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
       textBody: "x",
       purpose: "CUSTOMER_FOLLOW_UP"
     });
-    expect(await prisma.vapiCall.count()).toBe(before);
+    expect(await prisma.vapiCall.count({ where: { businessId: bizA } })).toBe(before);
   });
 
   it("a failing email job resolves without throwing (appointment flow stays safe)", async () => {

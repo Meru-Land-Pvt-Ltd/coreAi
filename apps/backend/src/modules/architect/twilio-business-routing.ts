@@ -1,5 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { calendarEventTitleForMode } from "@coreai/shared";
+import { SMS_CONSENT_DISCLOSURE_VERSION, calendarEventTitleForMode } from "@coreai/shared";
+import {
+  clearConsentOffer,
+  markConsentOffered,
+  wasConsentOffered,
+  type ConsentOfferKey
+} from "../notifications/consent-offer-store";
+import { transcriptShowsCompleteSmsDisclosure } from "../notifications/sms-disclosure";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import {
   appointmentAiRef,
@@ -1702,6 +1709,8 @@ export async function handleTwilioInboundSms(c: Context) {
     body: replyBody,
     messageType: bookedAppointmentId ? "APPOINTMENT_CONFIRMATION" : "WORKFLOW_SMS",
     businessId: agent.business?.businessId ?? null,
+    businessName: agent.business?.businessName ?? null,
+    smsPurpose: bookedAppointmentId ? "APPOINTMENT_CONFIRMATION" : "SUPPORT_RESPONSE",
     installedAgentId: agent.business?.installedAgentId ?? null,
     appointmentId: bookedAppointmentId,
     dedupeKey: bookedAppointmentId ? `appointment-confirmation:${bookedAppointmentId}` : null
@@ -2295,6 +2304,35 @@ type VapiToolContext = {
 
 const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
 const callContactCache = new Map<string, { name?: string; phone?: string; at: number }>();
+
+/**
+ * A2P requirement: OPTED_IN is possible only after the disclosure was OFFERED
+ * (state machine NOT_OFFERED → OFFERED → OPTED_IN/DECLINED). The model's own
+ * claim is never trusted — proof is an ASSISTANT-authored transcript segment
+ * containing the COMPLETE disclosure (with the identified business's name)
+ * followed by the caller's answer (notifications/sms-disclosure.ts). The
+ * OFFERED marker lives in the distributed consent-offer store (Redis when
+ * configured) keyed by businessId + callId + disclosureVersion, so webhook
+ * retries and horizontally scaled instances agree on the state.
+ */
+function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
+  if (!ctx.callId || !ctx.business?.businessId) return null;
+  return {
+    businessId: ctx.business.businessId,
+    callId: ctx.callId,
+    disclosureVersion: SMS_CONSENT_DISCLOSURE_VERSION
+  };
+}
+
+async function smsDisclosureOffered(ctx: VapiToolContext): Promise<boolean> {
+  const key = consentOfferKey(ctx);
+  if (key && (await wasConsentOffered(key))) return true;
+  if (transcriptShowsCompleteSmsDisclosure(ctx.transcript ?? "", ctx.business?.businessName ?? "")) {
+    if (key) await markConsentOffered(key);
+    return true;
+  }
+  return false;
+}
 
 export function rememberCallContact(callId: string | undefined, contact: { name?: string; phone?: string }) {
   if (!callId) return;
@@ -3217,6 +3255,8 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
       body: `${ctx.business.businessName} via Triven.ai: Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment on ${cancelledDate} at ${cancelledTime} has been cancelled. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "APPOINTMENT_CANCELLATION",
       businessId,
+      businessName: ctx.business.businessName,
+      smsPurpose: "CANCELLATION_CONFIRMATION",
       installedAgentId: ctx.business.installedAgentId ?? null,
       appointmentId: target.id,
       dedupeKey: `appointment-cancellation:${target.id}`
@@ -3531,6 +3571,8 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
       body: `${ctx.business.businessName} via Triven.ai: Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment has been moved to ${newDateLabel} at ${newTimeLabel}. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "APPOINTMENT_CONFIRMATION",
       businessId,
+      businessName: ctx.business.businessName,
+      smsPurpose: "RESCHEDULE_CONFIRMATION",
       installedAgentId: ctx.business.installedAgentId ?? null,
       appointmentId: target.id,
       dedupeKey: `appointment-reschedule:${target.id}:${newStartAt.toISOString()}`
@@ -3638,6 +3680,21 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     };
   }
 
+  if (!(await smsDisclosureOffered(ctx))) {
+    console.warn("[vapi-webhook] record_sms_consent blocked — disclosure not presented", {
+      callId: ctx.callId ?? null,
+      executionMode: ctx.executionMode ?? "LIVE"
+    });
+    return {
+      success: false,
+      error: "DISCLOSURE_NOT_PRESENTED",
+      consent_recorded: false,
+      sms_allowed: false,
+      message:
+        "The SMS consent disclosure has not been read on this call. Read the disclosure to the caller WORD-FOR-WORD, wait for their answer, then call record_sms_consent again."
+    };
+  }
+
   if (ctx.executionMode === "BUSINESS_TEST") {
     return {
       success: true,
@@ -3673,6 +3730,11 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     console.log("[vapi-webhook] record_sms_consent rejected", { reason: outcome.error });
     return { success: false, error: outcome.error, consent_recorded: false };
   }
+
+  // Terminal transition (OFFERED → OPTED_IN/DECLINED): the offer marker is
+  // spent. A retry of this same tool call re-verifies from the transcript.
+  const offerKey = consentOfferKey(ctx);
+  if (offerKey) await clearConsentOffer(offerKey);
 
   console.log("[vapi-webhook] record_sms_consent stored", {
     businessId: ctx.business.businessId,
@@ -3783,6 +3845,8 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
             body: sms,
             messageType: "WORKFLOW_SMS",
             businessId: ctx.business.businessId,
+            businessName: ctx.business.businessName,
+            smsPurpose: "APPOINTMENT_CONFIRMATION",
             installedAgentId: ctx.business.installedAgentId ?? null,
             // Vapi retries the same tool call on webhook timeouts — same call
             // + same recipient must never text twice.

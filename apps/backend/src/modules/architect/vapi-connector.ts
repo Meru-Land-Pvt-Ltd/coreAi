@@ -951,6 +951,47 @@ function genericAssistantTools() {
   ];
 }
 
+export type AssistantIncludeTools = {
+  knowledgeLookup?: boolean;
+  checkAvailability?: boolean;
+  bookAppointment?: boolean;
+  /** send_notification (SMS and/or email delivery) — include when the workflow can text OR email. */
+  sendNotification?: boolean;
+  /**
+   * record_sms_consent — include ONLY when the workflow can text (SMS node).
+   * Email-only workflows must not carry the SMS consent tool. Defaults to
+   * sendNotification for back-compat.
+   */
+  recordSmsConsent?: boolean;
+};
+
+/**
+ * Capability-based voice-tool gating (A2P rule: the SMS consent tool exists
+ * only where SMS can actually be sent; the notification tool exists wherever
+ * SMS OR email delivery exists). Pure so tests can pin the matrix.
+ */
+export function shouldIncludeAssistantTool(
+  toolName: string,
+  includeTools?: AssistantIncludeTools
+): boolean {
+  // record_sms_consent FAILS CLOSED: it exists ONLY on an explicit
+  // recordSmsConsent === true (an SMS node in the workflow). It is NEVER
+  // inferred from sendNotification — that flag also covers email-only
+  // workflows, which must not carry the SMS consent tool. Omitted/legacy
+  // values exclude the tool.
+  if (toolName === VOICE_TOOL_NAMES.recordSmsConsent) {
+    return includeTools?.recordSmsConsent === true;
+  }
+  if (!includeTools) return true;
+  if (toolName === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
+  if (toolName === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
+  // Cancellation + rescheduling ship with the booking capability.
+  if (toolName === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
+  if (toolName === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
+  if (toolName === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
+  return true;
+}
+
 export type DeployVapiAssistantInput = {
   name: string;
   firstMessage: string;
@@ -972,14 +1013,7 @@ export type DeployVapiAssistantInput = {
   /** Assistant-level metadata echoed back on webhook calls (e.g. businessId). */
   metadata?: Record<string, unknown>;
   /** Restrict attached tools to the connected workflow's capabilities. */
-  includeTools?: {
-    knowledgeLookup?: boolean;
-    checkAvailability?: boolean;
-    bookAppointment?: boolean;
-    /** send_notification (SMS and/or email delivery) — include when the workflow can text OR email. */
-    sendNotification?: boolean;
-    recordSmsConsent?: boolean;
-  };
+  includeTools?: AssistantIncludeTools;
   /** Seconds of caller silence before Vapi ends the call (Vapi default: 30). */
   silenceTimeoutSeconds?: number;
   /** Hard cap on call length (marketplace demos). Vapi ends the call at this limit. */
@@ -1043,23 +1077,7 @@ export async function deployVapiAssistant({
           }
           return env.VAPI_ENABLE_BOOKING_TOOLS;
         })
-        .filter((tool) => {
-          if (!includeTools) return true;
-          const name = tool.function.name;
-          if (name === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
-          if (name === VOICE_TOOL_NAMES.bookAppointment) return includeTools.bookAppointment !== false;
-          // Cancellation + rescheduling ship with the booking capability.
-          if (name === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
-          if (name === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
-          if (name === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
-          // Consent capture only matters where SMS can be sent — email-only
-          // workflows get send_notification WITHOUT the SMS consent tool.
-          if (name === VOICE_TOOL_NAMES.recordSmsConsent) {
-            return (includeTools.recordSmsConsent ?? includeTools.sendNotification) !== false;
-          }
-          if (name === VOICE_TOOL_NAMES.lookupKnowledge) return true;
-          return true;
-        })
+        .filter((tool) => shouldIncludeAssistantTool(tool.function.name, includeTools))
     },
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,

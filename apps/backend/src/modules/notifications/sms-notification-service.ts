@@ -10,6 +10,7 @@ import {
   maskPhone,
   messagingProgramForMessageType
 } from "./sms-consent";
+import { formatTransactionalSms, isApprovedSmsPurpose, type TransactionalSmsPurpose } from "./sms-format";
 
 export type AppointmentConfirmationInput = {
   appointmentId: string;
@@ -31,11 +32,6 @@ export type SmsSendOutcome = {
   testCredentials: boolean;
   /** True when the dedupe key matched an existing execution — nothing was re-sent. */
   alreadySent: boolean;
-  /**
-   * True when the message was blocked by the SMS-consent gate before reaching
-   * Twilio. The reason is in errorCode (SMS_CONSENT_REQUIRED / SMS_OPTED_OUT).
-   * Suppression must never fail the surrounding booking/service flow.
-   */
   suppressed: boolean;
   executionId: string | null;
   messageSid: string | null;
@@ -113,6 +109,9 @@ export type TrackedSmsInput = {
   businessId?: string | null;
   installedAgentId?: string | null;
   appointmentId?: string | null;
+  /** Business display name — REQUIRED for consent-gated customer SMS (campaign attribution). */
+  businessName?: string | null;
+  smsPurpose?: TransactionalSmsPurpose;
   /** Unique idempotency key; a duplicate trigger returns the existing record. */
   dedupeKey?: string | null;
 };
@@ -135,14 +134,11 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
       from: null,
       messagingServiceSid: null,
       error: recipient.error,
-      errorCode: null
+      errorCode: "SMS_INVALID_RECIPIENT"
     };
   }
   const to = recipient.e164;
 
-  // Consent gate — every customer-directed message class requires a valid
-  // OPTED_IN SmsConsent for (business, phone, program). This is THE central
-  // authorization point: nothing below it reaches Twilio without passing.
   const messagingProgram = messagingProgramForMessageType(input.messageType);
   if (messagingProgram) {
     const authorization = await canSendTransactionalSms({
@@ -153,8 +149,6 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
     if (!authorization.allowed) {
       const reason =
         authorization.reason === "SMS_OPTED_OUT" ? "SMS_OPTED_OUT" : "SMS_CONSENT_REQUIRED";
-      // Audit row. Deliberately NO dedupeKey: a suppressed attempt must not
-      // consume the idempotency key of a later, properly consented send.
       const suppressedExecution = await prisma.smsExecution.create({
         data: {
           businessId: input.businessId ?? null,
@@ -183,12 +177,41 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
     }
   }
 
-  // Every customer-directed message must carry the opt-out/help notice —
-  // append it when the template didn't already include one.
-  const body =
-    messagingProgram && !/\bSTOP\b/i.test(input.body)
-      ? `${input.body}\nReply STOP to opt out or HELP for assistance. Msg & data rates may apply.`
-      : input.body;
+  let body = input.body;
+  if (messagingProgram) {
+    const formatted = isApprovedSmsPurpose(input.smsPurpose)
+      ? formatTransactionalSms({ body: input.body, businessName: input.businessName })
+      : ({
+          ok: false,
+          code: "SMS_PURPOSE_NOT_ALLOWED",
+          reason: `purpose "${String(input.smsPurpose ?? "missing")}" is not an approved transactional campaign purpose`
+        } as const);
+    if (!formatted.ok) {
+      const suppressedExecution = await prisma.smsExecution.create({
+        data: {
+          businessId: input.businessId ?? null,
+          installedAgentId: input.installedAgentId ?? null,
+          appointmentId: input.appointmentId ?? null,
+          messageType: input.messageType,
+          toPhone: to,
+          body: input.body,
+          status: "SUPPRESSED",
+          errorCode: formatted.code,
+          errorMessage: `Message blocked by the transactional-campaign purpose guard (${formatted.reason}).`,
+          failedAt: new Date()
+        }
+      });
+      console.warn("[sms-format] send suppressed (purpose guard)", {
+        executionId: suppressedExecution.id,
+        messageType: input.messageType,
+        businessId: input.businessId ?? null,
+        to: maskPhone(to),
+        reason: formatted.reason
+      });
+      return outcomeFromExecution(suppressedExecution, false);
+    }
+    body = formatted.body;
+  }
 
   let execution: SmsExecution;
   try {
@@ -382,6 +405,8 @@ export async function sendAppointmentConfirmationSms(
     body,
     messageType: "APPOINTMENT_CONFIRMATION",
     businessId: input.businessId,
+    businessName: business.name,
+    smsPurpose: "APPOINTMENT_CONFIRMATION",
     installedAgentId: input.installedAgentId ?? null,
     appointmentId: input.appointmentId,
     dedupeKey: appointmentConfirmationDedupeKey(input.appointmentId)

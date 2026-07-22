@@ -389,6 +389,30 @@ describe("STOP / START consent sync (DB)", () => {
       await canSendTransactionalSms({ businessId: bizAId, phoneNumber: phone, messagingProgram: PROGRAM })
     ).toEqual({ allowed: false, reason: "SMS_OPTED_OUT" });
   });
+
+  it("START scoped to Business B never restores Business A's revoked consent (cross-business)", async () => {
+    if (!dbAvailable) return;
+    const phone = nextPhone();
+
+    await recordVerbalSmsConsent({
+      businessId: bizAId,
+      phoneNumber: phone,
+      businessName: `${RUN} Dental`,
+      vapiCallId: `${RUN}-call-xb`,
+      affirmative: true
+    });
+    await applySmsOptOut({ phoneNumber: phone, businessId: bizAId, source: "SMS_STOP" });
+
+    // START arriving in Business B's context restores nothing anywhere.
+    const restored = await applySmsReOptIn({ phoneNumber: phone, businessId: bizBId });
+    expect(restored.updated).toBe(0);
+    expect(
+      await canSendTransactionalSms({ businessId: bizAId, phoneNumber: phone, messagingProgram: PROGRAM })
+    ).toEqual({ allowed: false, reason: "SMS_OPTED_OUT" });
+    expect(
+      await canSendTransactionalSms({ businessId: bizBId, phoneNumber: phone, messagingProgram: PROGRAM })
+    ).toEqual({ allowed: false, reason: "SMS_CONSENT_REQUIRED" });
+  });
 });
 
 /* ------------------------------ send gate (DB) ----------------------------- */
@@ -434,8 +458,32 @@ describe("central SMS authorization gate (DB)", () => {
       to: phone,
       body: "Your booking is confirmed for Friday.",
       messageType: "WORKFLOW_SMS",
-      businessId: bizAId
+      businessId: bizAId,
+      businessName: `${RUN} Dental`,
+      smsPurpose: "APPOINTMENT_CONFIRMATION"
     });
+
+    // Even WITH consent: a missing/unknown purpose or missing business
+    // identity is blocked before Twilio (campaign purpose allowlist).
+    const noPurpose = await sendTrackedSms({
+      to: phone,
+      body: "free-form message",
+      messageType: "WORKFLOW_SMS",
+      businessId: bizAId,
+      businessName: `${RUN} Dental`
+    });
+    expect(noPurpose.suppressed).toBe(true);
+    expect(noPurpose.errorCode).toBe("SMS_PURPOSE_NOT_ALLOWED");
+
+    const noIdentity = await sendTrackedSms({
+      to: phone,
+      body: "confirmed for Friday",
+      messageType: "WORKFLOW_SMS",
+      businessId: bizAId,
+      smsPurpose: "APPOINTMENT_CONFIRMATION"
+    });
+    expect(noIdentity.suppressed).toBe(true);
+    expect(noIdentity.errorCode).toBe("SMS_BUSINESS_IDENTITY_REQUIRED");
 
     expect(outcome.sent).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -537,6 +585,8 @@ describe("central SMS authorization gate (DB)", () => {
       body: "second attempt with consent",
       messageType: "WORKFLOW_SMS",
       businessId: bizAId,
+      businessName: `${RUN} Dental`,
+      smsPurpose: "APPOINTMENT_CONFIRMATION",
       dedupeKey
     });
     expect(sent.sent).toBe(true);

@@ -55,15 +55,35 @@ function postForm(app: Hono, path: string, params: Record<string, string>, heade
   });
 }
 
+/**
+ * What Vapi's running transcript looks like once the ASSISTANT has read the
+ * complete disclosure (with the identified business name) and the caller has
+ * answered — the exact structure the server verifies before any consent may
+ * be recorded.
+ */
+function spokenDisclosureTranscript(businessName: string): string {
+  return (
+    `AI: Would you like to receive transactional text messages from ${businessName} through Triven.ai about this appointment, ` +
+    "including confirmations, reminders, updates, cancellations, and customer support messages? " +
+    "Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. " +
+    "Consent is not required to complete the booking or service request. Please say yes or no.\nUser: okay."
+  );
+}
+
 function vapiConsentPayload(input: {
   businessId: string;
   callId: string;
   customerNumber: string;
   args: Record<string, unknown>;
+  /** Pass null to simulate a call where the disclosure was NEVER spoken. */
+  transcript?: string | null;
 }) {
   return {
     message: {
       type: "tool-calls",
+      ...(input.transcript === null
+        ? {}
+        : { transcript: input.transcript ?? spokenDisclosureTranscript(bizAName) }),
       toolCalls: [
         {
           id: `tc_${input.callId}`,
@@ -169,6 +189,118 @@ afterEach(() => {
 /* --------------------------- Vapi consent tool ---------------------------- */
 
 describe("Vapi record_sms_consent tool", () => {
+  it("FAILS CLOSED when the disclosure was never spoken on the call (no transcript evidence)", async () => {
+    if (!dbAvailable) return;
+    const app = buildApp();
+    const customer = nextPhone();
+
+    const { result } = await postVapi(
+      app,
+      vapiConsentPayload({
+        businessId: bizAId,
+        callId: `${RUN}-nodisc-1`,
+        customerNumber: customer,
+        args: { affirmative: true },
+        transcript: null
+      })
+    );
+
+    expect(result?.success).toBe(false);
+    expect(result?.error).toBe("DISCLOSURE_NOT_PRESENTED");
+    expect(result?.consent_recorded).toBe(false);
+    expect(result?.sms_allowed).toBe(false);
+
+    const consent = await prisma.smsConsent.findFirst({
+      where: { businessId: bizAId, phoneNumber: customer }
+    });
+    expect(consent).toBeNull();
+  });
+
+  it("a transcript WITHOUT the disclosure phrases also fails closed — arbitrary text is not proof", async () => {
+    if (!dbAvailable) return;
+    const app = buildApp();
+    const customer = nextPhone();
+
+    const { result } = await postVapi(
+      app,
+      vapiConsentPayload({
+        businessId: bizAId,
+        callId: `${RUN}-nodisc-2`,
+        customerNumber: customer,
+        args: { affirmative: true },
+        transcript: "AI: You're booked for 3 PM. Would you like anything else?\nUser: yes, send me a text."
+      })
+    );
+
+    expect(result?.error).toBe("DISCLOSURE_NOT_PRESENTED");
+    expect(
+      await prisma.smsConsent.findFirst({ where: { businessId: bizAId, phoneNumber: customer } })
+    ).toBeNull();
+  });
+
+  it("caller-authored disclosure text can NEVER create OFFERED state (role spoofing)", async () => {
+    if (!dbAvailable) return;
+    const app = buildApp();
+    const customer = nextPhone();
+
+    // The full disclosure wording appears ONLY in a User: segment.
+    const spoofed = spokenDisclosureTranscript(bizAName).replace(/^AI:/, "User:");
+    const { result } = await postVapi(
+      app,
+      vapiConsentPayload({
+        businessId: bizAId,
+        callId: `${RUN}-spoof-1`,
+        customerNumber: customer,
+        args: { affirmative: true },
+        transcript: spoofed
+      })
+    );
+
+    expect(result?.error).toBe("DISCLOSURE_NOT_PRESENTED");
+    expect(
+      await prisma.smsConsent.findFirst({ where: { businessId: bizAId, phoneNumber: customer } })
+    ).toBeNull();
+  });
+
+  it("OFFERED state persists across webhook retries mid-call, and is SPENT after a terminal decision", async () => {
+    if (!dbAvailable) return;
+    const app = buildApp();
+    const customer = nextPhone();
+    const callId = `${RUN}-offered-1`;
+
+    // BUSINESS_TEST first: the marker persists across retries (no terminal record).
+    const testPayload = (transcript: string | null | undefined) => ({
+      ...vapiConsentPayload({ businessId: bizAId, callId: `${callId}-t`, customerNumber: customer, args: { affirmative: true }, transcript }),
+      metadata: { businessId: bizAId, purpose: "BUYER_SETUP_PREVIEW" }
+    });
+    const testFirst = await postVapi(app, testPayload(undefined));
+    expect(testFirst.result?.success).toBe(true);
+    const testRetry = await postVapi(app, testPayload(null));
+    expect(testRetry.result?.success).toBe(true);
+
+    // LIVE: disclosure spoken → decline recorded (terminal) → marker spent.
+    const first = await postVapi(
+      app,
+      vapiConsentPayload({ businessId: bizAId, callId, customerNumber: customer, args: { affirmative: false } })
+    );
+    expect(first.result?.success).toBe(true);
+
+    // A retry WITHOUT transcript now fails closed (marker was consumed)…
+    const stale = await postVapi(
+      app,
+      vapiConsentPayload({ businessId: bizAId, callId, customerNumber: customer, args: { affirmative: true }, transcript: null })
+    );
+    expect(stale.result?.error).toBe("DISCLOSURE_NOT_PRESENTED");
+
+    // …while a realistic Vapi retry (transcript included) re-verifies and succeeds.
+    const retry = await postVapi(
+      app,
+      vapiConsentPayload({ businessId: bizAId, callId, customerNumber: customer, args: { affirmative: true } })
+    );
+    expect(retry.result?.success).toBe(true);
+    expect(retry.result?.consent_recorded).toBe(true);
+  });
+
   it("a clear yes records OPTED_IN consent scoped to the call's business", async () => {
     if (!dbAvailable) return;
     const app = buildApp();

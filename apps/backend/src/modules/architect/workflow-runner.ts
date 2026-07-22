@@ -877,6 +877,8 @@ async function runSmsConnectorNode({
       body: actionBody,
       messageType: "MISSED_CALL_TEXT_BACK",
       businessId: context.business?.id ?? null,
+      businessName: context.business?.name ?? null,
+      smsPurpose: "SUPPORT_RESPONSE",
       installedAgentId: context.installedAgentId ?? null
     });
 
