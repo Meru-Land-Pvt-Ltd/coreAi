@@ -4,6 +4,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { recordVerbalSmsConsent } from "../notifications/sms-consent";
 import { handleVapiWebhook } from "./twilio-business-routing";
+import { appointmentAiRef } from "../compliance/ai-safe-results";
 
 /**
  * cancel_appointment — security/privacy behavior at the webhook level.
@@ -207,7 +208,8 @@ describe("caller-number verification", () => {
     expect(result.cancelled).toBe(false);
     expect(result.code).toBe("CONFIRMATION_REQUIRED");
     const found = result.appointment as Record<string, unknown>;
-    expect(found.appointment_id).toBe(appointment.id);
+    expect(found.appointment_id).toBe(appointmentAiRef(appointment.id));
+    expect(found.appointment_id).not.toBe(appointment.id);
     expect(found.service).toBe("Cleaning");
     expect(String(result.message)).toContain("Would you like me to cancel this appointment?");
 

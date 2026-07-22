@@ -3,12 +3,14 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { COMMON_TIMEZONES } from "@coreai/shared";
+import { COMMON_TIMEZONES, GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
+import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
 import {
   deleteBusinessAccount,
   downloadBusinessDataExport,
   disconnectBusinessCalendar,
   getBusinessCalendarOAuthUrl,
+  postBusinessCalendarDisclosureConsent,
   getBusinessCalendarStatus,
   getBusinessLoginHistory,
   getBusinessActiveSessions,
@@ -1120,6 +1122,7 @@ export function BusinessSettingsView() {
   const [setupData, setSetupData] = useState<BusinessSetupData | null>(null);
   const [billing, setBilling] = useState<BillingData | null>(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarDisclosureOpen, setCalendarDisclosureOpen] = useState(false);
   const [calendarEmail, setCalendarEmail] = useState<string | null>(null);
 
   const [profileForm, setProfileForm] = useState(() => buildProfileForm(authUser, null));
@@ -1456,13 +1459,26 @@ export function BusinessSettingsView() {
     showToast("Email verified. Click Save changes to update your account.");
   }
 
-  async function handleConnectCalendar() {
+  /** Opens the mandatory pre-OAuth disclosure — OAuth starts only from its agree action. */
+  function handleConnectCalendar() {
+    setCalendarDisclosureOpen(true);
+  }
+
+  async function handleCalendarDisclosureAgreed() {
+    const consent = await postBusinessCalendarDisclosureConsent({
+      disclosureVersion: GOOGLE_CALENDAR_DISCLOSURE.version,
+      action: GOOGLE_DISCLOSURE_ACTION_AGREED
+    });
+    if (!consent.success) {
+      throw new Error(consent.error ?? "Could not record your agreement.");
+    }
+
     const result = await getBusinessCalendarOAuthUrl();
     if (result.success && result.data?.url) {
       window.location.href = result.data.url;
       return;
     }
-    showToast(result.error ?? "Could not start Google Calendar connection");
+    throw new Error(result.error ?? "Could not start Google Calendar connection");
   }
 
   async function handleDisconnectCalendar() {
@@ -2750,6 +2766,13 @@ export function BusinessSettingsView() {
           }}
         />
       ) : null}
+
+      <GoogleDisclosureModal
+        open={calendarDisclosureOpen}
+        onAgree={handleCalendarDisclosureAgreed}
+        onCancel={() => setCalendarDisclosureOpen(false)}
+      />
+
 
       {toast ? (
         <div

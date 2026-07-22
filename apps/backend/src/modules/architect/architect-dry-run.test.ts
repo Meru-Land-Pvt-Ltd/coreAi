@@ -567,10 +567,12 @@ describe("vapi browser voice call booking (webhook tool path)", () => {
       const result = await postBooking(fixture.business.id);
 
       expect(result.success).toBe(true);
-      expect(result.dry_run).toBe(true);
-      expect(result.calendar_status).toBe("test_event_created");
-      expect(result.event_link).toBe("https://calendar.google.com/event?eid=gcal-vapi-evt-1");
-      expect(result.event_title).toBe("[TRIVEN ARCHITECT TEST] Test Appointment");
+      expect(result.status).toBe("confirmed");
+      // Limited Use: the AI-facing webhook result is whitelist-sanitized — no
+      // event ids/links, calendar ids, or phone numbers may come back through.
+      expect(Object.keys(result).sort()).toEqual(["date", "message", "service", "status", "success", "time"]);
+      expect(String(result.message)).toContain("marked test event");
+      expect(JSON.stringify(result)).not.toContain("gcal-vapi-evt-1");
 
       const insert = calendarCreateMock.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(insert.userId).toBe(fixture.architect.id);
@@ -596,9 +598,9 @@ describe("vapi browser voice call booking (webhook tool path)", () => {
       const result = await postBooking(fixture.business.id);
 
       expect(result.success).toBe(true);
-      expect(result.dry_run).toBe(true);
-      expect(result.calendar_status).toBe("dry_run");
-      expect(result.event_link).toBeNull();
+      expect(result.status).toBe("confirmed");
+      expect(result).not.toHaveProperty("event_link");
+      expect(String(result.message)).not.toContain("marked test event");
       expect(calendarCreateMock).not.toHaveBeenCalled();
     } finally {
       env.VAPI_WEBHOOK_SECRET = originalSecret;

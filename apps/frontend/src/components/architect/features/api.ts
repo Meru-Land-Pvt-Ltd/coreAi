@@ -902,6 +902,10 @@ export function getGmailOAuthUrl(redirectPath?: string) {
   return apiGet<{ url: string }>(`/architect/connectors/gmail/oauth-url${query}`);
 }
 
+export function postGmailDisclosureConsent(body: { disclosureVersion: string; action: string }) {
+  return apiPost<{ disclosureVersion: string }>("/architect/connectors/gmail/disclosure-consent", body);
+}
+
 export function disconnectGmailConnector() {
   return apiDelete<null>("/architect/connectors/gmail");
 }

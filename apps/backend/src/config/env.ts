@@ -153,6 +153,19 @@ const envSchema = z.object({
   STABILITY_API_KEY: z.string().optional(),
   LLAMA_BASE_URL: z.string().default("http://localhost:11434/v1"),
 
+  GOOGLE_WORKSPACE_AI_PROCESSING_ENABLED: booleanFromEnv.default(false),
+  VAPI_WORKSPACE_NO_TRAINING_CONFIRMED: booleanFromEnv.default(false),
+  VAPI_HIPAA_OR_ZDR_CONFIRMED: booleanFromEnv.default(false),
+  OPENAI_NO_TRAINING_CONFIRMED: booleanFromEnv.default(false),
+  OPENAI_DATA_SHARING_DISABLED_CONFIRMED: booleanFromEnv.default(false),
+  ANTHROPIC_NO_TRAINING_CONFIRMED: booleanFromEnv.default(false),
+  ANTHROPIC_FEEDBACK_SHARING_DISABLED_CONFIRMED: booleanFromEnv.default(false),
+  GEMINI_PAID_SERVICE_CONFIRMED: booleanFromEnv.default(false),
+  GEMINI_DATASET_SHARING_DISABLED_CONFIRMED: booleanFromEnv.default(false),
+  DEEPGRAM_MIP_OPT_OUT_CONFIRMED: booleanFromEnv.default(false),
+  ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED: booleanFromEnv.default(false),
+  ELEVENLABS_ZRM_CONFIRMED: booleanFromEnv.default(false),
+
   VAPI_ANSWER_INBOUND: booleanFromEnv.default(false),
 
   STRIPE_SECRET_KEY: z.string().optional(),

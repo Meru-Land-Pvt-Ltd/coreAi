@@ -1,4 +1,5 @@
 import { env } from "../../../config/env";
+import { elevenLabsTtsQuery } from "../../compliance/elevenlabs-params";
 import type {
   AIProviderAdapter,
   AIExecuteRequest,
@@ -39,8 +40,9 @@ class ElevenLabsAdapter implements AIProviderAdapter {
     const voiceId = request.voice ?? env.ELEVENLABS_VOICE_SARAH_ID ?? "21m00Tcm4TlvDq8ikWAM";
 
     try {
+      const ttsQuery = elevenLabsTtsQuery();
       const response = await retryOnTransient(async () => {
-        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}${ttsQuery ? `?${ttsQuery}` : ""}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

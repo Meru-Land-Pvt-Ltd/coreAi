@@ -19,6 +19,7 @@ import {
 import { computeArchitectPayoutSummary } from "./settings-payout-summary";
 import { computeNextPayoutDate, normalizePayoutSchedule, payoutScheduleSchema } from "./payout-schedule";
 import { buildArchitectDataExportZip } from "./data-export";
+import { pseudonymizeDisclosureConsentsForUser } from "../compliance/disclosure-consent";
 
 export const architectSettingsRoutes = new Hono();
 
@@ -814,6 +815,12 @@ architectSettingsRoutes.post("/danger/delete-account", async (c) => {
     if (input.confirmation !== "DELETE") {
       return errorResponse(c, "Confirmation required", 422, "CONFIRMATION_REQUIRED");
     }
+
+    // Disclosure-consent rows have no FK by design — pseudonymize them so the
+    // compliance evidence survives without identifying the deleted person.
+    await pseudonymizeDisclosureConsentsForUser(authUser.id).catch((error) =>
+      console.error("[delete-account] consent pseudonymization failed (non-fatal)", error)
+    );
 
     await prisma.user.delete({ where: { id: authUser.id } });
 

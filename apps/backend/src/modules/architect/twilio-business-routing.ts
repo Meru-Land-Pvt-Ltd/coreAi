@@ -1,6 +1,20 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { calendarEventTitleForMode } from "@coreai/shared";
 import { createTestCalendarEvent } from "./test-calendar-events";
+import {
+  appointmentAiRef,
+  resolveAppointmentAiRef,
+  toAiSafeAppointmentActionResult,
+  toAiSafeAvailabilityResult,
+  toAiSafeBookingResult
+} from "../compliance/ai-safe-results";
+import { redactForLog } from "../compliance/log-redaction";
+import {
+  isWorkspaceDerivedAllowedForLiveVoice,
+  liveVoicePipelineBlockReason,
+  parseStoredVoicePipeline,
+  type ResolvedVoicePipeline
+} from "../compliance/workspace-ai-guard";
 import type { Context } from "hono";
 import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -2275,6 +2289,8 @@ type VapiToolContext = {
   transcript: string;
   executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
   installedAgentId?: string;
+  /** The deployed assistant's ACTUAL provider pipeline (stored at deploy). */
+  voicePipeline?: ResolvedVoicePipeline | null;
 };
 
 const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
@@ -2410,6 +2426,20 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
       service,
       calendar_status: "not_connected",
       message: "No business calendar is configured — do not state availability. Offer to take the caller's preferred time as a request."
+    };
+  }
+
+  if (ctx.executionMode !== "ARCHITECT_DRY_RUN" && !isWorkspaceDerivedAllowedForLiveVoice(undefined, ctx.voicePipeline)) {
+    console.warn("[vapi-tool] check_availability blocked by workspace guard", {
+      reason: liveVoicePipelineBlockReason(undefined, ctx.voicePipeline)
+    });
+    return {
+      available_slots: [],
+      date,
+      service,
+      calendar_status: "restricted",
+      message:
+        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
     };
   }
 
@@ -2550,7 +2580,7 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
 
 /** book_appointment: validate date/time, then create a real Google Calendar event or a local record. */
 async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
-  console.log("[vapi-tool] book_appointment raw args", JSON.stringify(args));
+  console.log("[vapi-tool] book_appointment raw args", JSON.stringify(redactForLog(args)));
 
   const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
     .filter(Boolean)
@@ -2563,7 +2593,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   if (!patientName) {
     console.log("[vapi-tool] book_appointment missing fields", ["customer_name"]);
     console.warn("[vapi-webhook] book_appointment rejected: no valid customer name", {
-      provided: argStr(args, ["customer_name", "patient_name", "name", "full_name"])
+      providedAnyName: Boolean(argStr(args, ["customer_name", "patient_name", "name", "full_name"]))
     });
     return NEEDS_CUSTOMER_NAME_RESULT;
   }
@@ -2594,13 +2624,13 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const startAt = zonedWallClockToUtc(date, time.hour, time.minute, ctx.timeZone);
   const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
 
-  console.log("[vapi-tool] book_appointment normalized args", {
+  console.log("[vapi-tool] book_appointment normalized args", redactForLog({
     customerName: patientName,
     customerPhone: patientPhone,
     date,
     time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
     service
-  });
+  }));
 
   // Never book in the past (e.g. today + an earlier time). 60s grace for clock skew.
   if (startAt.getTime() < Date.now() - 60_000) return INVALID_DATE_RESULT;
@@ -2671,12 +2701,12 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       };
     }
 
-    console.log("[vapi-tool] browser-test booking", {
+    console.log("[vapi-tool] browser-test booking", redactForLog({
       customer_name: patientName,
       date,
       service_type: service,
       status: testEvent.event.status
-    });
+    }));
     return {
       success: true,
       status: "confirmed",
@@ -2707,7 +2737,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   if (ctx.executionMode === "BUSINESS_TEST") {
     const ownerUserId = ctx.business?.ownerId ?? null;
 
-    if (ctx.business?.businessId) {
+    if (ctx.business?.businessId && isWorkspaceDerivedAllowedForLiveVoice(undefined, ctx.voicePipeline)) {
       const revalidation = await checkBusinessExactTime({
         businessId: ctx.business.businessId,
         installedAgentId: ctx.installedAgentId ?? null,
@@ -2768,12 +2798,12 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       };
     }
 
-    console.log("[vapi-tool] business-test booking", {
+    console.log("[vapi-tool] business-test booking", redactForLog({
       customer_name: patientName,
       date,
       service_type: service,
       status: testEvent.event.status
-    });
+    }));
     return {
       success: true,
       status: "confirmed",
@@ -2862,12 +2892,24 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       source: "local",
       patient_name: patientName,
       patient_phone: patientPhone,
+      // Business-local wall-clock values — the ONLY date/time fields the
+      // AI-safe sanitizer will surface (never derived from the UTC startAt).
+      date,
+      time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
+      service_type: service,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
       confirmation,
       sms: smsResultShape(smsOutcome)
     };
   };
+
+  if (!isWorkspaceDerivedAllowedForLiveVoice(undefined, ctx.voicePipeline)) {
+    console.warn("[vapi-tool] book_appointment using local fallback (workspace guard)", {
+      reason: liveVoicePipelineBlockReason(undefined, ctx.voicePipeline)
+    });
+    return localFallback("restricted");
+  }
 
   if (ctx.business?.businessId && ctx.business.ownerId && patientPhone) {
     try {
@@ -2926,6 +2968,11 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         source: "google_calendar",
         patient_name: patientName,
         patient_phone: patientPhone,
+        // Business-local wall-clock values — the ONLY date/time fields the
+        // AI-safe sanitizer will surface (never derived from the UTC startAt).
+        date,
+        time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
+        service_type: service,
         startAt: calendarEvent.startAt,
         endAt: calendarEvent.endAt,
         confirmation,
@@ -3018,8 +3065,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   const businessId = ctx.business.businessId;
   const timeZone = ctx.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
 
-  // Optional model-supplied REFINEMENTS (never identity): a specific day in
-  // the business timezone, or a service-name fragment.
   const dateFilter = argStr(args, ["date", "appointment_date"]);
   const serviceFilter = argStr(args, ["service_type", "service"]);
   const now = new Date();
@@ -3047,7 +3092,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   });
 
   const describe = (appointment: (typeof eligible)[number]) => ({
-    appointment_id: appointment.id,
+    appointment_id: appointmentAiRef(appointment.id),
     service: appointment.service || "appointment",
     appointment_date: formatApptDate(appointment.startAt, appointment.timeZone || timeZone),
     appointment_time: formatApptTime(appointment.startAt, appointment.timeZone || timeZone)
@@ -3085,7 +3130,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
 
   let targetId: string | null = null;
   if (requestedId) {
-    targetId = requestedId;
+    targetId = resolveAppointmentAiRef(requestedId, eligible)?.id ?? requestedId;
   } else if (eligible.length === 1) {
     targetId = eligible[0].id;
   } else if (eligible.length === 0) {
@@ -3277,8 +3322,9 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     select: { id: true, service: true, startAt: true, timeZone: true, status: true }
   });
 
+  // Internal DB ids never reach the model — opaque HMAC refs only (see cancel).
   const describe = (appointment: (typeof eligible)[number]) => ({
-    appointment_id: appointment.id,
+    appointment_id: appointmentAiRef(appointment.id),
     service: appointment.service || "appointment",
     appointment_date: formatApptDate(appointment.startAt, appointment.timeZone || timeZone),
     appointment_time: formatApptTime(appointment.startAt, appointment.timeZone || timeZone)
@@ -3315,7 +3361,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
 
   let targetId: string | null = null;
   if (requestedId) {
-    targetId = requestedId;
+    targetId = resolveAppointmentAiRef(requestedId, eligible)?.id ?? requestedId;
   } else if (eligible.length === 1) {
     targetId = eligible[0].id;
   } else if (eligible.length === 0) {
@@ -3329,8 +3375,6 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     };
   }
 
-  // The id is honored ONLY when it belongs to this business AND this caller's
-  // number — a guessed/hallucinated id degrades to the generic no-match reply.
   const target = await prisma.appointment.findFirst({
     where: { id: targetId, businessId, customerPhone: callerPhone },
     select: {
@@ -4069,7 +4113,7 @@ export async function handleVapiWebhook(c: Context) {
   console.log("[vapi-webhook] received request", c.req.method, c.req.path);
   console.log("[vapi-webhook] received type", receivedType, `tools=${toolCalls.length}`);
   for (const toolCall of toolCalls) {
-    console.log("[vapi-webhook] tool", toolCall.name, "args", JSON.stringify(toolCall.parameters));
+    console.log("[vapi-webhook] tool", toolCall.name, "args", JSON.stringify(redactForLog(toolCall.parameters)));
   }
 
   const auth = authorizeVapiWebhook(c, body);
@@ -4250,7 +4294,16 @@ export async function handleVapiWebhook(c: Context) {
       summary,
       transcript,
       executionMode,
-      installedAgentId: metadataInstalledAgentId
+      installedAgentId: metadataInstalledAgentId,
+      // The deployed assistant's actual provider pipeline (recorded from the
+      // final Vapi payload at deploy) — the Limited Use guard checks THESE
+      // providers, falling back to env-level resolution for older deploys.
+      voicePipeline: metadataInstalledAgentId
+        ? await prisma.installedAgent
+          .findUnique({ where: { id: metadataInstalledAgentId }, select: { configJson: true } })
+          .then((row) => parseStoredVoicePipeline(row?.configJson))
+          .catch(() => null)
+        : null
     };
 
     // Run every tool call in the request; return one result per toolCallId.
@@ -4296,6 +4349,18 @@ export async function handleVapiWebhook(c: Context) {
                     : { success: false };
       }
 
+      // Limited Use: every calendar-tool result is rebuilt through an explicit
+      // whitelist before it reaches the model — Google event ids/links,
+      // calendar ids, customer phone numbers, internal DB ids, and provider
+      // metadata cannot leak by construction (compliance/ai-safe-results.ts).
+      if (payload && typeof payload === "object") {
+        if (isCheck) payload = toAiSafeAvailabilityResult(payload as Record<string, unknown>);
+        else if (isBook) payload = toAiSafeBookingResult(payload as Record<string, unknown>);
+        else if (isCancel || isReschedule) {
+          payload = toAiSafeAppointmentActionResult(payload as Record<string, unknown>);
+        }
+      }
+
       results.push({
         name: toolCall.name,
         toolCallId: toolCall.id,
@@ -4304,7 +4369,10 @@ export async function handleVapiWebhook(c: Context) {
     }
 
     console.log("[vapi-webhook] response status", 200, `results=${results.length}`);
-    if (!isProduction) console.log("[vapi-webhook] response", JSON.stringify({ results }));
+    if (!isProduction) {
+      // Names/sizes only — result payloads can carry caller-provided details.
+      console.log("[vapi-webhook] response tools", results.map((r) => `${r.name}(${r.result.length}b)`).join(", "));
+    }
     return c.json({ results });
   } catch (error) {
     // Last-resort guard: never reject a tool call with a 5xx/AggregateError.

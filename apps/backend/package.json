@@ -23,6 +23,8 @@
     "backfill:live-classification": "tsx scripts/backfill-live-call-classification.ts",
     "vapi:fix-hipaa": "tsx scripts/fix-vapi-hipaa-recordings.ts",
     "vapi:inspect-recording": "tsx scripts/inspect-vapi-recording.ts",
+    "resync:assistant-prompts": "tsx scripts/resync-assistant-prompts.ts",
+    "prune:disclosure-consents": "tsx scripts/prune-disclosure-consents.ts",
     "backfill:architect-earnings": "tsx scripts/backfill-architect-earnings.ts",
     "reconcile:payouts": "tsx scripts/reconcile-payouts.ts",
     "test": "vitest run"

@@ -91,7 +91,9 @@ const privacySections: LegalSectionData[] = [
       { text: "Monitor reliability, debug errors, analyze usage, and develop new functionality." },
       { text: "Comply with legal, regulatory, carrier, telecommunications, and contractual obligations." },
       { text: "Protect the rights, property, safety, and integrity of Triven, our users, end-users, and the public." }
-    ]
+    ],
+    after:
+      "None of the purposes above — including improving the Platform, usage analysis, debugging, developing new functionality, aggregation, or de-identification — authorize using raw or derived Google Workspace API user data to create, train, or improve generalized AI/ML models, to improve any AI provider's services, for shared model evaluation or fine-tuning, or for any secondary purpose unrelated to the user-facing feature the data was collected for. The same restriction applies to every other permission in this Privacy Policy."
   },
   {
     id: "legal-bases",
@@ -145,14 +147,54 @@ const privacySections: LegalSectionData[] = [
     title: "6. AI Agents, Calls, Recordings, and Communications",
     body: [
       "When an end-user interacts with a Triven-powered agent, information from that interaction may be processed by AI-model providers, speech-recognition providers, voice-synthesis providers, telecommunications providers, calendar providers, email providers, and other service providers required to complete the requested interaction.",
+      "All AI processing on the Platform is inference-only: AI service providers process interaction data solely to generate the requested response in the moment. Triven does not build, train, or fine-tune AI models on personal information, and Triven only sends data to AI providers under terms that prohibit the provider from using it to train their models. Where a provider offers additional no-training, no-logging, or zero-retention controls, Triven enables them for the plans it uses.",
       "Depending on the agent configuration, interaction data may include call audio, call recordings, transcripts, telephone numbers, SMS messages, booking details, service requests, calendar information, tool results, and AI-generated responses.",
       "AI outputs may be inaccurate, incomplete, delayed, or inappropriate. Business Owners are responsible for reviewing their agent configurations, monitoring use, and determining when human review or intervention is required.",
       "Where calls are recorded, the Business Owner is responsible for providing legally required notice and obtaining legally required consent. Triven may also provide technical settings or prompts to support recording notices, but those features do not replace the Business Owner's legal obligations."
     ]
   },
   {
+    id: "google-limited-use",
+    title: "7. Google API Services and Limited Use",
+    body: [
+      "Triven's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements. The use of raw or derived user data received from Google Workspace APIs will adhere to the Google User Data Policy, including the Limited Use requirements.",
+      "When a Business Owner chooses to connect a Google account, Triven accesses only the following Google user data: Google Calendar event timing information, which is used solely to determine open appointment times and to create, reschedule, or cancel appointment events at the direction of the business and its customers; and the email address of the connected Google account, which is used solely to identify and manage the connection.",
+      "Before any Google connection begins, Triven shows a disclosure describing exactly what data is accessed and how it is used. The Google authorization flow starts only after the user explicitly clicks \"Agree and continue to Google,\" and Triven keeps a versioned record of that agreement (the user, the disclosure version shown, the action taken, and the time). Closing or dismissing the disclosure records nothing and does not start the connection.",
+      "Internally, Triven classifies all processed data as general platform data, raw Google Workspace data, or data derived from Google Workspace data, and enforces technical controls on the second and third categories: raw Google Workspace data is never eligible for AI processing under any configuration, and derived data (such as computed open appointment times) can be processed by an AI service provider only when platform-level, fail-closed configuration confirms that the specific provider does not train on the data.",
+      "Triven applies the following restrictions to all Google user data, whether raw, aggregated, anonymized, or derived:"
+    ],
+    list: [
+      {
+        label: "No AI/ML training:",
+        text: "Google user data is never used to develop, improve, or train generalized, foundational, or any other artificial-intelligence or machine-learning models, whether by Triven or by any third party. Triven does not build or fine-tune AI models with Google user data."
+      },
+      {
+        label: "No transfer to AI tools for training:",
+        text: "Google user data is never transferred, sold, or made available to third-party AI/ML services for model training or improvement. Where an AI service provider processes limited, derived scheduling information (such as open appointment times) in the course of generating a response requested during a live interaction, that processing is inference-only: the provider is used under terms that prohibit training on the data, and raw calendar event contents (titles, descriptions, attendees, or other event details) never leave Triven's backend systems."
+      },
+      {
+        label: "No advertising:",
+        text: "Google user data is never used to serve, target, or personalize advertisements."
+      },
+      {
+        label: "No selling:",
+        text: "Google user data is never sold to any party."
+      },
+      {
+        label: "Restricted human access:",
+        text: "Humans do not read Google user data unless the account holder gives explicit permission, it is necessary for security purposes (such as investigating abuse), it is required to comply with applicable law, or the data has been aggregated and anonymized for internal operations."
+      },
+      {
+        label: "Limited transfers:",
+        text: "Google user data is transferred to others only as necessary to provide or improve user-facing features of the Platform, for security purposes, to comply with applicable law, or as part of a merger, acquisition, or sale of assets with prior notice to affected users."
+      }
+    ],
+    after:
+      "Triven does not use Google Photos APIs. Triven does not operate self-hosted or offline AI models that process Google user data; all AI processing described above occurs through hosted service providers on inference-only terms. When you disconnect the integration inside the Platform, Triven asks Google to revoke its access grant and then deletes the stored encrypted credentials; you can also revoke Triven's access at any time from your Google account security settings. OAuth tokens are stored encrypted, are never written to logs, and are never included in consent or audit records."
+  },
+  {
     id: "sms-messaging",
-    title: "7. SMS Messaging and Consent",
+    title: "8. SMS Messaging and Consent",
     body: [
       "Triven.ai is operated by CollabGlam LLC. Triven enables businesses using the Platform to send transactional text messages to their customers and end-users, and transactional SMS is sent only after the end-user's affirmative consent has been recorded. Message types include appointment confirmations, appointment reminders, booking updates, rescheduling notices, cancellations, service updates, and customer-support communications.",
       "Consent may be collected in two ways: (1) an affirmative verbal response during an inbound, AI-assisted telephone call, after the AI receptionist reads a standardized consent disclosure identifying the business; or (2) a separate, optional consent checkbox on a public booking or service-request form that is unchecked by default and is never required to submit the form.",
@@ -168,16 +210,17 @@ const privacySections: LegalSectionData[] = [
   },
   {
     id: "retention",
-    title: "8. Data Retention",
+    title: "9. Data Retention",
     body: [
       "We retain personal information only for as long as reasonably necessary to provide the Platform, complete transactions, support Business Owners and AI Architects, maintain security, prevent fraud, resolve disputes, comply with legal obligations, enforce agreements, and satisfy legitimate operational needs.",
       "Retention periods may differ based on the type of information, the configuration selected by a Business Owner, contractual requirements, legal obligations, carrier requirements, and whether information is needed for an active account, transaction, dispute, investigation, or support request.",
-      "Business Owners and account holders may request deletion or export of eligible information, subject to legal, security, fraud-prevention, backup, and operational retention requirements."
+      "Business Owners and account holders may request deletion or export of eligible information, subject to legal, security, fraud-prevention, backup, and operational retention requirements.",
+      "Records of agreement to the Google connection disclosure are retained in identifiable form for 24 months as compliance evidence and then deleted. If you delete your account, those records are immediately pseudonymized: the account identifier is replaced with an irreversible token and the business reference is removed, so the record can no longer be tied to you."
     ]
   },
   {
     id: "security",
-    title: "9. Data Security",
+    title: "10. Data Security",
     body: [
       "We use reasonable administrative, technical, and organizational safeguards designed to protect information against unauthorized access, loss, misuse, alteration, and disclosure.",
       "These safeguards may include access controls, encryption in transit, restricted production access, logging, monitoring, backups, authentication controls, and security reviews.",
@@ -186,7 +229,7 @@ const privacySections: LegalSectionData[] = [
   },
   {
     id: "international-transfers",
-    title: "10. International Data Transfers",
+    title: "11. International Data Transfers",
     body: [
       "Triven and our service providers may process information in countries other than the country where the information was collected. Those countries may have different data-protection laws.",
       "Where required, we use appropriate safeguards for cross-border transfers, such as contractual protections or other lawful transfer mechanisms."
@@ -194,7 +237,7 @@ const privacySections: LegalSectionData[] = [
   },
   {
     id: "your-rights",
-    title: "11. Your Privacy Rights",
+    title: "12. Your Privacy Rights",
     body: [
       "Depending on your location and applicable law, you may have the right to request access to, correction of, deletion of, or a copy of personal information; object to or restrict certain processing; withdraw consent; or appeal a decision concerning a privacy request.",
       "Some rights are subject to exceptions. We may need to verify your identity and authority before completing a request. When Triven processes end-user information on behalf of a Business Owner, we may direct the request to that Business Owner."
@@ -224,7 +267,7 @@ const privacySections: LegalSectionData[] = [
   },
   {
     id: "cookies",
-    title: "12. Cookies and Similar Technologies",
+    title: "13. Cookies and Similar Technologies",
     body: [
       "We use essential cookies and similar technologies to authenticate users, maintain sessions, remember preferences, secure the Platform, and provide requested functionality.",
       "We may use analytics technologies to understand usage and improve the Platform. Where required by law, we will request consent before using non-essential cookies.",
@@ -233,28 +276,28 @@ const privacySections: LegalSectionData[] = [
   },
   {
     id: "third-party-services",
-    title: "13. Third-Party Services and Links",
+    title: "14. Third-Party Services and Links",
     body: [
       "The Platform integrates with or links to third-party services. Those services operate under their own terms and privacy policies. Triven is not responsible for the privacy practices of third parties, and you should review their notices before connecting or using them."
     ]
   },
   {
     id: "children",
-    title: "14. Children's Privacy",
+    title: "15. Children's Privacy",
     body: [
       "The Platform is not intended for individuals under 18, and we do not knowingly allow individuals under 18 to create Triven accounts. If you believe a minor has provided personal information to us, contact us so we can review and take appropriate action."
     ]
   },
   {
     id: "changes",
-    title: "15. Changes to This Policy",
+    title: "16. Changes to This Policy",
     body: [
       "We may update this Privacy Policy from time to time. The updated version will be posted on this page with a revised effective date. Where required by law, we will provide additional notice or obtain consent before material changes take effect."
     ]
   },
   {
     id: "contact",
-    title: "16. Contact Us",
+    title: "17. Contact Us",
     body: ["For questions, complaints, or requests concerning this Privacy Policy or our privacy practices, contact us at:"],
     afterNode: (
       <>

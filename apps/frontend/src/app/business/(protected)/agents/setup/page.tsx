@@ -34,6 +34,8 @@ import {
   type AnsweringDayRow
 } from "@/components/business/setup/ai-call-coverage-editor";
 import { businessSetupPath } from "@/lib/routes";
+import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
+import { GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
 import {
   checkMailAliasAvailability,
   deleteBusinessTestEvent,
@@ -41,6 +43,7 @@ import {
   getAppointmentSchedule,
   getBusinessCalendarOAuthUrl,
   getBusinessFacts,
+  postBusinessCalendarDisclosureConsent,
   getBusinessHours,
   getBusinessKnowledgeFiles,
   getBusinessMailSetup,
@@ -593,6 +596,7 @@ function SetupWizard() {
     email: null
   });
   const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarDisclosureOpen, setCalendarDisclosureOpen] = useState(false);
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
@@ -1237,35 +1241,52 @@ function SetupWizard() {
     };
   }
 
-  async function handleConnectCalendar() {
+  /** Opens the mandatory pre-OAuth disclosure — OAuth starts only from its agree action. */
+  function handleConnectCalendar() {
     setError("");
+    setCalendarDisclosureOpen(true);
+  }
 
+  async function handleCalendarDisclosureAgreed() {
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem(STEP_STORAGE_KEY, String(step));
     }
 
     setCalendarBusy(true);
 
-    if (canPersist) {
-      const saved = await persistSetup(false);
+    try {
+      if (canPersist) {
+        const saved = await persistSetup(false);
 
-      if (!saved.ok) {
-        setCalendarBusy(false);
+        if (!saved.ok) {
+          throw new Error("Could not save your setup before connecting.");
+        }
+      }
+
+      const consent = await postBusinessCalendarDisclosureConsent({
+        disclosureVersion: GOOGLE_CALENDAR_DISCLOSURE.version,
+        action: GOOGLE_DISCLOSURE_ACTION_AGREED
+      });
+      if (!consent.success) {
+        throw new Error(consent.error ?? "Could not record your agreement.");
+      }
+
+      const res = await getBusinessCalendarOAuthUrl(
+        String(businessSetupPath(listingId || undefined))
+      );
+
+      if (res.success && res.data?.url) {
+        window.location.href = res.data.url;
         return;
       }
+
+      throw new Error(res.error ?? "Could not start Google Calendar connection.");
+    } catch (connectError) {
+      setCalendarBusy(false);
+      throw connectError instanceof Error
+        ? connectError
+        : new Error("Could not start Google Calendar connection.");
     }
-
-    const res = await getBusinessCalendarOAuthUrl(
-      String(businessSetupPath(listingId || undefined))
-    );
-
-    if (res.success && res.data?.url) {
-      window.location.href = res.data.url;
-      return;
-    }
-
-    setError(res.error ?? "Could not start Google Calendar connection.");
-    setCalendarBusy(false);
   }
 
   async function handleDisconnectCalendar() {
@@ -1707,6 +1728,12 @@ function SetupWizard() {
   return (
     <div className="setup-root bg-gray-50 min-h-screen pb-12" data-testid="business-setup-wizard">
       <style>{WIZARD_STYLES}</style>
+
+      <GoogleDisclosureModal
+        open={calendarDisclosureOpen}
+        onAgree={handleCalendarDisclosureAgreed}
+        onCancel={() => setCalendarDisclosureOpen(false)}
+      />
 
       <header className="bg-white border-b border-gray-200/80 py-3 px-4 sm:px-6 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto">
@@ -2592,6 +2619,7 @@ function StepConnect({
                 disabled={calendarBusy}
                 onClick={onConnectCalendar}
                 className="btn shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600"
+                data-testid="business-setup-calendar-connect"
               >
                 {calendarBusy ? "Connecting…" : "Connect"}
               </button>

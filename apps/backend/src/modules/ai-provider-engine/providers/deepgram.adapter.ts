@@ -58,7 +58,6 @@ const DEFAULT_MODEL = "nova-3";
 const DEEPGRAM_LISTEN_URL = "https://api.deepgram.com/v1/listen";
 const BYTES_PER_SECOND = 32_000;
 
-/** Resolve audioData to a Buffer regardless of input type. */
 function toAudioBuffer(audioData: Buffer | string): Buffer {
   if (Buffer.isBuffer(audioData)) return audioData;
 
@@ -69,13 +68,11 @@ function toAudioBuffer(audioData: Buffer | string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
-/** Estimate audio duration in seconds from buffer size. */
 function estimateAudioSeconds(audioBuffer: Buffer): number {
   return audioBuffer.length / BYTES_PER_SECOND;
 }
 
-/** Build the query-string for the Deepgram Listen endpoint. */
-function buildQueryString(
+export function buildQueryString(
   model: string,
   language: string | undefined,
   meta: Record<string, unknown>
@@ -83,6 +80,7 @@ function buildQueryString(
   const params: Record<string, string> = {
     model,
     smart_format: "true",
+    mip_opt_out: "true",
   };
 
   if (language) {

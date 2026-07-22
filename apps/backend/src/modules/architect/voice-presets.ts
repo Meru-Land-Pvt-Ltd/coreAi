@@ -1,5 +1,6 @@
 import { VOICE_PRESETS, type AgentVoicePreset } from "@coreai/shared";
 import { env } from "../../config/env";
+import { elevenLabsTtsQuery } from "../compliance/elevenlabs-params";
 
 export const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 export const FALLBACK_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
@@ -288,7 +289,7 @@ export async function generateVoicePreview(input: {
     response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
         voiceId
-      )}?output_format=mp3_44100_128`,
+      )}?${elevenLabsTtsQuery({ output_format: "mp3_44100_128" })}`,
       {
         method: "POST",
         headers: {

@@ -519,6 +519,20 @@ export async function deployInstalledAgentVoiceAssistant(
     });
   }
 
+  // Record the assistant's ACTUAL provider pipeline (from the payload just
+  // sent to Vapi) so the Limited Use guard validates the real providers on
+  // every webhook tool call — never an env-level guess. Re-read configJson so
+  // a concurrent buyer save between plan build and here is not clobbered.
+  const agentRow = await prisma.installedAgent.findUnique({
+    where: { id: plan.installedAgentId },
+    select: { configJson: true }
+  });
+  const agentConfig = recordOf(agentRow?.configJson ?? plan.configJson);
+  await prisma.installedAgent.update({
+    where: { id: plan.installedAgentId },
+    data: { configJson: { ...agentConfig, voicePipeline: assistant.pipeline } as object }
+  });
+
   return { assistantId: assistant.id, created: assistant.created };
 }
 
