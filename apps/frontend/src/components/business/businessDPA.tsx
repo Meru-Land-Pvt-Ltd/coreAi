@@ -120,6 +120,39 @@ const SUBPROCESSORS = [
     ["OpenAI", "AI model inference"]
 ];
 
+const INDUSTRIES = [
+    "Dental",
+    "Medical Clinic",
+    "Dermatology",
+    "Physiotherapy",
+    "Chiropractor",
+    "Optometry",
+    "Veterinary",
+    "Med Spa",
+    "Salon",
+    "Barbershop",
+    "Spa & Wellness",
+    "Yoga Studio",
+    "Gym / Fitness",
+    "Law Firm",
+    "Plumber",
+    "HVAC",
+    "Electrician",
+    "Garage Door",
+    "Roofing",
+    "Landscaping",
+    "Pool Service",
+    "Real Estate",
+    "Auto Repair",
+    "Restaurant",
+    "Insurance",
+    "Mortgage Broker",
+    "Urgent Care",
+    "Senior Care",
+    "Property Management",
+    "Custom..."
+] as const;
+
 export default function BusinessDPA() {
     const authUser = useMemo(() => getAuthUser(), []);
     const [downloading, setDownloading] = useState(false);
@@ -160,7 +193,7 @@ export default function BusinessDPA() {
         <div className="min-h-screen bg-gray-50 text-slate-700 antialiased" data-testid="dpa-page">
             <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8">
-                    <a href="#top" className="inline-flex items-center gap-2.5" aria-label="Triven Data Processing Agreement">
+                    <a href="/" className="inline-flex items-center gap-2.5" aria-label="Triven Data Processing Agreement">
                         <Image
                             src="/triven.ai word logo transparent bg.PNG"
                             alt="Triven logo"
@@ -217,7 +250,7 @@ export default function BusinessDPA() {
                                 <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M10 3v10m0 0 3.5-3.5M10 13 6.5 9.5M4 16h12" />
                                 </svg>
-                                {downloading ? "Preparing PDF..." : "Download pre-signed PDF"}
+                                {downloading ? "Preparing PDF..." : "Download DPA"}
                             </button>
                             <a href="#request" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:text-slate-950 sm:w-auto">
                                 Request Signed DPA
@@ -245,10 +278,6 @@ export default function BusinessDPA() {
                             </ol>
                         </details>
                         <article className="rounded-3xl border border-slate-900/5 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-8px_rgba(15,23,42,0.10),0_40px_80px_-32px_rgba(15,23,42,0.12)] sm:p-10 lg:p-14">
-                            <div className="mb-12 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-left text-sm leading-relaxed text-amber-950">
-                                <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10" cy="10" r="7.5" /><path d="M10 8v5M10 5.5h.01" strokeLinecap="round" /></svg>
-                                <p><strong>Agreement overview.</strong> The downloadable pre-signed Version 1.1 PDF is the authoritative Data Processing Agreement.</p>
-                            </div>
                             <div className="space-y-14">
                                 {SECTIONS.map((section, index) => (
                                     <section key={section.id} id={section.id} className="scroll-mt-28">
@@ -305,7 +334,10 @@ export default function BusinessDPA() {
                                             <DpaInput label="Email address" type="email" value={form.email} required onChange={(value) => setForm((current) => ({ ...current, email: value }))} />
                                             <label className="text-sm font-semibold text-slate-800">Industry
                                                 <select value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-normal text-slate-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100">
-                                                    <option value="">Select industry</option><option>Dental</option><option>Medical</option><option>Legal</option><option>HVAC</option><option>Other</option>
+                                                    <option value="">Select industry</option>
+                                                    {INDUSTRIES.map((industry) => (
+                                                        <option key={industry} value={industry}>{industry}</option>
+                                                    ))}
                                                 </select>
                                             </label>
                                         </div>
@@ -318,7 +350,7 @@ export default function BusinessDPA() {
                                         </button>
                                     </form>
                                     {requestError ? <p className="mt-4 text-sm font-medium text-red-600" role="alert">{requestError}</p> : null}
-                                    <p className="mt-6 text-sm text-slate-500">Questions? <a href="mailto:support@triven.ai" className="font-semibold text-amber-700 hover:underline">support@triven.ai</a></p>
+                                    <p className="mt-6 text-sm text-slate-500">Questions? <a href="mailto:info@triven.ai" className="font-semibold text-amber-700 hover:underline">info@triven.ai</a></p>
                                 </>
                             )}
                         </section>
@@ -344,7 +376,7 @@ export default function BusinessDPA() {
                             <span className="hidden h-4 w-px bg-slate-200 sm:block" />
                             <span className="text-sm text-slate-400">© 2026 Triven AI Agent Platform</span>
                         </div>
-                        <a href="mailto:support@triven.ai" className="text-sm font-medium text-slate-500 transition hover:text-slate-900">support@triven.ai</a>
+                        <a href="mailto:info@triven.ai" className="text-sm font-medium text-slate-500 transition hover:text-slate-900">info@triven.ai</a>
                     </div>
                 </footer>
             </main>

@@ -130,7 +130,34 @@ async function getOrCreateBusinessStripeCustomer(authUser: {
     orderBy: { createdAt: "desc" },
     select: { stripeCustomerId: true }
   });
-  let customerId = business.stripeCustomerId ?? previousPayment?.stripeCustomerId ?? null;
+  const storedCustomerIds = Array.from(
+    new Set(
+      [business.stripeCustomerId, previousPayment?.stripeCustomerId]
+        .filter((customerId): customerId is string => Boolean(customerId))
+    )
+  );
+  let customerId: string | null = null;
+
+  for (const storedCustomerId of storedCustomerIds) {
+    try {
+      const customer = await stripe.customers.retrieve(storedCustomerId);
+      if (!("deleted" in customer && customer.deleted)) {
+        customerId = customer.id;
+        break;
+      }
+    } catch (error) {
+      const stripeCode =
+        error && typeof error === "object"
+          ? (error as { code?: unknown; raw?: { code?: unknown } }).code ??
+            (error as { raw?: { code?: unknown } }).raw?.code
+          : null;
+
+      // A customer id is scoped to one Stripe account and mode. If production
+      // was previously using another account/key (or the customer was deleted),
+      // repair the local mapping instead of failing every future card setup.
+      if (stripeCode !== "resource_missing") throw error;
+    }
+  }
 
   if (!customerId) {
     const customer = await stripe.customers.create({

@@ -4,6 +4,13 @@ import { describe, expect, it } from "vitest";
 const routesSource = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
 
 describe("agent purchase authentication contract", () => {
+  it("repairs Stripe customer mappings that are missing from the configured account", () => {
+    expect(routesSource).toContain("stripe.customers.retrieve(storedCustomerId)");
+    expect(routesSource).toContain('stripeCode !== "resource_missing"');
+    expect(routesSource).toContain("business.stripeCustomerId !== customerId");
+    expect(routesSource).toContain("data: { stripeCustomerId: customerId }");
+  });
+
   it("keeps buyer-present checkout on-session so India and SCA cards can authenticate", () => {
     expect(routesSource).toContain('payment_method_types: ["card"]');
     expect(routesSource).toContain("off_session: false");
