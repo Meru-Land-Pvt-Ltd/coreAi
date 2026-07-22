@@ -86,7 +86,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const marketplaceActive = isMarketplaceRoute(pathname);
 
     const displayName = getDisplayName(currentUser);
-    const subtitle = getUserSubtitle(currentUser);
     const initials = getInitials(currentUser);
 
     function closeSidebar() {
@@ -206,7 +205,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             <p className="truncate text-sm font-semibold text-slate-900" data-testid="business-sidebar-display-text">
                                 {displayName}
                             </p>
-                            <p className="truncate text-xs text-slate-500" data-testid="business-sidebar-subtitle-text">{subtitle}</p>
                         </div>
 
                         <button
@@ -475,15 +473,3 @@ function getInitials(user: TrivenUser | null) {
     return initials || "U";
 }
 
-function getUserSubtitle(user: TrivenUser | null) {
-    if (user?.email?.trim()) return user.email.trim();
-    if (user?.role?.trim()) return formatRole(user.role);
-    return "";
-}
-
-function formatRole(role: string) {
-    return role
-        .toLowerCase()
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-}

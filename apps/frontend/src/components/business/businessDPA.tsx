@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState, type FormEvent } from "react";
 import { downloadDpaPdf, requestSignedDpa } from "@/lib/dpa";
 import { getAuthUser } from "@/lib/auth";
@@ -123,7 +124,8 @@ export default function BusinessDPA() {
     const authUser = useMemo(() => getAuthUser(), []);
     const [downloading, setDownloading] = useState(false);
     const [requesting, setRequesting] = useState(false);
-    const [message, setMessage] = useState("");
+    const [downloadError, setDownloadError] = useState("");
+    const [requestError, setRequestError] = useState("");
     const [submitted, setSubmitted] = useState(false);
     const [form, setForm] = useState({
         fullName: authUser?.fullName ?? "",
@@ -135,20 +137,20 @@ export default function BusinessDPA() {
 
     async function handleDownload() {
         setDownloading(true);
-        setMessage("");
+        setDownloadError("");
         const result = await downloadDpaPdf();
         setDownloading(false);
-        if (!result.success) setMessage(result.error ?? "Could not download the DPA");
+        if (!result.success) setDownloadError(result.error ?? "Could not download the DPA");
     }
 
     async function handleRequest(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         setRequesting(true);
-        setMessage("");
+        setRequestError("");
         const result = await requestSignedDpa(form);
         setRequesting(false);
         if (!result.success) {
-            setMessage(result.error ?? "Could not send your request");
+            setRequestError(result.error ?? "Could not send your request");
             return;
         }
         setSubmitted(true);
@@ -156,16 +158,24 @@ export default function BusinessDPA() {
 
     return (
         <div className="min-h-screen bg-gray-50 text-slate-700 antialiased" data-testid="dpa-page">
-            <div className="mx-auto max-w-7xl px-5 pt-6 sm:px-8">
-        <a href="#top" className="inline-flex items-center gap-2.5" aria-label="Triven Data Processing Agreement">
-          <img
-            src="/triven.ai%20word%20logo%20transparent%20bg.PNG"
-            alt="Triven"
-            className="h-9 w-auto"
-          />
-          <span className="text-xl font-extrabold tracking-tight text-amber-500">Triven.ai</span>
-        </a>
-            </div>
+            <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+                <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8">
+                    <a href="#top" className="inline-flex items-center gap-2.5" aria-label="Triven Data Processing Agreement">
+                        <Image
+                            src="/triven.ai word logo transparent bg.PNG"
+                            alt="Triven logo"
+                            width={36}
+                            height={36}
+                            priority
+                            className="h-9 w-9 object-contain"
+                        />
+                        <span className="text-xl font-extrabold tracking-tight text-amber-500">Triven.ai</span>
+                    </a>
+                    <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500 sm:inline-flex">
+                        Legal &amp; Compliance
+                    </span>
+                </div>
+            </header>
 
             <main id="top">
                 <section className="relative overflow-hidden">
@@ -173,7 +183,7 @@ export default function BusinessDPA() {
                         <div className="absolute left-1/2 top-[-6rem] h-[24rem] w-[44rem] max-w-[90vw] -translate-x-1/2 rounded-full bg-amber-200/40 blur-[110px]" />
                         <div className="absolute right-[8%] top-24 h-56 w-56 rounded-full bg-amber-100/60 blur-[90px]" />
                     </div>
-                    <div className="relative z-10 mx-auto max-w-4xl px-5 pb-14 pt-16 text-center sm:px-8 sm:pt-20">
+                    <div className="relative z-10 mx-auto max-w-4xl px-5 pb-12 pt-14 text-center sm:px-8 sm:pt-16">
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-amber-700">
                             <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                 <path fillRule="evenodd" d="M10 1.6 3 4.3v4.4c0 4.1 2.8 7.9 7 9.7 4.2-1.8 7-5.6 7-9.7V4.3L10 1.6Zm3.4 6.7-4 4.3a.9.9 0 0 1-1.3 0L6 10.4a.9.9 0 1 1 1.3-1.2l1.4 1.5 3.4-3.6a.9.9 0 0 1 1.3 1.2Z" clipRule="evenodd" />
@@ -184,47 +194,39 @@ export default function BusinessDPA() {
                             Data Processing Agreement
                         </h1>
                         <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-slate-600">
-                            How Triven protects your data. Transparent, compliant, and ready to sign.
+                            Review the agreement online or download the authoritative pre-signed PDF.
                         </p>
 
-                        <ul className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2.5">
-                            {["HIPAA Compliant", "SOC 2 Type II", "GDPR Ready", "CCPA Compliant"].map((badge) => (
-                                <li key={badge} className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 ring-1 ring-inset ring-green-600/10">
-                                    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                        <path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.8 3.8 6.8-6.8a1 1 0 0 1 1.4 0Z" clipRule="evenodd" />
-                                    </svg>
+                        <ul className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2.5" aria-label="Document details">
+                            {["Version 1.1", "Pre-signed PDF", "Effective July 2026"].map((badge) => (
+                                <li key={badge} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                                     {badge}
                                 </li>
                             ))}
                         </ul>
 
-                        <div className="mt-7 flex items-center justify-center gap-3 text-sm text-slate-500">
-                            <span>Last updated: June 1, 2030</span>
-                            <span className="h-1 w-1 rounded-full bg-slate-300" />
-                            <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">Version 3.2</span>
-                        </div>
-
-                        <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                             <button
                                 type="button"
                                 onClick={() => void handleDownload()}
                                 disabled={downloading}
                                 data-testid="dpa-download"
-                                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_6px_18px_-6px_rgba(15,23,42,0.10)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:text-slate-900 disabled:opacity-50 sm:w-auto"
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_1px_2px_rgba(180,83,9,0.20),0_8px_20px_-6px_rgba(245,158,11,0.45)] transition hover:-translate-y-0.5 hover:bg-amber-400 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
                             >
                                 <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M10 3v10m0 0 3.5-3.5M10 13 6.5 9.5M4 16h12" />
                                 </svg>
-                                {downloading ? "Preparing PDF..." : "Download PDF"}
+                                {downloading ? "Preparing PDF..." : "Download pre-signed PDF"}
                             </button>
-                            <a href="#request" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(180,83,9,0.20),0_8px_20px_-6px_rgba(245,158,11,0.45)] transition hover:-translate-y-0.5 hover:bg-amber-600 sm:w-auto">
+                            <a href="#request" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:text-slate-950 sm:w-auto">
                                 Request Signed DPA
                                 <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M4 10h12M11 5l5 5-5 5" />
                                 </svg>
                             </a>
                         </div>
-                        {message ? <p className="mt-4 text-sm font-medium text-red-600" role="alert">{message}</p> : null}
+                        {downloadError ? <p className="mt-4 text-sm font-medium text-red-600" role="alert">{downloadError}</p> : null}
                     </div>
                 </section>
 
@@ -243,6 +245,10 @@ export default function BusinessDPA() {
                             </ol>
                         </details>
                         <article className="rounded-3xl border border-slate-900/5 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-8px_rgba(15,23,42,0.10),0_40px_80px_-32px_rgba(15,23,42,0.12)] sm:p-10 lg:p-14">
+                            <div className="mb-12 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-left text-sm leading-relaxed text-amber-950">
+                                <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10" cy="10" r="7.5" /><path d="M10 8v5M10 5.5h.01" strokeLinecap="round" /></svg>
+                                <p><strong>Agreement overview.</strong> The downloadable pre-signed Version 1.1 PDF is the authoritative Data Processing Agreement.</p>
+                            </div>
                             <div className="space-y-14">
                                 {SECTIONS.map((section, index) => (
                                     <section key={section.id} id={section.id} className="scroll-mt-28">
@@ -311,6 +317,7 @@ export default function BusinessDPA() {
                                             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10h12M11 5l5 5-5 5" /></svg>
                                         </button>
                                     </form>
+                                    {requestError ? <p className="mt-4 text-sm font-medium text-red-600" role="alert">{requestError}</p> : null}
                                     <p className="mt-6 text-sm text-slate-500">Questions? <a href="mailto:support@triven.ai" className="font-semibold text-amber-700 hover:underline">support@triven.ai</a></p>
                                 </>
                             )}
@@ -332,7 +339,9 @@ export default function BusinessDPA() {
                 <footer className="border-t border-slate-900/5 bg-white">
                     <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-5 py-8 sm:flex-row sm:px-8">
                         <div className="flex items-center gap-3">
-                            <img src="/triven.ai%20word%20logo%20transparent%20bg.PNG" alt="Triven" className="h-7 w-auto" />
+                            <Image src="/triven.ai word logo transparent bg.PNG" alt="Triven logo" width={28} height={28} className="h-7 w-7 object-contain" />
+                            <span className="font-extrabold tracking-tight text-amber-500">Triven.ai</span>
+                            <span className="hidden h-4 w-px bg-slate-200 sm:block" />
                             <span className="text-sm text-slate-400">© 2026 Triven AI Agent Platform</span>
                         </div>
                         <a href="mailto:support@triven.ai" className="text-sm font-medium text-slate-500 transition hover:text-slate-900">support@triven.ai</a>
