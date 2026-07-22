@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { BusinessAddressSection } from "@/components/business/business-settings-view";
+import type { BusinessFaq } from "@/components/business/features/api";
+import { DocumentUploadSection, FaqSection } from "./knowledge-section";
 import { FIELD } from "./ui";
 
 const SERVICE_MAP: Record<string, string[]> = {
@@ -33,8 +35,17 @@ export function BusinessProfileSection({
   onContactName,
   onServices,
   onAddressDirtyChange,
+  onAddressValidChange,
   registerAddressApi,
-  addressRefreshToken
+  addressRefreshToken,
+  listingId,
+  installedAgentId,
+  faqs,
+  onFaqs,
+  onSummaryChange,
+  onKnowledgeChanged,
+  hoursSuggestionReady = false,
+  onReviewHours
 }: {
   businessName: string;
   businessType: string;
@@ -45,11 +56,20 @@ export function BusinessProfileSection({
   onContactName: (v: string) => void;
   onServices: (v: string) => void;
   onAddressDirtyChange?: (dirty: boolean) => void;
+  onAddressValidChange?: (valid: boolean) => void;
   registerAddressApi?: (
     api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null
   ) => void;
   /** Bump after document changes so the address section re-reads its suggestion. */
   addressRefreshToken?: number;
+  listingId?: string;
+  installedAgentId?: string | null;
+  faqs?: BusinessFaq[];
+  onFaqs?: (faqs: BusinessFaq[]) => void;
+  onSummaryChange?: (summary: { files: number; ready: number }) => void;
+  onKnowledgeChanged?: () => void;
+  hoursSuggestionReady?: boolean;
+  onReviewHours?: () => void;
 }) {
   const [selectedServices, setSelectedServices] = useState<string[]>(() =>
     servicesText
@@ -80,122 +100,143 @@ export function BusinessProfileSection({
   }
 
   return (
-    <div>
-      <h4 className="mb-3 text-sm font-bold text-slate-900">Business details</h4>
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="biz-contact-name" className="block text-sm font-medium text-slate-700 mb-1.5">
-            Your name <span className="text-slate-400 font-normal">(optional)</span>
-          </label>
-          <input
-            id="biz-contact-name"
-            data-testid="business-setup-input-contact"
-            type="text"
-            value={contactName}
-            onChange={(e) => onContactName(e.target.value)}
-            placeholder="Dr. Jhon Doe"
-            className={FIELD}
+    <div className="space-y-5">
+      {/* 1. TOP: Document Upload UI */}
+      <DocumentUploadSection
+        listingId={listingId}
+        installedAgentId={installedAgentId}
+        onSummaryChange={onSummaryChange}
+        onKnowledgeChanged={onKnowledgeChanged}
+        hoursSuggestionReady={hoursSuggestionReady}
+        onReviewHours={onReviewHours}
+      />
+
+      {/* 2. MIDDLE: Compact Business Details Form */}
+      <div className="border-t border-gray-100 pt-4 space-y-4">
+        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">Business Details</h4>
+
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div>
+            <label htmlFor="biz-contact-name" className="block text-xs font-semibold text-slate-700 mb-1">
+              Your name <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            <input
+              id="biz-contact-name"
+              data-testid="business-setup-input-contact"
+              type="text"
+              value={contactName}
+              onChange={(e) => onContactName(e.target.value)}
+              placeholder="Dr. John Doe"
+              className={FIELD}
+            />
+          </div>
+          <div>
+            <label htmlFor="biz-name" className="block text-xs font-semibold text-slate-700 mb-1">
+              Business name
+            </label>
+            <div className="relative">
+              <input
+                id="biz-name"
+                data-testid="business-setup-input-name"
+                type="text"
+                value={businessName}
+                onChange={(e) => onBusinessName(e.target.value)}
+                placeholder="Central Perk Hospital"
+                className={`${FIELD} pr-10`}
+              />
+              {businessName.trim() && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+              )}
+            </div>
+          </div>
+          <div>
+            <label htmlFor="biz-type" className="block text-xs font-semibold text-slate-700 mb-1">Business type</label>
+            <select
+              id="biz-type"
+              data-testid="business-setup-input-type"
+              value={businessType}
+              onChange={(e) => onBusinessType(e.target.value)}
+              className={FIELD}
+            >
+              <option value="">Select your business type</option>
+              {BUSINESS_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Structured business address */}
+        <div className="border-t border-gray-100 pt-3.5">
+          <BusinessAddressSection
+            embedded
+            onDirtyChange={onAddressDirtyChange}
+            onAddressValidChange={onAddressValidChange}
+            registerApi={registerAddressApi}
+            refreshToken={addressRefreshToken}
           />
         </div>
-        <div>
-          <label htmlFor="biz-name" className="block text-sm font-medium text-slate-700 mb-2">
-            Business name
-          </label>
-          <div className="relative">
+
+        {/* Services offered */}
+        <div className="border-t border-gray-100 pt-3.5">
+          <h4 className="mb-0.5 text-xs font-bold text-slate-900 uppercase tracking-wide">Services</h4>
+          <p className="text-xs text-slate-500 mb-2.5">Select what applies, or add your own.</p>
+          <div id="serviceChips" className="flex flex-wrap gap-1.5">
+            {selectedServices.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                className="text-xs font-medium border border-amber-400 bg-amber-400 text-white rounded-full px-2.5 py-1 transition-colors hover:bg-amber-500"
+                onClick={() => removeService(i)}
+              >
+                {s} ✕
+              </button>
+            ))}
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="text-xs font-medium border border-gray-200 text-slate-600 rounded-full px-2.5 py-1 hover:border-amber-300 transition-colors"
+                onClick={() => addService(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 mt-2.5">
             <input
-              id="biz-name"
-              data-testid="business-setup-input-name"
+              id="custom-service"
+              data-testid="business-setup-input-services"
               type="text"
-              value={businessName}
-              onChange={(e) => onBusinessName(e.target.value)}
-              placeholder="Central Perk Hospital"
-              className={`${FIELD} pr-12`}
+              value={customServiceInput}
+              onChange={(e) => setCustomServiceInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); addService(customServiceInput); setCustomServiceInput(""); }
+              }}
+              placeholder="Add another service"
+              className="field flex-1 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none"
             />
-            {businessName.trim() && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={() => { addService(customServiceInput); setCustomServiceInput(""); }}
+              className="btn shrink-0 border border-gray-200 rounded-xl px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Add
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="mt-5">
-        <label htmlFor="biz-type" className="block text-sm font-medium text-slate-700 mb-2">Business type</label>
-        <select
-          id="biz-type"
-          data-testid="business-setup-input-type"
-          value={businessType}
-          onChange={(e) => onBusinessType(e.target.value)}
-          className={FIELD}
-        >
-          <option value="">Select your business type</option>
-          {BUSINESS_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Structured business address — the same record as Business Settings */}
-      <div className="mt-6 border-t border-gray-100 pt-5">
-        <BusinessAddressSection
-          embedded
-          onDirtyChange={onAddressDirtyChange}
-          registerApi={registerAddressApi}
-          refreshToken={addressRefreshToken}
-        />
-      </div>
-
-      {/* Services offered */}
-      <div className="mt-6 border-t border-gray-100 pt-5">
-        <h4 className="mb-1 text-sm font-bold text-slate-900">Services</h4>
-        <p className="text-xs text-slate-500 mb-3">Select what applies, or add your own.</p>
-        <div id="serviceChips" className="flex flex-wrap gap-2">
-          {selectedServices.map((s, i) => (
-            <button
-              key={i}
-              type="button"
-              className="text-xs font-semibold border border-amber-400 bg-amber-400 text-white rounded-full px-3 py-1.5 transition-colors hover:bg-amber-500"
-              onClick={() => removeService(i)}
-            >
-              {s} ✕
-            </button>
-          ))}
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="text-xs font-semibold border border-gray-200 text-slate-600 rounded-full px-3 py-1.5 hover:border-amber-300 transition-colors"
-              onClick={() => addService(s)}
-            >
-              {s}
-            </button>
-          ))}
+      {/* 3. BOTTOM: FAQ UI */}
+      {faqs && onFaqs ? (
+        <div className="border-t border-gray-100 pt-4">
+          <FaqSection faqs={faqs} onFaqs={onFaqs} />
         </div>
-        <div className="flex gap-2 mt-3">
-          <input
-            id="custom-service"
-            data-testid="business-setup-input-services"
-            type="text"
-            value={customServiceInput}
-            onChange={(e) => setCustomServiceInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); addService(customServiceInput); setCustomServiceInput(""); }
-            }}
-            placeholder="Add another service"
-            className="field flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={() => { addService(customServiceInput); setCustomServiceInput(""); }}
-            className="btn shrink-0 border border-gray-200 rounded-xl px-5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            Add
-          </button>
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 }

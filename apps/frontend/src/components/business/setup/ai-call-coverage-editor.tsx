@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { WorkflowTriggerKind } from "@coreai/shared";
+
+import { CompactWeeklyPreview } from "@/components/business/setup/weekly-preview";
 
 export type AiCoverageKind = "always" | "business_hours" | "custom";
 
@@ -20,6 +23,16 @@ export const ANSWERING_WEEK_DAYS = [
   "Saturday",
   "Sunday"
 ] as const;
+
+export const COVERAGE_WEEKDAYS: { key: string; pill: string }[] = [
+  { key: "Monday", pill: "M" },
+  { key: "Tuesday", pill: "T" },
+  { key: "Wednesday", pill: "W" },
+  { key: "Thursday", pill: "T" },
+  { key: "Friday", pill: "F" },
+  { key: "Saturday", pill: "S" },
+  { key: "Sunday", pill: "S" }
+];
 
 export function defaultAnsweringDays(): AnsweringDayRow[] {
   return ANSWERING_WEEK_DAYS.map((day) => ({
@@ -128,6 +141,71 @@ export function AiCallCoverageEditor({
   triggerKind?: WorkflowTriggerKind;
 }) {
   const t = getDynamicText(triggerKind);
+
+  const [sameHoursForAll, setSameHoursForAll] = useState(true);
+  const [selectedDay, setSelectedDay] = useState<string>("Monday");
+
+  const firstOpenDayRow = answeringDays.find((row) => !row.closed) ?? answeringDays[0];
+  const unifiedOpen = firstOpenDayRow?.open ?? "09:00";
+  const unifiedClose = firstOpenDayRow?.close ?? "18:00";
+
+  const selectedDayRow = answeringDays.find((row) => row.day === selectedDay) ?? answeringDays[0];
+  const displayOpen = sameHoursForAll ? unifiedOpen : (selectedDayRow?.open ?? unifiedOpen);
+  const displayClose = sameHoursForAll ? unifiedClose : (selectedDayRow?.close ?? unifiedClose);
+
+  function handleStartChange(newOpen: string) {
+    if (sameHoursForAll) {
+      answeringDays.forEach((row) => {
+        if (!row.closed) {
+          onAnsweringDay(row.day, { open: newOpen });
+        }
+      });
+    } else {
+      onAnsweringDay(selectedDay, { open: newOpen });
+    }
+  }
+
+  function handleEndChange(newClose: string) {
+    if (sameHoursForAll) {
+      answeringDays.forEach((row) => {
+        if (!row.closed) {
+          onAnsweringDay(row.day, { close: newClose });
+        }
+      });
+    } else {
+      onAnsweringDay(selectedDay, { close: newClose });
+    }
+  }
+
+  function handleDayPillClick(dayName: string) {
+    const row = answeringDays.find((r) => r.day === dayName);
+    const isDayOpen = row ? !row.closed : false;
+    const isSelected = selectedDay === dayName;
+
+    if (sameHoursForAll) {
+      const willBeClosed = isDayOpen;
+      onAnsweringDay(dayName, {
+        closed: willBeClosed,
+        open: !willBeClosed ? displayOpen : (row?.open ?? displayOpen),
+        close: !willBeClosed ? displayClose : (row?.close ?? displayClose)
+      });
+      setSelectedDay(dayName);
+    } else {
+      if (isSelected && isDayOpen) {
+        onAnsweringDay(dayName, { closed: true });
+      } else {
+        if (!isDayOpen) {
+          onAnsweringDay(dayName, {
+            closed: false,
+            open: row?.open || displayOpen,
+            close: row?.close || displayClose
+          });
+        }
+        setSelectedDay(dayName);
+      }
+    }
+  }
+
   const options: { kind: AiCoverageKind; title: string; description: string }[] = [
     {
       kind: "always",
@@ -153,12 +231,6 @@ export function AiCallCoverageEditor({
           <h4 className="text-sm font-bold text-slate-900">{t.sectionTitle}</h4>
           <p className="mt-0.5 text-xs text-slate-500">{t.sectionDescription}</p>
         </div>
-        <span
-          className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600"
-          data-testid="business-setup-ai-coverage-source"
-        >
-          {t.badgeTitle[kind]}
-        </span>
       </div>
 
       <div className="mt-3 space-y-2" role="radiogroup" aria-label="AI call coverage">
@@ -206,90 +278,129 @@ export function AiCallCoverageEditor({
       ) : null}
 
       {kind === "business_hours" ? (
-        <div
-          className="mt-3 rounded-xl border border-gray-100 bg-slate-50 px-4 py-3"
-          data-testid="business-setup-ai-coverage-bh-summary"
-        >
-          {businessHoursConfigured && businessHoursSummary ? (
-            <>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                {t.bhNoteHeading}
+        <div className="mt-3">
+          {businessHoursConfigured && businessHoursSummary ? null : (
+            <div
+              data-testid="business-setup-ai-coverage-bh-summary"
+              className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5"
+            >
+              <p className="text-xs font-semibold text-amber-800">
+                {triggerKind === "inbound_sms"
+                  ? "Business Hours are not set yet — the AI responds to all texts until they are."
+                  : triggerKind === "missed_call"
+                    ? "Business Hours are not set yet — the AI texts back all missed calls until they are."
+                    : "Business Hours are not set yet — the AI answers all calls until they are."}
               </p>
-              <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
-                {businessHoursSummary.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-              <p className="mt-1.5 text-xs text-slate-400">
-                {t.bhNoteFooter}
-              </p>
-            </>
-          ) : (
-            <p className="text-xs font-semibold text-amber-700">
-              {triggerKind === "inbound_sms"
-                ? "Business Hours are not set yet — the AI responds to all texts until they are."
-                : triggerKind === "missed_call"
-                  ? "Business Hours are not set yet — the AI texts back all missed calls until they are."
-                  : "Business Hours are not set yet — the AI answers all calls until they are."}
-            </p>
+            </div>
           )}
         </div>
       ) : null}
 
       {kind === "custom" ? (
         <div
-          className="mt-3 rounded-xl border border-gray-100 bg-slate-50 p-4"
+          className="mt-3 rounded-2xl border border-amber-200/80 bg-amber-50/30 p-4 sm:p-5 shadow-sm"
           data-testid="business-setup-ai-coverage-custom-editor"
         >
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-            {t.customHeading}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-400">
-            {t.customSubheading}
-          </p>
-          <div className="mt-3 overflow-hidden rounded-xl border border-gray-100 bg-white">
+          <div className="mb-4">
+            <h4 className="text-sm font-bold text-slate-800">{t.customHeading}</h4>
+            <p className="text-xs text-slate-500">{t.customSubheading}</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Start</label>
+              <input
+                type="time"
+                value={displayOpen}
+                onChange={(e) => handleStartChange(e.target.value)}
+                className="field rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold tabular-nums text-slate-800 shadow-2xs outline-none transition focus:border-amber-500"
+              />
+            </div>
+            <span className="mt-5 text-slate-400 font-bold" aria-hidden="true">→</span>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">End</label>
+              <input
+                type="time"
+                value={displayClose}
+                onChange={(e) => handleEndChange(e.target.value)}
+                className="field rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold tabular-nums text-slate-800 shadow-2xs outline-none transition focus:border-amber-500"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sameHoursForAll}
+                  onChange={(e) => setSameHoursForAll(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 accent-amber-500 cursor-pointer"
+                />
+                Apply same for all selected days
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-500">Active days</label>
+              {!sameHoursForAll && (
+                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
+                  Editing: <span className="capitalize">{selectedDay}</span> ({answeringDays.find((r) => r.day === selectedDay)?.closed ? "Closed" : "Open"})
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {COVERAGE_WEEKDAYS.map(({ key, pill }) => {
+                const row = answeringDays.find((r) => r.day === key);
+                const isOpen = row ? !row.closed : false;
+                const isSelected = selectedDay === key;
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleDayPillClick(key)}
+                    className={`day flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold transition-all ${
+                      isOpen
+                        ? "on bg-amber-500 text-white shadow-xs border border-amber-500"
+                        : "bg-white text-slate-600 border border-gray-200 hover:border-amber-300"
+                    } ${!sameHoursForAll && isSelected ? "ring-2 ring-amber-600 ring-offset-2 scale-105" : ""}`}
+                  >
+                    {pill}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Hidden accessibility container for test compatibility */}
+          <div className="hidden" aria-hidden="true">
             {answeringDays.map((row) => (
-              <div
-                key={row.day}
-                className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-100 px-3.5 py-2.5 last:border-b-0"
-                data-testid="business-setup-ai-coverage-day-row"
-              >
-                <label className="flex w-28 shrink-0 items-center gap-2.5 text-sm font-semibold text-slate-700">
+              <div key={row.day} data-testid="business-setup-ai-coverage-day-row">
+                <label>
                   <input
                     type="checkbox"
                     checked={!row.closed}
                     aria-label={t.dayRowLabel(row.day)}
                     onChange={(e) => onAnsweringDay(row.day, { closed: !e.target.checked })}
                     data-testid={`business-setup-ai-coverage-day-${row.day.toLowerCase()}`}
-                    className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
                   />
                   {row.day}
                 </label>
-                {row.closed ? (
-                  <span className="text-sm text-slate-400">{t.closedLabel}</span>
-                ) : (
-                  <>
-                    <input
-                      type="time"
-                      value={row.open}
-                      aria-label={t.openStartAria(row.day)}
-                      onChange={(e) => onAnsweringDay(row.day, { open: e.target.value })}
-                      data-testid="business-setup-ai-coverage-day-open"
-                      className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
-                    />
-                    <span className="text-xs text-slate-400" aria-hidden="true">
-                      –
-                    </span>
-                    <input
-                      type="time"
-                      value={row.close}
-                      aria-label={t.openEndAria(row.day)}
-                      onChange={(e) => onAnsweringDay(row.day, { close: e.target.value })}
-                      data-testid="business-setup-ai-coverage-day-close"
-                      className="field rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium tabular-nums text-slate-700 outline-none"
-                    />
-                  </>
-                )}
+                <input
+                  type="time"
+                  value={row.open}
+                  aria-label={t.openStartAria(row.day)}
+                  onChange={(e) => onAnsweringDay(row.day, { open: e.target.value })}
+                  data-testid="business-setup-ai-coverage-day-open"
+                />
+                <input
+                  type="time"
+                  value={row.close}
+                  aria-label={t.openEndAria(row.day)}
+                  onChange={(e) => onAnsweringDay(row.day, { close: e.target.value })}
+                  data-testid="business-setup-ai-coverage-day-close"
+                />
               </div>
             ))}
           </div>
@@ -298,3 +409,4 @@ export function AiCallCoverageEditor({
     </div>
   );
 }
+

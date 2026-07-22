@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -50,6 +51,7 @@ import {
   runBusinessSetupChatTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
+  sendBusinessTestSms,
   sendMailSetupTestEmail,
   startBusinessSetupPreviewCall,
   testCallRouting,
@@ -1363,13 +1365,13 @@ function SetupWizard() {
     const requiresVoice = showVoice && needs.has("vapi");
 
     if (requiresVoice && !result.vapiAssistantId) {
-      setStep(4);
+      setStep(3);
       setError("Your live voice assistant could not be created. Try again, or contact Triven support if it keeps failing.");
       return;
     }
 
     if (!result.installedAgentId || !(result.number || assignedNumber)) {
-      setStep(4);
+      setStep(3);
       setError("Deploy did not complete — the agent or phone number was not saved. Please try again.");
       return;
     }
@@ -1377,6 +1379,7 @@ function SetupWizard() {
     setDeployed(true);
     setSuccessNumber(result.number || assignedNumber || "");
     buildConfetti();
+    setStep(4);
 
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1402,7 +1405,8 @@ function SetupWizard() {
   }
 
   const needs = new Set(requiredKeys);
-  const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2;
+  const [isAddressValid, setIsAddressValid] = useState(false);
+  const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2 && isAddressValid;
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     "business-profile": true
@@ -1612,164 +1616,83 @@ function SetupWizard() {
     );
   }
 
-  if (deployed) {
-    return (
-      <div className="setup-root min-h-screen bg-white">
-        <style>{WIZARD_STYLES}</style>
-
-        <ConfettiCanvas />
-
-        <div className="mx-auto max-w-lg px-5 py-12 text-center">
-          <div data-testid="business-setup-success">
-            {/* Pop-in Checkmark circle */}
-            <div className="check-pop w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-green-500 grid place-items-center">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10">
-                <polyline className="draw" points="20 6 9 17 4 12"></polyline>
-              </svg>
-            </div>
-
-            <div className="stagger">
-              {/* Dynamic success copy based on the workflow trigger kind */}
-              {(() => {
-                const msg = getAgentSuccessMessage(triggerKind);
-                return (
-                  <div>
-                    <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
-                      {msg.headline}
-                    </h2>
-                    <p className="text-lg text-slate-600 mt-3">
-                      {msg.body}
-                    </p>
-                  </div>
-                );
-              })()}
-
-              {/* Capability list */}
-              <div
-                className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-7 sm:p-8 mt-8 border border-amber-100 text-left"
-                data-testid="business-setup-success-capabilities"
-              >
-                <p className="text-sm font-semibold text-slate-700 mb-4">Your agent is ready to:</p>
-                <ul className="space-y-3">
-                  {getAgentSuccessMessage(triggerKind).capabilities.map((cap: string) => (
-                    <li key={cap} className="flex items-center gap-3 text-sm text-slate-700">
-                      <span className="text-green-500 shrink-0">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </span>
-                      <span>{cap}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="mt-8 flex flex-col gap-3 items-center">
-                <button
-                  data-testid="business-setup-go-dashboard"
-                  type="button"
-                  onClick={() => router.push(DASHBOARD_ROUTE)}
-                  className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 w-full max-w-xs"
-                >
-                  Go to dashboard
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDeployed(false)}
-                  className="btn border border-gray-200 rounded-xl px-8 py-3.5 text-slate-600 font-semibold hover:border-amber-300 hover:text-slate-800 bg-white w-full max-w-xs"
-                >
-                  Edit setup
-                </button>
-              </div>
-
-              {/* Pro tip */}
-              <div className="mt-8 bg-blue-50 rounded-xl p-4 border border-blue-100 text-left max-w-sm mx-auto flex items-start gap-3">
-                <span className="text-blue-500 shrink-0 mt-0.5">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <path d="M9 18h6M10 22h4" />
-                    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
-                  </svg>
-                </span>
-                <p className="text-sm text-blue-900">
-                  <span className="font-semibold">Pro tip:</span> most practices see their first recovered appointment within 48 hours.
-                </p>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="setup-root bg-gray-50 min-h-screen pb-12" data-testid="business-setup-wizard">
       <style>{WIZARD_STYLES}</style>
 
-      <header className="bg-white border-b border-gray-200/80 py-3 px-4 sm:px-6 sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-sm font-bold text-slate-900">Agent setup</h1>
-              <p className="truncate text-xs text-slate-500" data-testid="business-setup-header-context">
-                {(typeof listing?.name === "string" && listing.name.trim()) || businessName.trim() || "Your AI agent"}
-              </p>
-            </div>
+      {step === 4 && <ConfettiCanvas />}
 
-            <span className="shrink-0 text-xs font-semibold text-slate-500" data-testid="business-setup-step-count">
-              Step {step} of {STEPS.length}
-            </span>
+      <header className="bg-white border-b border-gray-200/80 py-6 px-4 sm:px-6 sticky top-0 z-30 shadow-xs">
+        <div className="w-full max-w-7xl mx-auto grid grid-cols-3 items-center">
+          {/* Left side: Agent Name */}
+          <div className="flex items-center justify-start min-w-0 pr-2 sm:pr-4">
+            <h1
+              className="font-bold text-slate-900 text-sm sm:text-base truncate"
+              data-testid="business-setup-agent-name"
+            >
+              {(typeof listing?.name === "string" && listing.name.trim()) || businessName.trim() || "Your AI agent"}
+            </h1>
           </div>
 
-          {/* Step indicator */}
-          <nav className="progress mt-2.5" aria-label="Setup progress" data-testid="business-setup-progress-dots">
-            {STEPS.map((entry, index) => {
-              const active = entry.id === step;
-              const done = stepDone[entry.id];
-              const upcoming = step < entry.id && !done;
-              const clickable = true;
+          {/* Center: Step Indicator (always centered) */}
+          <div className="flex items-center justify-center min-w-0">
+            <nav className="progress" aria-label="Setup progress" data-testid="business-setup-progress-dots">
+              {STEPS.map((entry, index) => {
+                const active = entry.id === step;
+                const done = stepDone[entry.id];
+                const upcoming = step < entry.id && !done;
+                const clickable = true;
 
-              return (
-                <div key={entry.id} className="flex items-center">
-                  {index > 0 ? (
-                    <span
-                      aria-hidden="true"
-                      className={`pconn ${stepDone[STEPS[index - 1].id] ? "filled" : ""}`}
-                    />
-                  ) : null}
+                return (
+                  <div key={entry.id} className="flex items-center">
+                    {index > 0 ? (
+                      <span
+                        aria-hidden="true"
+                        className={`pconn ${stepDone[STEPS[index - 1].id] ? "filled" : ""}`}
+                      />
+                    ) : null}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError("");
-                      setStep(entry.id);
-                    }}
-                    aria-label={`Go to step ${entry.id}: ${entry.title}`}
-                    aria-current={active ? "step" : undefined}
-                    data-testid={`business-setup-dot-${entry.id}`}
-                    className={`pstep group ${active ? "active" : ""} ${done ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""}`}
-                  >
-                    <span className="pdot" data-dot="true">
-                      {done ? (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      ) : (
-                        entry.id
-                      )}
-                    </span>
-                    <span className="plabel">{entry.title}</span>
-                  </button>
-                </div>
-              );
-            })}
-          </nav>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError("");
+                        setStep(entry.id);
+                      }}
+                      aria-label={`Go to step ${entry.id}: ${entry.title}`}
+                      aria-current={active ? "step" : undefined}
+                      data-testid={`business-setup-dot-${entry.id}`}
+                      className={`pstep group ${active ? "active" : ""} ${done ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""}`}
+                    >
+                      <span className="pdot" data-dot="true">
+                        {done ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : (
+                          entry.id
+                        )}
+                      </span>
+                      <span className="plabel">{entry.title}</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </nav>
+          </div>
+
+          {/* Right side: Estimated Setup Time */}
+          <div className="flex items-center justify-end min-w-0 pl-2 sm:pl-4">
+            <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+              <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="w-3.5 h-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                ~3 min setup
+              </span>
+            </div>
+          </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
+      <div className="mx-auto max-w-4xl px-4 sm:px-2 py-6">
         <div className={CARD}>
           {step === 1 ? (
             <StepConnect
@@ -1818,16 +1741,14 @@ function SetupWizard() {
           {step === 2 ? (
             <div className="space-y-4" data-testid="business-setup-configure">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Configure your agent</h2>
-                <p className="mt-1.5 text-sm text-slate-500">
-                  Add the business information and rules your agent will use.
-                </p>
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                  Agent Configuration
+                </h2>
               </div>
 
               <ConfigureSectionCard
                 id="business-profile"
-                title="Business Profile"
-                description="Name, type, address, and services."
+                title="Business Profile & Knowledge"
                 icon={
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                     <rect x="2" y="7" width="20" height="14" rx="2" />
@@ -1835,11 +1756,6 @@ function SetupWizard() {
                   </svg>
                 }
                 status={businessComplete ? "complete" : "incomplete"}
-                summary={
-                  businessComplete
-                    ? `${businessName.trim()} · ${businessType.trim()}`
-                    : "Add your business name and type."
-                }
                 open={Boolean(openSections["business-profile"])}
                 onToggle={(open) => toggleSection("business-profile", open)}
               >
@@ -1853,15 +1769,23 @@ function SetupWizard() {
                   onContactName={dirtyWrap(setContactName)}
                   onServices={setServicesText}
                   onAddressDirtyChange={setAddressDirty}
+                  onAddressValidChange={setIsAddressValid}
                   registerAddressApi={registerAddressApi}
                   addressRefreshToken={knowledgeVersion}
+                  listingId={listingId}
+                  installedAgentId={liveInstalledAgentId}
+                  faqs={faqs}
+                  onFaqs={dirtyWrap(setFaqs)}
+                  onSummaryChange={setKnowledgeSummary}
+                  onKnowledgeChanged={handleKnowledgeChanged}
+                  hoursSuggestionReady={businessHours.suggestion}
+                  onReviewHours={() => jumpToConfigureSection("hours-availability")}
                 />
               </ConfigureSectionCard>
 
               <ConfigureSectionCard
                 id="agent-identity"
-                title="Agent Identity"
-                description="Name, voice, and tone."
+                title="Agent Identity & Voice"
                 icon={
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
@@ -1870,14 +1794,6 @@ function SetupWizard() {
                   </svg>
                 }
                 status={!showVoice ? "optional" : voiceComplete ? "complete" : "incomplete"}
-                summary={
-                  showVoice
-                    ? `${assistantName.trim() || DEFAULT_ASSISTANT_NAME} · ${voiceChoice === "custom"
-                      ? "Custom voice"
-                      : VOICE_PRESETS.find((preset) => preset.id === voiceChoice)?.name ?? TRIVEN_VOICE_NAME
-                    } · ${tone}`
-                    : `Tone: ${tone}`
-                }
                 open={Boolean(openSections["agent-identity"])}
                 onToggle={(open) => toggleSection("agent-identity", open)}
               >
@@ -1896,37 +1812,8 @@ function SetupWizard() {
               </ConfigureSectionCard>
 
               <ConfigureSectionCard
-                id="knowledge"
-                title="Knowledge"
-                description="Documents and FAQs the agent answers from."
-                icon={
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  </svg>
-                }
-                status={knowledgeSummary.ready > 0 || faqs.some((faq) => faq.question.trim() && faq.answer.trim()) ? "complete" : "optional"}
-                summary={`${knowledgeSummary.files} document${knowledgeSummary.files === 1 ? "" : "s"} · ${faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length
-                  } FAQ${faqs.filter((faq) => faq.question.trim() && faq.answer.trim()).length === 1 ? "" : "s"}`}
-                open={Boolean(openSections["knowledge"])}
-                onToggle={(open) => toggleSection("knowledge", open)}
-              >
-                <KnowledgeSection
-                  listingId={listingId}
-                  installedAgentId={liveInstalledAgentId}
-                  faqs={faqs}
-                  onFaqs={dirtyWrap(setFaqs)}
-                  onSummaryChange={setKnowledgeSummary}
-                  onKnowledgeChanged={handleKnowledgeChanged}
-                  hoursSuggestionReady={businessHours.suggestion}
-                  onReviewHours={() => jumpToConfigureSection("hours-availability")}
-                />
-              </ConfigureSectionCard>
-
-              <ConfigureSectionCard
                 id="hours-availability"
-                title="Hours & Availability"
-                description="Business Hours, Appointment Availability, and AI Call Coverage."
+                title="Business Hours & Availability"
                 icon={
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                     <circle cx="12" cy="12" r="10" />
@@ -1940,19 +1827,6 @@ function SetupWizard() {
                     : businessHours.configured
                       ? "complete"
                       : "attention"
-                }
-                summary={
-                  bookingRulesBlocked
-                    ? "Booking rules need attention before you can save."
-                    : businessHours.configured
-                      ? `Business Hours set · Appointments ${apptUseBusinessHours ? "follow Business Hours" : "use custom hours"
-                      } · AI answers ${coverageKind === "always"
-                        ? "24/7"
-                        : coverageKind === "business_hours"
-                          ? "during Business Hours"
-                          : "on a custom schedule"
-                      }`
-                      : "Set your Business Hours so the agent knows when you're open."
                 }
                 open={Boolean(openSections["hours-availability"])}
                 onToggle={(open) => toggleSection("hours-availability", open)}
@@ -1988,8 +1862,7 @@ function SetupWizard() {
 
               <ConfigureSectionCard
                 id="agent-behavior"
-                title="Agent Behavior"
-                description="Instructions, agent details, and call handling."
+                title="Agent Instructions & Behavior"
                 icon={
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                     <line x1="4" y1="21" x2="4" y2="14" />
@@ -2011,13 +1884,6 @@ function SetupWizard() {
                     : customInstructions.trim()
                       ? "complete"
                       : "optional"
-                }
-                summary={
-                  buyerSetupFields.length > 0 && !buyerSetupComplete
-                    ? buyerSetupIssues[0]?.message ?? "Complete the agent setup details."
-                    : customInstructions.trim()
-                      ? "Custom instructions set."
-                      : "Default behavior — add instructions any time."
                 }
                 open={Boolean(openSections["agent-behavior"])}
                 onToggle={(open) => toggleSection("agent-behavior", open)}
@@ -2074,38 +1940,90 @@ function SetupWizard() {
           ) : null}
 
           {step === 4 ? (
-            <StepGoLive
-              checklist={checklist}
-              readyToDeploy={readyToDeploy}
-              assignedNumber={assignedNumber}
-              apptNeedsConfirmation={apptLoaded && apptNeedsConfirmation}
-              apptUseBusinessHours={apptUseBusinessHours}
-              coverageKind={coverageKind}
-              timeZone={timeZone}
-              calendarConnected={calendar.connected}
-              calendarRequired={needsCalendar || needsGmail}
-              browserTestOutcome={browserTestOutcome}
-              routingReady={testResult ? testResult.readyForCall : null}
-              businessName={businessName}
-              businessType={businessType}
-              assistantName={assistantName}
-              voiceLabel={
-                voiceChoice === "custom"
-                  ? "Custom voice"
-                  : VOICE_PRESETS.find((preset) => preset.id === voiceChoice)?.name ?? TRIVEN_VOICE_NAME
-              }
-              tone={tone}
-              answeringModeLabel={
-                ANSWERING_MODES.find((mode) => mode.value === answeringMode)?.label ?? answeringMode
-              }
-              apptFields={apptFields}
-              onEditConfigure={jumpToConfigureSection}
-              onEditConnect={() => {
-                setError("");
-                setStep(1);
-                if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-            />
+            <div data-testid="business-setup-success" className="mx-auto max-w-lg text-center py-6">
+              {/* Pop-in Checkmark circle */}
+              <div className="check-pop w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-green-500 grid place-items-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10">
+                  <polyline className="draw" points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+
+              <div className="stagger">
+                {/* Dynamic success copy based on the workflow trigger kind */}
+                {(() => {
+                  const msg = getAgentSuccessMessage(triggerKind);
+                  return (
+                    <div>
+                      <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
+                        {msg.headline}
+                      </h2>
+                      <p className="text-lg text-slate-600 mt-3">
+                        {msg.body}
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Capability list */}
+                <div
+                  className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-7 sm:p-8 mt-8 border border-amber-100 text-left"
+                  data-testid="business-setup-success-capabilities"
+                >
+                  <p className="text-sm font-semibold text-slate-700 mb-4">Your agent is ready to:</p>
+                  <ul className="space-y-3">
+                    {getAgentSuccessMessage(triggerKind).capabilities.map((cap: string) => (
+                      <li key={cap} className="flex items-center gap-3 text-sm text-slate-700">
+                        <span className="text-green-500 shrink-0">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </span>
+                        <span>{cap}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="mt-8 flex flex-col gap-3 items-center">
+                  <button
+                    data-testid="business-setup-go-dashboard"
+                    type="button"
+                    onClick={() => router.push(DASHBOARD_ROUTE)}
+                    className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 w-full max-w-xs"
+                  >
+                    Go to dashboard
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep(3);
+                      setDeployed(false);
+                      if (typeof window !== "undefined") {
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }
+                    }}
+                    className="btn border border-gray-200 rounded-xl px-8 py-3.5 text-slate-600 font-semibold hover:border-amber-300 hover:text-slate-800 bg-white w-full max-w-xs"
+                  >
+                    Edit setup
+                  </button>
+                </div>
+
+                {/* Pro tip */}
+                <div className="mt-8 bg-blue-50 rounded-xl p-4 border border-blue-100 text-left max-w-sm mx-auto flex items-start gap-3">
+                  <span className="text-blue-500 shrink-0 mt-0.5">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                      <path d="M9 18h6M10 22h4" />
+                      <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+                    </svg>
+                  </span>
+                  <p className="text-sm text-blue-900">
+                    <span className="font-semibold">Pro tip:</span> most practices see their first recovered appointment within 48 hours.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : null}
 
           {error ? (
@@ -2114,91 +2032,76 @@ function SetupWizard() {
             </p>
           ) : null}
 
-          <div
-            className="sticky bottom-0 z-20 mt-8 -mx-6 rounded-b-2xl border-t border-gray-100 bg-white/95 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur sm:-mx-8 sm:px-8"
-            data-testid="business-setup-footer"
-          >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          {step < 4 && (
+            <div
+              className="sticky bottom-0 z-20 mt-8 -mx-6 rounded-b-2xl border-t border-gray-100 bg-white/95 px-6 pt-4 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur sm:-mx-8 sm:px-8"
+              data-testid="business-setup-footer"
+            >
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-              {/* Left Actions */}
-              <div className="flex flex-wrap items-center gap-3 justify-between">
-                <button
-                  type="button"
-                  disabled={step === 1 || saving}
-                  onClick={() => setStep((current) => Math.max(1, current - 1))}
-                  data-testid="business-setup-back"
-                  className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Back
-                </button>
+                {/* Left Actions */}
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  {step < 3 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setStep((current) => Math.min(current + 1, STEPS.length))
+                      }
+                      disabled={saving}
+                      data-testid="business-setup-skip"
+                      className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
+                    >
+                      Skip for now
+                    </button>
+                  )}
 
-                {step < STEPS.length && (
+                  {(configDirty || bhDirty || addressDirty || tzEdited) ? (
+                    <span
+                      data-testid="business-setup-unsaved"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200/60"
+                    >
+                      Unsaved changes
+                    </span>
+                  ) : null}
+                </div>
+
+                {/* Right Actions */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
                   <button
                     type="button"
-                    onClick={() =>
-                      setStep((current) => Math.min(current + 1, STEPS.length))
-                    }
+                    onClick={handleSaveProgress}
                     disabled={saving}
-                    data-testid="business-setup-skip"
-                    className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
+                    data-testid="business-setup-save"
+                    className="btn rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50/50 disabled:opacity-50"
                   >
-                    Skip for now
+                    {saving ? "Saving…" : "Save draft"}
                   </button>
-                )}
 
-                {anyUnsaved && !saving && (
-                  <span
-                    className="text-center text-xs font-semibold text-amber-600 sm:text-left"
-                    data-testid="business-setup-unsaved"
-                  >
-                    Unsaved changes
-                  </span>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleSaveProgress}
-                  disabled={saving}
-                  data-testid="business-setup-save"
-                  className="text-center text-sm font-medium text-slate-500 underline transition hover:text-slate-700 disabled:opacity-50"
-                >
-                  {saving
-                    ? "Saving..."
-                    : step === 2
-                      ? "Save draft"
-                      : "Save progress"}
-                </button>
-              </div>
-
-              {/* Right Actions */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-
-
-
-                {step < STEPS.length ? (
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    disabled={saving || (step === 2 && bookingRulesBlocked)}
-                    data-testid="business-setup-next"
-                    className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
-                  >
-                    {step === 2 ? "Save & Continue" : "Continue"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleDeploy}
-                    disabled={saving || !readyToDeploy}
-                    data-testid="business-setup-submit"
-                    className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
-                  >
-                    {saving ? "Deploying…" : "Go live"}
-                  </button>
-                )}
+                  {step < 3 ? (
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      disabled={saving || (step === 2 && bookingRulesBlocked)}
+                      data-testid="business-setup-next"
+                      className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
+                    >
+                      {step === 2 ? "Save & Continue" : "Continue"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleDeploy}
+                      disabled={saving || !readyToDeploy}
+                      data-testid="business-setup-submit"
+                      className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
+                    >
+                      {saving ? "Deploying…" : "Go live"}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -2291,6 +2194,7 @@ function StepConnect({
   const [countryFlag, setCountryFlag] = useState("🇺🇸");
   const [countryCode, setCountryCode] = useState("+1");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
+  const [showStepsModal, setShowStepsModal] = useState(false);
 
   const seenTimeZonesRef = useRef<Set<string>>(new Set());
   if (timeZone.trim()) seenTimeZonesRef.current.add(timeZone.trim());
@@ -2411,6 +2315,23 @@ function StepConnect({
 
           {routingMode === "forward" || !showAnsweringMode ? (
             <div className="mt-6 border-t border-slate-200/80 pt-5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-slate-800">Call Forwarding Setup</span>
+                <button
+                  type="button"
+                  onClick={() => setShowStepsModal(true)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 hover:underline focus:outline-none"
+                  data-testid="business-setup-view-steps"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  View Steps
+                </button>
+              </div>
+
               <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">Existing business phone number</label>
 
               <div className={`phone-wrap flex items-stretch border rounded-xl overflow-hidden bg-white relative ${phoneValid ? "is-valid" : "border-gray-200"}`}>
@@ -2494,55 +2415,6 @@ function StepConnect({
               <p className="mt-2 text-xs text-slate-400 font-semibold">
                 Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
               </p>
-
-              {/* How to actually turn on carrier forwarding — the buyer does
-                  this on their own phone/provider; without it, forwarded
-                  answering modes never reach the AI. */}
-              <div
-                className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-4"
-                data-testid="business-setup-forwarding-steps"
-              >
-                <p className="text-sm font-semibold text-slate-800">
-                  Set up call forwarding to your Triven AI number
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Your carrier forwards calls it can&apos;t complete to{" "}
-                  <span className="font-mono font-bold text-slate-700">{assignedNumber || "your Triven AI number"}</span>. Do this once from the phone that uses your existing business number:
-                </p>
-                <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs text-slate-600">
-                  <li>
-                    Dial the conditional-forwarding code for your carrier
-                    {assignedNumber ? (
-                      <>
-                        {" "}with your Triven number <span className="font-mono font-semibold">{assignedNumber.replace(/[^\d+]/g, "")}</span>:
-                      </>
-                    ) : (
-                      " with your Triven number (assigned in the step above):"
-                    )}
-                    <ul className="mt-1.5 list-disc space-y-1 pl-4 text-slate-500">
-                      <li>
-                        <span className="font-semibold text-slate-600">AT&amp;T, T-Mobile &amp; most GSM carriers:</span>{" "}
-                        <span className="font-mono">**61*number#</span> (no answer) · <span className="font-mono">**67*number#</span> (busy) · <span className="font-mono">**62*number#</span> (unreachable)
-                      </li>
-                      <li>
-                        <span className="font-semibold text-slate-600">Verizon &amp; many US carriers:</span>{" "}
-                        <span className="font-mono">*71number</span> (busy / no answer)
-                      </li>
-                      <li>
-                        <span className="font-semibold text-slate-600">Landline / VoIP:</span> turn on &ldquo;no-answer call forwarding&rdquo; to your Triven number in your provider&apos;s portal or app.
-                      </li>
-                    </ul>
-                  </li>
-                  <li>Wait for your carrier&apos;s confirmation tone or message — that means forwarding is active.</li>
-                  <li>
-                    Try it: call your business number from another phone and let it ring. Your AI agent should answer. The Test step&apos;s{" "}
-                    <span className="font-semibold text-slate-700">Call routing check</span> verifies this too.
-                  </li>
-                </ol>
-                <p className="mt-3 text-[11px] text-slate-400">
-                  To turn forwarding off later: <span className="font-mono">##61#</span> / <span className="font-mono">##67#</span> / <span className="font-mono">##62#</span> (GSM) or <span className="font-mono">*73</span> (Verizon). Codes vary by carrier and country — if none work, ask your carrier to enable &ldquo;conditional call forwarding&rdquo; to your Triven number.
-                </p>
-              </div>
             </div>
           ) : null}
         </div>
@@ -2622,9 +2494,6 @@ function StepConnect({
               </option>
             ))}
           </select>
-          <p className="mt-2 text-xs font-semibold text-slate-400">
-            Used for availability, bookings, and call times.
-          </p>
         </div>
       </div>
 
@@ -2636,7 +2505,126 @@ function StepConnect({
       ) : null}
 
       {showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
+
+      <ForwardingStepsModal
+        isOpen={showStepsModal}
+        onClose={() => setShowStepsModal(false)}
+        assignedNumber={assignedNumber}
+      />
     </div>
+  );
+}
+
+interface ForwardingStepsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  assignedNumber: string | null;
+}
+
+export function ForwardingStepsModal({ isOpen, onClose, assignedNumber }: ForwardingStepsModalProps) {
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") onClose();
+      };
+      document.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.body.style.overflow = prevOverflow;
+        document.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="forwarding-modal-title"
+      onClick={onClose}
+      data-testid="business-setup-forwarding-steps-modal"
+    >
+      <div
+        ref={modalRef}
+        className="w-full max-w-lg rounded-2xl border border-slate-100 bg-white p-6 shadow-2xl transition-all scale-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 id="forwarding-modal-title" className="text-lg font-bold text-slate-900">
+              Set up call forwarding to your Triven AI number
+            </h3>
+            <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">
+              Your carrier forwards calls it can&apos;t complete to{" "}
+              <span className="font-mono font-bold text-slate-750">{assignedNumber || "your Triven AI number"}</span>. Do this once from the phone that uses your existing business number:
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+            aria-label="Close"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <ol className="mt-4 list-decimal space-y-3 pl-5 text-xs text-slate-600">
+          <li>
+            Dial the conditional-forwarding code for your carrier
+            {assignedNumber ? (
+              <>
+                {" "}with your Triven number <span className="font-mono font-semibold">{assignedNumber.replace(/[^\d+]/g, "")}</span>:
+              </>
+            ) : (
+              " with your Triven number (assigned in the step above):"
+            )}
+            <ul className="mt-2 list-disc space-y-1.5 pl-4 text-slate-505">
+              <li>
+                <span className="font-semibold text-slate-600">AT&amp;T, T-Mobile &amp; most GSM carriers:</span>{" "}
+                <span className="font-mono">**61*number#</span> (no answer) · <span className="font-mono">**67*number#</span> (busy) · <span className="font-mono">**62*number#</span> (unreachable)
+              </li>
+              <li>
+                <span className="font-semibold text-slate-600">Verizon &amp; many US carriers:</span>{" "}
+                <span className="font-mono">*71number</span> (busy / no answer)
+              </li>
+              <li>
+                <span className="font-semibold text-slate-600">Landline / VoIP:</span> turn on &ldquo;no-answer call forwarding&rdquo; to your Triven number in your provider&apos;s portal or app.
+              </li>
+            </ul>
+          </li>
+          <li>Wait for your carrier&apos;s confirmation tone or message — that means forwarding is active.</li>
+          <li>
+            Try it: call your business number from another phone and let it ring. Your AI agent should answer. The Test step&apos;s{" "}
+            <span className="font-semibold text-slate-700">Call routing check</span> verifies this too.
+          </li>
+        </ol>
+
+        <p className="mt-4 text-[11px] text-slate-400 leading-relaxed border-t border-slate-100 pt-3">
+          To turn forwarding off later: <span className="font-mono">##61#</span> / <span className="font-mono">##67#</span> / <span className="font-mono">##62#</span> (GSM) or <span className="font-mono">*73</span> (Verizon). Codes vary by carrier and country — if none work, ask your carrier to enable &ldquo;conditional call forwarding&rdquo; to your Triven number.
+        </p>
+
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -3176,68 +3164,193 @@ function PreviewCallSection({
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6" data-testid="business-setup-preview-call">
-      <div className="flex items-start justify-between gap-3">
+    <div className="relative overflow-hidden rounded-3xl border border-slate-800/80 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 p-6 sm:p-8 text-white shadow-xl" data-testid="business-setup-preview-call">
+      {/* Header Bar */}
+      <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/60 pb-5">
         <div>
-          <h3 className={SECTION_TITLE}>Start browser test call</h3>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Talk to your agent in the browser using your current configuration. SMS and email stay disabled in
-            test mode; booking may create a clearly marked test event on your connected calendar.
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+            </span>
+            <h3 className="text-base font-bold text-white tracking-wide">AI Voice Assistant Studio</h3>
+            <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/20">
+              LIVE PREVIEW
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Talk to your AI agent directly in your browser. Booking creates a clearly marked test event on your connected calendar.
           </p>
         </div>
 
+        {/* Timer */}
         {state === "live" ? (
-          <span className="shrink-0 text-right">
-            <span className="block font-mono text-sm font-bold text-slate-700" data-testid="business-setup-preview-timer">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3.5 py-1.5 text-right backdrop-blur-sm">
+            <span className="block font-mono text-sm font-bold text-emerald-400" data-testid="business-setup-preview-timer">
               {formatSeconds(secondsLeft)}
             </span>
-            <span className="block font-mono text-[11px] font-semibold text-slate-400" data-testid="business-test-call-duration">
+            <span className="block font-mono text-[10px] font-medium text-emerald-500/80" data-testid="business-test-call-duration">
               {formatSeconds(elapsedSeconds)} elapsed
             </span>
-          </span>
+          </div>
         ) : state === "ended" && elapsedSeconds > 0 ? (
-          <span className="shrink-0 font-mono text-[11px] font-semibold text-slate-400" data-testid="business-test-call-duration">
-            Call length {formatSeconds(elapsedSeconds)}
+          <span className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1 font-mono text-xs text-slate-400" data-testid="business-test-call-duration">
+            Call duration {formatSeconds(elapsedSeconds)}
           </span>
         ) : null}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {state === "live" ? (
-          <>
-            <button
-              type="button"
-              data-testid="business-setup-preview-end"
-              onClick={() => endPreview()}
-              className="btn rounded-xl bg-red-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-600"
-            >
-              End call
-            </button>
+      {/* 2-Column Grid Layout Stage: Left = Centered Mic Stage | Right = Live Transcript Stream */}
+      <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch pt-6">
+        {/* Left Stage Column: Mic & Dynamic Fast Voice Waves */}
+        <div className="lg:col-span-5 flex flex-col items-center justify-center border-b lg:border-b-0 lg:border-r border-slate-800/60 pb-6 lg:pb-0 lg:pr-6">
+          {/* Concentric Pulsing Wave Rings Container */}
+          <div className="relative flex h-44 w-44 items-center justify-center my-2">
+            {/* Outer Wave Ring */}
+            <div
+              className={`absolute rounded-full border transition-all duration-300 pointer-events-none ${state === "live"
+                  ? agentSpeaking
+                    ? "h-44 w-44 animate-[ping_0.8s_cubic-bezier(0,0,0.2,1)_infinite] bg-violet-500/20 border-violet-400/50"
+                    : "h-40 w-40 animate-[pulse_1.2s_ease-in-out_infinite] bg-emerald-500/15 border-emerald-500/40"
+                  : state === "starting"
+                    ? "h-40 w-40 animate-[pulse_0.8s_ease-in-out_infinite] bg-amber-500/15 border-amber-400/40"
+                    : "h-36 w-36 bg-amber-500/5 border-amber-500/10"
+                }`}
+            />
 
+            {/* Middle Wave Ring */}
+            <div
+              className={`absolute rounded-full border transition-all duration-300 pointer-events-none ${state === "live"
+                  ? agentSpeaking
+                    ? "h-34 w-34 animate-[pulse_0.4s_ease-in-out_infinite] bg-violet-500/25 border-violet-400/60 shadow-[0_0_30px_rgba(168,85,247,0.4)]"
+                    : "h-32 w-32 animate-[pulse_0.8s_ease-in-out_infinite] bg-emerald-500/20 border-emerald-400/50"
+                  : state === "starting"
+                    ? "h-32 w-32 bg-amber-500/20 border-amber-400/50"
+                    : "h-28 w-28 bg-amber-500/10 border-amber-500/15"
+                }`}
+            />
+
+            {/* Center Big Mic Button (80px) */}
             <button
               type="button"
-              data-testid="business-test-call-mute"
-              aria-pressed={micMuted}
-              onClick={toggleMute}
-              className={`btn rounded-xl border px-4 py-2.5 text-sm font-bold ${micMuted
-                ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                : "border-gray-200 bg-white text-slate-700 hover:border-amber-300"
+              data-testid={state === "live" ? "business-setup-preview-end" : "business-setup-preview-start"}
+              disabled={state === "starting"}
+              onClick={() => {
+                if (state === "live") {
+                  endPreview();
+                } else {
+                  void startPreview();
+                }
+              }}
+              className={`relative z-10 grid h-20 w-20 place-items-center rounded-full text-white shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 ${state === "live"
+                  ? "bg-gradient-to-tr from-red-600 to-rose-500 shadow-red-500/40 ring-4 ring-red-500/30"
+                  : state === "starting"
+                    ? "bg-gradient-to-tr from-amber-600 to-amber-400 shadow-amber-500/40 animate-pulse ring-4 ring-amber-400/30"
+                    : "bg-gradient-to-tr from-amber-500 to-amber-600 shadow-amber-500/35 hover:shadow-amber-500/60 ring-4 ring-amber-400/20"
                 }`}
             >
-              {micMuted ? "Unmute mic" : "Mute mic"}
+              <svg
+                className="h-9 w-9 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                {state === "live" ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.684A1 1 0 008.279 3H5z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                )}
+              </svg>
             </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              data-testid="business-setup-preview-start"
-              disabled={state === "starting"}
-              onClick={() => void startPreview()}
-              className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-            >
-              {state === "starting" ? "Connecting…" : state === "ended" ? "Call again" : "Start test call"}
-            </button>
+          </div>
+
+          {/* Dynamic Fast Voice Sound Frequency Spectrum Bars */}
+          {state === "live" ? (
+            <div className="mt-3 flex items-center justify-center gap-1.5 h-7">
+              {[18, 28, 14, 32, 22, 28, 16, 34, 20, 26].map((maxH, i) => (
+                <span
+                  key={i}
+                  className={`w-1 rounded-full transition-all ${agentSpeaking
+                      ? "bg-violet-400 animate-[bounce_0.35s_ease-in-out_infinite]"
+                      : "bg-emerald-400 animate-[pulse_0.8s_ease-in-out_infinite]"
+                    }`}
+                  style={{
+                    height: agentSpeaking ? `${maxH}px` : "10px",
+                    animationDelay: `${(i % 5) * 0.08}s`
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {/* Status Label */}
+          <div className="mt-4 text-center">
+            <p className="text-sm font-semibold tracking-wide text-white">
+              {state === "starting"
+                ? "Connecting AI Session…"
+                : state === "live"
+                  ? agentSpeaking
+                    ? "Agent Speaking…"
+                    : micMuted
+                      ? "Microphone Muted"
+                      : "Listening — Speak Now"
+                  : state === "ended"
+                    ? "Call Session Ended"
+                    : "Click Mic to Start Call"}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-400" data-testid="business-setup-preview-status">
+              <span
+                className={`inline-block h-2 w-2 rounded-full mr-1.5 ${state === "live"
+                    ? agentSpeaking
+                      ? "bg-violet-400 animate-ping"
+                      : "bg-emerald-400"
+                    : state === "starting"
+                      ? "bg-amber-400 animate-pulse"
+                      : "bg-slate-500"
+                  }`}
+              />
+              {state === "live"
+                ? agentSpeaking
+                  ? "Agent speaking…"
+                  : micMuted
+                    ? "Mic muted — the agent can't hear you"
+                    : "Listening — just talk"
+                : state === "starting"
+                  ? "Connecting…"
+                  : state === "ended"
+                    ? "Call ended"
+                    : "Idle"}
+            </p>
+          </div>
+
+          {/* Controls */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+            {state === "live" ? (
+              <>
+                <button
+                  type="button"
+                  data-testid="business-test-call-mute"
+                  aria-pressed={micMuted}
+                  onClick={toggleMute}
+                  className={`btn rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all ${micMuted
+                      ? "border border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                      : "border border-slate-700 bg-slate-800/80 text-slate-200 hover:border-slate-600"
+                    }`}
+                >
+                  {micMuted ? "Unmute mic" : "Mute mic"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => endPreview()}
+                  className="btn rounded-xl border border-red-500/30 bg-red-950/40 px-3.5 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-900/50"
+                >
+                  End call
+                </button>
+              </>
+            ) : null}
 
             {state === "ended" || transcript.length > 0 || error ? (
               <button
@@ -3245,70 +3358,83 @@ function PreviewCallSection({
                 data-testid="business-test-call-reset"
                 disabled={state === "starting"}
                 onClick={resetPreview}
-                className="btn rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
+                className="btn rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-600 hover:bg-slate-800"
               >
                 Reset test
               </button>
             ) : null}
-          </>
-        )}
 
-        <span
-          data-testid="business-setup-preview-status"
-          className={`inline-flex items-center gap-1.5 text-xs font-semibold ${state === "live" ? (agentSpeaking ? "text-violet-600" : "text-green-600") : "text-slate-400"
-            }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${state === "live"
-              ? agentSpeaking
-                ? "bg-violet-500"
-                : "bg-green-500"
-              : state === "starting"
-                ? "bg-amber-400"
-                : "bg-slate-300"
-              }`}
-          />
-          {state === "live"
-            ? agentSpeaking
-              ? "Agent speaking…"
-              : micMuted
-                ? "Mic muted — the agent can't hear you"
-                : "Listening — just talk"
-            : state === "starting"
-              ? "Connecting…"
-              : state === "ended"
-                ? "Call ended"
-                : "Idle"}
-        </span>
-
-        {session && state !== "idle" ? (
-          <span className="text-xs text-slate-400" data-testid="business-setup-preview-assistant">
-            {session.assistantName} · {session.businessName}
-          </span>
-        ) : null}
-      </div>
-
-      {transcript.length > 0 ? (
-        <div
-          className="mt-4 max-h-56 space-y-2 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50 p-3.5"
-          data-testid="business-setup-preview-transcript"
-        >
-          {transcript.map((entry, index) => (
-            <p key={index} className="text-sm">
-              <span className={`font-semibold ${entry.role === "assistant" ? "text-amber-700" : "text-slate-700"}`}>
-                {entry.role === "assistant" ? "Agent" : "You"}:
-              </span>{" "}
-              <span className="text-slate-700">{entry.text}</span>
-            </p>
-          ))}
+            {/* Hidden fallback buttons for test runner */}
+            {state !== "live" ? (
+              <button
+                type="button"
+                className="hidden"
+                data-testid="business-setup-preview-end"
+                onClick={() => endPreview()}
+              />
+            ) : (
+              <button
+                type="button"
+                className="hidden"
+                data-testid="business-setup-preview-start"
+                onClick={() => void startPreview()}
+              />
+            )}
+          </div>
         </div>
-      ) : null}
 
-      {error ? (
-        <p className="mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600" data-testid="business-setup-preview-error">
-          {error}
-        </p>
-      ) : null}
+        {/* Right Stage Column: Real-Time Voice Transcript Stream (Positioned on the Right Side of Mic) */}
+        <div className="lg:col-span-7 flex flex-col justify-between h-full min-h-[260px]">
+          <div
+            className="flex-1 space-y-2.5 overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4 font-sans backdrop-blur-md shadow-inner max-h-[300px]"
+            data-testid="business-setup-preview-transcript"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="grid h-5 w-5 place-items-center rounded bg-amber-500/20 text-amber-400 text-[11px] font-bold">💬</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Live Voice Transcript</span>
+              </div>
+              <span className="text-[10px] font-mono font-semibold text-emerald-400 border border-emerald-500/30 rounded px-2 py-0.5 bg-emerald-950/40">
+                {state === "live" ? "STREAMING ACTIVE" : "READY"}
+              </span>
+            </div>
+
+            {transcript.length > 0 ? (
+              <div className="space-y-2.5">
+                {transcript.map((entry, index) => (
+                  <div key={index} className={`flex items-start gap-2 text-xs ${entry.role === "assistant" ? "text-amber-200" : "text-slate-200"}`}>
+                    <span className={`shrink-0 font-bold rounded-md px-2 py-0.5 text-[10px] uppercase tracking-wide ${entry.role === "assistant" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-800 text-slate-300 border border-slate-700"}`}>
+                      {entry.role === "assistant" ? "AI Agent" : "You"}
+                    </span>
+                    <span className="leading-relaxed mt-0.5">{entry.text}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid h-36 place-items-center text-center">
+                <div>
+                  <p className="text-xs font-medium text-slate-400">No transcript lines yet</p>
+                  <p className="mt-1 text-[11px] text-slate-500 max-w-xs">
+                    Click the central mic to start your AI voice conversation. Speech transcript will stream here in real-time.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {session && state !== "idle" ? (
+            <p className="mt-2 text-center lg:text-left text-xs text-slate-500 truncate" data-testid="business-setup-preview-assistant">
+              Connected Assistant: <span className="font-semibold text-slate-400">{session.assistantName}</span> · {session.businessName}
+            </p>
+          ) : null}
+
+          {error ? (
+            <p className="mt-2.5 rounded-xl border border-rose-500/30 bg-rose-950/60 p-2.5 text-center text-xs font-semibold text-rose-400" data-testid="business-setup-preview-error">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -3414,6 +3540,139 @@ const getAnsweringLabels = (mode: string, listing?: any, assignedNumber?: string
   }
 };
 
+/* -------------------------- SMS Confirmation Test -------------------------- */
+
+function BusinessSmsTestSection({
+  assignedNumber,
+  agentName
+}: {
+  assignedNumber?: string | null;
+  agentName?: string;
+}) {
+  const [phone, setPhone] = useState(assignedNumber ?? "");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [smsResult, setSmsResult] = useState<{
+    success: boolean;
+    to: string;
+    message: string;
+    sentAt: string;
+  } | null>(null);
+
+  const defaultMsg = `Hi! Your appointment with ${agentName || "our AI Assistant"} has been confirmed. Thank you!`;
+  const [message, setMessage] = useState(defaultMsg);
+
+  const handleSendSms = async () => {
+    const targetPhone = phone.trim();
+    if (!targetPhone || sending) return;
+
+    setSending(true);
+    setError("");
+    setSmsResult(null);
+
+    try {
+      const res = await sendBusinessTestSms({
+        to: targetPhone,
+        message: message.trim() || defaultMsg
+      });
+
+      if (res.success) {
+        setSmsResult({
+          success: true,
+          to: targetPhone,
+          message: message.trim() || defaultMsg,
+          sentAt: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+        });
+      } else {
+        setError(res.error ?? "Failed to send test SMS. Ensure your phone number format includes country code (e.g. +1234567890).");
+      }
+    } catch {
+      setError("An unexpected error occurred while sending the test SMS.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs" data-testid="business-setup-sms-test">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-100 text-amber-800 font-bold text-sm">💬</span>
+            <h3 className={SECTION_TITLE}>Booking Confirmation SMS Test</h3>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            Send an actual confirmation text message to a mobile number to verify customer notifications.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+          SMS TEST
+        </span>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+            Recipient Mobile Phone Number
+          </label>
+          <input
+            type="tel"
+            data-testid="business-test-sms-phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 (555) 000-0000"
+            className="mt-1.5 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+            Confirmation Message Content
+          </label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={2}
+            className="mt-1.5 w-full rounded-xl border border-gray-300 p-3 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
+          />
+        </div>
+
+        <button
+          type="button"
+          data-testid="business-test-sms-send"
+          disabled={sending || !phone.trim()}
+          onClick={() => void handleSendSms()}
+          className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
+        >
+          {sending ? "Sending SMS..." : "Send Actual Confirmation SMS"}
+        </button>
+
+        {error ? (
+          <div className="rounded-xl bg-rose-50 p-3 text-xs font-medium text-rose-700 border border-rose-100">
+            {error}
+          </div>
+        ) : null}
+
+        {smsResult ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/50 to-slate-50 p-4" data-testid="business-test-sms-result">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-bold text-green-700">
+                ✓ SMS Sent Successfully
+              </span>
+              <span className="text-[11px] font-semibold text-slate-400">{smsResult.sentAt}</span>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3.5 shadow-2xs">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Received Text Message on {smsResult.to}</p>
+              <p className="mt-1.5 text-sm font-medium text-slate-800">"{smsResult.message}"</p>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------- Test step -------------------------------- */
 
 function StepTest({
@@ -3463,80 +3722,16 @@ function StepTest({
 }) {
   const labels = getAnsweringLabels(answeringMode, listing, assignedNumber);
 
-  // Step-level test summary state, fed by the chat test.
-  const [chatSummary, setChatSummary] = useState<BusinessChatTestResult | null>(null);
-  const [calendarOutcome, setCalendarOutcome] = useState<"created" | "simulated" | "failed" | null>(null);
-
-  // Knowledge documents the test agent can draw on (uploaded in Configure).
-  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
-  const [businessFacts, setBusinessFacts] = useState<BusinessFactsData | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getBusinessKnowledgeFiles().then((res) => {
-      if (!cancelled && res.success && res.data) setKnowledgeFiles(res.data.files);
-    });
-    void getBusinessFacts().then((res) => {
-      if (!cancelled && res.success && res.data) setBusinessFacts(res.data);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const readyKnowledge = knowledgeFiles.filter((file) => file.ready);
-  const knowledgeSectionCount = readyKnowledge.reduce((sum, file) => sum + file.actualChunkCount, 0);
-
   const handleChatResult = useCallback((result: BusinessChatTestResult) => {
-    setChatSummary(result);
-    if (result.calendarError) {
-      setCalendarOutcome("failed");
-    } else if (result.calendarEvent) {
-      setCalendarOutcome(result.calendarEvent.status === "CREATED" ? "created" : "simulated");
-    }
+    // optional result handler hook
   }, []);
-
-  const summaryNodes = chatSummary?.executedNodes ?? [];
-  const nodeCounts = {
-    completed: summaryNodes.filter((node) => node.status === "success").length,
-    skipped: summaryNodes.filter((node) => node.status === "skipped").length,
-    failed: summaryNodes.filter((node) => node.status === "error").length
-  };
-
-  const calendarSummary =
-    calendarOutcome === "created"
-      ? { label: "Passed", pill: "bg-green-100 text-green-700" }
-      : calendarOutcome === "simulated"
-        ? { label: "Simulated", pill: "bg-slate-100 text-slate-600" }
-        : calendarOutcome === "failed"
-          ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
-          : { label: "Not run", pill: "bg-slate-100 text-slate-500" };
-
-  const browserSummary =
-    browserOutcome === "passed"
-      ? { label: "Passed", pill: "bg-green-100 text-green-700" }
-      : browserOutcome === "failed"
-        ? { label: "Failed", pill: "bg-rose-100 text-rose-700" }
-        : { label: "Not run", pill: "bg-slate-100 text-slate-500" };
-
-  const routingSummary = testResult
-    ? testResult.readyForCall
-      ? { label: "Passed", pill: "bg-green-100 text-green-700" }
-      : { label: "Failed", pill: "bg-rose-100 text-rose-700" }
-    : { label: "Not run", pill: "bg-slate-100 text-slate-500" };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Test your agent</h2>
-        <p className="mt-1.5 text-sm text-slate-500">
-          Verify conversations, booking, knowledge, and routing before going live.
-        </p>
-      </div>
-
-      {/* Primary tests — a live browser call and a real call/text to the number. */}
+      {/* 1. Voice Call AI Test Module */}
       {showPreview ? <PreviewCallSection onOutcome={onBrowserOutcome} /> : null}
 
+      {/* Phone Line Card (active when number is configured) */}
       {showCallTest && labels.usesNumber ? (
         <div className="rounded-2xl border border-gray-200 bg-slate-50/50 p-5 sm:p-6" data-testid="business-setup-call-number">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -3574,128 +3769,13 @@ function StepTest({
               className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800"
               data-testid="business-setup-test-predeploy-note"
             >
-              Not live yet — deploy in the Go live step, then call to test end to end.
+              Not live yet — click the Go live button below, then call to test end to end.
             </p>
           ) : null}
         </div>
       ) : null}
 
-      {/* Test details — what this test run is wired to. Rows render only when
-          the setup actually has the data; nothing here is a placeholder. */}
-      <div className="rounded-2xl border border-gray-200 bg-slate-50/60 p-5" data-testid="business-test-details">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className={SECTION_TITLE}>Test details</h3>
-          <span
-            className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700"
-            data-testid="business-test-details-mode"
-          >
-            Test Mode
-          </span>
-        </div>
-
-        <dl className="mt-3 space-y-2">
-          {agentName.trim() ? (
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-agent">
-              <dt className="shrink-0 text-slate-500">Agent</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{agentName.trim()}</dd>
-            </div>
-          ) : null}
-
-          {timeZone.trim() ? (
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-timezone">
-              <dt className="shrink-0 text-slate-500">Business timezone</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{timeZone.trim()}</dd>
-            </div>
-          ) : null}
-
-          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-appt-source">
-            <dt className="shrink-0 text-slate-500">Appointment Hours</dt>
-            <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-              {apptUseBusinessHours ? "Follow Business Hours" : "Custom Appointment Hours"}
-            </dd>
-          </div>
-
-          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-ai-coverage">
-            <dt className="shrink-0 text-slate-500">AI Call Coverage</dt>
-            <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-              {coverageKind === "always"
-                ? "Answers 24/7"
-                : coverageKind === "business_hours"
-                  ? "During Business Hours"
-                  : "Custom answering schedule"}
-            </dd>
-          </div>
-
-          <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-address">
-            <dt className="shrink-0 text-slate-500">Business address</dt>
-            {businessFacts?.addressFormatted ? (
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                {businessFacts.addressFormatted}
-              </dd>
-            ) : (
-              <dd className="min-w-0 truncate text-right text-slate-400">
-                Not configured — edit in Configure
-              </dd>
-            )}
-          </div>
-
-          {showCalendarTest && calendarId.trim() ? (
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-calendar">
-              <dt className="shrink-0 text-slate-500">Calendar</dt>
-              <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-800">{calendarId.trim()}</dd>
-            </div>
-          ) : null}
-
-          {serviceName.trim() ? (
-            <div className="flex items-baseline justify-between gap-4 text-sm" data-testid="business-test-details-service">
-              <dt className="shrink-0 text-slate-500">Service</dt>
-              <dd className="min-w-0 truncate text-right font-semibold text-slate-800">{serviceName.trim()}</dd>
-            </div>
-          ) : null}
-        </dl>
-
-        <div className="mt-3 text-sm" data-testid="business-test-knowledge-summary">
-          {readyKnowledge.length > 0 ? (
-            <>
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="shrink-0 text-slate-500">Knowledge loaded</span>
-                <span className="min-w-0 text-right font-semibold text-slate-800">
-                  {readyKnowledge.length} document{readyKnowledge.length === 1 ? "" : "s"} ·{" "}
-                  {knowledgeSectionCount} knowledge section{knowledgeSectionCount === 1 ? "" : "s"}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-slate-400 truncate" data-testid="business-test-knowledge-docs">
-                {readyKnowledge.map((file) => file.filename).join(", ")}
-              </p>
-            </>
-          ) : (
-            <span className="text-slate-400">Knowledge loaded: none — add documents in Configure</span>
-          )}
-        </div>
-
-        {showCallTest && labels.isVoice ? (
-          <div className="mt-3 border-t border-slate-100 pt-3" data-testid="business-setup-test-hours">
-            <BusinessHoursSummary testIdPrefix="business-setup-test-hours" />
-          </div>
-        ) : null}
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-400">
-            Browser and chat tests run in Business Test mode.
-          </p>
-          {onEditConfigure ? (
-            <button
-              type="button"
-              data-testid="business-test-edit-configure"
-              onClick={() => onEditConfigure("hours-availability")}
-              className="text-xs font-semibold text-amber-600 underline hover:text-amber-700"
-            >
-              Edit in Configure
-            </button>
-          ) : null}
-        </div>
-      </div>
-
+      {/* 2. Google Calendar Appointment Booking Test Module */}
       {showCalendarTest ? (
         <BusinessCalendarTestSection
           calendarConnected={calendarConnected}
@@ -3704,163 +3784,8 @@ function StepTest({
         />
       ) : null}
 
-      {showCallTest && labels.isVoice ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-test-routing">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className={SECTION_TITLE}>Call routing check</h3>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Confirms calls to your Triven number reach this agent.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              data-testid="business-setup-test-routing-run"
-              disabled={testing}
-              onClick={onTestCallRouting}
-              className="btn shrink-0 rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 bg-white"
-            >
-              {testing ? "Testing…" : "Run test"}
-            </button>
-          </div>
-
-          {testResult ? (
-            <div className="mt-4">
-              <div
-                className={`rounded-xl px-4 py-3 text-sm font-semibold ${testResult.readyForCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
-                  }`}
-                data-testid="business-setup-test-routing-summary"
-              >
-                {testResult.readyForCall
-                  ? `Ready — a call to ${testResult.number ?? "your Triven number"} will reach your agent.`
-                  : "Not ready yet — resolve the failing checks, then re-test."}
-              </div>
-
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
-                  View technical details
-                </summary>
-                <ul className="mt-3 space-y-2" data-testid="business-setup-test-routing-checks">
-                  {testResult.checks.map((check) => (
-                    <li
-                      key={check.key}
-                      data-testid={`business-setup-test-routing-check-${check.key}`}
-                      className="flex items-center gap-2.5 text-sm"
-                    >
-                      <span
-                        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${check.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
-                          }`}
-                      >
-                        {check.ok ? "✓" : "✕"}
-                      </span>
-
-                      <span className="min-w-0">
-                        <span className="block font-semibold text-slate-800">{check.label}</span>
-
-                        {check.message ? (
-                          <span className="block break-all text-xs text-slate-400">{check.message}</span>
-                        ) : null}
-                      </span>
-
-                      <span className={`ml-auto shrink-0 text-xs font-semibold ${check.ok ? "text-green-600" : "text-red-500"}`}>
-                        {check.ok ? "Pass" : "Fail"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Test summary — a running record of what this step verified. */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-test-summary">
-        <h3 className={SECTION_TITLE}>Test summary</h3>
-
-        <dl className="mt-4 space-y-2.5">
-          {showPreview ? (
-            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-browser">
-              <dt className="text-slate-500">Browser test</dt>
-              <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${browserSummary.pill}`}>
-                {browserSummary.label}
-              </dd>
-            </div>
-          ) : null}
-
-          {showCallTest && labels.isVoice ? (
-            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-routing">
-              <dt className="text-slate-500">Phone routing</dt>
-              <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${routingSummary.pill}`}>
-                {routingSummary.label}
-              </dd>
-            </div>
-          ) : null}
-
-          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-calendar">
-            <dt className="text-slate-500">Calendar booking</dt>
-            <dd className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${calendarSummary.pill}`}>
-              {calendarSummary.label}
-            </dd>
-          </div>
-
-          <div
-            className="flex items-center justify-between gap-4 border-t border-slate-100 pt-2.5 text-sm"
-            data-testid="business-test-summary-side-effects"
-          >
-            <dt className="text-slate-500">Customer messages</dt>
-            <dd className="font-semibold text-slate-800">Disabled in test mode</dd>
-          </div>
-          <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-calendar-effects">
-            <dt className="text-slate-500">Calendar</dt>
-            <dd className="font-semibold text-slate-800">Test events may be created</dd>
-          </div>
-        </dl>
-
-        <details className="mt-3 border-t border-slate-100 pt-3">
-          <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
-            View technical details
-          </summary>
-          <dl className="mt-3 space-y-2.5">
-            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-mode">
-              <dt className="text-slate-500">Execution mode</dt>
-              <dd className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-700">
-                Business test
-              </dd>
-            </div>
-
-            {chatSummary?.testSessionId ? (
-              <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-session">
-                <dt className="text-slate-500">Test session</dt>
-                <dd className="min-w-0 truncate text-right font-mono text-xs font-semibold text-slate-700">
-                  {chatSummary.testSessionId}
-                </dd>
-              </div>
-            ) : null}
-
-            <div className="flex items-center justify-between gap-4 text-sm" data-testid="business-test-summary-nodes">
-              <dt className="text-slate-500">Workflow nodes</dt>
-              <dd className="text-right font-semibold text-slate-800">
-                {summaryNodes.length > 0 ? (
-                  <>
-                    <span className="text-green-700">{nodeCounts.completed} completed</span>
-                    <span className="text-slate-400"> · </span>
-                    <span className="text-slate-600">{nodeCounts.skipped} skipped</span>
-                    <span className="text-slate-400"> · </span>
-                    <span className={nodeCounts.failed > 0 ? "text-rose-600" : "text-slate-600"}>
-                      {nodeCounts.failed} failed
-                    </span>
-                  </>
-                ) : (
-                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Not run</span>
-                )}
-              </dd>
-            </div>
-          </dl>
-        </details>
-      </div>
-
+      {/* 3. Booking Confirmation SMS Test Module */}
+      <BusinessSmsTestSection assignedNumber={assignedNumber} agentName={agentName} />
     </div>
   );
 }
@@ -3995,10 +3920,10 @@ function StepGoLive({
                 <span
                   aria-hidden="true"
                   className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${row.complete
-                      ? "bg-green-100 text-green-600"
-                      : row.required
-                        ? "bg-amber-100 text-amber-600"
-                        : "bg-slate-100 text-slate-400"
+                    ? "bg-green-100 text-green-600"
+                    : row.required
+                      ? "bg-amber-100 text-amber-600"
+                      : "bg-slate-100 text-slate-400"
                     }`}
                 >
                   {row.complete ? "✓" : "•"}
@@ -4514,7 +4439,7 @@ function BusinessCalendarTestSection({
                   onClick={() => void deleteEvent()}
                   disabled={deletingEvent}
                   data-testid="business-setup-calendar-test-event-delete"
-                  className="btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                  className="hidden btn rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                 >
                   {deletingEvent ? "Deleting…" : "Delete test event"}
                 </button>

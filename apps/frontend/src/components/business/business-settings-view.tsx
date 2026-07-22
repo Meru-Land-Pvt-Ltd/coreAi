@@ -732,11 +732,13 @@ function addressDraftFromFacts(facts: BusinessFactsData | null): BusinessAddress
 export function BusinessAddressSection({
   embedded = false,
   onDirtyChange,
+  onAddressValidChange,
   registerApi,
   refreshToken
 }: {
   embedded?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  onAddressValidChange?: (valid: boolean) => void;
   registerApi?: (api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null) => void;
 
   refreshToken?: number;
@@ -751,6 +753,18 @@ export function BusinessAddressSection({
   const [savedOk, setSavedOk] = useState(false);
   const [syncWarning, setSyncWarning] = useState(false);
   const [dirty, setDirty] = useState(false);
+
+  const isAddressValid = useMemo(() => {
+    const hasAnyDraftField = Object.values(draft).some((val) => val.trim().length > 0);
+    if (!hasAnyDraftField) {
+      return Boolean(facts?.address?.line1?.trim() && facts?.address?.city?.trim());
+    }
+    return Boolean(draft.line1.trim().length > 0 && draft.city.trim().length > 0);
+  }, [draft, facts]);
+
+  useEffect(() => {
+    onAddressValidChange?.(isAddressValid);
+  }, [isAddressValid, onAddressValidChange]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -906,12 +920,6 @@ export function BusinessAddressSection({
     <div data-testid="business-address-section">
       <div className="flex flex-wrap items-center gap-3">
         <h3 className="text-sm font-bold text-slate-900">Business address</h3>
-        <span
-          data-testid="business-address-status"
-          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${status.cls}`}
-        >
-          {status.label}
-        </span>
       </div>
       <p className="mt-1 text-sm text-slate-500">
         Your agent shares this address with callers who ask where you are.
@@ -956,100 +964,113 @@ export function BusinessAddressSection({
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <label htmlFor="business-address-line1" className={ADDRESS_LABEL_CLASS}>
-            Address line 1 <span className="text-rose-500">*</span>
-          </label>
-          <input
-            id="business-address-line1"
-            data-testid="business-address-line1"
-            value={draft.line1}
-            onChange={(e) => setAddressField("line1", e.target.value)}
-            placeholder="123 Main Street"
-            className={ADDRESS_FIELD_CLASS}
-          />
-          {fieldErrors.line1 ? <p className="mt-1.5 text-xs font-semibold text-rose-600">{fieldErrors.line1}</p> : null}
+      <div className="mt-4 space-y-4">
+        {/* Address line 1 & line 2 in one line */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="business-address-line1" className={ADDRESS_LABEL_CLASS}>
+              Address line 1 <span className="text-rose-500">*</span>
+            </label>
+            <input
+              id="business-address-line1"
+              data-testid="business-address-line1"
+              value={draft.line1}
+              onChange={(e) => setAddressField("line1", e.target.value)}
+              placeholder="123 Main Street"
+              className={ADDRESS_FIELD_CLASS}
+            />
+            {fieldErrors.line1 ? <p className="mt-1.5 text-xs font-semibold text-rose-600">{fieldErrors.line1}</p> : null}
+          </div>
+          <div>
+            <label htmlFor="business-address-line2" className={ADDRESS_LABEL_CLASS}>
+              Address line 2
+            </label>
+            <input
+              id="business-address-line2"
+              data-testid="business-address-line2"
+              value={draft.line2}
+              onChange={(e) => setAddressField("line2", e.target.value)}
+              placeholder="Suite 200"
+              className={ADDRESS_FIELD_CLASS}
+            />
+          </div>
         </div>
-        <div className="sm:col-span-2">
-          <label htmlFor="business-address-line2" className={ADDRESS_LABEL_CLASS}>
-            Address line 2
-          </label>
-          <input
-            id="business-address-line2"
-            data-testid="business-address-line2"
-            value={draft.line2}
-            onChange={(e) => setAddressField("line2", e.target.value)}
-            placeholder="Suite 200"
-            className={ADDRESS_FIELD_CLASS}
-          />
-        </div>
-        <div>
-          <label htmlFor="business-address-city" className={ADDRESS_LABEL_CLASS}>
-            City <span className="text-rose-500">*</span>
-          </label>
-          <input
-            id="business-address-city"
-            data-testid="business-address-city"
-            value={draft.city}
-            onChange={(e) => setAddressField("city", e.target.value)}
-            className={ADDRESS_FIELD_CLASS}
-          />
-          {fieldErrors.city ? <p className="mt-1.5 text-xs font-semibold text-rose-600">{fieldErrors.city}</p> : null}
-        </div>
-        <div>
-          <label htmlFor="business-address-state" className={ADDRESS_LABEL_CLASS}>
-            State/Province
-          </label>
-          <input
-            id="business-address-state"
-            data-testid="business-address-state"
-            value={draft.state}
-            onChange={(e) => setAddressField("state", e.target.value)}
-            className={ADDRESS_FIELD_CLASS}
-          />
-        </div>
-        <div>
-          <label htmlFor="business-address-postal" className={ADDRESS_LABEL_CLASS}>
-            Postal code
-          </label>
-          <input
-            id="business-address-postal"
-            data-testid="business-address-postal"
-            value={draft.postalCode}
-            onChange={(e) => setAddressField("postalCode", e.target.value)}
-            className={ADDRESS_FIELD_CLASS}
-          />
-        </div>
-        <div>
-          <label htmlFor="business-address-country" className={ADDRESS_LABEL_CLASS}>
-            Country
-          </label>
-          <input
-            id="business-address-country"
-            data-testid="business-address-country"
-            value={draft.country}
-            onChange={(e) => setAddressField("country", e.target.value)}
-            className={ADDRESS_FIELD_CLASS}
-          />
+
+        {/* City, State, Country in one line */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label htmlFor="business-address-city" className={ADDRESS_LABEL_CLASS}>
+              City <span className="text-rose-500">*</span>
+            </label>
+            <input
+              id="business-address-city"
+              data-testid="business-address-city"
+              value={draft.city}
+              onChange={(e) => setAddressField("city", e.target.value)}
+              className={ADDRESS_FIELD_CLASS}
+            />
+            {fieldErrors.city ? <p className="mt-1.5 text-xs font-semibold text-rose-600">{fieldErrors.city}</p> : null}
+          </div>
+          <div>
+            <label htmlFor="business-address-state" className={ADDRESS_LABEL_CLASS}>
+              State/Province
+            </label>
+            <input
+              id="business-address-state"
+              data-testid="business-address-state"
+              value={draft.state}
+              onChange={(e) => setAddressField("state", e.target.value)}
+              className={ADDRESS_FIELD_CLASS}
+            />
+          </div>
+          <div>
+            <label htmlFor="business-address-country" className={ADDRESS_LABEL_CLASS}>
+              Country
+            </label>
+            <input
+              id="business-address-country"
+              data-testid="business-address-country"
+              value={draft.country}
+              onChange={(e) => setAddressField("country", e.target.value)}
+              className={ADDRESS_FIELD_CLASS}
+            />
+          </div>
         </div>
         {fieldErrors.statePostal ? (
-          <p className="sm:col-span-2 -mt-3 text-xs font-semibold text-rose-600">{fieldErrors.statePostal}</p>
+          <p className="-mt-2 text-xs font-semibold text-rose-600">{fieldErrors.statePostal}</p>
         ) : null}
-        <div className="sm:col-span-2">
-          <label htmlFor="business-address-landmark" className={ADDRESS_LABEL_CLASS}>
-            Landmark
-          </label>
-          <input
-            id="business-address-landmark"
-            data-testid="business-address-landmark"
-            value={draft.landmark}
-            onChange={(e) => setAddressField("landmark", e.target.value)}
-            placeholder="Next to the Central Park pharmacy"
-            className={ADDRESS_FIELD_CLASS}
-          />
+
+        {/* Postal Code and Landmark in one line */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="business-address-postal" className={ADDRESS_LABEL_CLASS}>
+              Postal code
+            </label>
+            <input
+              id="business-address-postal"
+              data-testid="business-address-postal"
+              value={draft.postalCode}
+              onChange={(e) => setAddressField("postalCode", e.target.value)}
+              className={ADDRESS_FIELD_CLASS}
+            />
+          </div>
+          <div>
+            <label htmlFor="business-address-landmark" className={ADDRESS_LABEL_CLASS}>
+              Landmark
+            </label>
+            <input
+              id="business-address-landmark"
+              data-testid="business-address-landmark"
+              value={draft.landmark}
+              onChange={(e) => setAddressField("landmark", e.target.value)}
+              placeholder="Next to the Central Park pharmacy"
+              className={ADDRESS_FIELD_CLASS}
+            />
+          </div>
         </div>
-        <div className="sm:col-span-2">
+
+        {/* Directions (increased 1 row to rows={3}) */}
+        <div>
           <label htmlFor="business-address-directions" className={ADDRESS_LABEL_CLASS}>
             Directions
           </label>
@@ -1058,12 +1079,14 @@ export function BusinessAddressSection({
             data-testid="business-address-directions"
             value={draft.directions}
             onChange={(e) => setAddressField("directions", e.target.value)}
-            rows={2}
+            rows={3}
             placeholder="Parking is behind the building; use the side entrance."
             className={ADDRESS_FIELD_CLASS}
           />
         </div>
-        <div className="sm:col-span-2">
+
+        {/* Google Maps link */}
+        <div>
           <label htmlFor="business-address-maps" className={ADDRESS_LABEL_CLASS}>
             Google Maps link
           </label>

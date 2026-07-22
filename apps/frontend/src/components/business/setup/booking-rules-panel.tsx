@@ -33,7 +33,7 @@ export function validateBookingRules(values: BookingRulesValues): BookingRulesVa
     }
   }
 
-let intervalConflict: BookingRulesValidation["intervalConflict"] = null;
+  let intervalConflict: BookingRulesValidation["intervalConflict"] = null;
   if (!errors.defaultDurationMinutes && !errors.bufferMinutes && !errors.slotIntervalMinutes) {
     const occupiedMinutes = values.defaultDurationMinutes + values.bufferMinutes;
     if (values.slotIntervalMinutes < occupiedMinutes) {
@@ -58,50 +58,43 @@ const RULE_FIELDS: {
   key: ApptNumberField;
   label: string;
   unit: string;
-  help: string;
 }[] = [
   {
     key: "defaultDurationMinutes",
-    label: "Appointment duration",
-    unit: "minutes",
-    help: "How long the actual appointment lasts."
+    label: "Duration",
+    unit: "mins"
   },
   {
     key: "bufferMinutes",
-    label: "Buffer after appointment",
-    unit: "minutes",
-    help: "Reserved time after an appointment."
+    label: "Buffer Time",
+    unit: "mins"
   },
   {
     key: "slotIntervalMinutes",
-    label: "Available start times every",
-    unit: "minutes",
-    help: "How frequently potential start times are generated."
+    label: "Slot Interval",
+    unit: "mins"
   },
   {
     key: "minNoticeMinutes",
-    label: "Minimum booking notice",
-    unit: "minutes",
-    help: "How soon the next appointment may begin."
+    label: "Min Notice",
+    unit: "mins"
   },
   {
     key: "maxAdvanceDays",
-    label: "Booking window",
-    unit: "days ahead",
-    help: "How far in advance customers can book."
+    label: "Max Advance",
+    unit: "days"
   },
   {
     key: "maxSpokenSuggestions",
-    label: "Suggestions per call",
-    unit: "times",
-    help: "Available times the agent offers in one response (2\u201310)."
+    label: "Slots Offered / Call",
+    unit: "max"
   }
 ];
 
 const PRESETS: { label: string; duration: number; interval: number }[] = [
-  { label: "30 min appointment", duration: 30, interval: 30 },
-  { label: "45 min appointment", duration: 45, interval: 45 },
-  { label: "60 min appointment", duration: 60, interval: 60 }
+  { label: "30 min", duration: 30, interval: 30 },
+  { label: "45 min", duration: 45, interval: 45 },
+  { label: "60 min", duration: 60, interval: 60 }
 ];
 
 export function BookingRulesPanel({
@@ -126,7 +119,7 @@ export function BookingRulesPanel({
   const previewNextStart = addMinutesLabel(9, 0, Math.max(values.slotIntervalMinutes || 0, 0));
 
   function applyPreset(preset: (typeof PRESETS)[number]) {
-onField("defaultDurationMinutes", preset.duration);
+    onField("defaultDurationMinutes", preset.duration);
     onField("slotIntervalMinutes", Math.max(preset.interval, preset.duration + (values.bufferMinutes || 0)));
   }
 
@@ -134,31 +127,17 @@ onField("defaultDurationMinutes", preset.duration);
     <div className="mt-3 rounded-xl border border-gray-100 bg-white p-4" data-testid="business-setup-booking-rules">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Booking rules</p>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Booking rule presets">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              data-testid={`business-setup-booking-preset-${preset.duration}`}
-              onClick={() => applyPreset(preset)}
-              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-amber-300 hover:bg-amber-50"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-        {RULE_FIELDS.map(({ key, label, unit, help }) => {
+      <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {RULE_FIELDS.map(({ key, label, unit }) => {
           const fieldError = errors[key];
           const inputId = `appt-${key}`;
-          const helpId = `${baseId}-${key}-help`;
           const errorId = `${baseId}-${key}-error`;
 
           return (
-            <div key={key}>
-              <label htmlFor={inputId} className="mb-1 block text-xs font-medium text-slate-600">
+            <div key={key} className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5">
+              <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-slate-700">
                 {label}
               </label>
               <div className="flex items-center gap-2">
@@ -173,20 +152,17 @@ onField("defaultDurationMinutes", preset.duration);
                     const parsed = Number(e.target.value);
                     onField(key, e.target.value === "" || !Number.isFinite(parsed) ? Number.NaN : parsed);
                   }}
-                  aria-describedby={fieldError ? errorId : helpId}
+                  aria-describedby={fieldError ? errorId : undefined}
                   aria-invalid={fieldError ? true : undefined}
                   data-testid={`business-setup-appt-field-${key}`}
-                  className={`field w-24 rounded-lg border bg-white px-3 py-2 text-sm tabular-nums text-slate-800 outline-none ${
+                  className={`field w-full rounded-lg border bg-white px-2.5 py-1 text-xs tabular-nums text-slate-800 outline-none transition focus:border-amber-500 ${
                     fieldError ? "border-rose-300 bg-rose-50/40" : "border-gray-200"
                   }`}
                 />
-                <span className="text-xs text-slate-500">{unit}</span>
+                <span className="shrink-0 text-xs font-medium text-slate-500">{unit}</span>
               </div>
-              <p id={helpId} className="mt-1 text-xs text-slate-400">
-                {help}
-              </p>
               {fieldError && key !== "slotIntervalMinutes" ? (
-                <p id={errorId} role="alert" className="mt-1 text-xs font-semibold text-rose-600">
+                <p id={errorId} role="alert" className="mt-1 text-[11px] font-semibold text-rose-600">
                   {fieldError}
                 </p>
               ) : null}
@@ -225,27 +201,6 @@ onField("defaultDurationMinutes", preset.duration);
           {errors.slotIntervalMinutes}
         </p>
       ) : null}
-
-      <div className="mt-3 rounded-lg bg-slate-50 px-3.5 py-2.5" data-testid="business-setup-booking-preview">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Example schedule</p>
-        <ul className="mt-1 space-y-0.5 text-xs tabular-nums text-slate-600">
-          <li>9:00 appointment</li>
-          <li>{previewApptEnd} appointment ends</li>
-          <li>{previewBufferEnd} buffer ends</li>
-          <li>Next start: {previewNextStart}</li>
-        </ul>
-      </div>
-
-      <label className="mt-4 flex flex-wrap items-center gap-2 text-sm font-medium text-slate-700">
-        <input
-          type="checkbox"
-          checked={confirmed}
-          onChange={(e) => onConfirmed(e.target.checked)}
-          data-testid="business-setup-appt-confirm"
-          className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
-        />
-        I have reviewed these booking rules
-      </label>
     </div>
   );
 }

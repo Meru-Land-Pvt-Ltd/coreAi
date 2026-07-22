@@ -309,6 +309,31 @@ describe("PhoneNumberSelectionSection", () => {
     expect(review.textContent?.toLowerCase()).not.toContain("twilio");
     expect(review.textContent).toContain("Included with your Triven AI setup");
   });
+
+  it("shows a clean informative error banner when no countries are available", async () => {
+    vi.mocked(getPhoneCountries).mockResolvedValue({
+      success: true,
+      data: { countries: [], note: "" }
+    } as never);
+
+    render(<PhoneNumberSelectionSection installedAgentId={null} onProvisioned={vi.fn()} />);
+
+    const errorBox = await screen.findByTestId("business-setup-phone-locations-error");
+    expect(errorBox.textContent).toContain("No countries available");
+    expect(screen.getByTestId("business-setup-phone-locations-retry")).toBeTruthy();
+  });
+
+  it("normalizes missing API credentials or configuration errors into clear user-friendly messages", async () => {
+    vi.mocked(getPhoneCountries).mockResolvedValue({
+      success: false,
+      error: "Twilio API key missing in environment configuration"
+    } as never);
+
+    render(<PhoneNumberSelectionSection installedAgentId={null} onProvisioned={vi.fn()} />);
+
+    const errorBox = await screen.findByTestId("business-setup-phone-locations-error");
+    expect(errorBox.textContent).toContain("Phone service is unconfigured or missing API credentials.");
+  });
 });
 
 describe("existing assignment (one number only)", () => {

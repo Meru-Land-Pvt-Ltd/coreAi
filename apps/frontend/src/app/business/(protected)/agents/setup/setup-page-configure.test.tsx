@@ -474,23 +474,22 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.queryByTestId("business-hours-save")).toBeNull();
   });
 
-  it("the Go-live step shows the same read-only review with an Edit link back to Configure", async () => {
+  it("the Go-live step shows the final success screen with capabilities and Edit setup button", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
     await user.click(screen.getByTestId("business-setup-dot-4"));
 
-    const review = await screen.findByTestId("business-setup-golive-review");
-    expect(within(review).getByTestId("business-setup-golive-appt-source").textContent).toContain(
-      "Follow Business Hours"
-    );
-    expect(within(review).getByTestId("business-setup-golive-ai-coverage").textContent).toContain("24/7");
-    expect(within(review).queryByTestId("business-hours-open-toggle-monday")).toBeNull();
+    expect(await screen.findByTestId("business-setup-success")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-success-title").textContent).toBeTruthy();
+    expect(screen.getByTestId("business-setup-success-capabilities")).toBeTruthy();
 
-    // Edit returns to the Configure step with the hours section open.
-    await user.click(within(review).getByTestId("business-setup-golive-edit"));
-    await screen.findByTestId("business-setup-configure");
-    expect(screen.getByTestId("business-hours-section")).toBeTruthy();
+    // Click "Edit setup" button on the success screen
+    const editBtn = screen.getByRole("button", { name: /edit setup/i });
+    await user.click(editBtn);
+
+    // Verify it returns to the Test step (step 3)
+    expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
   });
 
   it("Configure shows a read-only timezone note pointing at Connect — never a second selector", async () => {

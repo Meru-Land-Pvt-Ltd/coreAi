@@ -15,6 +15,86 @@ import {
   type PhoneStateOption
 } from "@/components/business/features/api";
 
+function parsePhoneError(rawError: string | null | undefined, defaultFallback = "Unable to process request"): string {
+  if (!rawError) return defaultFallback;
+
+  const lower = rawError.toLowerCase();
+
+  if (
+    lower.includes("twilio") ||
+    lower.includes("api key") ||
+    lower.includes("credentials") ||
+    lower.includes("unconfigured") ||
+    lower.includes("account sid") ||
+    lower.includes("missing api")
+  ) {
+    return "Phone service is unconfigured or missing API credentials.";
+  }
+
+  if (
+    lower.includes("network") ||
+    lower.includes("fetch") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("econnrefused") ||
+    lower.includes("timeout")
+  ) {
+    return "Connection failed. Please check network and retry.";
+  }
+
+  if (
+    lower.includes("500") ||
+    lower.includes("502") ||
+    lower.includes("503") ||
+    lower.includes("internal server error")
+  ) {
+    return "Temporary server error. Please retry shortly.";
+  }
+
+  if (lower.includes("no available countries") || lower.includes("no locations")) {
+    return "No countries available for phone assignment right now.";
+  }
+
+  return rawError.length > 80 ? rawError.slice(0, 80) + "…" : rawError;
+}
+
+function PhoneErrorBanner({
+  message,
+  testId,
+  retryTestId,
+  onRetry
+}: {
+  message: string;
+  testId?: string;
+  retryTestId?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      data-testid={testId}
+      className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-rose-200/80 bg-rose-50/60 px-3 py-2 text-xs transition-all"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0 text-rose-500">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <span className="truncate font-medium text-rose-700">{message}</span>
+      </div>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          data-testid={retryTestId}
+          className="shrink-0 font-semibold text-rose-700 underline decoration-rose-300 underline-offset-2 transition hover:text-rose-900 focus:outline-none"
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function PhoneNumberSelectionSection({
   installedAgentId,
   listingId,
@@ -306,17 +386,19 @@ export function PhoneNumberSelectionSection({
         ) : null}
 
         {catalogueError ? (
-          <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3" data-testid="business-setup-phone-locations-error">
-            <p className="text-sm font-semibold text-rose-700">{catalogueError}</p>
-            <button
-              type="button"
-              onClick={loadCatalogue}
-              data-testid="business-setup-phone-locations-retry"
-              className="mt-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-gray-50"
-            >
-              Retry
-            </button>
-          </div>
+          <PhoneErrorBanner
+            message={parsePhoneError(catalogueError, "Could not load available locations.")}
+            testId="business-setup-phone-locations-error"
+            retryTestId="business-setup-phone-locations-retry"
+            onRetry={loadCatalogue}
+          />
+        ) : !catalogueLoading && countries.length === 0 ? (
+          <PhoneErrorBanner
+            message="No countries available for phone assignment right now."
+            testId="business-setup-phone-locations-error"
+            retryTestId="business-setup-phone-locations-retry"
+            onRetry={loadCatalogue}
+          />
         ) : null}
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -378,19 +460,19 @@ export function PhoneNumberSelectionSection({
                 resetOffer();
                 setCity(event.target.value);
               }}
-              disabled={purchasing || citiesLoading || cities.length === 0}
+              disabled={purchasing || citiesLoading || cities?.length === 0}
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:bg-gray-50 disabled:text-slate-400"
             >
               <option value="">
                 {citiesLoading
                   ? "Loading cities…"
-                  : cities.length > 0
+                  : cities?.length > 0
                     ? "Select city…"
                     : selectedRegion
                       ? "No cities listed"
                       : "Pick a state first"}
               </option>
-              {cities.map((entry) => (
+              {cities?.map((entry) => (
                 <option key={entry} value={entry}>
                   {entry}
                 </option>
@@ -509,13 +591,19 @@ export function PhoneNumberSelectionSection({
         ) : null}
 
         {searchResult && searchResult.numbers.length === 0 && searchResult.fallbackOptions.length === 0 ? (
-          <p className="mt-4 text-sm font-semibold text-rose-600" data-testid="business-setup-phone-empty">
-            No phone number is currently available for this location. Choose another location or retry.
-          </p>
+          <PhoneErrorBanner
+            message="No phone numbers available for this location."
+            testId="business-setup-phone-empty"
+            retryTestId="business-setup-phone-search-retry"
+            onRetry={() => void runSearch()}
+          />
         ) : null}
 
         {purchaseError ? (
-          <p className="mt-3 text-sm font-semibold text-rose-600" data-testid="business-setup-phone-error">{purchaseError}</p>
+          <PhoneErrorBanner
+            message={parsePhoneError(purchaseError, "Number assignment failed. Please retry.")}
+            testId="business-setup-phone-error"
+          />
         ) : null}
       </div>
     </div>

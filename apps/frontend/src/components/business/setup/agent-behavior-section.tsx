@@ -32,17 +32,17 @@ export function AgentBehaviorSection({
 }: {
   showVoice: boolean;
   customInstructions: string;
-  silenceRepromptCount: number;
-  silenceMessage1: string;
-  silenceMessage2: string;
+  silenceRepromptCount?: number;
+  silenceMessage1?: string;
+  silenceMessage2?: string;
   goodbyeMessage: string;
   setupFields: BuyerSetupFieldDef[];
   setupInstructions: string;
   customValues: BuyerCustomFieldValue[];
   onCustomInstructions: (v: string) => void;
-  onSilenceCount: (v: number) => void;
-  onSilence1: (v: string) => void;
-  onSilence2: (v: string) => void;
+  onSilenceCount?: (v: number) => void;
+  onSilence1?: (v: string) => void;
+  onSilence2?: (v: string) => void;
   onGoodbye: (v: string) => void;
   onCustomField: (key: string, label: string, value: string | string[] | boolean) => void;
 }) {
@@ -113,7 +113,7 @@ export function AgentBehaviorSection({
         />
       </div>
 
-      {/* Advanced behavior — silence handling, re-prompts, goodbye. */}
+      {/* Advanced behavior — goodbye message. */}
       {showVoice ? (
         <div className="mt-7 border-t border-gray-100 pt-6">
           <button
@@ -126,7 +126,7 @@ export function AgentBehaviorSection({
             <span>
               <span className="block text-sm font-bold text-slate-900">Advanced call behavior</span>
               <span className="mt-0.5 block text-xs text-slate-500">
-                Silence handling and ending the call.
+                Goodbye message when ending calls.
               </span>
             </span>
             <svg
@@ -145,58 +145,7 @@ export function AgentBehaviorSection({
 
           {advancedOpen ? (
             <div className="mt-4" data-testid="business-setup-silence">
-              <p className="text-sm text-slate-500">
-                If the caller goes quiet, the AI re-prompts warmly, then ends the call politely.
-              </p>
-
-              <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={LABEL} htmlFor="silence-count">
-                    Re-prompt attempts
-                  </label>
-                  <select
-                    data-testid="business-setup-input-silence-count"
-                    id="silence-count"
-                    value={String(silenceRepromptCount)}
-                    onChange={(e) => onSilenceCount(Number(e.target.value))}
-                    className={FIELD}
-                  >
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL} htmlFor="silence-1">
-                  1st silence re-prompt
-                </label>
-                <input
-                  data-testid="business-setup-input-silence1"
-                  id="silence-1"
-                  value={silenceMessage1}
-                  onChange={(e) => onSilence1(e.target.value)}
-                  placeholder={DEFAULT_SILENCE.reprompt1}
-                  className={FIELD}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL} htmlFor="silence-2">
-                  2nd silence re-prompt
-                </label>
-                <input
-                  data-testid="business-setup-input-silence2"
-                  id="silence-2"
-                  value={silenceMessage2}
-                  onChange={(e) => onSilence2(e.target.value)}
-                  placeholder={DEFAULT_SILENCE.reprompt2}
-                  className={FIELD}
-                />
-              </div>
-
-              <div className="mt-4">
+              <div>
                 <label className={LABEL} htmlFor="goodbye">
                   Goodbye message
                 </label>
