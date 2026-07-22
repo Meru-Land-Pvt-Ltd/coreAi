@@ -85,9 +85,10 @@ export function BuilderHeader({
   const activeStepIndex = BUILDER_STEPS.findIndex((step) => step.id === activeTab);
 
   return (
-    <header className="fixed left-0 z-50 w-full border-b border-gray-200 bg-white">
-      <div className="flex h-12 w-full min-w-0 items-stretch px-2 sm:h-14 sm:px-3">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1 sm:flex-none sm:gap-2.5">
+    <header className="fixed left-0 top-0 z-50 w-full border-b border-gray-200 bg-white">
+      {/* Mobile: fixed toolbar + steps only — agent title lives in tab content and scrolls. */}
+      <div className="flex h-11 w-full min-w-0 items-stretch px-2 md:h-14 md:px-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1 md:flex-none md:gap-2.5">
           <Link
             data-testid="builder-header-back-to-workflows"
             href={"/architect/agents" as Route}
@@ -105,7 +106,7 @@ export function BuilderHeader({
             value={agentName}
             onChange={(event) => onAgentNameChange(event.target.value)}
             disabled={locked}
-            className="min-w-0 flex-1 cursor-text rounded-sm border-b border-transparent bg-transparent px-0.5 text-sm font-semibold text-slate-900 outline-none transition hover:border-amber-300 focus:border-amber-400 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:border-transparent sm:max-w-[180px] sm:flex-none sm:text-[15px] md:max-w-[280px]"
+            className="hidden min-w-0 flex-1 cursor-text rounded-sm border-b border-transparent bg-transparent px-0.5 text-sm font-semibold text-slate-900 outline-none transition hover:border-amber-300 focus:border-amber-400 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:border-transparent md:block md:max-w-[280px] md:flex-none md:text-[15px]"
             aria-label="Agent name"
           />
           <span

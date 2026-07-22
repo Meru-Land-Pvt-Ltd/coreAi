@@ -362,8 +362,9 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
         </aside>
       ) : null}
 
-      <div className="relative z-0 min-h-screen lg:pl-64">
-        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-100 bg-gray-50 px-5 py-3 lg:hidden">
+      {/* Avoid z-index here — it traps fixed modals under the sidebar. */}
+      <div className="relative min-h-screen lg:pl-64">
+        <div className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-gray-100 bg-gray-50 px-5 lg:hidden">
           {!mobileNavOpen ? (
             <button
               type="button"
@@ -395,7 +396,7 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {children}
+        <div className="pt-14 lg:pt-0">{children}</div>
       </div>
     </div>
   );
