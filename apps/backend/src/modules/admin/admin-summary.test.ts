@@ -4,6 +4,7 @@ import {
   buildAdminPerformance30d,
   calculateRevenueChangePercent,
   dedupeMarketplaceUserRegistrations,
+  sumAdminExecutionCounts,
   summarizeAdminRevenue
 } from "./admin-summary";
 
@@ -53,6 +54,11 @@ describe("admin live summary calculations", () => {
     expect(averageExecutionsPerDay30d(4)).toBe(0.1);
     expect(averageExecutionsPerDay30d(31)).toBe(1);
     expect(averageExecutionsPerDay30d(44)).toBe(1.5);
+  });
+
+  it("combines live business execution event counts", () => {
+    expect(sumAdminExecutionCounts([4, 2, 7])).toBe(13);
+    expect(sumAdminExecutionCounts([0, 0, 0])).toBe(0);
   });
 
   it("returns a monetary total only when every amount uses one currency", () => {

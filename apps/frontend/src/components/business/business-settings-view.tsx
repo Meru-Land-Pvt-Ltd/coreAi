@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { COMMON_TIMEZONES } from "@coreai/shared";
-import { BusinessHoursSection } from "@/components/business/business-hours-section";
 import {
   deleteBusinessAccount,
   downloadBusinessDataExport,
@@ -1938,18 +1937,6 @@ export function BusinessSettingsView() {
                           className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
                         />
                       </div>
-                      <div className="sm:col-span-2">
-                        <label htmlFor="address" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Business address
-                        </label>
-                        <input
-                          id="address"
-                          data-testid="business-settings-address"
-                          value={profileForm.address}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, address: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        />
-                      </div>
                       <div className="sm:col-span-2 sm:max-w-md">
                         <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium text-slate-700">
                           Timezone
@@ -1993,14 +1980,6 @@ export function BusinessSettingsView() {
                       </button>
                     </div>
                   </form>
-
-                  <hr className="my-7 border-gray-100" />
-
-                  <BusinessAddressSection />
-
-                  <hr className="my-7 border-gray-100" />
-
-                  <BusinessHoursSection />
             </SettingsSection>
 
             <SettingsSection

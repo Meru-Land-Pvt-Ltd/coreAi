@@ -99,6 +99,10 @@ export function averageExecutionsPerDay30d(executionCount: number) {
   return Math.round((executionCount / 30) * 10) / 10;
 }
 
+export function sumAdminExecutionCounts(counts: number[]) {
+  return counts.reduce((total, count) => total + count, 0);
+}
+
 export function summarizeAdminRevenue(amounts: CurrencyAmount[]) {
   const totals = new Map<string, number>();
 
@@ -200,8 +204,8 @@ export async function getAdminLiveSummaryData(now = new Date()) {
     marketplaceUserRows,
     lifetimeRevenueByCurrency,
     recentRevenuePayments,
-    totalExecutions,
-    performanceExecutions,
+    totalExecutionCounts,
+    performanceExecutionSources,
     submittedListings,
     recentPayments,
     recentExecutions
@@ -234,11 +238,28 @@ export async function getAdminLiveSummaryData(now = new Date()) {
       where: { status: "SUCCEEDED", createdAt: { gte: previousPeriodStart } },
       select: { createdAt: true, amountCents: true, currency: true }
     }),
-    prisma.workflowRun.count({ where: { mode: "LIVE" } }),
-    prisma.workflowRun.findMany({
-      where: { mode: "LIVE", createdAt: { gte: performanceStart } },
-      select: { createdAt: true }
-    }),
+    // Keep the platform execution definition aligned with the Business
+    // dashboard: one live booking, missed-call capture, or AI call is one
+    // execution. WorkflowRun alone does not contain every live agent event.
+    Promise.all([
+      prisma.appointment.count({ where: { executionMode: "LIVE" } }),
+      prisma.lead.count({ where: { source: { contains: "MISSED_CALL" } } }),
+      prisma.vapiCall.count({ where: { executionMode: "LIVE" } })
+    ]),
+    Promise.all([
+      prisma.appointment.findMany({
+        where: { executionMode: "LIVE", createdAt: { gte: performanceStart } },
+        select: { createdAt: true }
+      }),
+      prisma.lead.findMany({
+        where: { source: { contains: "MISSED_CALL" }, createdAt: { gte: performanceStart } },
+        select: { createdAt: true }
+      }),
+      prisma.vapiCall.findMany({
+        where: { executionMode: "LIVE", createdAt: { gte: performanceStart } },
+        select: { createdAt: true }
+      })
+    ]),
     prisma.agentListing.findMany({
       where: { submittedAt: { not: null } },
       orderBy: { submittedAt: "desc" },
@@ -279,6 +300,9 @@ export async function getAdminLiveSummaryData(now = new Date()) {
       }
     })
   ]);
+
+  const totalExecutions = sumAdminExecutionCounts(totalExecutionCounts);
+  const performanceExecutions = performanceExecutionSources.flat();
 
   const marketplaceUsers = dedupeMarketplaceUserRegistrations(marketplaceUserRows);
   const totalUsers = marketplaceUsers.length;
