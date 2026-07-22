@@ -125,17 +125,13 @@ export function BusinessHoursSection({
   onLoaded,
   onDirtyChange,
   onChange,
-  registerApi
+  registerApi,
+  refreshToken
 }: {
   title?: string;
   compact?: boolean;
   embedded?: boolean;
   timeZoneOverride?: string;
-  /**
-   * Stale-tab guard: when false, saves keep the server's own timezone instead
-   * of persisting timeZoneOverride (which is display-only until the buyer
-   * actually edits it this session).
-   */
   persistOverrideTimeZone?: boolean;
   onSaved?: (data: BusinessHoursData) => void;
   /** Fires with the server state on initial load (summary for parent UIs). */
@@ -143,6 +139,7 @@ export function BusinessHoursSection({
   onDirtyChange?: (dirty: boolean) => void;
   onChange?: (data: BusinessHoursData) => void;
   registerApi?: (api: EmbeddedSectionApi | null) => void;
+  refreshToken?: number;
 }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -192,6 +189,36 @@ export function BusinessHoursSection({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, [applyServerData]);
+
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const refreshSeenRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (refreshToken === undefined) return;
+    if (refreshSeenRef.current === undefined) {
+      refreshSeenRef.current = refreshToken;
+      return;
+    }
+    if (refreshSeenRef.current === refreshToken) return;
+    refreshSeenRef.current = refreshToken;
+
+    let cancelled = false;
+    getBusinessHours().then((response) => {
+      if (cancelled || !response.success || !response.data) return;
+      if (dirtyRef.current) {
+        setSuggestion(response.data.suggestion ?? null);
+        setOpenStatusText(response.data.openStatus?.description ?? "");
+        setLiveAssistant(response.data.liveAssistant);
+      } else {
+        applyServerData(response.data);
+      }
+      onLoaded?.(response.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only on token change
+  }, [refreshToken, applyServerData]);
 
   useEffect(() => {
     if (!dirty || embedded) return;

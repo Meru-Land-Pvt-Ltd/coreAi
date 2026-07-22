@@ -1,17 +1,6 @@
 import { prisma } from "../src/lib/prisma";
 import { normalizeE164 } from "../src/modules/admin/twilio-number-service";
 
-/**
- * Mark ONE number as the reserved shared Triven SMS sender:
- *
- *   npm run mark:sms-sender --workspace=@coreai/backend -- --number=+17252202182
- *
- * Defaults to TWILIO_SHARED_SMS_NUMBER when --number is omitted. Safe by
- * design: refuses a number that is currently assigned/reserved to a buyer
- * (unassign it first), only flips the one flag (+ smsEnabled), and never
- * touches any other row.
- */
-
 function flagValue(name: string): string | undefined {
   const arg = process.argv.find((item) => item.startsWith(`--${name}=`));
   return arg ? arg.slice(name.length + 3) : undefined;
@@ -64,8 +53,6 @@ async function main() {
     return;
   }
 
-  // Capability and role are separate fields: the sender must be SMS-capable
-  // (smsEnabled=true) AND reserved (isPlatformSmsSender=true).
   await prisma.platformPhoneNumber.update({
     where: { id: record.id },
     data: { isPlatformSmsSender: true, smsEnabled: true }

@@ -83,6 +83,20 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
         return () => window.removeEventListener("hashchange", syncHash);
     }, [pathname]);
 
+    // Close the drawer on route changes and lock body scroll while it is open.
+    useEffect(() => {
+        setSidebarOpen(false);
+    }, [pathname]);
+
+    useEffect(() => {
+        if (!sidebarOpen) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [sidebarOpen]);
+
     const marketplaceActive = isMarketplaceRoute(pathname);
 
     const displayName = getDisplayName(currentUser);
@@ -107,13 +121,14 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                     aria-label="Close menu overlay"
                     data-testid="business-sidebar-overlay"
                     onClick={closeSidebar}
-                    className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[1px] lg:hidden"
+                    className="fixed inset-0 z-40 bg-slate-900/50 lg:hidden"
                 />
             ) : null}
 
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col overflow-x-hidden border-r border-gray-100 bg-white transition-transform duration-300 ease-out lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
-                    }`}
+                className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col overflow-x-hidden border-r border-gray-100 bg-white shadow-xl transition-transform duration-300 ease-out will-change-transform lg:translate-x-0 lg:shadow-none ${
+                    sidebarOpen ? "translate-x-0" : "-translate-x-full"
+                }`}
                 aria-label="Primary"
             >
                 <div className="flex min-w-0 items-center gap-3 border-b border-gray-100 px-4 py-4">
@@ -220,25 +235,21 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                 </div>
             </aside>
 
-            <div className="min-h-screen min-w-0 w-full overflow-x-hidden lg:pl-64">
-                <div className="sticky top-0 z-30 flex w-full min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-gray-100 bg-gray-50/90 px-2 py-2.5 backdrop-blur lg:hidden">
-                    {!sidebarOpen ? (
-                        <button
-                            type="button"
-                            onClick={() => setSidebarOpen(true)}
-                            data-testid="business-sidebar-open"
-                            className="shrink-0 rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
-                            aria-label="Open menu"
-                        >
-                            <Icon name="menu" className="h-6 w-6" />
-                        </button>
-                    ) : (
-                        <span className="hidden h-10 w-10 shrink-0 lg:block" aria-hidden="true" />
-                    )}
+            <div className="relative z-0 min-h-screen min-w-0 w-full overflow-x-hidden lg:pl-64">
+                <div className="sticky top-0 z-30 flex w-full min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-gray-100 bg-gray-50 px-2 py-2.5 lg:hidden">
+                    <button
+                        type="button"
+                        onClick={() => setSidebarOpen(true)}
+                        data-testid="business-sidebar-open"
+                        className="shrink-0 rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
+                        aria-label="Open menu"
+                    >
+                        <Icon name="menu" className="h-6 w-6" />
+                    </button>
 
                     <a
                         href="/business/dashboard"
-                        className="flex min-w-0 items-center justify-center mr-4 gap-0.5"
+                        className="flex min-w-0 items-center gap-0.5"
                         aria-label="Triven home"
                         data-testid="business-mobile-brand"
                     >
@@ -254,8 +265,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             Triven.ai
                         </span>
                     </a>
-
-                    
                 </div>
 
                 <div className="min-w-0 w-full max-w-full overflow-x-hidden">

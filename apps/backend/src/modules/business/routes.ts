@@ -50,9 +50,10 @@ import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twi
 import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
 import { extractHoursFromDocuments, resolveScheduleForBusiness } from "./scheduling";
-import { extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
+import { addressesMateriallyDiffer, extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
 import {
   KnowledgeFileError,
   MAX_FILE_BYTES,
@@ -96,6 +97,7 @@ import {
 import { businessSettingsRoutes } from "./settings-routes";
 import { businessOnboardingRoutes } from "./onboarding-routes";
 import { businessHoursRoutes } from "./business-hours";
+import { fetchVapiCallById, isPresignedRecordingUrl } from "../architect/vapi-connector";
 
 export const businessRoutes = new Hono();
 
@@ -111,6 +113,26 @@ const businessPhoneNumberLegacySelect = {
   createdAt: true,
   updatedAt: true
 } as const;
+
+/** "inbound" | "outbound" from the stored Vapi webhook body; inbound when unknown. */
+function vapiCallDirection(metadataJson: unknown): "inbound" | "outbound" {
+  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return "inbound";
+  const body = metadataJson as Record<string, unknown>;
+
+  const candidates: unknown[] = [];
+  const message = body.message;
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    candidates.push((message as Record<string, unknown>).call);
+  }
+  candidates.push(body.call, body);
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const type = (candidate as Record<string, unknown>).type;
+    if (typeof type === "string" && /outbound/i.test(type)) return "outbound";
+  }
+  return "inbound";
+}
 
 function includeActivePhoneNumbers(options?: { take?: number }) {
   return {
@@ -225,6 +247,8 @@ function buildAgentEventActivities(params: {
     createdAt: string;
     /** Call recording playback — present only when recording was enabled for the call. */
     recordingUrl?: string;
+    /** VapiCall row id — lets the client mint a fresh recording URL at play time. */
+    vapiCallId?: string;
   }> = [];
 
   for (const appointment of params.appointments) {
@@ -266,6 +290,7 @@ function buildAgentEventActivities(params: {
       text: `${params.agentName} handled an AI voice call with ${call.customerPhone}`,
       badge: "AI call",
       tone: "slate",
+      vapiCallId: call.id,
       createdAt: call.createdAt.toISOString(),
       ...(call.recordingUrl ? { recordingUrl: call.recordingUrl } : {})
     });
@@ -274,13 +299,75 @@ function buildAgentEventActivities(params: {
   return activities;
 }
 
+async function recordingUrlPlayable(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Range: "bytes=0-1" },
+      signal: AbortSignal.timeout(6000)
+    });
+    return response.status === 200 || response.status === 206;
+  } catch {
+    return false;
+  }
+}
+
+businessRoutes.get("/calls/:id/recording-url", async (c) => {
+  const authUser = c.get("authUser");
+  const idParam = (c.req.param("id") ?? "").trim();
+
+  const businessId = await resolvePrimaryBusinessId(authUser.id);
+  if (!businessId || !idParam) {
+    return errorResponse(c, "Call not found", 404, "CALL_NOT_FOUND");
+  }
+
+  const call = await prisma.vapiCall.findFirst({
+    where: { businessId, OR: [{ id: idParam }, { callId: idParam }] },
+    select: { id: true, callId: true, recordingUrl: true }
+  });
+  if (!call) {
+    return errorResponse(c, "Call not found", 404, "CALL_NOT_FOUND");
+  }
+
+  const fresh = await fetchVapiCallById(call.callId).catch(() => null);
+  // Presigned candidates are probed first, and limiting happens AFTER the
+  // sort — a playable signed URL must never be sliced away by bare ones.
+  const candidates = Array.from(
+    new Set([...(fresh?.recordingUrls ?? []), ...(call.recordingUrl ? [call.recordingUrl] : [])])
+  )
+    .sort((a, b) => Number(isPresignedRecordingUrl(b)) - Number(isPresignedRecordingUrl(a)))
+    .slice(0, 10);
+
+  let url: string | null = null;
+  for (const candidate of candidates) {
+    if (await recordingUrlPlayable(candidate)) {
+      url = candidate;
+      break;
+    }
+  }
+
+  if (!url && candidates.length > 0) {
+    console.warn("[recording-url] no playable candidate", {
+      callId: call.callId,
+      candidates: candidates.map((candidate) => candidate.split("?")[0])
+    });
+  }
+
+  if (!call.recordingUrl && url && !isPresignedRecordingUrl(url)) {
+    await prisma.vapiCall
+      .update({ where: { id: call.id }, data: { recordingUrl: url.split("?")[0] || url } })
+      .catch(() => undefined);
+  }
+
+  return successResponse(c, { url });
+});
+
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");
 
   const [business, payments] = await Promise.all([
     prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
         installedAgents: { orderBy: { createdAt: "desc" } },
         phoneNumbers: includeActivePhoneNumbers({ take: 1 })
@@ -323,6 +410,8 @@ businessRoutes.get("/dashboard", async (c) => {
       },
       activityChart: { days: buildActivityChartDays({ days: 30, appointments: [], missedCallLeads: [], vapiCalls: [] }) },
       agentActivity: [],
+      callHistory: [],
+      executions: [],
       calendarConnected: calendar.connected,
       totalSpendCents,
       activities
@@ -391,8 +480,6 @@ businessRoutes.get("/dashboard", async (c) => {
         createdAt: true
       }
     }),
-    // Last 30 days of raw agent events for the activity chart + agent activity feed.
-    // Test-mode rows never appear as live customer activity.
     prisma.appointment.findMany({
       where: { businessId: business.id, createdAt: { gte: chartStart }, executionMode: "LIVE" },
       orderBy: { createdAt: "desc" },
@@ -442,6 +529,70 @@ businessRoutes.get("/dashboard", async (c) => {
       where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
     })
   ]);
+
+  // Call history + workflow executions for the dashboard panels. Only real
+  // phone traffic (LIVE) appears; browser tests and dry runs never do.
+  const [historyCalls, workflowRuns] = await Promise.all([
+    prisma.vapiCall.findMany({
+      where: { businessId: business.id, executionMode: "LIVE" },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        callId: true,
+        customerPhone: true,
+        status: true,
+        durationSeconds: true,
+        recordingUrl: true,
+        summary: true,
+        createdAt: true,
+        metadataJson: true
+      }
+    }),
+    prisma.workflowRun.findMany({
+      where: {
+        mode: "LIVE",
+        OR: [
+          { businessId: business.id },
+          { installedAgentId: { in: business.installedAgents.map((agent) => agent.id) } }
+        ]
+      },
+      orderBy: { startedAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        finishedAt: true,
+        durationMs: true,
+        errorMessage: true,
+        externalCallId: true,
+        workflow: { select: { name: true } }
+      }
+    })
+  ]);
+
+  const callHistory = historyCalls.map((call) => ({
+    id: call.id,
+    customerPhone: call.customerPhone,
+    direction: vapiCallDirection(call.metadataJson),
+    status: call.status,
+    durationSeconds: call.durationSeconds,
+    recordingUrl: call.recordingUrl,
+    summary: call.summary,
+    createdAt: call.createdAt.toISOString()
+  }));
+
+  const executions = workflowRuns.map((run) => ({
+    id: run.id,
+    status: run.status,
+    workflowName: run.workflow?.name ?? "Workflow",
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
+    durationMs: run.durationMs,
+    errorMessage: run.errorMessage,
+    externalCallId: run.externalCallId
+  }));
 
   const installedAgent = business.installedAgents[0] ?? null;
   const phoneNumber = business.phoneNumbers[0] ?? null;
@@ -512,6 +663,8 @@ businessRoutes.get("/dashboard", async (c) => {
       })
     },
     agentActivity: agentEventActivities.slice(0, 30),
+    callHistory,
+    executions,
     calendarConnected: calendar.connected,
     totalSpendCents,
     activities: mergedActivities
@@ -799,9 +952,9 @@ async function resolveReceptionistWorkflow(opts: {
 }
 
 async function loadBusinessForOwner(ownerId: string) {
+  const primaryId = await resolvePrimaryBusinessId(ownerId);
   return prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
+    where: { id: primaryId ?? "" },
     include: {
       profile: true,
       knowledgeBases: { orderBy: { createdAt: "asc" } },
@@ -861,28 +1014,10 @@ async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string
 // The businessId is ALWAYS derived from the authenticated owner — a
 // browser-supplied businessId is never accepted for phone provisioning.
 async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
-  // Prefer the newest business that actually carries a buyer installed agent
-  // (excluding architect test sandboxes) — uploads, demo tests, and setup then
-  // always target the SAME business the live phone number was purchased for,
+  // Shared resolution (phone-owning business first) so uploads, demo tests,
+  // and setup always target the SAME business the live traffic lands on,
   // even when stray/placeholder Business rows exist for the owner.
-  const withAgent = await prisma.business.findFirst({
-    where: {
-      ownerId,
-      installedAgents: {
-        some: { NOT: { configJson: { path: ["purpose"], equals: "ARCHITECT_TEST" } } }
-      }
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true }
-  });
-  if (withAgent) return withAgent.id;
-
-  const business = await prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
-    select: { id: true }
-  });
-  return business?.id ?? null;
+  return resolvePrimaryBusinessId(ownerId);
 }
 
 /**
@@ -1141,8 +1276,7 @@ businessRoutes.get("/setup/phone-numbers", async (c) => {
   const authUser = c.get("authUser");
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 
@@ -1272,10 +1406,6 @@ businessRoutes.get("/setup/appointment-schedule", async (c) => {
   });
 });
 
-// The business facts review payload: the authoritative structured address,
-// completeness/confirmation status, any PDF-derived suggestion, and whether
-// the two conflict. Suggestions become structured data ONLY via an explicit
-// confirmed save.
 businessRoutes.get("/setup/business-facts", async (c) => {
   const authUser = c.get("authUser");
   const businessId = await requireOwnedBusinessId(authUser.id);
@@ -1287,9 +1417,8 @@ businessRoutes.get("/setup/business-facts", async (c) => {
   const conflict = Boolean(
     facts?.addressComplete &&
       suggestion &&
-      facts.addressFormatted &&
-      facts.addressFormatted.replace(/\s+/g, " ").toLowerCase() !==
-        suggestion.formatted.replace(/\s+/g, " ").toLowerCase()
+      facts.address &&
+      addressesMateriallyDiffer(facts.address, suggestion)
   );
 
   return successResponse(c, {
@@ -1412,8 +1541,7 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
   }
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 
@@ -1509,8 +1637,7 @@ businessRoutes.post("/setup/preview-call", async (c) => {
   }
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 
@@ -1544,8 +1671,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
 
   const [business, calendar] = await Promise.all([
     prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
         profile: true,
         phoneNumbers: includeActivePhoneNumbers(),
@@ -1769,8 +1895,7 @@ businessRoutes.post("/setup/test-sms", async (c) => {
   const to = recipient.e164;
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     include: {
       profile: { select: { timeZone: true } },
       phoneNumbers: includeActivePhoneNumbers(),
@@ -2118,7 +2243,7 @@ function serializeAlias(alias: NonNullable<Awaited<ReturnType<typeof getBusiness
 
 businessRoutes.get("/mail-setup", async (c) => {
   const authUser = c.get("authUser");
-  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
+  const business = await prisma.business.findFirst({ where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" } });
 
   const alias = business ? await getBusinessEmailAlias(business.id) : null;
   const suggestedLocalPart = alias
@@ -2141,7 +2266,7 @@ businessRoutes.get("/mail-setup/check", async (c) => {
 
   if (issue) return successResponse(c, { localPart, available: false, reason: issue.message });
 
-  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, select: { id: true } });
+  const business = await prisma.business.findFirst({ where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" }, select: { id: true } });
   const available = await isLocalPartAvailable(localPart, business?.id);
   return successResponse(c, { localPart, available, reason: available ? null : "This alias is already taken." });
 });
@@ -2152,8 +2277,7 @@ businessRoutes.post("/mail-setup", async (c) => {
     const input = mailSetupSchema.parse(await c.req.json());
 
     const business = await prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: { installedAgents: { orderBy: { createdAt: "desc" }, take: 1 } }
     });
     if (!business) {
@@ -2192,7 +2316,7 @@ businessRoutes.post("/mail-setup/test-email", async (c) => {
 
   const body = (await c.req.json().catch(() => ({}))) as { to?: string };
 
-  const business = await prisma.business.findFirst({ where: { ownerId: authUser.id }, orderBy: { createdAt: "desc" } });
+  const business = await prisma.business.findFirst({ where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" } });
   if (!business) return errorResponse(c, "Business not found.", 404, "BUSINESS_NOT_FOUND");
 
   const alias = await getBusinessEmailAlias(business.id);
@@ -2254,8 +2378,7 @@ businessRoutes.post("/setup", async (c) => {
     }
 
     const existing = await prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
         profile: { select: { timeZone: true } },
         phoneNumbers: includeActivePhoneNumbers(),

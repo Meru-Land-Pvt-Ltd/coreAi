@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CoreHeader } from "../components/common/header";
 import { CoreFooter } from "../components/common/footer";
+import { ChatbotWidget } from "../components/common/ChatbotWidget";
 
 const SEND_FREE_ASSIGNMENT_MAIL_API = "/mail/send-free-assignment-mail";
 
@@ -147,7 +148,6 @@ export default function HomePage() {
   const [stickySending, setStickySending] = useState(false);
   const [stickyError, setStickyError] = useState("");
 
-  const [chatOpen, setChatOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [exitEmail, setExitEmail] = useState("");
   const [exitSent, setExitSent] = useState(false);
@@ -1026,31 +1026,7 @@ export default function HomePage() {
         </div>
       ) : null}
 
-      <div className="fixed right-6 z-50 flex flex-col items-end gap-3 transition-all duration-300" style={{ bottom: stickyShown ? "5.5rem" : "1.5rem" }}>
-        {chatOpen ? (
-          <div className="relative w-64 rounded-2xl border border-gray-200 bg-white p-4 shadow-lg">
-            <button data-testid="landing-close-chat-button" type="button" onClick={() => setChatOpen(false)} className="absolute -right-2 -top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-slate-500 transition hover:text-slate-900" aria-label="Close chat">
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-
-            <p className="text-sm text-slate-600" data-testid="home-hi-need-help-finding-the-right-ai-text">
-              Hi! Need help finding the right AI agent?
-            </p>
-
-            <a data-testid="landing-info-meruland-com-link" href={"mailto:info@triven.ai" as Route} className="mt-2 inline-block text-sm font-semibold text-amber-600 transition hover:text-amber-600">
-            info@triven.ai
-            </a>
-          </div>
-        ) : null}
-
-        <button data-testid="landing-open-chat-button" type="button" onClick={() => setChatOpen((o) => !o)} className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-slate-950 shadow-glow transition hover:scale-110" aria-label="Open chat">
-          <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M7.5 8.5h9M7.5 12h6M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5z" />
-          </svg>
-        </button>
-      </div>
+      <ChatbotWidget style={{ bottom: stickyShown ? "5.5rem" : "1.5rem" }} />
     </div>
   );
 }

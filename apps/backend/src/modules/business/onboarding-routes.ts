@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "./primary-business";
 
 export const businessOnboardingRoutes = new Hono();
 
@@ -56,9 +57,9 @@ function parseOnboardingData(value: unknown): OnboardingData | null {
 }
 
 async function loadBuyerBusiness(userId: string) {
+  const primaryId = await resolvePrimaryBusinessId(userId);
   return prisma.business.findFirst({
-    where: { ownerId: userId },
-    orderBy: { createdAt: "desc" },
+    where: { id: primaryId ?? "" },
     include: { profile: true }
   });
 }
@@ -187,10 +188,6 @@ function serializeOnboardingResponse(params: {
   recommendations?: Awaited<ReturnType<typeof buildRecommendations>>;
 }) {
   const data = parseOnboardingData(params.business?.profile?.onboardingDataJson);
-  // Businesses created before onboarding was introduced have no onboarding
-  // markers or saved progress. Treat them as already onboarded so this gate is
-  // only shown to genuinely new users. Once a new user saves any onboarding
-  // step, onboardingDataJson exists and the normal completed/skipped flags win.
   const isLegacyExistingBusiness = Boolean(
     params.business &&
       (!params.business.profile ||

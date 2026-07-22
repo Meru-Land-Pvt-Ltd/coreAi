@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Knowledge and FAQs banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F5F3FF"/>
+      <stop offset="100%" stop-color="#FFFBEB"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <rect x="100" y="60" width="280" height="200" rx="18" fill="#FFFFFF" stroke="#DDD6FE" stroke-width="2"/>
+  <rect x="130" y="90" width="180" height="14" rx="7" fill="#A78BFA"/>
+  <rect x="130" y="120" width="200" height="10" rx="5" fill="#E2E8F0"/>
+  <rect x="130" y="145" width="160" height="10" rx="5" fill="#E2E8F0"/>
+  <rect x="130" y="180" width="120" height="36" rx="10" fill="#F59E0B"/>
+  <text x="150" y="203" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">Add FAQ</text>
+  <rect x="440" y="70" width="620" height="180" rx="18" fill="#0F172A"/>
+  <text x="480" y="120" fill="#F8FAFC" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Q: Do you take new customers?</text>
+  <text x="480" y="160" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="15">A: Yes  reply here or book online.</text>
+  <rect x="480" y="190" width="200" height="28" rx="8" fill="#334155"/>
+  <text x="500" y="209" fill="#FDE68A" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">From your knowledge</text>
+</svg>

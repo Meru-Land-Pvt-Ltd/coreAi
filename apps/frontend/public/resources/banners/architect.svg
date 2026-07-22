@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Architect builder banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ECFDF5"/>
+      <stop offset="50%" stop-color="#FFFBEB"/>
+      <stop offset="100%" stop-color="#F8FAFC"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <rect x="70" y="50" width="1060" height="220" rx="20" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <rect x="100" y="80" width="160" height="70" rx="14" fill="#FEF3C7" stroke="#F59E0B" stroke-width="2"/>
+  <text x="125" y="122" fill="#92400E" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Trigger</text>
+  <path d="M270 115h70" stroke="#CBD5E1" stroke-width="3"/>
+  <polygon points="340,115 320,105 320,125" fill="#CBD5E1"/>
+  <rect x="350" y="80" width="160" height="70" rx="14" fill="#ECFDF5" stroke="#34D399" stroke-width="2"/>
+  <text x="385" y="122" fill="#065F46" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">SMS / Voice</text>
+  <path d="M520 115h70" stroke="#CBD5E1" stroke-width="3"/>
+  <polygon points="590,115 570,105 570,125" fill="#CBD5E1"/>
+  <rect x="600" y="80" width="160" height="70" rx="14" fill="#EEF2FF" stroke="#818CF8" stroke-width="2"/>
+  <text x="635" y="122" fill="#3730A3" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">Calendar</text>
+  <path d="M430 150v40" stroke="#FBBF24" stroke-width="3"/>
+  <polygon points="430,200 420,180 440,180" fill="#FBBF24"/>
+  <rect x="350" y="205" width="160" height="40" rx="12" fill="#FFF1F2" stroke="#FB7185" stroke-width="2"/>
+  <text x="380" y="230" fill="#9F1239" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">After hours</text>
+  <text x="820" y="130" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">Builder canvas</text>
+  <text x="820" y="160" fill="#64748B" font-family="Segoe UI, Arial, sans-serif" font-size="14">Wire · test · publish</text>
+</svg>

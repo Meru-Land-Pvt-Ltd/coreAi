@@ -34,10 +34,10 @@ export function ExpandableText({ text, className = "", clampLines = 3 }: Expanda
     : "line-clamp-3";
 
   return (
-    <div className="flex flex-col items-start w-full">
+    <div className="flex w-full min-w-0 flex-col items-start">
       <div
         ref={textRef}
-        className={`${className} ${lineClampClass} transition-all duration-200`}
+        className={`${className} ${lineClampClass} max-w-full break-words transition-all duration-200`}
         dangerouslySetInnerHTML={{ __html: text }}
       />
       {hasOverflow && (

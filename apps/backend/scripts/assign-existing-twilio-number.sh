@@ -10,18 +10,18 @@ This script does not purchase a new Twilio number.
 Usage:
 
   Dry run:
-    ./scripts/assign-existing-twilio-number.sh \
+    ./apps/backend/scripts/assign-existing-twilio-number.sh \
       --agent-id=BUYER_INSTALLED_AGENT_ID \
       --phone=+12135550123
 
   Apply:
-    ./scripts/assign-existing-twilio-number.sh \
+    ./apps/backend/scripts/assign-existing-twilio-number.sh \
       --agent-id=BUYER_INSTALLED_AGENT_ID \
       --phone=+12135550123 \
       --apply
 
   Using a Twilio PN SID:
-    ./scripts/assign-existing-twilio-number.sh \
+    ./apps/backend/scripts/assign-existing-twilio-number.sh \
       --agent-id=BUYER_INSTALLED_AGENT_ID \
       --twilio-sid=PNXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX \
       --apply
@@ -40,12 +40,31 @@ USAGE
   exit 1
 fi
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+ENV_FILE="$REPO_ROOT/.env.production"
+PROD_COMPOSE="$REPO_ROOT/docker-compose.prod.yml"
+SECRET_COMPOSE="$REPO_ROOT/docker-compose.vapi-secret.yml"
+
+for required_file in \
+  "$ENV_FILE" \
+  "$PROD_COMPOSE" \
+  "$SECRET_COMPOSE"
+do
+  if [ ! -f "$required_file" ]; then
+    echo "Required production file not found: $required_file" >&2
+    exit 1
+  fi
+done
+
+cd "$REPO_ROOT"
 
 docker compose \
-  --env-file .env.production \
-  -f docker-compose.prod.yml \
-  -f docker-compose.vapi-secret.yml \
+  --project-directory "$REPO_ROOT" \
+  --env-file "$ENV_FILE" \
+  -f "$PROD_COMPOSE" \
+  -f "$SECRET_COMPOSE" \
   run --rm backend \
   sh -lc '
     set -e
@@ -55,8 +74,8 @@ docker compose \
     elif [ -f scripts/assign-existing-twilio-number.ts ]; then
       SCRIPT_PATH="scripts/assign-existing-twilio-number.ts"
     else
-      echo "Assignment script was not found inside the backend container." >&2
-      echo "Rebuild the backend image after adding the TypeScript script." >&2
+      echo "Assignment TypeScript script was not found inside the backend container." >&2
+      echo "Rebuild the backend image after adding the script." >&2
       exit 1
     fi
 

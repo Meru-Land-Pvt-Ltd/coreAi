@@ -738,6 +738,7 @@ export default function BusinessBillingUsagePage() {
                                         <div className="mt-3">
                                             <CallRecordingPlayer
                                                 src={call.recordingUrl}
+                                                refreshPath={`/business/calls/${encodeURIComponent(call.callId)}/recording-url`}
                                                 testIdPrefix="usage-call-recording"
                                             />
                                         </div>

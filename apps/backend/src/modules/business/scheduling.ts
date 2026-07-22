@@ -692,6 +692,14 @@ const DAY_ALIASES: Record<string, Weekday> = {
   sat: "saturday", saturday: "saturday"
 };
 
+const DAY_TOKEN =
+  "(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)";
+const TIME_TOKEN = "(\\d{1,2}(?:[:.]\\d{2})?\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)?)";
+/** "9–5", "9 to 5", "9 till 5", "9 through 5" — the separator between times. */
+const TIME_RANGE_SEP = "(?:[-–—~]|to|until|till|thru|through)";
+/** "Mon–Fri", "Mon to Fri", "Mon through Fri" — the separator between days. */
+const DAY_RANGE_SEP = "(?:[-–—/]|to|through|thru|till|until)";
+
 function parseTimeToken(token: string): string | null {
   const match = token.trim().toLowerCase().match(/^(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/);
   if (!match) return null;
@@ -704,6 +712,23 @@ function parseTimeToken(token: string): string | null {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function parseTimeRangeTokens(openRaw: string, closeRaw: string): { open: string; close: string } | null {
+  const open = parseTimeToken(openRaw);
+  let close = parseTimeToken(closeRaw);
+  if (!open || !close) return null;
+
+  const openMinutes = Number(open.slice(0, 2)) * 60 + Number(open.slice(3));
+  let closeMinutes = Number(close.slice(0, 2)) * 60 + Number(close.slice(3));
+  const closeHadMeridiem = /am|pm|a\.m\.|p\.m\./i.test(closeRaw);
+
+  if (closeMinutes <= openMinutes && !closeHadMeridiem && Number(close.slice(0, 2)) < 12) {
+    closeMinutes += 12 * 60;
+    close = `${String(Math.floor(closeMinutes / 60)).padStart(2, "0")}:${close.slice(3)}`;
+  }
+  if (closeMinutes <= openMinutes) return null;
+  return { open, close };
+}
+
 function expandDayRange(from: Weekday, to: Weekday): Weekday[] {
   // Business ranges read Monday-first ("Mon–Fri", "Fri–Sun").
   const order: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -714,17 +739,35 @@ function expandDayRange(from: Weekday, to: Weekday): Weekday[] {
   return [...order.slice(start), ...order.slice(0, end + 1)];
 }
 
+function repairSplitDayWords(text: string): string {
+  return text.replace(/([A-Za-z]{2,9})[ \t]*\n[ \t]*([a-z]{1,4})\b/g, (full, a: string, b: string) =>
+    DAY_ALIASES[(a + b).toLowerCase()] ? a + b : full
+  );
+}
+
 export type DocumentHoursSuggestion = {
   days: Partial<Record<Weekday, DayHours>>;
   sourceFilename: string | null;
 };
 
-/**
- * Best-effort opening-hours extraction from uploaded document chunks
- * ("Monday – Friday: 8:00 AM – 6:00 PM", "Sunday: Closed"). Returned as a
- * SUGGESTION only — it becomes the appointment schedule exclusively after the
- * buyer reviews and confirms it in setup; it never overrides settings itself.
- */
+const ALL_WEEK: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/** Day tokens (single or ranged) read from a fragment of text, in order. */
+function readDayTargets(fragment: string): Weekday[] {
+  const targets: Weekday[] = [];
+  const re = new RegExp(`${DAY_TOKEN}(?:\\s*${DAY_RANGE_SEP}\\s*${DAY_TOKEN})?`, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(fragment)) !== null) {
+    const from = DAY_ALIASES[match[1]?.toLowerCase() ?? ""];
+    const to = match[2] ? DAY_ALIASES[match[2].toLowerCase()] : undefined;
+    if (!from) continue;
+    for (const day of to ? expandDayRange(from, to) : [from]) {
+      if (!targets.includes(day)) targets.push(day);
+    }
+  }
+  return targets;
+}
+
 export async function extractHoursFromDocuments(input: {
   businessId: string;
   installedAgentId?: string | null;
@@ -742,38 +785,112 @@ export async function extractHoursFromDocuments(input: {
   });
 
   const days: Partial<Record<Weekday, DayHours>> = {};
+  // All-week fallbacks ("open daily 9–9") never overwrite an explicit day row.
+  const fallbackDays: Partial<Record<Weekday, DayHours>> = {};
   let sourceFilename: string | null = null;
 
-  const dayToken = "(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)";
-  const timeToken = "(\\d{1,2}(?:[:.]\\d{2})?\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)?)";
-  const lineRe = new RegExp(
-    `${dayToken}\\s*(?:[-–—to]+\\s*${dayToken})?\\s*[:,]?\\s*(?:(closed)|${timeToken}\\s*(?:[-–—]|to)\\s*${timeToken})`,
+  const inlineRe = new RegExp(
+    `${DAY_TOKEN}\\s*(?:${DAY_RANGE_SEP}\\s*${DAY_TOKEN})?\\s*[:,]?\\s*(?:(closed)|${TIME_TOKEN}\\s*${TIME_RANGE_SEP}\\s*${TIME_TOKEN})`,
     "gi"
   );
+  const bareRangeRe = new RegExp(`^${TIME_TOKEN}\\s*${TIME_RANGE_SEP}\\s*${TIME_TOKEN}$`, "i");
+  const rangeAnywhereRe = new RegExp(`${TIME_TOKEN}\\s*${TIME_RANGE_SEP}\\s*${TIME_TOKEN}`, "i");
+  const dayOnlyRe = new RegExp(`^${DAY_TOKEN}(?:\\s*${DAY_RANGE_SEP}\\s*${DAY_TOKEN})?\\s*[:,]?$`, "i");
+  const allWeekRe = /\b(daily|all\s+days?|every\s?day|7\s+days(\s+a\s+week)?|week\s?long)\b/i;
+  const hoursKeywordRe = /^(?:our\s+)?(?:timings?|opening\s+hours?|working\s+hours?|business\s+hours?|store\s+hours?|clinic\s+hours?|open|we(?:'|\s+a)re\s+open)\b/i;
+
+  const noteSource = (chunk: (typeof chunks)[number]) => {
+    sourceFilename ??= chunk.sourceFile?.filename ?? null;
+  };
 
   for (const chunk of chunks) {
-    for (const line of (chunk.content ?? "").split("\n")) {
-      lineRe.lastIndex = 0;
+    const text = repairSplitDayWords(chunk.content ?? "");
+    const lines = text.split("\n").map((line) => line.trim());
+    // Day names parked from a day-only table row, waiting for the time line.
+    let pendingDays: Weekday[] = [];
+
+    for (const line of lines) {
+      if (!line) continue; // blank lines never break a table row apart
+
+      // 1) Day-first on one line: "Mon–Fri: 9 AM – 5 PM", "Sunday Closed".
+      inlineRe.lastIndex = 0;
+      let matchedInline = false;
       let match: RegExpExecArray | null;
-      while ((match = lineRe.exec(line)) !== null) {
-        const fromDay = DAY_ALIASES[match[1]?.toLowerCase() ?? ""];
-        const toDay = match[2] ? DAY_ALIASES[match[2].toLowerCase()] : undefined;
-        if (!fromDay) continue;
-        const targets = toDay ? expandDayRange(fromDay, toDay) : [fromDay];
+      while ((match = inlineRe.exec(line)) !== null) {
+        const from = DAY_ALIASES[match[1]?.toLowerCase() ?? ""];
+        const to = match[2] ? DAY_ALIASES[match[2].toLowerCase()] : undefined;
+        if (!from) continue;
+        const targets = to ? expandDayRange(from, to) : [from];
 
         if (match[3]) {
           for (const day of targets) days[day] = { open: "09:00", close: "17:00", closed: true };
-          sourceFilename ??= chunk.sourceFile?.filename ?? null;
+          matchedInline = true;
+          noteSource(chunk);
           continue;
         }
 
-        const open = parseTimeToken(match[4] ?? "");
-        const close = parseTimeToken(match[5] ?? "");
-        if (!open || !close) continue;
-        for (const day of targets) days[day] = { open, close, closed: false };
-        sourceFilename ??= chunk.sourceFile?.filename ?? null;
+        const range = parseTimeRangeTokens(match[4] ?? "", match[5] ?? "");
+        if (!range) continue;
+        for (const day of targets) days[day] = { ...range, closed: false };
+        matchedInline = true;
+        noteSource(chunk);
+      }
+      if (matchedInline) {
+        pendingDays = [];
+        continue;
+      }
+
+      // 2) Day-only table row: park the days for the next time line.
+      if (dayOnlyRe.test(line)) {
+        pendingDays = readDayTargets(line);
+        continue;
+      }
+
+      // 3) Time (or "Closed") line completing a parked table row.
+      if (pendingDays.length > 0) {
+        if (/^closed\.?$/i.test(line)) {
+          for (const day of pendingDays) days[day] = { open: "09:00", close: "17:00", closed: true };
+          noteSource(chunk);
+          pendingDays = [];
+          continue;
+        }
+        const bare = bareRangeRe.exec(line);
+        const range = bare ? parseTimeRangeTokens(bare[1] ?? "", bare[2] ?? "") : null;
+        if (range) {
+          for (const day of pendingDays) days[day] = { ...range, closed: false };
+          noteSource(chunk);
+          pendingDays = [];
+          continue;
+        }
+        pendingDays = [];
+      }
+
+      // 4) Time-first with days after: "Timings: 10 AM – 8 PM (Mon–Sat)".
+      const anywhere = rangeAnywhereRe.exec(line);
+      if (anywhere) {
+        const range = parseTimeRangeTokens(anywhere[1] ?? "", anywhere[2] ?? "");
+        if (range) {
+          const after = line.slice((anywhere.index ?? 0) + anywhere[0].length);
+          const targets = readDayTargets(after);
+          if (targets.length > 0) {
+            for (const day of targets) days[day] = { ...range, closed: false };
+            noteSource(chunk);
+            continue;
+          }
+
+          // 5) Whole-week phrasing: "Open daily 9–9", "Timings: 10 AM to 8 PM".
+          if (allWeekRe.test(line) || hoursKeywordRe.test(line)) {
+            for (const day of ALL_WEEK) fallbackDays[day] = { ...range, closed: false };
+            noteSource(chunk);
+          }
+        }
       }
     }
+  }
+
+  // Explicit day rows always beat the whole-week fallback.
+  for (const day of ALL_WEEK) {
+    if (!days[day] && fallbackDays[day]) days[day] = fallbackDays[day];
   }
 
   // Confidence bar: at least two weekdays extracted, otherwise no suggestion.

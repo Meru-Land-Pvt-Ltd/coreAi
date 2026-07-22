@@ -53,11 +53,11 @@ export function ComponentLibrary({
           data-testid="library-template-ai-receptionist"
           className="mb-3 w-full rounded-xl border-2 border-violet-300 bg-violet-50 px-3 py-2 text-left transition hover:border-violet-400"
         >
-          <span className="flex items-center justify-between gap-2">
-            <span className="block text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-dental-text">Dental AI Receptionist</span>
+          <span className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <span className="block min-w-0 text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-dental-text">Dental AI Receptionist</span>
             <span className="shrink-0 rounded-full bg-violet-600 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white" data-testid="architect-ui-workflow-builder-component-library-dental-badge">Recommended · Latest</span>
           </span>
-          <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-dental-helper-text">6 voice nodes: call → AI → calendar → book → SMS → end</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-slate-500" data-testid="architect-ui-workflow-builder-component-library-dental-helper-text">6 voice nodes: call → AI → calendar → book → SMS → end</span>
         </button>
         <button
           type="button"

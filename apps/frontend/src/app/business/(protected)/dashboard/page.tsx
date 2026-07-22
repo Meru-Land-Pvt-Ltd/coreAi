@@ -84,6 +84,8 @@ type DashboardOverview = {
     bookings?: DashboardBookings;
     activityChart?: { days: ActivityChartDay[] };
     agentActivity?: DashboardActivityApi[];
+    callHistory?: DashboardCallHistoryItem[];
+    executions?: DashboardExecutionItem[];
     calendarConnected: boolean;
     totalSpendCents?: number;
     activities?: DashboardActivityApi[];
@@ -99,6 +101,30 @@ type DashboardActivityApi = {
     createdAt: string;
     /** Call recording playback URL — present only when recording was enabled for the call. */
     recordingUrl?: string | null;
+    /** VapiCall row id — lets the client mint a fresh recording URL at play time. */
+    vapiCallId?: string | null;
+};
+
+type DashboardCallHistoryItem = {
+    id: string;
+    customerPhone: string;
+    direction: "inbound" | "outbound";
+    status: string;
+    durationSeconds: number | null;
+    recordingUrl: string | null;
+    summary: string | null;
+    createdAt: string;
+};
+
+type DashboardExecutionItem = {
+    id: string;
+    status: string;
+    workflowName: string;
+    startedAt: string;
+    finishedAt: string | null;
+    durationMs: number | null;
+    errorMessage: string | null;
+    externalCallId: string | null;
 };
 
 type MetricCard = {
@@ -135,6 +161,7 @@ type Activity = {
     tone: "green" | "amber" | "slate";
     check?: boolean;
     recordingUrl?: string | null;
+    vapiCallId?: string | null;
 };
 
 type ChartMetric = "executions" | "cost";
@@ -450,7 +477,8 @@ export default function BusinessDashboardPage() {
                 badge: activity.badge,
                 tone: activity.tone,
                 check: activity.check,
-                recordingUrl: activity.recordingUrl ?? null
+                recordingUrl: activity.recordingUrl ?? null,
+                vapiCallId: activity.vapiCallId ?? null
             })),
         [overview?.activities]
     );
@@ -791,6 +819,108 @@ export default function BusinessDashboardPage() {
                             </div>
                         </div>
 
+                    </section>
+
+                    {/* Call history — real inbound/outbound phone calls only, with recordings. */}
+                    <section
+                        id="call-history"
+                        className="scroll-mt-24 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
+                        data-testid="dashboard-call-history"
+                    >
+                        <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4 sm:px-5">
+                            <h2 className="font-bold text-slate-900" data-testid="dashboard-call-history-heading">Call history</h2>
+                            <span className="ml-auto text-xs font-medium text-slate-400">Inbound &amp; outbound calls</span>
+                        </div>
+                        {(overview?.callHistory ?? []).length === 0 ? (
+                            <p className="px-5 py-8 text-center text-sm font-medium text-slate-400" data-testid="dashboard-call-history-empty">
+                                No calls yet — they appear here as soon as your agent handles one.
+                            </p>
+                        ) : (
+                            <div className="max-h-96 divide-y divide-gray-100 overflow-y-auto">
+                                {(overview?.callHistory ?? []).map((call) => (
+                                    <div key={call.id} className="px-4 py-3.5 sm:px-5" data-testid="dashboard-call-history-row">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span
+                                                aria-hidden="true"
+                                                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                                                    call.direction === "outbound"
+                                                        ? "bg-blue-50 text-blue-600"
+                                                        : "bg-green-50 text-green-600"
+                                                }`}
+                                            >
+                                                {call.direction === "outbound" ? "↗" : "↙"}
+                                            </span>
+                                            <span className="text-sm font-semibold text-slate-800" data-testid="dashboard-call-history-phone">
+                                                {call.customerPhone || "Unknown caller"}
+                                            </span>
+                                            <span className="text-xs capitalize text-slate-400">{call.direction}</span>
+                                            <span className="ml-auto text-xs text-slate-400">{formatRelativeTime(call.createdAt)}</span>
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap items-center gap-2 pl-8 text-xs text-slate-500">
+                                            {call.durationSeconds ? <span>{formatCallDuration(call.durationSeconds)}</span> : null}
+                                            {call.summary ? <span className="min-w-0 flex-1 truncate">{call.summary}</span> : null}
+                                        </div>
+                                        {call.recordingUrl ? (
+                                            <div className="mt-2 pl-8">
+                                                <CallRecordingPlayer
+                                                    src={call.recordingUrl}
+                                                    refreshPath={`/business/calls/${call.id}/recording-url`}
+                                                    testIdPrefix="dashboard-call-history-recording"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <p className="mt-1 pl-8 text-xs text-slate-300" data-testid="dashboard-call-history-no-recording">
+                                                No recording for this call
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+
+                    {/* Executions — one workflow run per handled live call. */}
+                    <section
+                        id="executions"
+                        className="scroll-mt-24 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
+                        data-testid="dashboard-executions"
+                    >
+                        <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-4 sm:px-5">
+                            <h2 className="font-bold text-slate-900" data-testid="dashboard-executions-heading">Executions</h2>
+                            <span className="ml-auto text-xs font-medium text-slate-400">Live workflow runs</span>
+                        </div>
+                        {(overview?.executions ?? []).length === 0 ? (
+                            <p className="px-5 py-8 text-center text-sm font-medium text-slate-400" data-testid="dashboard-executions-empty">
+                                No executions yet.
+                            </p>
+                        ) : (
+                            <div className="max-h-80 divide-y divide-gray-100 overflow-y-auto">
+                                {(overview?.executions ?? []).map((run) => (
+                                    <div key={run.id} className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5" data-testid="dashboard-execution-row">
+                                        <span
+                                            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                                                run.status === "COMPLETED"
+                                                    ? "bg-green-50 text-green-700"
+                                                    : run.status === "FAILED"
+                                                        ? "bg-rose-50 text-rose-700"
+                                                        : "bg-amber-50 text-amber-700"
+                                            }`}
+                                            data-testid="dashboard-execution-status"
+                                        >
+                                            {run.status === "COMPLETED" ? "Completed" : run.status === "FAILED" ? "Failed" : "Running"}
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">{run.workflowName}</span>
+                                        {run.durationMs ? (
+                                            <span className="text-xs text-slate-400">{formatCallDuration(Math.round(run.durationMs / 1000))}</span>
+                                        ) : null}
+                                        <span className="text-xs text-slate-400">{formatRelativeTime(run.startedAt)}</span>
+                                        {run.errorMessage ? (
+                                            <p className="w-full truncate text-xs text-rose-500">{run.errorMessage}</p>
+                                        ) : null}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </section>
                 </div>
 
@@ -1284,12 +1414,20 @@ function ActivityItem({ activity }: { activity: Activity }) {
                 <div className="mt-2">
                     <CallRecordingPlayer
                         src={activity.recordingUrl}
+                        refreshPath={activity.vapiCallId ? `/business/calls/${activity.vapiCallId}/recording-url` : undefined}
                         testIdPrefix="dashboard-activity-call-recording"
                     />
                 </div>
             ) : null}
         </div>
     );
+}
+
+/** "1:05" / "0:42" duration label from seconds. */
+function formatCallDuration(totalSeconds: number): string {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.max(0, Math.round(totalSeconds % 60));
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function SummaryRow({

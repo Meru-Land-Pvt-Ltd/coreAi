@@ -148,13 +148,6 @@ function stringParams(body: Record<string, unknown>): Record<string, string> {
   return params;
 }
 
-/**
- * Rebuild the exact PUBLIC URL Twilio signed. Twilio signs the webhook URL it
- * was configured with (e.g. https://triven.ai/api/architect/connectors/twilio/voice),
- * so we anchor to BACKEND_URL — which may carry a path prefix like /api that the
- * reverse proxy strips before the request reaches Hono. If the proxy does NOT
- * strip the prefix, we avoid doubling it.
- */
 export function buildPublicWebhookUrl(routePath: string, search = ""): string {
   const base = env.BACKEND_URL.replace(/\/$/, "");
   let basePath = "";
@@ -1050,11 +1043,6 @@ function readCoverage(configJson: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * Structured-hours open check (multiple periods, breaks, special-date
- * overrides). null = hours not configured — callers must not treat that as
- * either open or closed.
- */
 function isWithinBusinessHours(
   hours: unknown,
   timeZone?: string,
@@ -2153,12 +2141,6 @@ function nextWeekdayDateStr(text: string, today: string, timeZone: string): stri
   return undefined;
 }
 
-/**
- * Resolve the appointment date. Relative phrases (today/tomorrow/next Monday) found
- * in the args or transcript are computed from the real "now" in the business
- * timezone and OVERRIDE any literal date the model guessed (e.g. a 2023 date).
- * Returns `isPast` when there's no relative phrase and the literal date is before today.
- */
 function resolveRequestedDate(opts: { rawDate?: string; relativeText: string; timeZone: string }): {
   date: string;
   isPast: boolean;
@@ -2204,11 +2186,6 @@ function argStr(args: Record<string, unknown>, keys: string[]): string | undefin
   return undefined;
 }
 
-/**
- * Canonical + alias arg keys for the caller's name/phone. customer_* is the
- * canonical form; patient_/guest_/lead_/client_ variants keep every industry
- * (and older dental assistants) working.
- */
 const NAME_ARG_KEYS = [
   "customer_name", "patient_name", "guest_name", "lead_name", "client_name", "name", "full_name",
   "customerName", "patientName", "guestName", "leadName", "clientName", "fullName", "patient_full_name"
@@ -2296,13 +2273,33 @@ type VapiToolContext = {
   callId?: string;
   summary: string;
   transcript: string;
-  /** Resolved from trusted call metadata: BUSINESS_TEST for buyer browser
-   * tests — booking then writes marked test events, never live appointments. */
   executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
-  /** Installed agent this call belongs to (assistant metadata) — scopes
-   * knowledge retrieval so agents never see each other's documents. */
   installedAgentId?: string;
 };
+
+const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
+const callContactCache = new Map<string, { name?: string; phone?: string; at: number }>();
+
+export function rememberCallContact(callId: string | undefined, contact: { name?: string; phone?: string }) {
+  if (!callId) return;
+  const now = Date.now();
+  for (const [key, value] of callContactCache) {
+    if (now - value.at > CALL_CONTACT_TTL_MS) callContactCache.delete(key);
+  }
+  const existing = callContactCache.get(callId);
+  callContactCache.set(callId, {
+    name: contact.name || existing?.name,
+    phone: contact.phone || existing?.phone,
+    at: now
+  });
+}
+
+export function recallCallContact(callId: string | undefined): { name?: string; phone?: string } {
+  if (!callId) return {};
+  const entry = callContactCache.get(callId);
+  if (!entry || Date.now() - entry.at > CALL_CONTACT_TTL_MS) return {};
+  return { name: entry.name, phone: entry.phone };
+}
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
   success: false,
@@ -2561,8 +2558,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
-  // Require a real customer full name — never book with a placeholder.
-  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary);
+  const rememberedContact = recallCallContact(ctx.callId);
+  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? rememberedContact.name ?? null;
   if (!patientName) {
     console.log("[vapi-tool] book_appointment missing fields", ["customer_name"]);
     console.warn("[vapi-webhook] book_appointment rejected: no valid customer name", {
@@ -2570,25 +2567,22 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     });
     return NEEDS_CUSTOMER_NAME_RESULT;
   }
+  rememberCallContact(ctx.callId, { name: patientName });
 
   const rawPhone = argStr(args, PHONE_ARG_KEYS);
-  let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone);
+  let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.phone || "";
 
-  // Dry-run bookings accept short/spoken numbers ("8 8 8 2 7 7 4 5 7") so the
-  // test call can complete; live bookings keep strict E.164 normalization.
   if (!patientPhone && ctx.dental?.dryRun) {
     const digits = (rawPhone ?? "").replace(/\D/g, "");
     if (digits.length >= 7) patientPhone = digits;
   }
 
-  // Name is present — only the phone is missing. Never re-ask for the name.
   if (!patientPhone) {
     console.log("[vapi-tool] book_appointment missing fields", ["customer_phone"]);
     return NEEDS_CUSTOMER_PHONE_RESULT;
   }
+  rememberCallContact(ctx.callId, { name: patientName, phone: patientPhone });
 
-  // The caller-stated service is kept verbatim; the buyer-configured booking
-  // label (never a dental-specific word) is the only fallback.
   const service =
     argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) ||
     ctx.dental?.bookingLabel ||
@@ -2627,8 +2621,6 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     )
     : `Perfect, ${patientName} — you're booked for ${service} on ${whenLabel}.`;
 
-  // Rich, validated calendar description (confirmed address included so the
-  // calendar entry tells the patient where to arrive).
   const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
   const eventDescription = [
     ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
@@ -2641,10 +2633,6 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     .filter(Boolean)
     .join("\n");
 
-  // Architect browser test: never a real customer booking. With the
-  // test-calendar toggle on, create a REAL [TRIVEN ARCHITECT TEST] event in
-  // the ARCHITECT's own calendar; otherwise record a simulated preview. Both
-  // are TestCalendarEvent rows so the delete-test-event action works.
   if (ctx.dental?.dryRun) {
     const architectUserId = ctx.dental.architectUserId ?? ctx.business?.ownerId ?? null;
 
@@ -2995,13 +2983,6 @@ function formatApptTime(startAt: Date, timeZone?: string | null): string {
   }
 }
 
-/**
- * Resolve the TRUSTED caller number for cancellation identity checks.
- * Verification uses ONLY the telephony-reported inbound caller id
- * (ctx.customerPhone from the Vapi webhook) — never tool arguments and never
- * a number spoken in the transcript (ctx.patientPhone is argument-tainted by
- * the dispatcher and must not be used here).
- */
 function trustedCallerE164(ctx: VapiToolContext): string | null {
   const raw = (ctx.customerPhone ?? "").trim();
   if (!raw) return null;
@@ -3118,8 +3099,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
     };
   }
 
-  // The id is honored ONLY when it belongs to this business AND this caller's
-  // number — a guessed/hallucinated id degrades to the generic no-match reply.
   const target = await prisma.appointment.findFirst({
     where: { id: targetId, businessId, customerPhone: callerPhone },
     select: {
@@ -3186,9 +3165,6 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   const cancelledDate = formatApptDate(target.startAt, target.timeZone || timeZone);
   const cancelledTime = formatApptTime(target.startAt, target.timeZone || timeZone);
 
-  // Notifications are best-effort and never affect the cancellation result.
-  // The customer SMS goes through the central consent gate (sendTrackedSms)
-  // and may be suppressed — cancellation still succeeds.
   let smsSent = false;
   try {
     const smsOutcome = await sendTrackedSms({
@@ -3571,16 +3547,9 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
-  // Source priority: buyer-confirmed structured facts first (address, phone,
-  // website), then document knowledge. Structured configuration always beats
-  // conflicting document text.
   const structured = await lookupStructuredFacts({ businessId, query });
   const documents = await retrieveRelevantKnowledge({
     businessId,
-    // Scope to the calling agent when the assistant reported its identity.
-    // Legacy assistants (deployed before metadata) stay business-wide so their
-    // existing documents keep working; the next knowledge sync re-deploys
-    // them WITH identity and tightens the scope.
     installedAgentId: ctx.installedAgentId,
     query
   });
@@ -4031,10 +4000,6 @@ function authorizeVapiWebhook(
 
   if (!isProduction) return { authorized: true, reason: "non-production" };
 
-  // Matches ARCHITECT_TEST_PURPOSE in test-deployment.ts (literal to avoid an import cycle).
-  // The purpose comes from the client-controllable request body, so it is only
-  // PROVISIONAL: the request is rejected later unless the resolved business is
-  // a real architect sandbox. A forged purpose can never reach a live business.
   const metadata = getVapiMetadata(body);
   if (metadata.purpose === "ARCHITECT_TEST") {
     return { authorized: true, reason: "architect test session (sandbox check pending)", requiresArchitectSandbox: true };
@@ -4045,11 +4010,6 @@ function authorizeVapiWebhook(
   return { authorized: false, reason: "missing or invalid webhook secret" };
 }
 
-/**
- * Whether the resolved business is an architect test sandbox (never a live
- * buyer business). The sandbox marker lives on InstalledAgent.configJson
- * (same predicate findSandboxBusiness uses) — Business has no configJson.
- */
 async function isArchitectSandboxBusiness(business: unknown): Promise<boolean> {
   const businessId = (business as { id?: unknown } | null)?.id;
   if (typeof businessId !== "string" || !businessId) return false;
@@ -4060,13 +4020,43 @@ async function isArchitectSandboxBusiness(business: unknown): Promise<boolean> {
   return Boolean(sandboxAgent);
 }
 
-function resolveVapiCallExecutionMode(
+function agentPurpose(configJson: unknown): string {
+  const config =
+    configJson && typeof configJson === "object" && !Array.isArray(configJson)
+      ? (configJson as Record<string, unknown>)
+      : {};
+  return typeof config.purpose === "string" ? config.purpose : "";
+}
+
+export async function isSandboxExecutionBusiness(
+  businessId: string,
+  installedAgentId?: string
+): Promise<boolean> {
+  if (installedAgentId) {
+    const agent = await prisma.installedAgent.findFirst({
+      where: { id: installedAgentId, businessId },
+      select: { configJson: true }
+    });
+    if (agent) return agentPurpose(agent.configJson) === "ARCHITECT_TEST";
+  }
+
+  const agents = await prisma.installedAgent.findMany({
+    where: { businessId },
+    select: { configJson: true }
+  });
+  if (agents.length === 0) return false;
+  return agents.every((agent) => agentPurpose(agent.configJson) === "ARCHITECT_TEST");
+}
+
+export function resolveVapiCallExecutionMode(
   metadata: Record<string, unknown>,
-  isSandboxBusiness: boolean
+  isSandboxBusiness: boolean,
+  callType?: string
 ): "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" {
   const purpose = typeof metadata.purpose === "string" ? metadata.purpose : "";
   if (purpose === "ARCHITECT_TEST") return "ARCHITECT_DRY_RUN";
   if (purpose === "BUYER_SETUP_PREVIEW" || purpose === "MARKETPLACE_DEMO") return "BUSINESS_TEST";
+  if ((callType ?? "").toLowerCase() === "webcall") return "BUSINESS_TEST";
   if (isSandboxBusiness) return "ARCHITECT_DRY_RUN";
   return "LIVE";
 }
@@ -4096,16 +4086,19 @@ export async function handleVapiWebhook(c: Context) {
     const metadata = getVapiMetadata(body);
     const business = await findBusinessByVapiWebhook(body);
 
-    // The body-supplied ARCHITECT_TEST purpose only authorizes requests that
-    // resolve to a real architect sandbox business — never a live buyer.
     if (auth.requiresArchitectSandbox && !(business && (await isArchitectSandboxBusiness(business)))) {
       console.log("[vapi-webhook] response status", 401, "(architect-test purpose without sandbox business)");
       return c.json({ success: false, error: "Unauthorized", code: "VAPI_WEBHOOK_UNAUTHORIZED" }, 401);
     }
 
     const businessContext = business ? buildBusinessContext(business) : null;
-    const sandboxBusiness = business ? await isArchitectSandboxBusiness(business) : false;
-    const executionMode = resolveVapiCallExecutionMode(metadata, sandboxBusiness);
+    const metadataInstalledAgentId =
+      typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
+    const sandboxBusiness = businessContext?.businessId
+      ? await isSandboxExecutionBusiness(businessContext.businessId, metadataInstalledAgentId)
+      : false;
+    const callType = firstNestedString(body, [["message", "call", "type"], ["call", "type"]]);
+    const executionMode = resolveVapiCallExecutionMode(metadata, sandboxBusiness, callType);
     const callId = firstNestedString(body, [["message", "call", "id"], ["call", "id"], ["id"]]);
     const customerPhone =
       firstNestedString(body, [["message", "call", "customer", "number"], ["call", "customer", "number"]]) ||
@@ -4114,8 +4107,6 @@ export async function handleVapiWebhook(c: Context) {
     const messageType = firstNestedString(body, [["message", "type"], ["type"]]);
     const summary = firstNestedString(body, [["message", "summary"], ["summary"]]);
     const transcript = firstNestedString(body, [["message", "transcript"], ["transcript"]]);
-    const metadataInstalledAgentId =
-      typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
 
     const agentPaused = businessContext?.businessId
       ? await isVapiInstalledAgentPaused(businessContext.businessId, metadataInstalledAgentId)

@@ -20,6 +20,9 @@
     "mark:sms-sender": "tsx scripts/mark-platform-sms-sender.ts",
     "test:twilio-sms": "tsx scripts/test-twilio-sms.ts",
     "backfill:recording-urls": "tsx scripts/backfill-recording-urls.ts",
+    "backfill:live-classification": "tsx scripts/backfill-live-call-classification.ts",
+    "vapi:fix-hipaa": "tsx scripts/fix-vapi-hipaa-recordings.ts",
+    "vapi:inspect-recording": "tsx scripts/inspect-vapi-recording.ts",
     "backfill:architect-earnings": "tsx scripts/backfill-architect-earnings.ts",
     "reconcile:payouts": "tsx scripts/reconcile-payouts.ts",
     "test": "vitest run"

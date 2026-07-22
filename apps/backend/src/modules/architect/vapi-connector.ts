@@ -142,7 +142,60 @@ export type VapiCallDetails = {
   durationMs: number | null;
   costUsd: number | null;
   costBreakdown: Record<string, unknown> | null;
+  recordingUrl: string | null;
+  recordingUrls: string[];
 };
+
+export function isPresignedRecordingUrl(url: string): boolean {
+  return /[?&]X-Amz-(?:Signature|Credential|Algorithm)=/i.test(url);
+}
+
+export function extractCallRecordingUrls(payload: Record<string, unknown>): string[] {
+  const urls: string[] = [];
+
+  function collectUrls(value: unknown, path = ""): void {
+    if (typeof value === "string") {
+      const url = value.trim();
+
+      if (
+        /^https:\/\//i.test(url) &&
+        /record|artifact|\.wav(?:$|\?)|\.mp3(?:$|\?)/i.test(`${path} ${url}`) &&
+        // Artifacts also carry non-audio files — never offer those for playback.
+        !/transcript|pcap|video/i.test(`${path} ${url}`) &&
+        !urls.includes(url)
+      ) {
+        urls.push(url);
+      }
+
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        collectUrls(item, `${path}[${index}]`);
+      });
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      for (const [key, nested] of Object.entries(
+        value as Record<string, unknown>
+      )) {
+        collectUrls(nested, path ? `${path}.${key}` : key);
+      }
+    }
+  }
+
+  collectUrls(payload);
+
+  const isPresigned = (url: string) =>
+    /[?&]X-Amz-(?:Signature|Credential|Algorithm)=/i.test(url);
+
+  return urls.sort(
+    (left, right) =>
+      Number(isPresigned(right)) - Number(isPresigned(left))
+  );
+}
 
 export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails | null> {
   if (!isVapiConfigured() || !isRealId(callId)) return null;
@@ -164,6 +217,7 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
   const durationSeconds = Number(payload.durationSeconds);
   const durationMinutes = Number(payload.durationMinutes);
   const durationMs = Number(payload.durationMs);
+  const recordingUrls = extractCallRecordingUrls(payload);
 
   return {
     id: stringField(payload, "id") ?? callId,
@@ -175,7 +229,9 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
     costBreakdown:
       typeof payload.costBreakdown === "object" && payload.costBreakdown !== null
         ? (payload.costBreakdown as Record<string, unknown>)
-        : null
+        : null,
+    recordingUrl: recordingUrls[0] ?? null,
+    recordingUrls
   };
 }
 
@@ -1027,10 +1083,11 @@ export async function deployVapiAssistant({
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
       ...(clean(env.VAPI_WEBHOOK_SECRET) ? { secret: env.VAPI_WEBHOOK_SECRET } : {})
     },
-    // End Flow node's "Call recording" toggle. When off, Vapi produces no
-    // recording artifact and no recordingUrl reaches the buyer dashboard.
     artifactPlan: {
       recordingEnabled: recordingEnabled !== false
+    },
+    compliancePlan: {
+      hipaaEnabled: false
     },
     ...(metadata ? { metadata } : {}),
     ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {}),

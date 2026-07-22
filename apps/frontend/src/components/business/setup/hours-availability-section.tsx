@@ -27,6 +27,7 @@ export function HoursAvailabilitySection({
   onBusinessHoursChange,
   onBusinessHoursDirtyChange,
   registerBusinessHoursApi,
+  businessHoursRefreshToken,
   businessHoursSummary,
   businessHoursConfigured,
   apptUseBusinessHours,
@@ -54,6 +55,8 @@ export function HoursAvailabilitySection({
   onBusinessHoursChange?: (data: BusinessHoursData) => void;
   onBusinessHoursDirtyChange: (dirty: boolean) => void;
   registerBusinessHoursApi: (api: EmbeddedSectionApi | null) => void;
+  /** Bump after document changes so the hours editor re-reads its suggestion. */
+  businessHoursRefreshToken?: number;
   businessHoursSummary: string[] | null;
   businessHoursConfigured: boolean;
   apptUseBusinessHours: boolean;
@@ -88,6 +91,7 @@ export function HoursAvailabilitySection({
           onChange={onBusinessHoursChange}
           onDirtyChange={onBusinessHoursDirtyChange}
           registerApi={registerBusinessHoursApi}
+          refreshToken={businessHoursRefreshToken}
         />
       </div>
 

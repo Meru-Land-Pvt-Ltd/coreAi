@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { PaymentStatus } from "@prisma/client";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "../business/primary-business";
 import {
   invoiceDateForPayment,
   invoiceDisplayAmountCents,
@@ -175,8 +176,7 @@ export async function buildInvoiceData(
   const syntheticTrial = options.syntheticTrial ?? false;
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: {
       name: true,
       billingName: true,
@@ -282,8 +282,7 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
   let billing = params.billing;
   if (!billing) {
     const business = await prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       select: { billingName: true, billingEmail: true, billingAddress: true }
     });
     billing = {
@@ -431,8 +430,7 @@ export async function recordAgentPurchaseFromIntent(intent: Stripe.PaymentIntent
       select: { id: true, name: true, priceCents: true }
     }),
     prisma.business.findFirst({
-      where: { ownerId: userId },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(userId)) ?? "" },
       select: { id: true }
     }),
     prisma.payment.findFirst({

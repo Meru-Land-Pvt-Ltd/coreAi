@@ -362,12 +362,12 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
   };
 
   return (
-    <div className="relative">
-      <div className="pointer-events-none absolute -inset-6 -z-10 rounded-[3rem] bg-[radial-gradient(60%_60%_at_50%_40%,rgba(245,158,11,0.12),transparent_70%)]" />
+    <div className="relative mx-auto w-full max-w-[320px] overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 -z-10 rounded-[3rem] bg-[radial-gradient(60%_60%_at_50%_40%,rgba(245,158,11,0.12),transparent_70%)]" />
 
-      <div className="mx-auto w-full max-w-[320px] animate-float" data-testid="agent-workflow-preview">
-        <div className="rounded-[2.5rem] border border-gray-200 bg-white p-2.5 shadow-2xl">
-          <div className="overflow-hidden rounded-[2rem] bg-gray-50">
+      <div className="mx-auto w-full animate-float" data-testid="agent-workflow-preview">
+        <div className="rounded-[2rem] border border-gray-200 bg-white p-2 shadow-2xl sm:rounded-[2.5rem] sm:p-2.5">
+          <div className="overflow-hidden rounded-[1.6rem] bg-gray-50 sm:rounded-[2rem]">
             {/* status bar */}
             <div className="flex items-center justify-between px-5 pt-3 pb-1 text-[10px] font-semibold text-slate-500">
               <span>9:41</span>

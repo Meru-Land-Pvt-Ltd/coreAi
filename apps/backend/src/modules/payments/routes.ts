@@ -29,6 +29,7 @@ import { getStripeClient, isStripeConfigured } from "./stripe";
 import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-finalize";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import { resolvePrimaryBusinessId } from "../business/primary-business";
 import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 
@@ -95,8 +96,7 @@ type CheckoutBillingDetails = {
 
 async function persistCheckoutBilling(ownerId: string, billing: CheckoutBillingDetails) {
   const business = await prisma.business.findFirst({
-    where: { ownerId },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(ownerId)) ?? "" },
     select: { id: true }
   });
   if (!business) return null;
@@ -121,8 +121,7 @@ async function getOrCreateBusinessStripeCustomer(authUser: {
   if (!stripe || !isStripeConfigured()) throw new Error("Stripe is not configured");
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "asc" }
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" }
   });
   if (!business) throw new Error("Business profile not found");
 
@@ -328,8 +327,7 @@ async function buildInvoiceData(
   const syntheticTrial = options.syntheticTrial ?? false;
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: {
       name: true,
       billingName: true,
@@ -448,8 +446,7 @@ paymentRoutes.get("/billing", async (c) => {
       }
     }),
     prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "asc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       select: {
         id: true,
         name: true,
@@ -769,8 +766,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       }
     }),
     prisma.business.findFirst({
-      where: { ownerId: authUser.id },
-      orderBy: { createdAt: "desc" },
+      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       select: {
         id: true,
         installedAgents: {
@@ -974,7 +970,8 @@ paymentRoutes.get("/my-agents", async (c) => {
         workflow: listing.workflow,
         architect: listing.architect,
         freeTrialEnabled: listing.freeTrialEnabled,
-        trialDays: listing.trialDays
+        trialDays: listing.trialDays,
+        pricingModel: listing.pricingModel
       }
     });
   }
@@ -1566,8 +1563,7 @@ paymentRoutes.post("/purchase/confirm", async (c) => {
   if (!listing) return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
 

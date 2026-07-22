@@ -19,7 +19,8 @@ process.env.ELEVENLABS_VOICE_SARAH_ID = FEMALE_DEFAULT_ID;
 process.env.ELEVENLABS_DEFAULT_VOICE_ID = FEMALE_DEFAULT_ID;
 
 const { env } = await import("../../config/env");
-const { deployVapiAssistant, resolveVapiModel, resolveVapiVoice } = await import("./vapi-connector");
+const { deployVapiAssistant, extractCallRecordingUrls, isPresignedRecordingUrl, resolveVapiModel, resolveVapiVoice } =
+  await import("./vapi-connector");
 
 const originalEnv = {
   VAPI_API_KEY: env.VAPI_API_KEY,
@@ -218,5 +219,78 @@ describe("deployVapiAssistant payload", () => {
     });
     expect(body.model.provider).toBe("openai");
     expect(body.model.model).toBe("gpt-4o-mini");
+  });
+});
+
+/**
+ * Recording URL discovery must find every audio variant Vapi returns —
+ * including artifact.presigned*Url fields (the only playable ones on
+ * HIPAA-storage orgs) — sort presigned first, and never strip the signed
+ * query parameters that ARE the access grant.
+ */
+const SIGNED_QS =
+  "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key%2F20260721%2Fauto%2Fs3%2Faws4_request&X-Amz-Signature=abc123";
+
+describe("extractCallRecordingUrls", () => {
+  const payload = {
+    id: "call-1",
+    artifact: {
+      recordingUrl: "https://r2.test/hipaa-recordings/call-1-mono.wav",
+      stereoRecordingUrl: "https://r2.test/hipaa-recordings/call-1-stereo.wav",
+      presignedMonoUrl: `https://r2.test/hipaa-recordings/call-1-mono.wav?${SIGNED_QS}`,
+      presignedStereoUrl: `https://r2.test/hipaa-recordings/call-1-stereo.wav?${SIGNED_QS}`,
+      presignedAssistantUrl: `https://r2.test/hipaa-recordings/call-1-assistant.wav?${SIGNED_QS}`,
+      presignedCustomerUrl: `https://r2.test/hipaa-recordings/call-1-customer.wav?${SIGNED_QS}`,
+      transcriptUrl: "https://r2.test/hipaa-recordings/call-1-transcript.json",
+      recording: {
+        stereoUrl: "https://r2.test/hipaa-recordings/call-1-stereo.wav",
+        mono: {
+          combinedUrl: "https://r2.test/hipaa-recordings/call-1-mono.wav",
+          assistantUrl: "https://r2.test/hipaa-recordings/call-1-assistant.wav",
+          customerUrl: "https://r2.test/hipaa-recordings/call-1-customer.wav"
+        }
+      }
+    },
+    webhookUrl: "https://api.example.com/webhook"
+  };
+
+  it("extracts artifact.presigned*Url fields with their query parameters intact", () => {
+    const urls = extractCallRecordingUrls(payload);
+
+    expect(urls).toContain(`https://r2.test/hipaa-recordings/call-1-mono.wav?${SIGNED_QS}`);
+    expect(urls).toContain(`https://r2.test/hipaa-recordings/call-1-stereo.wav?${SIGNED_QS}`);
+    expect(urls).toContain(`https://r2.test/hipaa-recordings/call-1-assistant.wav?${SIGNED_QS}`);
+    expect(urls).toContain(`https://r2.test/hipaa-recordings/call-1-customer.wav?${SIGNED_QS}`);
+  });
+
+  it("sorts every presigned URL before every bare URL", () => {
+    const urls = extractCallRecordingUrls(payload);
+    const flags = urls.map((url) => isPresignedRecordingUrl(url));
+    const lastPresigned = flags.lastIndexOf(true);
+    const firstBare = flags.indexOf(false);
+
+    expect(lastPresigned).toBeGreaterThanOrEqual(0);
+    expect(firstBare).toBeGreaterThan(lastPresigned);
+  });
+
+  it("deduplicates without stripping query parameters and skips non-audio artifacts", () => {
+    const urls = extractCallRecordingUrls(payload);
+
+    // recording.mono.combinedUrl duplicates artifact.recordingUrl — one entry.
+    expect(urls.filter((url) => url === "https://r2.test/hipaa-recordings/call-1-mono.wav")).toHaveLength(1);
+    // Bare and presigned variants of the same object are DIFFERENT candidates.
+    expect(urls).toContain("https://r2.test/hipaa-recordings/call-1-mono.wav");
+    // Transcript and unrelated URLs never become playback candidates.
+    expect(urls.some((url) => url.includes("transcript"))).toBe(false);
+    expect(urls.some((url) => url.includes("api.example.com"))).toBe(false);
+  });
+});
+
+describe("isPresignedRecordingUrl", () => {
+  it("recognizes any of the SigV4 query markers", () => {
+    expect(isPresignedRecordingUrl("https://r2.test/a.wav?X-Amz-Signature=x")).toBe(true);
+    expect(isPresignedRecordingUrl("https://r2.test/a.wav?X-Amz-Credential=x")).toBe(true);
+    expect(isPresignedRecordingUrl("https://r2.test/a.wav?X-Amz-Algorithm=x")).toBe(true);
+    expect(isPresignedRecordingUrl("https://r2.test/a.wav")).toBe(false);
   });
 });

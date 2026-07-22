@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "../business/primary-business";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { resolveTwilioSmsMode, sendTwilioSms, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
@@ -175,9 +176,9 @@ export async function ensureBusinessAndAgent(opts: {
   // keeps architect access and additionally becomes a buyer).
   await grantRole(opts.ownerId, "BUSINESS");
 
+  const primaryId = await resolvePrimaryBusinessId(opts.ownerId);
   let business = await prisma.business.findFirst({
-    where: { ownerId: opts.ownerId },
-    orderBy: { createdAt: "desc" }
+    where: { id: primaryId ?? "" }
   });
 
   if (!business) {
@@ -365,8 +366,7 @@ setupRoutes.get("/agent/:listingId", async (c) => {
   }
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     include: {
       profile: true,
       phoneNumbers: { orderBy: { createdAt: "desc" }, take: 1 },
@@ -648,8 +648,7 @@ setupRoutes.post("/test-sms", async (c) => {
   }
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     include: {
       phoneNumbers: { orderBy: { createdAt: "desc" }, take: 1 },
       installedAgents: { where: { listingId: parsed.data.listingId }, orderBy: { createdAt: "desc" }, take: 1 }

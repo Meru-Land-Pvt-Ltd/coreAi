@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { parsePaymentLineItems, type PaymentLineItem } from "../../lib/billing-invoices";
@@ -246,8 +247,7 @@ async function convertExpiredTrials(now: Date) {
         trial.businessId ??
         (
           await prisma.business.findFirst({
-            where: { ownerId: trial.userId },
-            orderBy: { createdAt: "desc" },
+            where: { id: (await resolvePrimaryBusinessId(trial.userId)) ?? "" },
             select: { id: true }
           })
         )?.id ??

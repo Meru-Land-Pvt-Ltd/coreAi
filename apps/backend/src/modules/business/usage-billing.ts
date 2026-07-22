@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { prisma } from "../../lib/prisma";
+import { resolvePrimaryBusinessId } from "./primary-business";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
   calculateUsageLineItems,
@@ -126,6 +127,41 @@ export function extractRecordingUrl(message: Record<string, unknown>): string | 
   return null;
 }
 
+const RECORDING_REFETCH_DELAY_MS = 60_000;
+const scheduledRecordingRefetches = new Set<string>();
+
+function scheduleRecordingRefetch(callId: string) {
+  if (!callId || scheduledRecordingRefetches.has(callId)) return;
+  scheduledRecordingRefetches.add(callId);
+
+  const timer = setTimeout(() => {
+    void (async () => {
+      try {
+        const existing = await prisma.vapiCall.findUnique({
+          where: { callId },
+          select: { id: true, recordingUrl: true }
+        });
+        if (!existing || existing.recordingUrl) return;
+
+        const call = await fetchVapiCallById(callId).catch(() => null);
+        if (call?.recordingUrl) {
+          await prisma.vapiCall.update({
+            where: { callId },
+            data: { recordingUrl: call.recordingUrl }
+          });
+          console.log("[usage-billing] recording backfilled after delay", { callId });
+        }
+      } catch (error) {
+        console.error("[usage-billing] delayed recording re-fetch failed (non-fatal)", error);
+      } finally {
+        scheduledRecordingRefetches.delete(callId);
+      }
+    })();
+  }, RECORDING_REFETCH_DELAY_MS);
+  // Never keep the process (or a test runner) alive just for this retry.
+  timer.unref?.();
+}
+
 export async function recordVapiCallUsage({
   businessId,
   installedAgentId,
@@ -159,7 +195,7 @@ export async function recordVapiCallUsage({
   const installedAgent = installedAgentId
     ? await prisma.installedAgent.findFirst({
       where: { id: installedAgentId, businessId },
-      select: { id: true, listingId: true, configJson: true }
+      select: { id: true, listingId: true, configJson: true, createdAt: true }
     })
     : null;
 
@@ -214,8 +250,25 @@ export async function recordVapiCallUsage({
     orderBy: { createdAt: "asc" },
     select: { createdAt: true }
   });
-  if (!purchase) {
-    console.log("[usage-billing] skipped: no completed agent purchase", { businessId, installedAgentId });
+
+  let acquiredAt = purchase?.createdAt ?? installedAgent?.createdAt ?? null;
+  if (!acquiredAt) {
+    const anyAgent = await prisma.installedAgent.findMany({
+      where: { businessId },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true, configJson: true }
+    });
+    const realAgent = anyAgent.find((agent) => {
+      const config =
+        agent.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+          ? (agent.configJson as Record<string, unknown>)
+          : {};
+      return config.purpose !== "ARCHITECT_TEST";
+    });
+    acquiredAt = realAgent?.createdAt ?? null;
+  }
+  if (!acquiredAt) {
+    console.log("[usage-billing] skipped: no completed agent purchase or install", { businessId, installedAgentId });
     return;
   }
 
@@ -249,10 +302,11 @@ export async function recordVapiCallUsage({
     Number.isFinite(vapiCostUsd) && vapiCostUsd >= 0 ? Math.round(vapiCostUsd * 1_000_000) : null;
 
   const endedAt = new Date();
-  if (endedAt < purchase.createdAt) return;
+  if (endedAt < acquiredAt) return;
   const billingMonth = billingMonthFromDate(endedAt);
 
-  const recordingUrl = extractRecordingUrl(message);
+  const recordingUrl = extractRecordingUrl(message) ?? vapiCall?.recordingUrl ?? null;
+  if (!recordingUrl) scheduleRecordingRefetch(callId);
 
   await prisma.vapiCall.upsert({
     where: { callId },
@@ -429,8 +483,7 @@ export async function getBusinessUsageBill(c: Context) {
   const month = (c.req.query("month") ?? "").trim() || billingMonthFromDate(new Date());
 
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true, name: true }
   });
 
@@ -589,8 +642,7 @@ function serializeUsageInvoice(invoice: {
 export async function getBusinessUsageInvoices(c: Context) {
   const authUser = c.get("authUser");
   const business = await prisma.business.findFirst({
-    where: { ownerId: authUser.id },
-    orderBy: { createdAt: "desc" },
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
     select: { id: true }
   });
   if (!business) return successResponse(c, { invoices: [] });

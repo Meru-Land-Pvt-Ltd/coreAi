@@ -19,8 +19,10 @@ import { memoryRoutes } from "./modules/memory/routes";
 import { emailRoutes } from "./modules/email/routes";
 import { legalRoutes } from "./modules/legal/routes";
 import { publicBookingRoutes } from "./modules/public/booking-routes";
+import { chatbotRoutes } from "./modules/chatbot/routes";
 
 export const app = new Hono();
+
 
 app.use("*", requestIdMiddleware);
 
@@ -50,6 +52,7 @@ app.route("/email", emailRoutes);
 app.route("/legal", legalRoutes);
 // Public customer-facing booking/service-request endpoints (slug-addressed).
 app.route("/public", publicBookingRoutes);
+app.route("/chatbot", chatbotRoutes);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

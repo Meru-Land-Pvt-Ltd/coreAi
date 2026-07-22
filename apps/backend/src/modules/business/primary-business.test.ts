@@ -1,0 +1,296 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+
+// The recording-url route consults Vapi for fresh presigned URLs — mock ONLY
+// that lookup (real Vapi is unreachable in tests); everything else stays real.
+vi.mock("../architect/vapi-connector", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../architect/vapi-connector")>();
+  return { ...actual, fetchVapiCallById: vi.fn().mockResolvedValue(null) };
+});
+
+import { prisma } from "../../lib/prisma";
+import { createAuthToken } from "../../lib/jwt";
+import { fetchVapiCallById } from "../architect/vapi-connector";
+import { businessRoutes } from "./routes";
+import { resolvePrimaryBusinessId } from "./primary-business";
+
+const RUN = `primarybiz-${process.pid}-${Date.now().toString(36)}`;
+
+let dbAvailable = false;
+let ownerId = "";
+let token = "";
+let phoneBusinessId = "";
+let strayBusinessId = "";
+let workflowId = "";
+let agentId = "";
+
+function app() {
+  const instance = new Hono();
+  instance.route("/business", businessRoutes);
+  return instance;
+}
+
+beforeAll(async () => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbAvailable = true;
+  } catch {
+    console.warn("[primary-business.test] database unreachable — suite skipped");
+    return;
+  }
+
+  const owner = await prisma.user.create({
+    data: {
+      email: `${RUN}@test.local`,
+      role: "BUSINESS",
+      roleMemberships: { create: { role: "BUSINESS" } }
+    }
+  });
+  ownerId = owner.id;
+  token = await createAuthToken({ id: owner.id, email: owner.email, role: "BUSINESS" });
+
+  // Older business: owns the active number, the agent, and all live traffic.
+  const phoneBusiness = await prisma.business.create({
+    data: { ownerId, name: `${RUN} live biz`, type: "salon", createdAt: new Date(Date.now() - 60_000) }
+  });
+  phoneBusinessId = phoneBusiness.id;
+
+  workflowId = (
+    await prisma.workflowDefinition.create({
+      data: { name: `${RUN} wf`, workflowJson: { nodes: [], edges: [] }, architectUserId: ownerId }
+    })
+  ).id;
+
+  agentId = (
+    await prisma.installedAgent.create({
+      data: { businessId: phoneBusinessId, workflowId, name: `${RUN} agent` }
+    })
+  ).id;
+
+  await prisma.businessPhoneNumber.create({
+    data: {
+      businessId: phoneBusinessId,
+      installedAgentId: agentId,
+      phoneNumber: `+1555${String(Date.now()).slice(-7)}`,
+      isActive: true
+    }
+  });
+
+  await prisma.vapiCall.create({
+    data: {
+      businessId: phoneBusinessId,
+      installedAgentId: agentId,
+      callId: `${RUN}-live-1`,
+      customerPhone: "+15550140001",
+      executionMode: "LIVE",
+      status: "ENDED",
+      recordingUrl: "https://recordings.test.local/live-1.wav"
+    }
+  });
+
+  await prisma.lead.create({
+    data: {
+      businessId: phoneBusinessId,
+      phoneNumber: "+15550140002",
+      source: "MISSED_CALL_TEXT_BACK"
+    }
+  });
+
+  await prisma.workflowRun.create({
+    data: {
+      workflowId,
+      installedAgentId: agentId,
+      businessId: phoneBusinessId,
+      mode: "LIVE",
+      status: "COMPLETED",
+      callProvider: "VAPI",
+      externalCallId: `${RUN}-live-1`,
+      finishedAt: new Date()
+    }
+  });
+
+  // Newer stray business row for the SAME owner — must never win.
+  const stray = await prisma.business.create({
+    data: { ownerId, name: `${RUN} stray biz`, type: "salon" }
+  });
+  strayBusinessId = stray.id;
+});
+
+afterAll(async () => {
+  if (!dbAvailable) return;
+  await prisma.workflowRun.deleteMany({ where: { businessId: phoneBusinessId } });
+  await prisma.vapiCall.deleteMany({ where: { businessId: phoneBusinessId } });
+  await prisma.lead.deleteMany({ where: { businessId: phoneBusinessId } });
+  await prisma.businessPhoneNumber.deleteMany({ where: { businessId: phoneBusinessId } });
+  await prisma.installedAgent.deleteMany({ where: { businessId: phoneBusinessId } });
+  await prisma.business.deleteMany({ where: { id: { in: [phoneBusinessId, strayBusinessId] } } });
+  await prisma.workflowDefinition.deleteMany({ where: { id: workflowId } });
+  await prisma.user.deleteMany({ where: { id: ownerId } });
+});
+
+describe("resolvePrimaryBusinessId", () => {
+  it("prefers the business with the active phone number over a newer stray row", async () => {
+    if (!dbAvailable) return;
+    expect(await resolvePrimaryBusinessId(ownerId)).toBe(phoneBusinessId);
+  });
+
+  it("falls back to the business carrying a buyer agent when no active number exists", async () => {
+    if (!dbAvailable) return;
+    await prisma.businessPhoneNumber.updateMany({
+      where: { businessId: phoneBusinessId },
+      data: { isActive: false }
+    });
+    try {
+      expect(await resolvePrimaryBusinessId(ownerId)).toBe(phoneBusinessId);
+    } finally {
+      await prisma.businessPhoneNumber.updateMany({
+        where: { businessId: phoneBusinessId },
+        data: { isActive: true }
+      });
+    }
+  });
+});
+
+describe("GET /business/dashboard", () => {
+  it("serves runs, activity, and recordings from the phone-owning business — not the newest row", async () => {
+    if (!dbAvailable) return;
+
+    const response = await app().request("/business/dashboard", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      data: {
+        business: { id: string } | null;
+        monthlyMetrics: { callsHandled: number };
+        activities: Array<{ recordingUrl?: string | null }>;
+        agentActivity: unknown[];
+        callHistory: Array<{ customerPhone: string; direction: string; recordingUrl: string | null }>;
+        executions: Array<{ status: string; workflowName: string }>;
+      };
+    };
+
+    expect(body.data.business?.id).toBe(phoneBusinessId);
+    // 1 LIVE call + 1 captured missed call = 2 handled this month.
+    expect(body.data.monthlyMetrics.callsHandled).toBe(2);
+    expect(body.data.agentActivity.length).toBeGreaterThan(0);
+    expect(
+      body.data.activities.some(
+        (activity) => activity.recordingUrl === "https://recordings.test.local/live-1.wav"
+      )
+    ).toBe(true);
+
+    // Call history + executions panels are fed from the same business.
+    expect(body.data.callHistory.length).toBe(1);
+    expect(body.data.callHistory[0].customerPhone).toBe("+15550140001");
+    expect(body.data.callHistory[0].direction).toBe("inbound");
+    expect(body.data.callHistory[0].recordingUrl).toBe("https://recordings.test.local/live-1.wav");
+    expect(body.data.executions.length).toBe(1);
+    expect(body.data.executions[0].status).toBe("COMPLETED");
+  });
+});
+
+describe("GET /business/calls/:id/recording-url", () => {
+  it("returns a probed-playable URL by call id, null when storage rejects it, 404 for foreign calls", async () => {
+    if (!dbAvailable) return;
+
+    // The endpoint probes candidate URLs with a range GET before returning
+    // them — stub outbound fetch so the fake storage URL answers.
+    const originalFetch = globalThis.fetch;
+    const respondWith = (status: number) =>
+      (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("recordings.test.local")) {
+          return new Response("ok", { status });
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch;
+
+    try {
+      globalThis.fetch = respondWith(206);
+      const byCallId = await app().request(`/business/calls/${RUN}-live-1/recording-url`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(byCallId.status).toBe(200);
+      const body = (await byCallId.json()) as { data: { url: string | null } };
+      // Vapi is unconfigured in tests — the stored URL is the probed fallback.
+      expect(body.data.url).toBe("https://recordings.test.local/live-1.wav");
+
+      // A URL the bucket rejects (e.g. unsigned HIPAA storage → 400) is never
+      // handed to the browser.
+      globalThis.fetch = respondWith(400);
+      const rejected = await app().request(`/business/calls/${RUN}-live-1/recording-url`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(rejected.status).toBe(200);
+      const rejectedBody = (await rejected.json()) as { data: { url: string | null } };
+      expect(rejectedBody.data.url).toBeNull();
+
+      const missing = await app().request("/business/calls/does-not-exist/recording-url", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(missing.status).toBe(404);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }, 15000);
+
+  it("probes presigned candidates first, limits AFTER sorting, and never stores signed query params", async () => {
+    if (!dbAvailable) return;
+
+    const presigned = `https://storage.test.local/${RUN}-live-2-mono.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key&X-Amz-Signature=sig123`;
+    const bare = Array.from({ length: 12 }, (_, index) => `https://storage.test.local/${RUN}-live-2-alt-${index}.wav`);
+
+    // Row with NO stored URL — the endpoint must seed it query-stripped.
+    await prisma.vapiCall.create({
+      data: {
+        businessId: phoneBusinessId,
+        installedAgentId: agentId,
+        callId: `${RUN}-live-2`,
+        customerPhone: "+15550140003",
+        executionMode: "LIVE"
+      }
+    });
+
+    // Presigned LAST of 13 raw candidates: only sort-before-slice keeps it.
+    vi.mocked(fetchVapiCallById).mockResolvedValueOnce({
+      id: `${RUN}-live-2`,
+      status: "ended",
+      durationSeconds: null,
+      durationMinutes: null,
+      durationMs: null,
+      costUsd: null,
+      costBreakdown: null,
+      recordingUrl: bare[0],
+      recordingUrls: [...bare, presigned]
+    } as never);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("storage.test.local")) {
+        // Signed variant plays; every bare variant is rejected by the bucket.
+        return new Response("ok", { status: url.includes("X-Amz-Signature") ? 206 : 400 });
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      const response = await app().request(`/business/calls/${RUN}-live-2/recording-url`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { data: { url: string | null } };
+      expect(body.data.url).toBe(presigned);
+
+      const row = await prisma.vapiCall.findUnique({
+        where: { callId: `${RUN}-live-2` },
+        select: { recordingUrl: true }
+      });
+      expect(row?.recordingUrl ?? "").not.toContain("X-Amz");
+      expect(row?.recordingUrl ?? null).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }, 15000);
+});

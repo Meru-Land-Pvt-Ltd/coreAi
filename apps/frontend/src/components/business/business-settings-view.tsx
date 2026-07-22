@@ -728,24 +728,17 @@ function addressDraftFromFacts(facts: BusinessFactsData | null): BusinessAddress
   };
 }
 
-/**
- * Structured Business Address editor shared by Business Settings and the Agent
- * Setup wizard. Both surfaces read GET /business/setup/business-facts on mount
- * and save through PUT /business/setup/business-address, so they always show
- * identical values.
- */
 export function BusinessAddressSection({
   embedded = false,
   onDirtyChange,
-  registerApi
+  registerApi,
+  refreshToken
 }: {
-  /**
-   * Embedded mode (Agent Setup): hides the internal Save button — the parent
-   * saves through registerApi as part of the page-level save experience.
-   */
   embedded?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   registerApi?: (api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null) => void;
+
+  refreshToken?: number;
 } = {}) {
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [draft, setDraft] = useState<BusinessAddressDraft>(EMPTY_ADDRESS_DRAFT);
@@ -765,17 +758,33 @@ export function BusinessAddressSection({
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange]);
 
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
   const refreshFacts = useCallback(async () => {
     const res = await getBusinessFacts();
     if (res.success && res.data) {
       setFacts(res.data);
-      setDraft(addressDraftFromFacts(res.data));
+      if (!dirtyRef.current) setDraft(addressDraftFromFacts(res.data));
     }
   }, []);
 
   useEffect(() => {
     void refreshFacts();
   }, [refreshFacts]);
+
+  const refreshSeenRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (refreshToken === undefined) return;
+    if (refreshSeenRef.current === undefined) {
+      refreshSeenRef.current = refreshToken;
+      return;
+    }
+    if (refreshSeenRef.current === refreshToken) return;
+    refreshSeenRef.current = refreshToken;
+    setSuggestionDismissed(false);
+    void refreshFacts();
+  }, [refreshToken, refreshFacts]);
 
   const suggestion = facts?.documentSuggestion ?? null;
   const showSuggestion = Boolean(suggestion) && !suggestionDismissed;
@@ -818,8 +827,6 @@ export function BusinessAddressSection({
     setServerError("");
     setSyncWarning(false);
 
-    // An entirely empty draft means "no address" — nothing to save, and it
-    // must never block the rest of the Configure page from saving.
     const isEmpty = Object.values(draft).every((value) => !value.trim());
     if (isEmpty) {
       setFieldErrors({});

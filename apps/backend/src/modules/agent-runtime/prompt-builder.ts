@@ -175,13 +175,15 @@ Booking rules:
 - ${capabilities.canBook
       ? `You can book ${bookingLabelPlural} — but only after the request/service, a chosen time, the caller's full name, and their phone number are all collected. Never confirm a booking before that.`
       : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
+- Never ask for a detail the caller already gave in this call. Once you have the caller's name or phone number, reuse it for the rest of the call — including every additional booking. For a second or later booking in the same call, ask only for the new service and time, then confirm.
+- On phone calls the caller's number is captured automatically from caller ID — do not ask for their phone number unless the booking tool reports it is missing.
 - ${capabilities.canText
       ? "You can send transactional text messages, but ONLY to a caller with recorded SMS consent (see the SMS consent rules below)."
       : capabilities.canEmail
         ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer an email confirmation and collect the caller's email address if they want one."
         : "You cannot send text messages. Never promise a text or SMS unless the custom instructions say otherwise."}${capabilities.canEmail && capabilities.canText
-      ? "\n- You can also send email follow-ups — offer email confirmation when the caller prefers it, and collect their email address."
-      : ""
+          ? "\n- You can also send email follow-ups — offer email confirmation when the caller prefers it, and collect their email address."
+          : ""
     }
 - After a booking is complete, answer whatever the caller asks next — do not keep repeating the confirmation.`.trim());
 
