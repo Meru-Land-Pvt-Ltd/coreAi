@@ -39,8 +39,9 @@ function dentalPolicy(overrides: Partial<AfterHoursPolicy> = {}): AfterHoursPoli
     emergencyCategory: "DENTAL",
     emergencyContactMethod: "SMS",
     offerAppointmentBooking: true,
-    useEmergencySlots: false,
+    preferEarliestAvailableSlot: false,
     allowUrgentCallbackRequest: true,
+    includeCallbackInStaffAlert: true,
     ...overrides
   };
 }

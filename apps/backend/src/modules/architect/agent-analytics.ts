@@ -192,6 +192,8 @@ export async function loadArchitectAgentAnalytics(params: {
             finishedAt: true,
             durationMs: true,
             errorMessage: true,
+            callProvider: true,
+            externalCallId: true,
             business: { select: { name: true } }
           }
         })
@@ -206,6 +208,7 @@ export async function loadArchitectAgentAnalytics(params: {
           orderBy: { startedAt: "desc" },
           select: {
             id: true,
+            callId: true,
             installedAgentId: true,
             status: true,
             startedAt: true,
@@ -218,8 +221,17 @@ export async function loadArchitectAgentAnalytics(params: {
     loadArchitectEarnings(params.architectUserId, { listingIds: [listing.id] })
   ]);
 
+  // One canonical execution per provider call: the Vapi end-of-call webhook
+  // writes BOTH a VapiCall row and a WorkflowRun keyed by the same callId, so
+  // WorkflowRun events that mirror a fetched call are dropped here — merging
+  // both would double-count every ended live call.
+  const callIdSet = new Set(calls.map((call) => call.callId));
+  const dedupedWorkflowRuns = workflowRuns.filter(
+    (run) => !(run.callProvider === "VAPI" && run.externalCallId && callIdSet.has(run.externalCallId))
+  );
+
   const allEvents: ExecutionEvent[] = [
-    ...workflowRuns.map((run) => ({
+    ...dedupedWorkflowRuns.map((run) => ({
       id: `workflow:${run.id}`,
       installedAgentId: run.installedAgentId!,
       kind: "WORKFLOW" as const,

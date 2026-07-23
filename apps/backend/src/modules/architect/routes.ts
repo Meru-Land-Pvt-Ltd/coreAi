@@ -73,6 +73,10 @@ import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-rout
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import {
+  buildArchitectExecutionMetrics,
+  executionTotalsByInstalledAgent
+} from "../business/execution-ledger";
 import { loadArchitectDashboardActivity } from "./dashboard-activity";
 import {
   buildArchitectAgentAnalyticsCsv,
@@ -613,6 +617,11 @@ architectRoutes.get("/agents/stats", async (c) => {
       return Math.round(((current - previous) / previous) * 100);
     }
 
+    // Canonical ledger metrics: distinct LIVE provider executions only — no
+    // missed-call leads, no join/pagination duplication, paused installs
+    // excluded from the active metric. Legacy fields stay for compatibility.
+    const ledgerMetrics = await buildArchitectExecutionMetrics({ architectUserId: authUser.id, now });
+
     return successResponse(c, {
       totalAgents,
       agentsAddedThisMonth: agentsCreatedThisMonth,
@@ -622,6 +631,11 @@ architectRoutes.get("/agents/stats", async (c) => {
       executionsThisMonth,
       executionsPrevMonth,
       executionsChangePercent: percentChange(executionsThisMonth, executionsPrevMonth),
+      // Explicit, separately-labelled canonical metrics (see execution-ledger).
+      activeExecutionCount: ledgerMetrics.activeExecutionCount,
+      periodExecutionCount: ledgerMetrics.periodExecutionCount,
+      lifetimeExecutionCount: ledgerMetrics.lifetimeExecutionCount,
+      excludedPausedInstallationCount: ledgerMetrics.excludedPausedInstallationCount,
       totalEarningsCents,
       revenue30dCents,
       revenuePrev30dCents,
@@ -2134,7 +2148,7 @@ architectRoutes.get("/listings", async (c) => {
     }),
     prisma.installedAgent.findMany({
       where: { listing: { architectUserId: authUser.id } },
-      select: { id: true, listingId: true, businessId: true, configJson: true }
+      select: { id: true, listingId: true, businessId: true, configJson: true, status: true }
     })
   ]);
 
@@ -2155,27 +2169,15 @@ architectRoutes.get("/listings", async (c) => {
     return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
   });
   const executionByListing = new Map<string, number>();
-  const businessIds = [...new Set(buyerInstalls.map((agent) => agent.businessId))];
-  const agentsByBusiness = new Map<string, Array<{ id: string; listingId: string | null }>>();
-  for (const agent of buyerInstalls) {
-    const list = agentsByBusiness.get(agent.businessId) ?? [];
-    list.push({ id: agent.id, listingId: agent.listingId });
-    agentsByBusiness.set(agent.businessId, list);
+  const activeBuyerInstalls = buyerInstalls.filter((agent) => agent.status === "ACTIVE");
+  const activeTotals = await executionTotalsByInstalledAgent({
+    installedAgentIds: activeBuyerInstalls.map((agent) => agent.id)
+  });
+  for (const agent of activeBuyerInstalls) {
+    if (!agent.listingId) continue;
+    const executions = activeTotals.get(agent.id)?.executions ?? 0;
+    executionByListing.set(agent.listingId, (executionByListing.get(agent.listingId) ?? 0) + executions);
   }
-  await Promise.all(
-    businessIds.map(async (businessId) => {
-      const agents = agentsByBusiness.get(businessId) ?? [];
-      const stats = await buildInstalledAgentRunStats(businessId, agents);
-      for (const agent of agents) {
-        if (!agent.listingId) continue;
-        const runs = stats.get(agent.id)?.runs ?? 0;
-        executionByListing.set(
-          agent.listingId,
-          (executionByListing.get(agent.listingId) ?? 0) + runs
-        );
-      }
-    })
-  );
 
   const architectRating = typeof profile?.rating === "number" ? profile.rating : null;
 

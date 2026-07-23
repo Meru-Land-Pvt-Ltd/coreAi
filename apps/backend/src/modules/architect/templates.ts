@@ -83,8 +83,9 @@ function buildDentalReceptionistWorkflow() {
         emergencyCategory: "DENTAL",
         emergencyContactMethod: "SMS",
         offerAppointmentBooking: true,
-        useEmergencySlots: false,
-        allowUrgentCallbackRequest: true
+        preferEarliestAvailableSlot: true,
+        allowUrgentCallbackRequest: true,
+        includeCallbackInStaffAlert: true
       }
     },
     [VOICE_NODE_TYPES.bookAppointment]: {

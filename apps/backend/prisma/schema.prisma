@@ -367,6 +367,7 @@ model InstalledAgent {
   listingId      String?
   name           String
   status         String                  @default("ACTIVE")
+  pausedAt       DateTime?
   installSource  InstallSource           @default(MARKETPLACE_PURCHASE)
   configJson     Json?
   createdAt      DateTime                @default(now())

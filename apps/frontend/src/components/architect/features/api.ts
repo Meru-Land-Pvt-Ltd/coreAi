@@ -31,6 +31,11 @@ export type ArchitectAgentsStats = {
   executionsThisMonth: number;
   executionsPrevMonth: number;
   executionsChangePercent: number | null;
+  /** Canonical ledger metrics: distinct LIVE provider executions only. */
+  activeExecutionCount?: number;
+  periodExecutionCount?: number;
+  lifetimeExecutionCount?: number;
+  excludedPausedInstallationCount?: number;
   totalEarningsCents: number;
   revenue30dCents: number;
   revenuePrev30dCents: number;

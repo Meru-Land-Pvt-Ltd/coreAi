@@ -2,8 +2,10 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   AFTER_HOURS_CONTACT_METHODS,
+  AFTER_HOURS_CONTACT_METHOD_UNSUPPORTED,
   AFTER_HOURS_EMERGENCY_CATEGORIES,
   isBuyerAnswerEmpty,
+  isSupportedAfterHoursContactMethod,
   normalizeAfterHoursPolicy,
   normalizeBuyerSetupFields,
   normalizeTimeZone,
@@ -801,11 +803,7 @@ const businessSetupSchema = z.object({
   voiceProvider: z.string().trim().optional().or(z.literal("")),
 
   answeringMode: z.string().trim().optional().or(z.literal("")),
-  /** CUSTOM_HOURS answering schedule — separate from Business Hours. */
   answeringHours: z.array(hoursItemSchema).optional(),
-  // AI Call Coverage: WHEN the AI answers calls. Orthogonal to answeringMode
-  // (the forward condition). "always" = 24/7; "business_hours" reuses the
-  // structured Business Hours; "custom" uses its own weekly schedule.
   aiCallCoverage: z
     .object({
       kind: z.enum(["always", "business_hours", "custom"]),
@@ -820,8 +818,6 @@ const businessSetupSchema = z.object({
   silenceRepromptMessage2: z.string().trim().optional().or(z.literal("")),
   goodbyeMessage: z.string().trim().optional().or(z.literal("")),
 
-  // Buyer appointment timing: drives live/test availability (slot count, hours,
-  // duration, buffer). Optional — sensible defaults apply when omitted.
   scheduling: z
     .object({
       serviceDurationMinutes: z.coerce.number().int().min(5).max(480).optional(),
@@ -833,8 +829,6 @@ const businessSetupSchema = z.object({
     })
     .optional(),
 
-  // Buyer-owned Send Email recipients (To/CC/BCC). The architect's Email node
-  // only defines template/content; who receives it is configured here.
   emailRecipients: z
     .object({
       recipientType: z.enum(["customer", "team", "custom"]).default("customer"),
@@ -844,9 +838,6 @@ const businessSetupSchema = z.object({
     })
     .optional(),
 
-  // Reusable business-level after-hours routing policy (greeting, emergency
-  // screening, urgent booking/callback behavior). Optional — omitting it on a
-  // save preserves the stored policy (configJson MERGE).
   afterHoursPolicy: z
     .object({
       enabled: z.boolean(),
@@ -857,15 +848,14 @@ const businessSetupSchema = z.object({
       emergencyContactMethod: z.enum(AFTER_HOURS_CONTACT_METHODS).optional(),
       emergencyContact: z.string().trim().max(200).optional().or(z.literal("")),
       offerAppointmentBooking: z.boolean().optional(),
+      preferEarliestAvailableSlot: z.boolean().optional(),
       useEmergencySlots: z.boolean().optional(),
       allowUrgentCallbackRequest: z.boolean().optional(),
-      lifeThreateningInstruction: z.string().trim().max(600).optional().or(z.literal(""))
+      lifeThreateningInstruction: z.string().trim().max(600).optional().or(z.literal("")),
+      includeCallbackInStaffAlert: z.boolean().optional()
     })
     .optional(),
 
-  // Architect-defined buyer setup answers (the listing's requiredBuyerSetup
-  // fields) — business-specific facts injected into the live system prompt.
-  // Values may be text, a multiselect list, a yes/no toggle, or a number.
   customFields: z
     .array(
       z.object({
@@ -1039,23 +1029,10 @@ async function loadOwnedInstalledAgent(ownerId: string, installedAgentId: string
   return agent;
 }
 
-/* --------------- Phone number location, search & purchase --------------- */
-
-// The businessId is ALWAYS derived from the authenticated owner — a
-// browser-supplied businessId is never accepted for phone provisioning.
 async function requireOwnedBusinessId(ownerId: string): Promise<string | null> {
-  // Shared resolution (phone-owning business first) so uploads, demo tests,
-  // and setup always target the SAME business the live traffic lands on,
-  // even when stray/placeholder Business rows exist for the owner.
   return resolvePrimaryBusinessId(ownerId);
 }
 
-/**
- * Resolve the caller's business, bootstrapping the Business + InstalledAgent
- * from a PURCHASED listing when none exists yet (first-time setup reaches the
- * number step before the Configure step names the business). Ownership of the
- * listing is verified through the central purchase-access check.
- */
 async function resolveOrBootstrapBusiness(
   ownerId: string,
   listingId: string | undefined
@@ -1086,10 +1063,6 @@ async function resolveOwnedInstalledAgentId(
   return agent ? agent.id : null;
 }
 
-// Hierarchical location catalogue: no params → all countries; ?country= →
-// that country's states; ?country=&state= → that state's cities. Backed by
-// the full ISO dataset so every country/state/city is selectable; selections
-// are still re-validated server-side at search/purchase time.
 businessRoutes.get("/phone-numbers/locations", async (c) => {
   const country = c.req.query("country")?.trim().toUpperCase() ?? "";
   const state = c.req.query("state")?.trim().toUpperCase() ?? "";
@@ -1228,8 +1201,6 @@ businessRoutes.post("/phone-numbers/purchase", async (c) => {
   }
 });
 
-// The business's current active Triven number in the buyer-safe shape — never
-// includes provider/wholesale cost. `assigned: false` when no number is held.
 businessRoutes.get("/phone-numbers/assignment", async (c) => {
   const authUser = c.get("authUser");
   const businessId = await requireOwnedBusinessId(authUser.id);
@@ -1274,12 +1245,30 @@ businessRoutes.post("/agents/:installedAgentId/pause", async (c) => {
     return errorResponse(c, "Only an active agent can be paused.", 409, "AGENT_NOT_ACTIVE");
   }
 
-  const updated = await prisma.installedAgent.update({
-    where: { id: agent.id },
-    data: { status: "PAUSED" }
+  // Compare-and-set on status: the row transitions ACTIVE→PAUSED atomically
+  // and records pausedAt in the same statement. A concurrent pause loses the
+  // race harmlessly (count 0) and reads back the settled state. Live paths
+  // re-read status per webhook AND immediately before every Vapi POST, so an
+  // execution can no longer slip through between gate and provider call.
+  const pausedAt = new Date();
+  const transitioned = await prisma.installedAgent.updateMany({
+    where: { id: agent.id, status: "ACTIVE" },
+    data: { status: "PAUSED", pausedAt }
   });
 
-  return successResponse(c, { installedAgentId: updated.id, status: updated.status }, "Agent paused");
+  if (transitioned.count === 0) {
+    const current = await prisma.installedAgent.findUnique({ where: { id: agent.id }, select: { status: true } });
+    if (current?.status === "PAUSED") {
+      return successResponse(c, { installedAgentId: agent.id, status: "PAUSED" }, "Agent is already paused");
+    }
+    return errorResponse(c, "Only an active agent can be paused.", 409, "AGENT_NOT_ACTIVE");
+  }
+
+  return successResponse(
+    c,
+    { installedAgentId: agent.id, status: "PAUSED", pausedAt: pausedAt.toISOString() },
+    "Agent paused"
+  );
 });
 
 businessRoutes.post("/agents/:installedAgentId/resume", async (c) => {
@@ -1294,12 +1283,22 @@ businessRoutes.post("/agents/:installedAgentId/resume", async (c) => {
     return errorResponse(c, "Only a paused agent can be resumed.", 409, "AGENT_NOT_PAUSED");
   }
 
-  const updated = await prisma.installedAgent.update({
-    where: { id: agent.id },
-    data: { status: "ACTIVE" }
+  // CAS resume: PAUSED→ACTIVE atomically; pausedAt clears so period metrics
+  // treat later executions normally. Historical execution rows are untouched.
+  const transitioned = await prisma.installedAgent.updateMany({
+    where: { id: agent.id, status: "PAUSED" },
+    data: { status: "ACTIVE", pausedAt: null }
   });
 
-  return successResponse(c, { installedAgentId: updated.id, status: updated.status }, "Agent resumed");
+  if (transitioned.count === 0) {
+    const current = await prisma.installedAgent.findUnique({ where: { id: agent.id }, select: { status: true } });
+    if (current?.status === "ACTIVE") {
+      return successResponse(c, { installedAgentId: agent.id, status: "ACTIVE" }, "Agent is already active");
+    }
+    return errorResponse(c, "Only a paused agent can be resumed.", 409, "AGENT_NOT_PAUSED");
+  }
+
+  return successResponse(c, { installedAgentId: agent.id, status: "ACTIVE" }, "Agent resumed");
 });
 
 businessRoutes.get("/setup/phone-numbers", async (c) => {
@@ -1325,9 +1324,6 @@ function knowledgeFileErrorResponse(c: Context, error: unknown) {
   return errorResponse(c, "The document could not be processed.", 500, "KNOWLEDGE_FILE_FAILED");
 }
 
-// Multipart upload: PDF/DOCX/TXT documents become agent knowledge. Business
-// ownership always comes from the authenticated user — any client-supplied
-// businessId is ignored.
 businessRoutes.post("/setup/knowledge-files", async (c) => {
   const authUser = c.get("authUser");
 
@@ -1414,9 +1410,6 @@ businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
   }
 });
 
-// The resolved appointment schedule + review sources: what hours the agent is
-// ACTUALLY using, where they came from, and any brochure-derived suggestion —
-// applied only after the buyer confirms it via the normal setup save.
 businessRoutes.get("/setup/appointment-schedule", async (c) => {
   const authUser = c.get("authUser");
   const businessId = await requireOwnedBusinessId(authUser.id);
@@ -1517,9 +1510,6 @@ function isPublicHttpsUrl(url: string): boolean {
   return url.startsWith("https://") && !/localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.\d+\./i.test(url);
 }
 
-// Pre-purchase try-before-buy: a sandboxed, time-capped browser demo call for
-// a marketplace listing. No purchase required — the demo has no tools, no
-// recording, fictional business data, and a per-buyer daily limit.
 businessRoutes.post("/marketplace/listings/:listingId/demo-call", async (c) => {
   const authUser = c.get("authUser");
   const listingId = c.req.param("listingId");
@@ -1551,14 +1541,9 @@ const chatTestSchema = z.object({
   history: z.array(chatTestMessageSchema).max(30).optional(),
   /** Groups this test run's records (calendar events, appointments). */
   testSessionId: z.string().trim().max(64).optional(),
-  /** After-hours test override: evaluate real hours ("current"/omitted) or
-   * simulate open/closed. Test conversations only — never live calls. */
   simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional()
 });
 
-// Chat simulation for the setup wizard's Test step — runs the buyer's real
-// workflow + business config through the shared agent runtime with dry-run
-// providers (booking/SMS simulated, nothing real is sent).
 businessRoutes.post("/setup/test-conversation", async (c) => {
   const authUser = c.get("authUser");
 
@@ -1743,9 +1728,6 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     getGmailConnectionStatus(authUser.id)
   ]);
 
-  // Calendar checks apply only when the agent's workflow actually uses a
-  // calendar node — mirrors the dynamic gating in the setup wizard. Unknown
-  // workflow keeps the checks (safe fallback).
   const testWorkflowJson = business?.installedAgents?.[0]?.workflow?.workflowJson ?? null;
   const testConnectorKeys = new Set(
     testWorkflowJson ? requiredConnectorsForWorkflow(testWorkflowJson).map((req) => req.connector) : []
@@ -1926,12 +1908,6 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// POST /business/setup/test-sms — send one appointment-style test SMS to a
-// consented number through the shared Triven Messaging Service. Honest by
-// design: a Twilio failure is an error; the SIMULATED / TWILIO_TEST_CREDENTIALS
-// / LIVE mode is explicit (TWILIO_SMS_MODE) and reported in the response.
-// ---------------------------------------------------------------------------
 businessRoutes.post("/setup/test-sms", async (c) => {
   const authUser = c.get("authUser");
 
@@ -1964,9 +1940,6 @@ businessRoutes.post("/setup/test-sms", async (c) => {
   const businessName = business?.name || "your business";
   const businessPhone = business?.phoneNumbers?.[0]?.phoneNumber ?? "";
 
-  // Optional custom text — the wizard's missed-call simulation sends the
-  // buyer's configured text-back message. Capped, and always suffixed with
-  // the opt-out line for compliance.
   const customMessage = typeof body.message === "string" ? body.message.trim().slice(0, 320) : "";
 
   const message = customMessage
@@ -2420,6 +2393,20 @@ businessRoutes.post("/setup", async (c) => {
   try {
     const authUser = c.get("authUser");
     const input = businessSetupSchema.parse(await c.req.json());
+
+    // Only contact methods with a real delivery path may be saved — a stored
+    // PHONE/WEBHOOK value would silently do nothing at emergency time.
+    if (
+      input.afterHoursPolicy?.emergencyContactMethod &&
+      !isSupportedAfterHoursContactMethod(input.afterHoursPolicy.emergencyContactMethod)
+    ) {
+      return errorResponse(
+        c,
+        `Emergency contact method "${input.afterHoursPolicy.emergencyContactMethod}" is not supported yet. Choose SMS, EMAIL, or NONE.`,
+        422,
+        AFTER_HOURS_CONTACT_METHOD_UNSUPPORTED
+      );
+    }
 
     if (input.deploy) {
       const access = await canBusinessDeployAgent(authUser.id);
@@ -2898,9 +2885,6 @@ businessRoutes.post("/setup", async (c) => {
       const usesVoice = workflowUsesVoice(resolved.workflow.workflowJson);
 
       if (usesVoice) {
-        // The target row is still PROVISIONING until Vapi succeeds. Pass its
-        // id so deployment cannot skip it or select another ACTIVE agent owned
-        // by the same business.
         const voiceDeploy = await deployInstalledAgentVoiceAssistant(
           business.id,
           installedAgent.id

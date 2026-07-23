@@ -292,7 +292,8 @@ describe("setup save preserves everything it doesn't own", () => {
     expect(config.afterHoursPolicy.offerAppointmentBooking).toBe(false);
     // Normalizer defaults fill unsent booleans.
     expect(config.afterHoursPolicy.allowUrgentCallbackRequest).toBe(true);
-    expect(config.afterHoursPolicy.useEmergencySlots).toBe(false);
+    expect(config.afterHoursPolicy.preferEarliestAvailableSlot).toBe(false);
+    expect(config.afterHoursPolicy.includeCallbackInStaffAlert).toBe(true);
 
     const readBack = await getSetup();
     const body = (await readBack.json()) as { data: Record<string, any> };

@@ -20,6 +20,16 @@ export type AfterHoursEmergencyCategory = (typeof AFTER_HOURS_EMERGENCY_CATEGORI
 export const AFTER_HOURS_CONTACT_METHODS = ["PHONE", "SMS", "EMAIL", "WEBHOOK", "NONE"] as const;
 export type AfterHoursContactMethod = (typeof AFTER_HOURS_CONTACT_METHODS)[number];
 
+export const SUPPORTED_AFTER_HOURS_CONTACT_METHODS = ["SMS", "EMAIL", "NONE"] as const;
+
+export const AFTER_HOURS_CONTACT_METHOD_UNSUPPORTED = "AFTER_HOURS_CONTACT_METHOD_UNSUPPORTED";
+
+export function isSupportedAfterHoursContactMethod(value: unknown): value is "SMS" | "EMAIL" | "NONE" {
+  return (
+    typeof value === "string" && (SUPPORTED_AFTER_HOURS_CONTACT_METHODS as readonly string[]).includes(value)
+  );
+}
+
 export type AfterHoursPolicy = {
   enabled: boolean;
   timezone?: string;
@@ -29,9 +39,10 @@ export type AfterHoursPolicy = {
   emergencyContactMethod: AfterHoursContactMethod;
   emergencyContact?: string;
   offerAppointmentBooking: boolean;
-  useEmergencySlots: boolean;
+  preferEarliestAvailableSlot: boolean;
   allowUrgentCallbackRequest: boolean;
   lifeThreateningInstruction?: string;
+  includeCallbackInStaffAlert: boolean;
 };
 
 function cleanStr(value: unknown, maxLength: number): string | undefined {
@@ -67,11 +78,13 @@ export function normalizeAfterHoursPolicy(raw: unknown): AfterHoursPolicy | null
     emergencyContactMethod,
     ...(cleanStr(record.emergencyContact, 200) ? { emergencyContact: cleanStr(record.emergencyContact, 200) } : {}),
     offerAppointmentBooking: record.offerAppointmentBooking !== false,
-    useEmergencySlots: record.useEmergencySlots === true,
+    preferEarliestAvailableSlot:
+      record.preferEarliestAvailableSlot === true || record.useEmergencySlots === true,
     allowUrgentCallbackRequest: record.allowUrgentCallbackRequest !== false,
     ...(cleanStr(record.lifeThreateningInstruction, 600)
       ? { lifeThreateningInstruction: cleanStr(record.lifeThreateningInstruction, 600) }
-      : {})
+      : {}),
+    includeCallbackInStaffAlert: record.includeCallbackInStaffAlert !== false
   };
 }
 
@@ -638,7 +651,7 @@ function screeningRules(params: {
   const urgentClose: string[] = [];
   if (policy.offerAppointmentBooking && capabilities.canCheckAvailability) {
     urgentClose.push(
-      `check the earliest available ${bookingLabel} with the availability tools${policy.useEmergencySlots ? " (prefer slots marked for emergencies or urgent care when the calendar returns them)" : ""}. When one exists say: "I found the earliest available urgent ${bookingLabel} for [date] at [time]. Would you like me to book that?" Book it only through the booking tool, and only claim it is booked when the tool confirmed.`
+      `check the earliest available ${bookingLabel} with the availability tools${policy.preferEarliestAvailableSlot ? ` — say "I'll check the earliest available ${bookingLabel}." Never claim to be checking special "emergency slots"; no such designation exists on the calendar` : ""}. When one exists say: "I found the earliest available urgent ${bookingLabel} for [date] at [time]. Would you like me to book that?" Book it only through the booking tool, and only claim it is booked when the tool confirmed.`
     );
   }
   if (policy.allowUrgentCallbackRequest) {
@@ -769,5 +782,301 @@ export function buildAfterHoursTurnStateSection(params: {
     lines.push(`- No emergency: follow the normal booking flow. Do not ask emergency questions again.`);
   }
 
+  return lines.join("\n");
+}
+
+/* ----------------------- LIVE distributed call state ----------------------- */
+
+/**
+ * Live Vapi calls add one route the chat machine folds into booleans: the
+ * warning-sign question has been ASKED but the caller has not answered yet.
+ */
+export const AFTER_HOURS_LIVE_ROUTES = [
+  "NOT_STARTED",
+  "EMERGENCY_QUESTION_ASKED",
+  "POSSIBLE_EMERGENCY",
+  "RED_FLAG_CHECK_ASKED",
+  "RED_FLAG_DETECTED",
+  "URGENT_DENTAL",
+  "STANDARD_BOOKING",
+  "HUMAN_REVIEW"
+] as const;
+
+export type AfterHoursLiveRoute = (typeof AFTER_HOURS_LIVE_ROUTES)[number];
+
+export type EmergencyInstructionStatus = "NOT_REQUIRED" | "REQUIRED" | "GIVEN";
+
+export type StaffNotificationStatus = "NOT_REQUESTED" | "PENDING" | "SENT" | "FAILED";
+
+/** Neutral routing state persisted per live call — never transcripts. */
+export type AfterHoursLiveCallState = {
+  businessHoursState: BusinessHoursStateKind;
+  route: AfterHoursLiveRoute;
+  emergencyInstructionStatus: EmergencyInstructionStatus;
+  staffNotificationStatus: StaffNotificationStatus;
+  redFlags: string[];
+  policyVersion: string;
+  updatedAt: string;
+};
+
+/** One structured, role-tagged, FINAL (non-partial) conversation turn. */
+export type AfterHoursCallTurn = { role: "assistant" | "user"; content: string };
+
+/**
+ * The assistant SPOKE the emergency direction. Matched only against
+ * assistant-authored segments by the caller of this function — caller speech
+ * mentioning 911 never satisfies the requirement.
+ */
+export function containsEmergencyDirection(text: string, policy?: AfterHoursPolicy | null): string | null {
+  const value = ` ${text.toLowerCase().replace(/\s+/g, " ").trim()} `;
+  if (/\b(call|dial|calling)\s*9\s*[-.]?\s*1\s*[-.]?\s*1\b/.test(value) || /\bcall nine one one\b/.test(value)) {
+    return "call_911";
+  }
+  if (/\bgo to (the )?(nearest )?emergency (department|room)\b/.test(value)) {
+    return "emergency_department";
+  }
+  // A custom configured instruction counts when its leading sentence was spoken.
+  const custom = policy?.lifeThreateningInstruction?.trim();
+  if (custom) {
+    const lead = custom.split(/[.!?]/)[0]?.toLowerCase().replace(/\s+/g, " ").trim();
+    if (lead && lead.length >= 12 && value.includes(lead)) return "configured_instruction";
+  }
+  return null;
+}
+
+/**
+ * Deterministic live-call route derivation from structured, role-tagged FINAL
+ * turns. Pure over the turn list, so repeated/duplicated webhook deliveries of
+ * the same conversation produce the identical state (idempotent by
+ * construction), and out-of-order partials must simply not be passed in.
+ */
+export function deriveLiveAfterHoursCallState(params: {
+  turns: AfterHoursCallTurn[];
+  policy: AfterHoursPolicy;
+  businessHoursState: BusinessHoursStateKind;
+}): Omit<AfterHoursLiveCallState, "staffNotificationStatus" | "updatedAt"> {
+  const screeningEnabled = policyScreensForEmergencies(params.policy);
+  const turns = params.turns.filter(
+    (turn) => (turn.role === "assistant" || turn.role === "user") && turn.content.trim().length > 0
+  );
+
+  // While the business is OPEN the after-hours machine never engages.
+  if (params.businessHoursState === "OPEN" || !params.policy.enabled) {
+    return {
+      businessHoursState: params.businessHoursState,
+      route: "STANDARD_BOOKING",
+      emergencyInstructionStatus: "NOT_REQUIRED",
+      redFlags: [],
+      policyVersion: AFTER_HOURS_POLICY_VERSION
+    };
+  }
+
+  const lastUserIndex = (() => {
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      if (turns[index]!.role === "user") return index;
+    }
+    return -1;
+  })();
+
+  let route: AfterHoursLiveRoute;
+  let redFlags: string[] = [];
+  let redFlagQuestionAsked = false;
+
+  if (lastUserIndex === -1) {
+    // Only assistant speech so far (greeting). Screening starts at the
+    // emergency question; nothing is bookable yet.
+    route = screeningEnabled ? "EMERGENCY_QUESTION_ASKED" : "STANDARD_BOOKING";
+  } else {
+    const derived = deriveAfterHoursState({
+      history: turns.slice(0, lastUserIndex),
+      message: turns[lastUserIndex]!.content,
+      screeningEnabled
+    });
+    redFlags = [...derived.redFlags];
+    redFlagQuestionAsked = derived.redFlagQuestionAsked;
+    route = derived.route === "NON_EMERGENCY" ? "STANDARD_BOOKING" : derived.route;
+
+    // Trailing assistant turns after the caller's last answer: an unanswered
+    // screening question moves the route to its *_ASKED form so tool gating
+    // waits for the answer instead of acting on a stale earlier reply.
+    for (let index = lastUserIndex + 1; index < turns.length; index += 1) {
+      const trailing = turns[index]!;
+      if (trailing.role !== "assistant") continue;
+      if (route === "RED_FLAG_DETECTED") break;
+      if (asksRedFlagQuestion(trailing.content)) {
+        route = "RED_FLAG_CHECK_ASKED";
+      } else if (asksEmergencyQuestion(trailing.content) && route === "NOT_STARTED") {
+        route = "EMERGENCY_QUESTION_ASKED";
+      }
+    }
+  }
+
+  // Emergency instruction: REQUIRED once a red flag is present; GIVEN only
+  // when an ASSISTANT turn at/after the first red-flag signal spoke the
+  // direction. Caller turns are never consulted.
+  let emergencyInstructionStatus: EmergencyInstructionStatus = "NOT_REQUIRED";
+  if (route === "RED_FLAG_DETECTED") {
+    emergencyInstructionStatus = "REQUIRED";
+    const firstFlagIndex = turns.findIndex(
+      (turn) =>
+        turn.role === "user" &&
+        (detectRedFlags(turn.content).length > 0 || isAffirmativeReply(turn.content))
+    );
+    for (let index = Math.max(firstFlagIndex, 0); index < turns.length; index += 1) {
+      const turn = turns[index]!;
+      if (turn.role !== "assistant") continue;
+      if (containsEmergencyDirection(turn.content, params.policy)) {
+        emergencyInstructionStatus = "GIVEN";
+        break;
+      }
+    }
+  }
+
+  return {
+    businessHoursState: params.businessHoursState,
+    route,
+    emergencyInstructionStatus,
+    redFlags,
+    policyVersion: AFTER_HOURS_POLICY_VERSION
+  };
+}
+
+/* ------------------------- live server-side tool gate ---------------------- */
+
+export const AFTER_HOURS_GATE_CODES = {
+  screeningRequired: "AFTER_HOURS_EMERGENCY_SCREENING_REQUIRED",
+  redFlagResponseRequired: "AFTER_HOURS_RED_FLAG_RESPONSE_REQUIRED",
+  emergencyInstructionRequired: "AFTER_HOURS_EMERGENCY_INSTRUCTION_REQUIRED",
+  bookingBlocked: "AFTER_HOURS_BOOKING_BLOCKED",
+  humanReviewRequired: "AFTER_HOURS_HUMAN_REVIEW_REQUIRED",
+  stateStoreUnavailable: "AFTER_HOURS_STATE_STORE_UNAVAILABLE"
+} as const;
+
+export type AfterHoursGatedAction =
+  | "check_availability"
+  | "book_appointment"
+  | "customer_sms"
+  | "customer_email"
+  | "urgent_callback"
+  | "staff_alert";
+
+export type AfterHoursGateResult =
+  | { allowed: true }
+  | { allowed: false; code: string; message: string };
+
+/**
+ * Deterministic server-side gate for live Vapi tools. The model prompt is
+ * guidance; THIS decides. Rejections are non-fatal tool errors — the call
+ * continues, the assistant is told what must happen first.
+ */
+export function evaluateAfterHoursToolGate(params: {
+  route: AfterHoursLiveRoute;
+  emergencyInstructionStatus: EmergencyInstructionStatus;
+  action: AfterHoursGatedAction;
+}): AfterHoursGateResult {
+  const { route, emergencyInstructionStatus, action } = params;
+
+  // The minimum internal staff alert is permitted in every route — it never
+  // replaces the emergency instruction, and delivery is confirmed separately.
+  if (action === "staff_alert") return { allowed: true };
+
+  switch (route) {
+    case "STANDARD_BOOKING":
+      return { allowed: true };
+
+    case "URGENT_DENTAL":
+      // Real availability, confirmed booking, urgent callback; customer SMS
+      // still passes the A2P consent gate downstream.
+      return { allowed: true };
+
+    case "NOT_STARTED":
+    case "EMERGENCY_QUESTION_ASKED":
+    case "POSSIBLE_EMERGENCY":
+      return {
+        allowed: false,
+        code: AFTER_HOURS_GATE_CODES.screeningRequired,
+        message:
+          route === "POSSIBLE_EMERGENCY"
+            ? `Emergency screening is not finished. Ask the warning-sign question first, exactly: "${AFTER_HOURS_RED_FLAG_QUESTION}" Do not book or send anything until it is answered.`
+            : "Emergency screening has not been completed. Ask whether this is an emergency or an appointment request, and act only on the caller's answer to that question."
+      };
+
+    case "RED_FLAG_CHECK_ASKED":
+      return {
+        allowed: false,
+        code: AFTER_HOURS_GATE_CODES.redFlagResponseRequired,
+        message:
+          "The warning-sign question has been asked but not answered. Wait for the caller's answer before booking or sending anything."
+      };
+
+    case "RED_FLAG_DETECTED":
+      if (emergencyInstructionStatus !== "GIVEN") {
+        return {
+          allowed: false,
+          code: AFTER_HOURS_GATE_CODES.emergencyInstructionRequired,
+          message:
+            "A life-threatening warning sign was reported. FIRST tell the caller to call 911 now or go to the nearest emergency department — before any other action. Then you may collect their name and callback number and offer to notify the team; notifying the team never replaces calling 911."
+        };
+      }
+      if (action === "urgent_callback") return { allowed: true };
+      return {
+        allowed: false,
+        code: AFTER_HOURS_GATE_CODES.bookingBlocked,
+        message:
+          "This caller was directed to emergency care. Ordinary booking and customer notifications stay blocked; only essential follow-up details and the internal team alert are appropriate."
+      };
+
+    case "HUMAN_REVIEW":
+      if (action === "urgent_callback") return { allowed: true };
+      return {
+        allowed: false,
+        code: AFTER_HOURS_GATE_CODES.humanReviewRequired,
+        message:
+          "The emergency status is still unclear. Collect only the caller's name and callback number for team review; do not book and do not send customer notifications."
+      };
+
+    default:
+      return { allowed: true };
+  }
+}
+
+/* ------------------------- internal staff alert text ----------------------- */
+
+/** Minimum-information urgent alert — no symptoms, no transcript, no diagnosis. */
+export function buildUrgentStaffAlert(params: {
+  businessName: string;
+  callerName?: string | null;
+  callbackNumber?: string | null;
+  callId?: string | null;
+  includeCallback: boolean;
+}): string {
+  const lines = [`URGENT after-hours call for ${params.businessName}.`];
+  if (params.callerName?.trim()) lines.push(`Caller: ${params.callerName.trim()}.`);
+  if (params.includeCallback && params.callbackNumber?.trim()) {
+    lines.push(`Callback: ${params.callbackNumber.trim()}.`);
+  }
+  if (params.callId?.trim()) lines.push(`Reference: ${params.callId.trim()}.`);
+  lines.push("Please review and follow up as soon as possible.");
+  return lines.join("\n");
+}
+
+/** Red-flag alert — states only that the emergency direction was given. */
+export function buildRedFlagStaffAlert(params: {
+  businessName: string;
+  callerName?: string | null;
+  callbackNumber?: string | null;
+  callId?: string | null;
+  includeCallback: boolean;
+}): string {
+  const lines = [
+    `EMERGENCY after-hours call for ${params.businessName}.`,
+    "The caller was instructed to call 911 or go to the nearest emergency department."
+  ];
+  if (params.callerName?.trim()) lines.push(`Caller: ${params.callerName.trim()}.`);
+  if (params.includeCallback && params.callbackNumber?.trim()) {
+    lines.push(`Callback: ${params.callbackNumber.trim()}.`);
+  }
+  if (params.callId?.trim()) lines.push(`Reference: ${params.callId.trim()}.`);
+  lines.push("Please review.");
   return lines.join("\n");
 }

@@ -356,6 +356,8 @@ function formatUsageCostUsd(microUsd: number): string {
 function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
     const { listing } = entry;
     const runsThisMonth = entry.stats?.runsThisMonth ?? 0;
+    // Missing usage data must never render as a misleading $0.00.
+    const hasUsageData = typeof entry.stats?.costThisMonthMicroUsd === "number";
     const costMicroUsd = entry.stats?.costThisMonthMicroUsd ?? 0;
     const trialEnded = isTrialEnded(
         entry.purchasedAt,
@@ -371,7 +373,7 @@ function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
         name: listing.name,
         since: `Purchased ${formatPurchasedDate(entry.purchasedAt)}`,
         runs: String(runsThisMonth),
-        cost: formatUsageCostUsd(costMicroUsd),
+        cost: hasUsageData ? formatUsageCostUsd(costMicroUsd) : "Usage unavailable",
         icon: pickAgentIcon(listing.name, listing.tags ?? []),
         iconUrl: listing.iconUrl?.trim() || null,
         purchaseStatus: entry.purchaseStatus,
