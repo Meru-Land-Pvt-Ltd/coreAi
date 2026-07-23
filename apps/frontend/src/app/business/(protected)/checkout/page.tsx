@@ -2187,13 +2187,13 @@ function OrderSummary({
                                 </p>
                             </div>
                         ) : null}
-                        <ExecutionPricingSummary
+                        {/* <ExecutionPricingSummary
                             pricing={executionPricing}
                             loading={executionPricingLoading}
                             unavailable={executionPricingUnavailable}
                             variant="full"
                             className="text-xs text-slate-400"
-                        />
+                        /> */}
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
@@ -2338,13 +2338,13 @@ function ConfirmationView({
                 </p>
             </div>
 
-            <ExecutionPricingSummary
+            {/* <ExecutionPricingSummary
                 pricing={executionPricing}
                 loading={executionPricingLoading}
                 unavailable={executionPricingUnavailable}
                 variant="full"
                 className="mx-auto mt-6 max-w-md text-left text-xs text-slate-400"
-            />
+            /> */}
 
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
                 <button

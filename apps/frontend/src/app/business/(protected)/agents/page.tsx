@@ -454,13 +454,13 @@ export default function BusinessMyAgentsPage() {
                     )}
                 </div>
 
-                <ExecutionPricingSummary
+                {/* <ExecutionPricingSummary
                     pricing={executionPricing}
                     loading={executionPricingLoading}
                     unavailable={executionPricingError}
                     variant="full"
                     className="mt-8 max-w-sm text-xs text-slate-400"
-                />
+                /> */}
             </div>
         </main>
     );

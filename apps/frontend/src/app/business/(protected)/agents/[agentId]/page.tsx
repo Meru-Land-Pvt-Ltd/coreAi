@@ -718,13 +718,13 @@ export default function BusinessAgentDetailPage() {
                   )}
                 </div>
 
-                <ExecutionPricingSummary
+                {/* <ExecutionPricingSummary
                   pricing={executionPricing}
                   loading={executionPricingLoading}
                   unavailable={executionPricingError}
                   variant="full"
                   className="mt-2 text-xs text-slate-500"
-                />
+                /> */}
 
                 {ownedAgent ? (
                   <div className="mt-5 flex flex-col gap-3 sm:flex-row">

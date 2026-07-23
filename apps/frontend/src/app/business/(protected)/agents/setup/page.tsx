@@ -4949,13 +4949,13 @@ function StepGoLive({
           </div>
         </div>
 
-        <ExecutionPricingSummary
+        {/* <ExecutionPricingSummary
           pricing={executionPricing}
           loading={executionPricingLoading}
           unavailable={executionPricingError}
           variant="full"
           className="mt-3 text-xs text-slate-500"
-        />
+        /> */}
       </div>
     </div>
   );

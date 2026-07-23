@@ -588,13 +588,13 @@ export default function BusinessInvoiceDetailPage() {
                     />
                 )}
 
-                <ExecutionPricingSummary
+                {/* <ExecutionPricingSummary
                     pricing={executionPricing}
                     loading={executionPricingLoading}
                     unavailable={executionPricingError}
                     variant="full"
                     className="no-print mx-auto mt-6 max-w-[800px] text-xs text-slate-400"
-                />
+                /> */}
             </main>
 
             <div className="no-print pointer-events-none fixed bottom-4 left-4 right-4 z-[70] flex flex-col items-stretch gap-2 sm:left-auto sm:items-end" aria-live="polite">
