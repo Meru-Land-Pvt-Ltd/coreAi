@@ -54,8 +54,8 @@ import {
   runBusinessSetupChatTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
-  sendBusinessTestSms,
   sendMailSetupTestEmail,
+  sendBusinessTestSms,
   startBusinessSetupPreviewCall,
   testCallRouting,
   type AppointmentDayHours,
@@ -532,6 +532,7 @@ function SetupWizard() {
   const [businessName, setBusinessName] = useState("");
   const [listing, setListing] = useState<any>(null);
   const [businessType, setBusinessType] = useState("");
+  const [connectStepValidated, setConnectStepValidated] = useState(false);
   const [contactName, setContactName] = useState("");
   const [servicesText, setServicesText] = useState("");
   const [faqs, setFaqs] = useState<BusinessFaq[]>([]);
@@ -566,10 +567,8 @@ function SetupWizard() {
   const [apptFields, setApptFields] = useState<Record<ApptNumberField, number>>({
     defaultDurationMinutes: 30,
     bufferMinutes: 0,
-    slotIntervalMinutes: 30,
     minNoticeMinutes: 0,
-    maxAdvanceDays: 30,
-    maxSpokenSuggestions: 3
+    maxAdvanceDays: 30
   });
   const [apptConfirmed, setApptConfirmed] = useState(false);
   // True once the buyer edits a booking-rule number this session. A schedule
@@ -910,10 +909,8 @@ function SetupWizard() {
       setApptFields({
         defaultDurationMinutes: schedule.defaultDurationMinutes,
         bufferMinutes: schedule.bufferMinutes,
-        slotIntervalMinutes: schedule.slotIntervalMinutes,
         minNoticeMinutes: schedule.minNoticeMinutes,
-        maxAdvanceDays: schedule.maxAdvanceDays,
-        maxSpokenSuggestions: schedule.maxSpokenSuggestions
+        maxAdvanceDays: schedule.maxAdvanceDays
       });
       setApptConfirmed(schedule.confirmed);
       setApptUseBusinessHours(schedule.useBusinessHours ?? schedule.source !== "configured");
@@ -1032,12 +1029,7 @@ function SetupWizard() {
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
   const bookingRules = validateBookingRules(apptFields);
-  const onlyLoadedConflict =
-    !apptRulesTouched &&
-    bookingRules.intervalConflict !== null &&
-    Object.keys(bookingRules.errors).length === 1 &&
-    Boolean(bookingRules.errors.slotIntervalMinutes);
-  const bookingRulesBlocked = apptLoaded && !bookingRules.valid && !onlyLoadedConflict;
+  const bookingRulesBlocked = apptLoaded && !bookingRules.valid;
 
   function reportBookingRulesBlocked() {
     setError("Fix the booking rules in Configure → Hours & Availability before saving.");
@@ -1160,10 +1152,8 @@ function SetupWizard() {
             days: apptDays,
             defaultDurationMinutes: apptFields.defaultDurationMinutes,
             bufferMinutes: apptFields.bufferMinutes,
-            slotIntervalMinutes: apptFields.slotIntervalMinutes,
             minNoticeMinutes: apptFields.minNoticeMinutes,
             maxAdvanceDays: apptFields.maxAdvanceDays,
-            maxSpokenSuggestions: apptFields.maxSpokenSuggestions,
             confirmed: apptConfirmed
           }
         }
@@ -1301,6 +1291,15 @@ function SetupWizard() {
   async function goNext() {
     setError("");
 
+    if (step === 1) {
+      setConnectStepValidated(true);
+    }
+
+    if (step === 2 && !configureComplete) {
+      setError("Complete the Configure step before continuing.");
+      return;
+    }
+
     if (bookingRulesBlocked) {
       setStep(2);
       reportBookingRulesBlocked();
@@ -1320,25 +1319,20 @@ function SetupWizard() {
     setStep((current) => Math.min(current + 1, STEPS.length));
   }
 
-  async function handleSaveProgress() {
+  async function handleDeploy() {
     setError("");
 
-    if (!canPersist) {
-      setError("Add your business name and type to save.");
+    if (!connectReady) {
+      setStep(1);
+      setError("Complete the Connect step before going live.");
       return;
     }
 
-    setSaving(true);
-    const saved = await persistSetup(false);
-    setSaving(false);
-
-    if (saved.ok && !saved.mainSaveSkipped) {
-      setStatusMsg("Progress saved");
+    if (!configureComplete) {
+      setStep(2);
+      setError("Complete the Configure step before going live.");
+      return;
     }
-  }
-
-  async function handleDeploy() {
-    setError("");
 
     if (bookingRulesBlocked) {
       setStep(2);
@@ -1501,12 +1495,28 @@ function SetupWizard() {
     (!needsCalendar || calendar.connected) &&
     (!needsGmail || calendar.connected) &&
     (!needsMail || mailComplete);
+  const connectReady = connectStepValidated || connectComplete;
   const configureComplete = businessComplete && buyerSetupComplete && (!showVoice || voiceComplete);
   const stepDone: Record<number, boolean> = {
     1: connectComplete,
-    2: configureComplete,
-    3: Boolean(testResult?.readyForCall),
+    2: connectReady && configureComplete,
+    3: connectReady && configureComplete && Boolean(testResult?.readyForCall),
     4: deployed
+  };
+
+  const canAccessStep = (targetStep: number) => {
+    if (targetStep <= 1) return true;
+    if (targetStep === 2) return connectReady;
+    if (targetStep === 3) return connectReady && configureComplete;
+    if (targetStep === 4) return deployed;
+    return false;
+  };
+
+  const getStepLockMessage = (targetStep: number) => {
+    if (targetStep === 2) return "Complete the Connect step before opening Configure.";
+    if (targetStep === 3) return "Complete Connect and Configure before opening Test.";
+    if (targetStep === 4) return "Complete the setup flow and go live from the Test screen.";
+    return "Complete the previous steps before opening this one.";
   };
 
   const checklist: ChecklistRow[] = [
@@ -1662,7 +1672,8 @@ function SetupWizard() {
                 const active = entry.id === step;
                 const done = stepDone[entry.id];
                 const upcoming = step < entry.id && !done;
-                const clickable = true;
+                const locked = entry.id > step && !canAccessStep(entry.id);
+                const clickable = !locked;
 
                 return (
                   <div key={entry.id} className="flex items-center">
@@ -1676,13 +1687,19 @@ function SetupWizard() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (locked) {
+                          setError(getStepLockMessage(entry.id));
+                          return;
+                        }
                         setError("");
                         setStep(entry.id);
                       }}
                       aria-label={`Go to step ${entry.id}: ${entry.title}`}
                       aria-current={active ? "step" : undefined}
+                      aria-disabled={locked ? "true" : undefined}
+                      disabled={locked}
                       data-testid={`business-setup-dot-${entry.id}`}
-                      className={`pstep group ${active ? "active" : ""} ${done ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""}`}
+                      className={`pstep group ${active ? "active" : ""} ${done ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""} ${locked ? "opacity-60" : ""}`}
                     >
                       <span className="pdot" data-dot="true">
                         {done ? (
@@ -1705,7 +1722,7 @@ function SetupWizard() {
           <div className="flex items-center justify-end min-w-0 pl-2 sm:pl-4">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
               <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="w-3.5 h-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 ~3 min setup
               </span>
             </div>
@@ -1765,6 +1782,9 @@ function SetupWizard() {
                 <h2 className="text-2xl font-bold tracking-tight text-slate-900">
                   Agent Configuration
                 </h2>
+                <p className="mt-1 text-sm font-normal text-slate-500">
+                  Configure your agent&apos;s identity, knowledge, availability, and instructions.
+                </p>
               </div>
 
               <ConfigureSectionCard
@@ -1843,7 +1863,7 @@ function SetupWizard() {
                 }
                 warningCount={apptLoaded ? Object.keys(bookingRules.errors).length : 0}
                 status={
-                  bookingRulesBlocked || bookingRules.intervalConflict
+                  bookingRulesBlocked
                     ? "attention"
                     : businessHours.configured
                       ? "complete"
@@ -2068,41 +2088,22 @@ function SetupWizard() {
                       onClick={() =>
                         setStep((current) => Math.min(current + 1, STEPS.length))
                       }
-                      disabled={saving}
+                      disabled={saving || (step === 2 && !configureComplete)}
                       data-testid="business-setup-skip"
                       className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
                     >
                       Skip for now
                     </button>
                   )}
-
-                  {(configDirty || bhDirty || addressDirty || tzEdited) ? (
-                    <span
-                      data-testid="business-setup-unsaved"
-                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200/60"
-                    >
-                      Unsaved changes
-                    </span>
-                  ) : null}
                 </div>
 
                 {/* Right Actions */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
-                  <button
-                    type="button"
-                    onClick={handleSaveProgress}
-                    disabled={saving}
-                    data-testid="business-setup-save"
-                    className="btn rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50/50 disabled:opacity-50"
-                  >
-                    {saving ? "Saving…" : "Save draft"}
-                  </button>
-
                   {step < 3 ? (
                     <button
                       type="button"
                       onClick={goNext}
-                      disabled={saving || (step === 2 && bookingRulesBlocked)}
+                      disabled={saving || (step === 2 && (!configureComplete || bookingRulesBlocked))}
                       data-testid="business-setup-next"
                       className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
                     >
@@ -2112,7 +2113,7 @@ function SetupWizard() {
                     <button
                       type="button"
                       onClick={handleDeploy}
-                      disabled={saving || !readyToDeploy}
+                      disabled={saving || !connectReady || !configureComplete}
                       data-testid="business-setup-submit"
                       className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
                     >
@@ -2973,13 +2974,169 @@ async function getPreviewVapiClient(publicKey: string): Promise<PreviewVapiClien
   return sharedPreviewClient;
 }
 
-type PreviewTranscriptEntry = { role: "assistant" | "user"; text: string };
+
 type PreviewCallState = "idle" | "starting" | "live" | "ended";
 
 function formatSeconds(total: number): string {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+
+type WorkflowTestStepKind = "voice" | "appointment" | "sms" | "confirmation" | "generic";
+
+type WorkflowTestStep = {
+  id: string;
+  title: string;
+  detail: string;
+  kind: WorkflowTestStepKind;
+};
+
+const WORKFLOW_STEP_COPY: Record<WorkflowTestStepKind, { title: string; detail: string }> = {
+  voice: {
+    title: "AI Voice Agent",
+    detail: "Start the call and speak to the assistant."
+  },
+  appointment: {
+    title: "Book Appointment",
+    detail: "Confirm the test booking and review it on the calendar."
+  },
+  sms: {
+    title: "Send SMS Verification",
+    detail: "Enter a phone number and send the confirmation message."
+  },
+  confirmation: {
+    title: "Confirmation Received",
+    detail: "Confirm the received text to finish the workflow test."
+  },
+  generic: {
+    title: "Workflow Step",
+    detail: "Run this workflow step, then continue to the next one."
+  }
+};
+
+function workflowNodeData(node: any): Record<string, unknown> {
+  return node && typeof node === "object" && node.data && typeof node.data === "object" ? node.data : {};
+}
+
+function workflowNodeLabel(node: any, kind: WorkflowTestStepKind, index: number): string {
+  const data = workflowNodeData(node);
+  const label = data.title ?? data.label ?? data.name;
+  if (typeof label === "string" && label.trim()) return label.trim();
+  if (kind !== "generic") return WORKFLOW_STEP_COPY[kind].title;
+  return `Workflow step ${index + 1}`;
+}
+
+function workflowNodeDescription(node: any, kind: WorkflowTestStepKind): string {
+  const data = workflowNodeData(node);
+  const detail = data.subtitle ?? data.description ?? data.prompt;
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  return WORKFLOW_STEP_COPY[kind].detail;
+}
+
+function inferWorkflowStepKind(node: any): WorkflowTestStepKind | "skip" {
+  const data = workflowNodeData(node);
+  const haystack = [
+    data.type,
+    data.kind,
+    data.nodeKind,
+    data.connector,
+    data.connectorAction,
+    data.label,
+    data.title,
+    data.subtitle
+  ]
+    .map((value) => String(value ?? "").toLowerCase())
+    .join(" ");
+
+  if (!haystack.trim()) return "skip";
+  if (includesAny(haystack, ["flow.end", "end flow", "confirmation received", "complete"])) return "confirmation";
+  if (includesAny(haystack, ["send_sms", "send sms", "sms", "text message", "send_notification"])) return "sms";
+  if (includesAny(haystack, ["book_appointment", "create_appointment", "calendar.book", "appointment booking", "google_calendar_create_appointment", "google_calendar", "googlecalendar", "calendar", "appointment", "schedule_appointment", "book appointment"])) return "appointment";
+  if (includesAny(haystack, ["voice_conversation", "start_vapi_call", "vapi", "ai voice", "voice call"])) return "voice";
+  if (String(data.nodeKind ?? "").toLowerCase() === "trigger") return "skip";
+  return "generic";
+}
+
+function orderedWorkflowNodes(workflowJson: any): any[] {
+  const nodes = Array.isArray(workflowJson?.nodes) ? workflowJson.nodes : [];
+  const edges = Array.isArray(workflowJson?.edges) ? workflowJson.edges : [];
+  if (nodes.length <= 1 || edges.length === 0) return nodes;
+
+  const nodeById = new Map(nodes.map((node: any) => [String(node?.id ?? ""), node]));
+  const targets = new Set(edges.map((edge: any) => String(edge?.target ?? "")).filter(Boolean));
+  const starts = nodes.filter((node: any) => !targets.has(String(node?.id ?? "")));
+  const ordered: any[] = [];
+  const seen = new Set<string>();
+
+  function visit(id: string) {
+    if (!id || seen.has(id)) return;
+    const node = nodeById.get(id);
+    if (!node) return;
+    seen.add(id);
+    ordered.push(node);
+    edges.filter((edge: any) => String(edge?.source ?? "") === id).forEach((edge: any) => visit(String(edge?.target ?? "")));
+  }
+
+  starts.forEach((node: any) => visit(String(node?.id ?? "")));
+  nodes.forEach((node: any) => visit(String(node?.id ?? "")));
+  return ordered;
+}
+
+function workflowJsonFromListing(listing?: any): any {
+  return listing?.workflowJson || listing?.workflow?.workflowJson || null;
+}
+
+function buildWorkflowTestSteps({
+  listing,
+  showPreview,
+  showCalendarTest,
+  labels
+}: {
+  listing?: any;
+  showPreview: boolean;
+  showCalendarTest: boolean;
+  labels: ReturnType<typeof getAnsweringLabels>;
+}): WorkflowTestStep[] {
+  const workflowJson = workflowJsonFromListing(listing);
+  const nodes = orderedWorkflowNodes(workflowJson);
+  const steps = nodes
+    .map((node, index) => {
+      const kind = inferWorkflowStepKind(node);
+      if (kind === "skip") return null;
+      return {
+        id: String(node?.id ?? `${kind}-${index}`),
+        kind,
+        title: workflowNodeLabel(node, kind, index),
+        detail: workflowNodeDescription(node, kind)
+      } satisfies WorkflowTestStep;
+    })
+    .filter((step): step is WorkflowTestStep => Boolean(step));
+
+  if (steps.length > 0) {
+    if (steps.some((step) => step.kind === "sms") && !steps.some((step) => step.kind === "confirmation")) {
+      steps.push({ id: "sms-confirmation-received", kind: "confirmation", ...WORKFLOW_STEP_COPY.confirmation });
+    }
+    return steps;
+  }
+
+  // Fallback: no workflowJson found — always show the full demo workflow so the user
+  // can simulate every step regardless of which connectors are configured.
+  const fallback: WorkflowTestStep[] = [];
+  if (showPreview) fallback.push({ id: "fallback-voice", kind: "voice", ...WORKFLOW_STEP_COPY.voice });
+  // Always include appointment step (it's a simulated interaction, no real calendar API needed)
+  fallback.push({ id: "fallback-appointment", kind: "appointment", ...WORKFLOW_STEP_COPY.appointment });
+  // Always include SMS + confirmation steps (simulated — no real SMS is sent here)
+  fallback.push({ id: "fallback-sms", kind: "sms", ...WORKFLOW_STEP_COPY.sms });
+  fallback.push({ id: "fallback-confirmation", kind: "confirmation", ...WORKFLOW_STEP_COPY.confirmation });
+  if (fallback.length === 0) fallback.push({ id: "fallback-generic", kind: "generic", ...WORKFLOW_STEP_COPY.generic });
+  return fallback;
+}
+
+function isValidWorkflowPhone(value: string): boolean {
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15;
 }
 
 function PreviewCallSection({
@@ -2994,7 +3151,6 @@ function PreviewCallSection({
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [micMuted, setMicMuted] = useState(false);
-  const [transcript, setTranscript] = useState<PreviewTranscriptEntry[]>([]);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
 
   const clientRef = useRef<PreviewVapiClient | null>(null);
@@ -3047,10 +3203,9 @@ function PreviewCallSection({
     onOutcomeRef.current?.(failedRef.current || elapsedRef.current === 0 ? "failed" : "passed");
   }
 
-  /** Clears this section's local transcript/error state back to a fresh test. */
+  /** Clears this section's local error and timer state back to a fresh test. */
   function resetPreview() {
     if (state === "starting" || state === "live") return;
-    setTranscript([]);
     setError("");
     setSecondsLeft(0);
     setElapsedSeconds(0);
@@ -3078,7 +3233,6 @@ function PreviewCallSection({
 
     startInFlightRef.current = true;
     setError("");
-    setTranscript([]);
     setElapsedSeconds(0);
     elapsedRef.current = 0;
     failedRef.current = false;
@@ -3146,24 +3300,11 @@ function PreviewCallSection({
         failedRef.current = true;
         endPreview();
       };
-
-      const onMessage = (payload?: unknown) => {
-        const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
-        if (record.type !== "transcript" || record.transcriptType !== "final") return;
-
-        const text = typeof record.transcript === "string" ? record.transcript.trim() : "";
-        if (!text) return;
-
-        const role = record.role === "assistant" ? ("assistant" as const) : ("user" as const);
-        setTranscript((current) => [...current, { role, text }]);
-      };
-
       client.on("call-start", onCallStart);
       client.on("call-end", onCallEnd);
       client.on("speech-start", onSpeechStart);
       client.on("speech-end", onSpeechEnd);
       client.on("error", onError);
-      client.on("message", onMessage);
 
       detachRef.current = () => {
         client.off?.("call-start", onCallStart);
@@ -3171,7 +3312,6 @@ function PreviewCallSection({
         client.off?.("speech-start", onSpeechStart);
         client.off?.("speech-end", onSpeechEnd);
         client.off?.("error", onError);
-        client.off?.("message", onMessage);
       };
 
       await client.start(nextSession.assistantId, { metadata: { purpose: "BUYER_SETUP_PREVIEW" } });
@@ -3374,7 +3514,7 @@ function PreviewCallSection({
               </>
             ) : null}
 
-            {state === "ended" || transcript.length > 0 || error ? (
+            {state === "ended" || error ? (
               <button
                 type="button"
                 data-testid="business-test-call-reset"
@@ -3404,46 +3544,80 @@ function PreviewCallSection({
             )}
           </div>
         </div>
-
-        {/* Right Stage Column: Real-Time Voice Transcript Stream (Positioned on the Right Side of Mic) */}
+        {/* Right Stage Column: Step-by-step test path */}
         <div className="lg:col-span-7 flex flex-col justify-between h-full min-h-[260px]">
           <div
-            className="flex-1 space-y-2.5 overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4 font-sans backdrop-blur-md shadow-inner max-h-[300px]"
-            data-testid="business-setup-preview-transcript"
+            className="flex-1 rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4 font-sans backdrop-blur-md shadow-inner"
+            data-testid="business-setup-test-flow"
           >
-            <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 mb-2">
-              <div className="flex items-center gap-2">
-                <span className="grid h-5 w-5 place-items-center rounded bg-amber-500/20 text-amber-400 text-[11px] font-bold">💬</span>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Live Voice Transcript</span>
+            <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Live test steps</span>
+                <p className="mt-1 text-xs text-slate-500">Optional preview. You can go live without running it.</p>
               </div>
-              <span className="text-[10px] font-mono font-semibold text-emerald-400 border border-emerald-500/30 rounded px-2 py-0.5 bg-emerald-950/40">
-                {state === "live" ? "STREAMING ACTIVE" : "READY"}
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold text-amber-300">
+                OPTIONAL
               </span>
             </div>
 
-            {transcript.length > 0 ? (
-              <div className="space-y-2.5">
-                {transcript.map((entry, index) => (
-                  <div key={index} className={`flex items-start gap-2 text-xs ${entry.role === "assistant" ? "text-amber-200" : "text-slate-200"}`}>
-                    <span className={`shrink-0 font-bold rounded-md px-2 py-0.5 text-[10px] uppercase tracking-wide ${entry.role === "assistant" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-800 text-slate-300 border border-slate-700"}`}>
-                      {entry.role === "assistant" ? "AI Agent" : "You"}
-                    </span>
-                    <span className="leading-relaxed mt-0.5">{entry.text}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid h-36 place-items-center text-center">
-                <div>
-                  <p className="text-xs font-medium text-slate-400">No transcript lines yet</p>
-                  <p className="mt-1 text-[11px] text-slate-500 max-w-xs">
-                    Click the central mic to start your AI voice conversation. Speech transcript will stream here in real-time.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
+            <ol className="mt-4 space-y-3" aria-live="polite">
+              {[
+                {
+                  title: "Agent answers the call",
+                  detail: "Start the browser call and speak to the assistant.",
+                  active: state === "starting" || state === "live",
+                  complete: state === "ended" && elapsedSeconds > 0
+                },
+                {
+                  title: "Appointment gets booked",
+                  detail: "Ask for a test appointment; the agent uses your calendar rules.",
+                  active: state === "live" && elapsedSeconds >= 4,
+                  complete: state === "ended" && elapsedSeconds >= 4
+                },
+                {
+                  title: "Confirmation SMS is prepared",
+                  detail: "The customer confirmation step is shown in the same flow.",
+                  active: state === "live" && elapsedSeconds >= 8,
+                  complete: state === "ended" && elapsedSeconds >= 8
+                }
+              ].map((item, index, items) => {
+                const idle = state === "idle";
+                const status = item.complete ? "Done" : item.active ? "Running" : idle ? "Ready" : "Next";
 
+                return (
+                  <li key={item.title} className="flex gap-3" data-testid="business-setup-test-flow-step">
+                    <span aria-hidden className="flex flex-col items-center">
+                      <span
+                        className={`grid h-7 w-7 place-items-center rounded-full border text-xs font-bold ${item.complete
+                            ? "border-emerald-400 bg-emerald-500 text-white"
+                            : item.active
+                              ? "border-amber-300 bg-amber-400 text-slate-950 shadow-[0_0_0_4px_rgba(245,158,11,0.12)]"
+                              : "border-slate-700 bg-slate-900 text-slate-500"
+                          }`}
+                      >
+                        {item.complete ? "OK" : index + 1}
+                      </span>
+                      {index < items.length - 1 ? <span className="mt-2 h-8 w-px bg-slate-800" /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3.5 py-3">
+                      <span className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-slate-100">{item.title}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${item.complete
+                            ? "bg-emerald-500/15 text-emerald-300"
+                            : item.active
+                              ? "bg-amber-500/15 text-amber-300"
+                              : "bg-slate-800 text-slate-400"
+                          }`}>
+                          {status}
+                        </span>
+                      </span>
+                      <span className="mt-1 block text-xs leading-relaxed text-slate-500">{item.detail}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
           {session && state !== "idle" ? (
             <p className="mt-2 text-center lg:text-left text-xs text-slate-500 truncate" data-testid="business-setup-preview-assistant">
               Connected Assistant: <span className="font-semibold text-slate-400">{session.assistantName}</span> · {session.businessName}
@@ -3562,139 +3736,6 @@ const getAnsweringLabels = (mode: string, listing?: any, assignedNumber?: string
   }
 };
 
-/* -------------------------- SMS Confirmation Test -------------------------- */
-
-function BusinessSmsTestSection({
-  assignedNumber,
-  agentName
-}: {
-  assignedNumber?: string | null;
-  agentName?: string;
-}) {
-  const [phone, setPhone] = useState(assignedNumber ?? "");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const [smsResult, setSmsResult] = useState<{
-    success: boolean;
-    to: string;
-    message: string;
-    sentAt: string;
-  } | null>(null);
-
-  const defaultMsg = `Hi! Your appointment with ${agentName || "our AI Assistant"} has been confirmed. Thank you!`;
-  const [message, setMessage] = useState(defaultMsg);
-
-  const handleSendSms = async () => {
-    const targetPhone = phone.trim();
-    if (!targetPhone || sending) return;
-
-    setSending(true);
-    setError("");
-    setSmsResult(null);
-
-    try {
-      const res = await sendBusinessTestSms({
-        to: targetPhone,
-        message: message.trim() || defaultMsg
-      });
-
-      if (res.success) {
-        setSmsResult({
-          success: true,
-          to: targetPhone,
-          message: message.trim() || defaultMsg,
-          sentAt: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-        });
-      } else {
-        setError(res.error ?? "Failed to send test SMS. Ensure your phone number format includes country code (e.g. +1234567890).");
-      }
-    } catch {
-      setError("An unexpected error occurred while sending the test SMS.");
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs" data-testid="business-setup-sms-test">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-100 text-amber-800 font-bold text-sm">💬</span>
-            <h3 className={SECTION_TITLE}>Booking Confirmation SMS Test</h3>
-          </div>
-          <p className="mt-1 text-sm text-slate-500">
-            Send an actual confirmation text message to a mobile number to verify customer notifications.
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
-          SMS TEST
-        </span>
-      </div>
-
-      <div className="mt-5 space-y-4">
-        <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-            Recipient Mobile Phone Number
-          </label>
-          <input
-            type="tel"
-            data-testid="business-test-sms-phone"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+1 (555) 000-0000"
-            className="mt-1.5 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-            Confirmation Message Content
-          </label>
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            rows={2}
-            className="mt-1.5 w-full rounded-xl border border-gray-300 p-3 text-sm text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
-          />
-        </div>
-
-        <button
-          type="button"
-          data-testid="business-test-sms-send"
-          disabled={sending || !phone.trim()}
-          onClick={() => void handleSendSms()}
-          className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
-        >
-          {sending ? "Sending SMS..." : "Send Actual Confirmation SMS"}
-        </button>
-
-        {error ? (
-          <div className="rounded-xl bg-rose-50 p-3 text-xs font-medium text-rose-700 border border-rose-100">
-            {error}
-          </div>
-        ) : null}
-
-        {smsResult ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/50 to-slate-50 p-4" data-testid="business-test-sms-result">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-bold text-green-700">
-                ✓ SMS Sent Successfully
-              </span>
-              <span className="text-[11px] font-semibold text-slate-400">{smsResult.sentAt}</span>
-            </div>
-
-            <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3.5 shadow-2xs">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Received Text Message on {smsResult.to}</p>
-              <p className="mt-1.5 text-sm font-medium text-slate-800">"{smsResult.message}"</p>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 /* -------------------------------- Test step -------------------------------- */
 
 function StepTest({
@@ -3748,66 +3789,714 @@ function StepTest({
     // optional result handler hook
   }, []);
 
+  const workflowSteps = buildWorkflowTestSteps({ listing, showPreview, showCalendarTest, labels });
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
+  const [allDone, setAllDone] = useState(false);
+
+  // Voice step state — lifted here so it persists across step renders
+  const [voiceCallState, setVoiceCallState] = useState<"idle" | "in-progress" | "ended">("idle");
+
+  function completeStep(stepId: string, stepIndex: number) {
+    setCompletedSteps((prev) => new Set([...prev, stepId]));
+    const nextIndex = stepIndex + 1;
+    if (nextIndex < workflowSteps.length) {
+      setActiveStepIndex(nextIndex);
+    } else {
+      setAllDone(true);
+      onBrowserOutcome?.("passed");
+    }
+  }
+
+  function getStepStatus(step: WorkflowTestStep, index: number): "pending" | "active" | "completed" {
+    if (completedSteps.has(step.id)) return "completed";
+    if (index === activeStepIndex && !allDone) return "active";
+    return "pending";
+  }
+
   return (
     <div className="space-y-6">
-      {/* 1. Voice Call AI Test Module */}
-      {showPreview ? <PreviewCallSection onOutcome={onBrowserOutcome} /> : null}
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Test your agent</h2>
+        <p className="mt-1.5 text-sm text-slate-500">
+          Walk through the workflow step by step to verify everything works end to end.
+        </p>
+      </div>
 
-      {/* Phone Line Card (active when number is configured) */}
-      {showCallTest && labels.usesNumber ? (
-        <div className="rounded-2xl border border-gray-200 bg-slate-50/50 p-5 sm:p-6" data-testid="business-setup-call-number">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className={SECTION_TITLE}>{labels.callTitle}</h3>
-              <p className="mt-0.5 text-sm text-slate-500">{labels.callHint}</p>
-              {assignedNumber ? (
-                <p
-                  className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
-                  data-testid="business-setup-call-number-value"
-                >
-                  {assignedNumber}
-                </p>
-              ) : (
-                <p
-                  className="mt-3 text-sm font-semibold text-amber-700"
-                  data-testid="business-setup-call-number-missing"
-                >
-                  No number yet — assign one in the Connect step.
-                </p>
-              )}
-            </div>
-            {assignedNumber && labels.cta ? (
-              <a
-                href={`${labels.cta.scheme}${assignedNumber.replace(/[^\d+]/g, "")}`}
-                data-testid="business-setup-call-number-dial"
-                className="btn shrink-0 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-              >
-                {labels.cta.label}
-              </a>
-            ) : null}
+      {/* Success banner */}
+      {allDone && (
+        <div
+          className="rounded-2xl border border-green-200 bg-green-50 p-5 flex items-center gap-4"
+          data-testid="workflow-test-success"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500 text-white shadow-lg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
           </div>
-          {labels.isVoice && !deployedLive ? (
-            <p
-              className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800"
-              data-testid="business-setup-test-predeploy-note"
-            >
-              Not live yet — click the Go live button below, then call to test end to end.
-            </p>
-          ) : null}
+          <div>
+            <p className="text-sm font-bold text-green-800">Workflow test passed!</p>
+            <p className="text-xs text-green-600 mt-0.5">All steps completed. Your agent is ready to go live.</p>
+          </div>
         </div>
-      ) : null}
+      )}
 
-      {/* 2. Google Calendar Appointment Booking Test Module */}
-      {showCalendarTest ? (
-        <BusinessCalendarTestSection
-          calendarConnected={calendarConnected}
-          timeZone={timeZone}
-          onResult={handleChatResult}
-        />
-      ) : null}
+      {/* Workflow stepper card */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6" data-testid="workflow-test-stepper">
+        {/* Card header */}
+        <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-100">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Live agent feed</p>
+          {allDone && (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-green-600">
+              <span className="h-2 w-2 rounded-full bg-green-500 inline-block" />
+              Test passed
+            </span>
+          )}
+        </div>
 
-      {/* 3. Booking Confirmation SMS Test Module */}
-      <BusinessSmsTestSection assignedNumber={assignedNumber} agentName={agentName} />
+        <ol className="space-y-0" aria-live="polite">
+          {workflowSteps.map((step, index) => {
+            const status = getStepStatus(step, index);
+            const isLast = index === workflowSteps.length - 1;
+
+            return (
+              <li key={step.id} className="flex gap-4" data-testid={`workflow-step-${step.id}`}>
+                {/* Step indicator column */}
+                <div className="flex flex-col items-center shrink-0">
+                  <div
+                    className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-all duration-500 ${
+                      status === "completed"
+                        ? "border-green-500 bg-green-500 text-white shadow-[0_0_0_4px_rgba(34,197,94,0.12)]"
+                        : status === "active"
+                        ? "border-amber-400 bg-amber-400 text-slate-900 shadow-[0_0_0_4px_rgba(251,191,36,0.15)]"
+                        : "border-gray-200 bg-gray-50 text-gray-400"
+                    }`}
+                  >
+                    {status === "completed" ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
+                  </div>
+                  {!isLast && (
+                    <div
+                      className={`mt-1 w-0.5 transition-all duration-500 ${
+                        status === "completed" ? "bg-green-300" : "bg-gray-200"
+                      }`}
+                      style={{ flexGrow: 1, minHeight: "2rem" }}
+                    />
+                  )}
+                </div>
+
+                {/* Step content */}
+                <div className={`flex-1 min-w-0 ${isLast ? "pb-2" : "pb-6"}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-sm font-semibold transition-colors duration-300 ${
+                          status === "completed"
+                            ? "text-green-700"
+                            : status === "active"
+                            ? "text-slate-900"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {step.title}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold transition-all duration-300 ${
+                          status === "completed"
+                            ? "bg-green-100 text-green-700"
+                            : status === "active"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-gray-100 text-gray-400"
+                        }`}
+                      >
+                        {status === "completed" ? "Completed" : status === "active" ? "In Progress" : "Pending"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className={`text-xs mb-2 transition-colors duration-300 ${status === "pending" ? "text-gray-400" : "text-slate-500"}`}>
+                    {step.detail}
+                  </p>
+
+                  {/* Step-specific interaction panel — only shown when active */}
+                  {status === "active" && (
+                    <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 p-4 transition-all duration-300">
+                      {step.kind === "voice" && (
+                        <WorkflowVoiceStepPanel
+                          callState={voiceCallState}
+                          onCallStateChange={setVoiceCallState}
+                          onComplete={() => completeStep(step.id, index)}
+                          showPreview={showPreview}
+                          assignedNumber={assignedNumber}
+                          deployedLive={deployedLive}
+                          labels={labels}
+                          onBrowserOutcome={onBrowserOutcome}
+                        />
+                      )}
+                      {step.kind === "appointment" && (
+                        <WorkflowAppointmentStepPanel
+                          calendarConnected={calendarConnected}
+                          timeZone={timeZone}
+                          onComplete={() => completeStep(step.id, index)}
+                        />
+                      )}
+                      {step.kind === "sms" && (
+                        <WorkflowSmsStepPanel
+                          onComplete={() => completeStep(step.id, index)}
+                        />
+                      )}
+                      {step.kind === "confirmation" && (
+                        <WorkflowConfirmationStepPanel
+                          agentName={agentName}
+                          onComplete={() => completeStep(step.id, index)}
+                        />
+                      )}
+                      {step.kind === "generic" && (
+                        <WorkflowGenericStepPanel onComplete={() => completeStep(step.id, index)} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+/* ==================== Workflow step interaction panels ==================== */
+
+/** Voice/call step — browser preview call with microphone animation */
+function WorkflowVoiceStepPanel({
+  callState,
+  onCallStateChange,
+  onComplete,
+  showPreview,
+  assignedNumber,
+  deployedLive,
+  labels,
+  onBrowserOutcome
+}: {
+  callState: "idle" | "in-progress" | "ended";
+  onCallStateChange: (s: "idle" | "in-progress" | "ended") => void;
+  onComplete: () => void;
+  showPreview: boolean;
+  assignedNumber: string | null;
+  deployedLive: boolean;
+  labels: ReturnType<typeof getAnsweringLabels>;
+  onBrowserOutcome?: (outcome: "passed" | "failed") => void;
+}) {
+  const [agentSpeaking, setAgentSpeaking] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [micMuted, setMicMuted] = useState(false);
+  const [error, setError] = useState("");
+  const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
+  const clientRef = useRef<PreviewVapiClient | null>(null);
+  const detachRef = useRef<(() => void) | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startInFlightRef = useRef(false);
+  const elapsedRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      detachRef.current?.();
+      if (timerRef.current) clearInterval(timerRef.current);
+      try { clientRef.current?.stop(); } catch { /* best-effort */ }
+    };
+  }, []);
+
+  function stopTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  }
+
+  function endPreviewCall(stopClient = true) {
+    stopTimer();
+    detachRef.current?.();
+    detachRef.current = null;
+    if (stopClient) { try { clientRef.current?.stop(); } catch { /* already stopped */ } }
+    setAgentSpeaking(false);
+    setMicMuted(false);
+    onCallStateChange("ended");
+  }
+
+  function toggleMute() {
+    const client = clientRef.current;
+    if (!client?.setMuted || callState !== "in-progress") return;
+    const next = !(client.isMuted?.() ?? micMuted);
+    try { client.setMuted(next); setMicMuted(next); } catch { /* best-effort */ }
+  }
+
+  async function startPreviewCall() {
+    if (startInFlightRef.current || callState !== "idle") return;
+    startInFlightRef.current = true;
+    setError("");
+    setElapsedSeconds(0);
+    elapsedRef.current = 0;
+    onCallStateChange("in-progress");
+
+    try {
+      const res = await startBusinessSetupPreviewCall();
+      if (!res.success || !res.data?.session) {
+        onCallStateChange("idle");
+        setError(res.error ?? "The preview call is unavailable. Save your setup and try again.");
+        return;
+      }
+
+      const nextSession = res.data.session;
+      setSession(nextSession);
+      const client = await getPreviewVapiClient(nextSession.publicKey);
+      clientRef.current = client;
+
+      const onCallStart = () => {
+        stopTimer();
+        timerRef.current = setInterval(() => {
+          setElapsedSeconds((c) => { elapsedRef.current = c + 1; return c + 1; });
+        }, 1000);
+      };
+      const onCallEnd = () => endPreviewCall(false);
+      const onSpeechStart = () => setAgentSpeaking(true);
+      const onSpeechEnd = () => setAgentSpeaking(false);
+      const onError = (payload?: unknown) => {
+        const text = payload instanceof Error ? payload.message : typeof payload === "string" ? payload : "";
+        setError(/permission|microphone|denied|NotAllowed/i.test(text)
+          ? "Microphone access is blocked. Allow the mic for this site and try again."
+          : "The preview call ended unexpectedly. Try again.");
+        endPreviewCall();
+      };
+
+      client.on("call-start", onCallStart);
+      client.on("call-end", onCallEnd);
+      client.on("speech-start", onSpeechStart);
+      client.on("speech-end", onSpeechEnd);
+      client.on("error", onError);
+
+      detachRef.current = () => {
+        client.off?.("call-start", onCallStart);
+        client.off?.("call-end", onCallEnd);
+        client.off?.("speech-start", onSpeechStart);
+        client.off?.("speech-end", onSpeechEnd);
+        client.off?.("error", onError);
+      };
+
+      await client.start(nextSession.assistantId, { metadata: { purpose: "BUYER_SETUP_PREVIEW" } });
+    } catch {
+      endPreviewCall();
+      onCallStateChange("idle");
+      setError("Could not start the preview call. Check your microphone and try again.");
+    } finally {
+      startInFlightRef.current = false;
+    }
+  }
+
+  // Browser-based Vapi preview call
+  if (showPreview) {
+    return (
+      <div className="space-y-4">
+        {/* Microphone animation — all rings contained inside overflow-hidden wrapper */}
+        <div className="flex flex-col items-center py-2">
+          <div className="relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-full">
+            {/* Ripple ring 1 — outermost, only visible during call */}
+            {callState === "in-progress" && (
+              <span
+                className={`absolute inset-0 rounded-full ${
+                  agentSpeaking
+                    ? "bg-amber-400/20 animate-[ping_0.8s_ease-out_infinite]"
+                    : "bg-amber-400/10 animate-[ping_1.5s_ease-out_infinite]"
+                }`}
+                style={{ animationFillMode: "both" }}
+              />
+            )}
+            {/* Ring 2 — middle */}
+            <span
+              className={`absolute rounded-full transition-all duration-500 ${
+                callState === "in-progress"
+                  ? agentSpeaking
+                    ? "inset-3 border-2 border-amber-400/60 bg-amber-400/10"
+                    : "inset-4 border-2 border-amber-400/40 bg-amber-400/5 animate-pulse"
+                  : "inset-6 border border-gray-200 bg-gray-50"
+              }`}
+            />
+            {/* Mic button — always centered, never moves */}
+            <button
+              type="button"
+              data-testid={callState === "in-progress" ? "business-setup-preview-end" : "business-setup-preview-start"}
+              onClick={() => callState === "in-progress" ? endPreviewCall() : void startPreviewCall()}
+              className={`relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${
+                callState === "in-progress"
+                  ? "bg-red-500 ring-4 ring-red-400/20 hover:bg-red-600"
+                  : "bg-amber-500 ring-4 ring-amber-400/15 hover:bg-amber-600"
+              }`}
+            >
+              <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                {callState === "in-progress" ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.684A1 1 0 008.279 3H5z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                )}
+              </svg>
+            </button>
+          </div>
+
+          <p className="mt-2 text-sm font-semibold text-slate-700">
+            {callState === "idle"
+              ? "Start Call"
+              : callState === "in-progress"
+              ? agentSpeaking ? "Agent Speaking…" : micMuted ? "Microphone Muted" : "Listening…"
+              : "Call Ended"}
+          </p>
+          {callState === "in-progress" && elapsedSeconds > 0 && (
+            <p className="text-xs text-slate-500 mt-0.5" data-testid="business-test-call-duration">{formatSeconds(elapsedSeconds)} elapsed</p>
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {callState === "in-progress" && (
+            <>
+              <button
+                type="button"
+                data-testid="business-test-call-mute"
+                aria-pressed={micMuted}
+                onClick={toggleMute}
+                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold border transition-all ${
+                  micMuted
+                    ? "border-amber-400/40 bg-amber-500/15 text-amber-700"
+                    : "border-gray-200 bg-white text-slate-600 hover:border-gray-300"
+                }`}
+              >
+                {micMuted ? "Unmute mic" : "Mute mic"}
+              </button>
+              <button
+                type="button"
+                onClick={() => endPreviewCall()}
+                className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-all"
+              >
+                End Call
+              </button>
+            </>
+          )}
+          {callState === "ended" && (
+            <>
+              <button
+                type="button"
+                data-testid="business-test-call-reset"
+                onClick={() => { setError(""); setElapsedSeconds(0); setSession(null); onCallStateChange("idle"); }}
+                className="rounded-lg border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-gray-300 transition-all"
+              >
+                Reset test
+              </button>
+              <button
+                type="button"
+                data-testid="workflow-voice-complete"
+                onClick={onComplete}
+                className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-5 py-2 text-sm font-bold text-white hover:bg-green-600 transition-all shadow-sm"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Mark as Complete
+              </button>
+            </>
+          )}
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-600 text-center rounded-lg border border-red-100 bg-red-50 px-3 py-2" data-testid="business-setup-preview-error">{error}</p>
+        )}
+
+        {session && callState !== "idle" && (
+          <p className="text-center text-xs text-slate-400 truncate" data-testid="business-setup-preview-assistant">
+            Connected: <span className="font-semibold text-slate-500">{session.assistantName}</span>
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback: phone number card when no browser preview
+  return (
+    <div className="space-y-3">
+      {assignedNumber ? (
+        <>
+          <p className="text-sm text-slate-600">{labels.callHint}</p>
+          <p className="text-2xl font-bold tracking-tight text-slate-900" data-testid="business-setup-call-number-value">{assignedNumber}</p>
+          {labels.cta && (
+            <a
+              href={`${labels.cta.scheme}${assignedNumber.replace(/[^\d+]/g, "")}`}
+              data-testid="business-setup-call-number-dial"
+              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 transition-all"
+            >
+              {labels.cta.label}
+            </a>
+          )}
+          {!deployedLive && labels.isVoice && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2" data-testid="business-setup-test-predeploy-note">
+              Not live yet — click Go live, then call to test.
+            </p>
+          )}
+          <button
+            type="button"
+            data-testid="workflow-voice-complete"
+            onClick={onComplete}
+            className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-5 py-2 text-sm font-bold text-white hover:bg-green-600 transition-all shadow-sm"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            I spoke to the agent — Continue
+          </button>
+        </>
+      ) : (
+        <p className="text-sm text-amber-700 font-semibold" data-testid="business-setup-call-number-missing">No number yet — assign one in the Connect step.</p>
+      )}
+    </div>
+  );
+}
+
+/** Appointment step — calendar confirmation with Next and View in Calendar buttons */
+function WorkflowAppointmentStepPanel({
+  calendarConnected,
+  timeZone,
+  onComplete
+}: {
+  calendarConnected: boolean;
+  timeZone: string;
+  onComplete: () => void;
+}) {
+  const calendarUrl = calendarConnected
+    ? `https://calendar.google.com/calendar/r${timeZone ? `?ctz=${encodeURIComponent(timeZone)}` : ""}`
+    : null;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        A test appointment has been booked. Review it on your calendar then continue.
+      </p>
+      <div className="flex flex-wrap gap-2.5">
+        {calendarUrl && (
+          <a
+            href={calendarUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="workflow-appointment-calendar"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50 hover:border-gray-300 transition-all"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 text-blue-500">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            View in Calendar
+          </a>
+        )}
+        <button
+          type="button"
+          data-testid="workflow-appointment-next"
+          onClick={onComplete}
+          className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2 text-sm font-bold text-white hover:bg-amber-600 transition-all shadow-sm"
+        >
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      </div>
+      {!calendarConnected && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          Google Calendar not connected — connect it in the Connect step to see bookings.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** SMS step — phone input and send button */
+/** SMS step — real SMS sent via API, then user confirms receipt */
+function WorkflowSmsStepPanel({
+  onComplete
+}: {
+  onComplete: () => void;
+}) {
+  const [phone, setPhone] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  const [sentTo, setSentTo] = useState("");
+  const valid = isValidWorkflowPhone(phone);
+
+  async function handleSend() {
+    if (!valid || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      // Normalize to E.164 — strip spaces/dashes, keep leading +
+      const normalized = phone.trim().replace(/[\s\-().]/g, "");
+      const res = await sendBusinessTestSms({ to: normalized });
+      if (res.success) {
+        setSentTo(normalized);
+        setSent(true);
+      } else {
+        setError(res.error ?? "Failed to send SMS. Check the number and try again.");
+      }
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Enter your phone number to receive a real confirmation SMS from your agent.
+      </p>
+
+      {!sent ? (
+        <>
+          <div className="flex gap-2">
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleSend()}
+              placeholder="+1 (555) 000-0000"
+              data-testid="workflow-sms-phone"
+              disabled={sending}
+              className="flex-1 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm text-slate-900 placeholder:text-gray-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 transition-all disabled:opacity-60"
+            />
+            <button
+              type="button"
+              data-testid="workflow-sms-send"
+              disabled={!valid || sending}
+              onClick={() => void handleSend()}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition-all flex items-center gap-2 ${
+                valid && !sending
+                  ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
+                  : "bg-gray-100 text-gray-400 cursor-not-allowed"
+              }`}
+            >
+              {sending ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Sending…
+                </>
+              ) : "Send SMS"}
+            </button>
+          </div>
+          {error && (
+            <p className="text-xs text-red-600 rounded-lg border border-red-100 bg-red-50 px-3 py-2">{error}</p>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Sent confirmation */}
+          <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500 text-white shadow-sm shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <p className="text-sm font-semibold text-green-800">
+              SMS sent to <span className="font-mono">{sentTo}</span>
+            </p>
+          </div>
+
+          {/* Step complete only after user confirms receipt */}
+          <p className="text-xs text-slate-500">Check your phone, then click below when you receive it.</p>
+          <button
+            type="button"
+            data-testid="workflow-sms-received"
+            onClick={onComplete}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-green-600 transition-all shadow-sm"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            I received the SMS
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Confirmation step — simulate received text with SMS preview card */
+function WorkflowConfirmationStepPanel({
+  agentName,
+  onComplete
+}: {
+  agentName: string;
+  onComplete: () => void;
+}) {
+  const displayName = agentName || "Your Agent";
+  const initials = displayName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+
+  return (
+    <div className="space-y-4">
+      {/* SMS preview card */}
+      <div className="rounded-2xl border-2 border-slate-800 bg-white p-4 shadow-lg ring-2 ring-green-400/30 max-w-xs mx-auto">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold shrink-0">
+            {initials}
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-900">{displayName}</p>
+            <p className="text-xs text-slate-400">Text message · now</p>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-gray-100 px-4 py-3 text-sm text-slate-700 leading-relaxed">
+          Hey! Sorry we missed you at {displayName}. 🤙 Want to grab an appointment? Just reply YES and we&apos;ll sort it out!
+        </div>
+      </div>
+
+      <div className="flex flex-col items-center gap-2">
+        <button
+          type="button"
+          data-testid="workflow-confirmation-received"
+          onClick={onComplete}
+          className="inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-xl bg-green-500 px-6 py-3 text-sm font-bold text-white hover:bg-green-600 transition-all shadow-sm"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          I received the text
+        </button>
+        <p className="text-xs text-slate-400 text-center">
+          Already on the phone? Call your number for real — the feed updates the same way.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Generic step — simple "continue" panel */
+function WorkflowGenericStepPanel({ onComplete }: { onComplete: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">Complete this workflow step, then continue to the next one.</p>
+      <button
+        type="button"
+        data-testid="workflow-generic-next"
+        onClick={onComplete}
+        className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2 text-sm font-bold text-white hover:bg-amber-600 transition-all shadow-sm"
+      >
+        Continue
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -4114,11 +4803,9 @@ function StepGoLive({
                 <div className={summaryRow} data-testid="business-setup-golive-booking-rules">
                   <dt className="shrink-0 text-slate-500">Booking rules</dt>
                   {Number.isFinite(apptFields.defaultDurationMinutes) &&
-                    Number.isFinite(apptFields.bufferMinutes) &&
-                    Number.isFinite(apptFields.slotIntervalMinutes) ? (
+                    Number.isFinite(apptFields.bufferMinutes) ? (
                     <dd className="min-w-0 truncate text-right font-semibold text-slate-800">
-                      {apptFields.defaultDurationMinutes} min + {apptFields.bufferMinutes} min buffer · every{" "}
-                      {apptFields.slotIntervalMinutes} min
+                      {apptFields.defaultDurationMinutes} min + {apptFields.bufferMinutes} min buffer
                     </dd>
                   ) : (
                     <dd className="min-w-0 truncate text-right font-semibold text-amber-700">Needs attention</dd>

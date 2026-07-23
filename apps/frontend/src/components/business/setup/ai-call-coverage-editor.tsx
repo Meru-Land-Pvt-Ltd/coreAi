@@ -228,7 +228,7 @@ export function AiCallCoverageEditor({
     <div data-testid="business-setup-ai-coverage">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-sm font-bold text-slate-900">{t.sectionTitle}</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">{t.sectionTitle}</h4>
           <p className="mt-0.5 text-xs text-slate-500">{t.sectionDescription}</p>
         </div>
       </div>

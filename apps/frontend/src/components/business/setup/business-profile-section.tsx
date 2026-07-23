@@ -113,7 +113,7 @@ export function BusinessProfileSection({
 
       {/* 2. MIDDLE: Compact Business Details Form */}
       <div className="border-t border-gray-100 pt-4 space-y-4">
-        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">Business Details</h4>
+        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Business Details</h4>
 
         <div className="grid sm:grid-cols-3 gap-3">
           <div>
@@ -170,20 +170,8 @@ export function BusinessProfileSection({
           </div>
         </div>
 
-        {/* Structured business address */}
         <div className="border-t border-gray-100 pt-3.5">
-          <BusinessAddressSection
-            embedded
-            onDirtyChange={onAddressDirtyChange}
-            onAddressValidChange={onAddressValidChange}
-            registerApi={registerAddressApi}
-            refreshToken={addressRefreshToken}
-          />
-        </div>
-
-        {/* Services offered */}
-        <div className="border-t border-gray-100 pt-3.5">
-          <h4 className="mb-0.5 text-xs font-bold text-slate-900 uppercase tracking-wide">Services</h4>
+          <h4 className="mb-0.5 text-xs font-bold text-slate-800 uppercase tracking-wider">Services</h4>
           <p className="text-xs text-slate-500 mb-2.5">Select what applies, or add your own.</p>
           <div id="serviceChips" className="flex flex-wrap gap-1.5">
             {selectedServices.map((s, i) => (
@@ -228,6 +216,18 @@ export function BusinessProfileSection({
               Add
             </button>
           </div>
+        </div>
+
+
+        {/* Structured business address */}
+        <div className="border-t border-gray-100 pt-3.5">
+          <BusinessAddressSection
+            embedded
+            onDirtyChange={onAddressDirtyChange}
+            onAddressValidChange={onAddressValidChange}
+            registerApi={registerAddressApi}
+            refreshToken={addressRefreshToken}
+          />
         </div>
       </div>
 

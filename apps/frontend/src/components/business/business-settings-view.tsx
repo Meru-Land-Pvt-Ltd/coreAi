@@ -932,7 +932,7 @@ export function BusinessAddressSection({
         Your agent shares this address with callers who ask where you are.
       </p>
 
-      {showSuggestion && suggestion ? (
+      {!embedded && showSuggestion && suggestion ? (
         <div
           data-testid="business-address-suggestion"
           className={`mt-4 rounded-xl border p-4 ${conflict ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}

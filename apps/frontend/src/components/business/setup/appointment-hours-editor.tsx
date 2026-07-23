@@ -18,10 +18,8 @@ export const APPT_WEEKDAYS: { key: AppointmentWeekday; label: string; pill: stri
 export type ApptNumberField =
   | "defaultDurationMinutes"
   | "bufferMinutes"
-  | "slotIntervalMinutes"
   | "minNoticeMinutes"
-  | "maxAdvanceDays"
-  | "maxSpokenSuggestions";
+  | "maxAdvanceDays";
 
 export function AppointmentHoursEditor({
   useBusinessHours,
@@ -117,7 +115,7 @@ export function AppointmentHoursEditor({
     <div data-testid="business-setup-appt-schedule">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-sm font-bold text-slate-900">Appointment Availability</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Appointment Availability</h4>
           <p className="mt-0.5 text-xs text-slate-500">
             When callers can book appointments.
           </p>
