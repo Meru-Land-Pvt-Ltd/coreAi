@@ -1,5 +1,6 @@
 import {
   AFTER_HOURS_POLICY_VERSION,
+  DEFAULT_DENTAL_AFTER_HOURS_POLICY,
   VOICE_NODE_TYPES,
   buildAfterHoursSnapshot,
   normalizeAfterHoursPolicy,
@@ -30,10 +31,10 @@ function voiceNodePolicy(workflowJson: unknown): AfterHoursPolicy | null {
 export function resolveAfterHoursPolicy(input: {
   configJson: unknown;
   workflowJson?: unknown;
-}): AfterHoursPolicy | null {
+}): AfterHoursPolicy {
   const buyer = normalizeAfterHoursPolicy(recordOf(input.configJson).afterHoursPolicy);
   if (buyer) return buyer;
-  return voiceNodePolicy(input.workflowJson);
+  return voiceNodePolicy(input.workflowJson) ?? DEFAULT_DENTAL_AFTER_HOURS_POLICY;
 }
 
 export async function resolveAfterHoursPolicyForBusiness(

@@ -1,6 +1,7 @@
 import {
   evaluateAfterHoursToolGate,
   deriveLiveAfterHoursCallState,
+  isPlatformDefaultAfterHoursPolicy,
   AFTER_HOURS_GATE_CODES,
   type AfterHoursCallTurn,
   type AfterHoursGateResult,
@@ -131,6 +132,10 @@ export async function resolveLiveAfterHoursGateContext(params: {
     }
 
     if (businessHoursState === "OPEN") return INACTIVE_AFTER_HOURS_GATE;
+
+    if (businessHoursState !== "CLOSED" && isPlatformDefaultAfterHoursPolicy(policy)) {
+      return INACTIVE_AFTER_HOURS_GATE;
+    }
 
     const turns = extractStructuredCallTurns(params.body);
     const derived = deriveLiveAfterHoursCallState({ turns, policy, businessHoursState });

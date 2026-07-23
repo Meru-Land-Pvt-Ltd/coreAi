@@ -88,6 +88,23 @@ export function normalizeAfterHoursPolicy(raw: unknown): AfterHoursPolicy | null
   };
 }
 
+export const DEFAULT_DENTAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  enabled: true,
+  emergencyScreeningEnabled: true,
+  emergencyCategory: "DENTAL",
+  emergencyContactMethod: "SMS",
+  offerAppointmentBooking: true,
+  preferEarliestAvailableSlot: true,
+  allowUrgentCallbackRequest: true,
+  includeCallbackInStaffAlert: true
+});
+
+export function isPlatformDefaultAfterHoursPolicy(
+  policy: AfterHoursPolicy | null | undefined
+): boolean {
+  return policy === DEFAULT_DENTAL_AFTER_HOURS_POLICY;
+}
+
 export function policyScreensForEmergencies(policy: AfterHoursPolicy | null | undefined): boolean {
   return Boolean(policy?.enabled && policy.emergencyScreeningEnabled && policy.emergencyCategory !== "NONE");
 }

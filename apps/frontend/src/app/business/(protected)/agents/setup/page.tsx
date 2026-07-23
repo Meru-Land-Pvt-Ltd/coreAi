@@ -27,11 +27,6 @@ import { AgentIdentitySection } from "@/components/business/setup/agent-identity
 import { KnowledgeSection } from "@/components/business/setup/knowledge-section";
 import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
-import {
-  AfterHoursPolicySection,
-  DEFAULT_AFTER_HOURS_POLICY_FORM,
-  type AfterHoursPolicyFormValue
-} from "@/components/business/setup/after-hours-policy-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
 import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
 import {
@@ -546,15 +541,6 @@ function SetupWizard() {
   const [tone, setTone] = useState("friendly");
 
   const [coverageKind, setCoverageKind] = useState<AiCoverageKind>("always");
-  const [afterHoursPolicy, setAfterHoursPolicyState] = useState<AfterHoursPolicyFormValue>(
-    DEFAULT_AFTER_HOURS_POLICY_FORM
-  );
-  const [afterHoursLoaded, setAfterHoursLoaded] = useState(false);
-  const updateAfterHoursPolicy = (next: AfterHoursPolicyFormValue) => {
-    setAfterHoursPolicyState(next);
-    setAfterHoursLoaded(true);
-    setConfigDirty(true);
-  };
   const [answeringDays, setAnsweringDays] = useState<AnsweringDayRow[]>(defaultAnsweringDays);
 
   const [businessHours, setBusinessHoursState] = useState<{
@@ -737,30 +723,6 @@ function SetupWizard() {
         }
       }
 
-      // Stored After-Hours policy (configJson.afterHoursPolicy).
-      const savedAfterHours = (data as { afterHoursPolicy?: Record<string, unknown> | null }).afterHoursPolicy;
-      if (savedAfterHours && typeof savedAfterHours === "object") {
-        setAfterHoursPolicyState({
-          enabled: savedAfterHours.enabled === true,
-          emergencyScreeningEnabled: savedAfterHours.emergencyScreeningEnabled === true,
-          emergencyCategory: (["DENTAL", "MEDICAL", "SERVICE", "NONE"].includes(String(savedAfterHours.emergencyCategory))
-            ? String(savedAfterHours.emergencyCategory)
-            : "NONE") as AfterHoursPolicyFormValue["emergencyCategory"],
-          greeting: typeof savedAfterHours.greeting === "string" ? savedAfterHours.greeting : "",
-          emergencyContactMethod: (["SMS", "EMAIL", "NONE"].includes(String(savedAfterHours.emergencyContactMethod))
-            ? String(savedAfterHours.emergencyContactMethod)
-            : "NONE") as AfterHoursPolicyFormValue["emergencyContactMethod"],
-          emergencyContact: typeof savedAfterHours.emergencyContact === "string" ? savedAfterHours.emergencyContact : "",
-          offerAppointmentBooking: savedAfterHours.offerAppointmentBooking !== false,
-          preferEarliestAvailableSlot:
-            savedAfterHours.preferEarliestAvailableSlot === true || savedAfterHours.useEmergencySlots === true,
-          allowUrgentCallbackRequest: savedAfterHours.allowUrgentCallbackRequest !== false,
-          lifeThreateningInstruction:
-            typeof savedAfterHours.lifeThreateningInstruction === "string" ? savedAfterHours.lifeThreateningInstruction : "",
-          includeCallbackInStaffAlert: savedAfterHours.includeCallbackInStaffAlert !== false
-        });
-        setAfterHoursLoaded(true);
-      }
 
       // AI Call Coverage (phoneRouting.coverage) + the custom answering
       // schedule rows. Legacy CUSTOM_HOURS mode arrives as coverage "custom".
@@ -1205,25 +1167,6 @@ function SetupWizard() {
             customRecipient: emailCustomRecipient.trim(),
             cc: emailCc.trim(),
             bcc: emailBcc.trim()
-          }
-        }
-        : {}),
-      // Sent only after the section loaded/was edited — omitting it preserves
-      // the stored policy (configJson MERGE).
-      ...(afterHoursLoaded
-        ? {
-          afterHoursPolicy: {
-            enabled: afterHoursPolicy.enabled,
-            emergencyScreeningEnabled: afterHoursPolicy.emergencyScreeningEnabled,
-            emergencyCategory: afterHoursPolicy.emergencyCategory,
-            greeting: afterHoursPolicy.greeting.trim(),
-            emergencyContactMethod: afterHoursPolicy.emergencyContactMethod,
-            emergencyContact: afterHoursPolicy.emergencyContact.trim(),
-            offerAppointmentBooking: afterHoursPolicy.offerAppointmentBooking,
-            preferEarliestAvailableSlot: afterHoursPolicy.preferEarliestAvailableSlot,
-            allowUrgentCallbackRequest: afterHoursPolicy.allowUrgentCallbackRequest,
-            lifeThreateningInstruction: afterHoursPolicy.lifeThreateningInstruction.trim(),
-            includeCallbackInStaffAlert: afterHoursPolicy.includeCallbackInStaffAlert
           }
         }
         : {}),
@@ -1959,24 +1902,6 @@ function SetupWizard() {
                   triggerKind={triggerKind}
                 />
               </ConfigureSectionCard>
-
-              {showVoice ? (
-                <ConfigureSectionCard
-                  id="after-hours"
-                  title="After-Hours & Emergency Routing"
-                  icon={
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                  }
-                  status={afterHoursPolicy.enabled ? "complete" : "optional"}
-                  open={Boolean(openSections["after-hours"])}
-                  onToggle={(open) => toggleSection("after-hours", open)}
-                >
-                  <AfterHoursPolicySection value={afterHoursPolicy} onChange={updateAfterHoursPolicy} />
-                </ConfigureSectionCard>
-              ) : null}
 
               <ConfigureSectionCard
                 id="agent-behavior"
