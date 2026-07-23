@@ -211,7 +211,7 @@ describe("Connect step — number-first flow", () => {
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
   });
 
-  it("keeps the Configure step locked until the Connect step is complete", async () => {
+  it("keeps the Configure step locked when Connect step is incomplete", async () => {
     vi.mocked(getBusinessFacts).mockResolvedValue({
       success: true,
       data: {
@@ -239,8 +239,41 @@ describe("Connect step — number-first flow", () => {
 
     expect(screen.getByTestId("business-setup-dot-1").getAttribute("aria-current")).toBe("step");
 
-    await user.click(screen.getByTestId("business-setup-next"));
-    expect(screen.getByTestId("business-setup-dot-2").getAttribute("aria-disabled")).toBeNull();
+    const nextBtn = screen.getByTestId("business-setup-next");
+    expect(nextBtn.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("unlocks the Configure step when Connect step is complete", async () => {
+    vi.mocked(getBusinessFacts).mockResolvedValue({
+      success: true,
+      data: {
+        businessName: "Test Biz",
+        address: null,
+        addressFormatted: null,
+        addressComplete: true,
+        addressConfirmed: true,
+        phone: null,
+        documentSuggestion: null,
+        conflict: false
+      }
+    } as never);
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        answeringMode: "AI_FIRST"
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    await screen.findByTestId("business-setup-wizard");
+
+    const configureStep = screen.getByTestId("business-setup-dot-2");
+    expect(configureStep.getAttribute("aria-disabled")).toBeNull();
+
+    await user.click(configureStep);
+    await screen.findByTestId("business-setup-configure");
   });
 
   it("an assigned number shows the Active card and offers no way to search or assign again", async () => {
@@ -349,6 +382,7 @@ describe("Connect step — number-first flow", () => {
   it("the Connect step owns the business timezone — editable select, saved with the setup", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "+12135559999", twilioPhoneNumberSid: null },
         business: { id: "biz-1", name: "Test Biz", type: "salon" },
         profile: {
           bookingUrl: null,
@@ -384,7 +418,7 @@ describe("Connect step — number-first flow", () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         vapiAssistantId: "vapi-live-1",
-        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "+12135559999", twilioPhoneNumberSid: null },
         profile: {
           bookingUrl: null,
           teamPhone: null,

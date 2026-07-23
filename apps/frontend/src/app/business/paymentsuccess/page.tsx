@@ -89,7 +89,7 @@ function PaymentSuccessFallback() {
 
 function resolvePaymentMode(searchParams: URLSearchParams, amount: number | null) {
     const mode = searchParams.get("mode");
-    if (mode === "trial" || mode === "purchase") return mode;
+    if (mode === "trial" || mode === "purchase" || mode === "free") return mode;
     if (amount !== null && amount > 0) return "purchase";
     return "trial";
 }
@@ -108,6 +108,7 @@ function BusinessPaymentSuccessContent() {
     const paymentId = searchParams.get("paymentId");
     const paymentMode = resolvePaymentMode(searchParams, amount);
     const isTrial = paymentMode === "trial";
+    const isFree = paymentMode === "free";
     const displayAmount = amount ?? 0;
 
     // Real transaction reference when the checkout passed one; the random
@@ -247,12 +248,14 @@ function BusinessPaymentSuccessContent() {
 
                     <div role="alert">
                         <h1 id="success-title" className="rise mt-6 text-3xl font-bold tracking-tight sm:text-4xl" style={{ animationDelay: ".15s" }} data-testid="payment-success-title">
-                            {isTrial ? "Trial started!" : "Payment successful!"}
+                            {isFree ? "Agent installed!" : isTrial ? "Trial started!" : "Payment successful!"}
                         </h1>
                         <p className="rise mx-auto mt-2 max-w-md text-base text-slate-600 sm:text-lg" style={{ animationDelay: ".28s" }} data-testid="payment-success-subtitle">
-                            {isTrial
-                                ? `Thank you. Your ${trialDays}-day free trial has started and your agent is ready to be set up.`
-                                : `Thank you. Your payment of $${displayAmount.toFixed(2)} was processed and your agent is ready to be set up.`}
+                            {isFree
+                                ? "Thank you. Your free agent is ready to be set up."
+                                : isTrial
+                                    ? `Thank you. Your ${trialDays}-day free trial has started and your agent is ready to be set up.`
+                                    : `Thank you. Your payment of $${displayAmount.toFixed(2)} was processed and your agent is ready to be set up.`}
                         </p>
                     </div>
 
@@ -303,10 +306,16 @@ function BusinessPaymentSuccessContent() {
                                     <div className="mt-1 flex flex-wrap items-center gap-2">
                                         <span className="text-sm text-slate-600">Triven AI Agent</span>
                                         <span
-                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${isTrial ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"}`}
+                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                                isFree
+                                                    ? "bg-amber-100 text-amber-700"
+                                                    : isTrial
+                                                        ? "bg-amber-100 text-amber-700"
+                                                        : "bg-green-100 text-green-700"
+                                            }`}
                                             data-testid="payment-success-status-badge"
                                         >
-                                            {isTrial ? "Trial" : "Paid"}
+                                            {isFree ? "Free" : isTrial ? "Trial" : "Paid"}
                                         </span>
                                     </div>
                                 </div>
@@ -325,7 +334,22 @@ function BusinessPaymentSuccessContent() {
                                             : "Professional — Monthly"}
                                     </dd>
                                 </div>
-                                {isTrial ? (
+                                {isFree ? (
+                                    <>
+                                        <div className="flex items-center justify-between gap-4">
+                                            <dt className="text-slate-500">Amount paid</dt>
+                                            <dd className="font-medium text-slate-900" data-testid="payment-success-amount-paid">
+                                                $0.00
+                                            </dd>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-4">
+                                            <dt className="text-slate-500">Due today</dt>
+                                            <dd className="font-medium text-emerald-700" data-testid="payment-success-due-today">
+                                                $0.00 — free
+                                            </dd>
+                                        </div>
+                                    </>
+                                ) : isTrial ? (
                                     <>
                                         <div className="flex items-center justify-between gap-4">
                                             <dt className="text-slate-500">Price after trial</dt>
@@ -466,15 +490,26 @@ function BusinessPaymentSuccessContent() {
                         <svg className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M20 6 9 17l-5-5" />
                         </svg>
-                        Receipt sent to <span className="font-medium text-slate-800">{email}</span>
-                        {isTrial ? (
-                            <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
-                                Your trial confirmation shows $0.00 due today.
-                            </span>
+                        {isFree ? (
+                            <>
+                                Confirmation sent to <span className="font-medium text-slate-800">{email}</span>
+                                <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
+                                    Your installation confirmation shows $0.00 due today.
+                                </span>
+                            </>
                         ) : (
-                            <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
-                                Your receipt shows the amount paid today.
-                            </span>
+                            <>
+                                Receipt sent to <span className="font-medium text-slate-800">{email}</span>
+                                {isTrial ? (
+                                    <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
+                                        Your trial confirmation shows $0.00 due today.
+                                    </span>
+                                ) : (
+                                    <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
+                                        Your receipt shows the amount paid today.
+                                    </span>
+                                )}
+                            </>
                         )}
                     </p>
                 </section>

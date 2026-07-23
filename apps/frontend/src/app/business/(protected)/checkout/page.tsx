@@ -1244,9 +1244,17 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
             }
 
             // Free agents are installed immediately by the backend (no payment
-            // record) — skip the payment confirmation page and open Agent Setup.
+            // record) — redirect to confirmation page with free mode.
             if (isFree) {
-                router.push(businessSetupPath(listingId));
+                router.push(
+                    businessPaymentSuccessPath({
+                        listingId,
+                        agent: listingName,
+                        amount: 0,
+                        email,
+                        mode: "free"
+                    })
+                );
                 return;
             }
 

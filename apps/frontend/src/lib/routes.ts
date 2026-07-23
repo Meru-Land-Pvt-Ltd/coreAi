@@ -113,7 +113,7 @@ type PaymentResultParams = {
   agent?: string;
   amount?: number;
   email?: string;
-  mode?: "trial" | "purchase";
+  mode?: "trial" | "purchase" | "free";
   trialDays?: number;
   /** Real Payment row id — shown as the order/transaction reference. */
   paymentId?: string;
