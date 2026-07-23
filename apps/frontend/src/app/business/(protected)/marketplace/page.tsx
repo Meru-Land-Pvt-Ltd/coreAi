@@ -1734,14 +1734,6 @@ function AgentDetailsModal({
               ))}
             </ul>
           </div>
-
-          <ExecutionPricingSummary
-            pricing={executionPricing}
-            loading={executionPricingLoading}
-            unavailable={executionPricingUnavailable}
-            variant="full"
-            className="text-xs text-slate-500"
-          />
         </div>
 
         <div

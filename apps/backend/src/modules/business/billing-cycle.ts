@@ -23,6 +23,15 @@ function jsonRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function escapeEmailHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function utcMonthStart(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }
@@ -354,6 +363,203 @@ async function completeExpiredTrials(now: Date) {
   return { completed, overdueCreated };
 }
 
+type PendingTrialEndEmail = {
+  paymentId: string;
+  buyerEmail: string;
+  buyerName: string | null;
+  businessName: string | null;
+  billingEmail: string | null;
+  agentName: string;
+  endedAt: Date;
+  invoiceId: string | null;
+  invoiceAmountCents: number | null;
+};
+
+type PendingTrialEndingOneDayEmail = {
+  paymentId: string;
+  buyerEmail: string;
+  buyerName: string | null;
+  businessName: string | null;
+  billingEmail: string | null;
+  agentName: string;
+  endsAt: Date;
+  priceCents: number;
+};
+
+/**
+ * Sends once during the trial's final 24 hours. Failed or unconfigured
+ * deliveries keep a null sent marker and are retried by the hourly scheduler
+ * while the trial remains active.
+ */
+async function sendPendingTrialEndingOneDayEmails(now: Date) {
+  const reminderWindowEnd = new Date(now.getTime() + DAY_MS);
+  const pending = await prisma.$queryRaw<PendingTrialEndingOneDayEmail[]>`
+    SELECT
+      trial."id" AS "paymentId",
+      buyer."email" AS "buyerEmail",
+      buyer."fullName" AS "buyerName",
+      business."name" AS "businessName",
+      business."billingEmail" AS "billingEmail",
+      listing."name" AS "agentName",
+      trial."periodEnd" AS "endsAt",
+      listing."priceCents" AS "priceCents"
+    FROM "Payment" trial
+    INNER JOIN "User" buyer ON buyer."id" = trial."userId"
+    INNER JOIN "AgentListing" listing ON listing."id" = trial."listingId"
+    LEFT JOIN "Business" business ON business."id" = trial."businessId"
+    WHERE trial."status" = 'TRIALING'
+      AND trial."invoiceKind" = 'TRIAL'
+      AND trial."periodEnd" > ${now}
+      AND trial."periodEnd" <= ${reminderWindowEnd}
+      AND trial."trialEndingOneDayEmailSentAt" IS NULL
+    ORDER BY trial."periodEnd" ASC
+    LIMIT 100
+  `;
+
+  if (!isPlatformMailConfigured()) {
+    if (pending.length > 0) {
+      console.warn(
+        `[billing-cycle] ${pending.length} one-day trial reminder(s) pending; platform SES is not configured`
+      );
+    }
+    return { considered: pending.length, sent: 0 };
+  }
+
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  let sent = 0;
+
+  for (const item of pending) {
+    const to = item.billingEmail?.trim() || item.buyerEmail;
+    const recipientName =
+      item.buyerName?.trim() || item.businessName?.trim() || "there";
+    const agentPrice = `$${(item.priceCents / 100).toFixed(2)}`;
+    const endsAt = item.endsAt.toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "UTC"
+    });
+    const actionText =
+      `Your free trial for ${item.agentName} ends in less than 24 hours (${endsAt} UTC). ` +
+      `After the trial, the agent fee is ${agentPrice}, plus its listed execution charges.`;
+
+    try {
+      await sendPlatformEmail({
+        purpose: "billing",
+        to,
+        subject: `Your ${item.agentName} trial ends tomorrow`,
+        text: `Hi ${recipientName}, ${actionText} Review your billing details: ${billingUrl}`,
+        html: [
+          `<p>Hi ${escapeEmailHtml(recipientName)},</p>`,
+          `<p>Your free trial for <strong>${escapeEmailHtml(item.agentName)}</strong> ends in less than 24 hours.</p>`,
+          `<p>Trial end: <strong>${escapeEmailHtml(endsAt)} UTC</strong></p>`,
+          `<p>After the trial, the agent fee is <strong>${escapeEmailHtml(agentPrice)}</strong>, plus its listed execution charges.</p>`,
+          `<p><a href="${escapeEmailHtml(billingUrl)}">Review billing and usage</a></p>`
+        ].join("")
+      });
+
+      const marked = await prisma.$executeRaw`
+        UPDATE "Payment"
+        SET "trialEndingOneDayEmailSentAt" = ${now}
+        WHERE "id" = ${item.paymentId}
+          AND "trialEndingOneDayEmailSentAt" IS NULL
+      `;
+      if (marked > 0) sent += 1;
+    } catch (error) {
+      console.error("[billing-cycle] one-day trial reminder failed", {
+        paymentId: item.paymentId,
+        error
+      });
+    }
+  }
+
+  return { considered: pending.length, sent };
+}
+
+/**
+ * Sends the buyer-facing trial-ended message after the completion transaction
+ * commits. The persisted sent timestamp makes hourly scheduler reruns safe and
+ * leaves failed/unconfigured deliveries available for retry.
+ */
+async function sendPendingTrialEndEmails(now: Date) {
+  const pending = await prisma.$queryRaw<PendingTrialEndEmail[]>`
+    SELECT
+      trial."id" AS "paymentId",
+      buyer."email" AS "buyerEmail",
+      buyer."fullName" AS "buyerName",
+      business."name" AS "businessName",
+      business."billingEmail" AS "billingEmail",
+      listing."name" AS "agentName",
+      COALESCE(trial."periodEnd", trial."updatedAt") AS "endedAt",
+      post_trial."id" AS "invoiceId",
+      post_trial."amountCents" AS "invoiceAmountCents"
+    FROM "Payment" trial
+    INNER JOIN "User" buyer ON buyer."id" = trial."userId"
+    INNER JOIN "AgentListing" listing ON listing."id" = trial."listingId"
+    LEFT JOIN "Business" business ON business."id" = trial."businessId"
+    LEFT JOIN "Payment" post_trial
+      ON post_trial."invoiceKey" = CONCAT('post-trial:', trial."id")
+    WHERE trial."status" = 'COMPLETED'
+      AND trial."invoiceKind" = 'TRIAL'
+      AND trial."trialEndedEmailSentAt" IS NULL
+    ORDER BY trial."updatedAt" ASC
+    LIMIT 100
+  `;
+
+  if (!isPlatformMailConfigured()) {
+    if (pending.length > 0) {
+      console.warn(
+        `[billing-cycle] ${pending.length} trial-ended email(s) pending; platform SES is not configured`
+      );
+    }
+    return { considered: pending.length, sent: 0 };
+  }
+
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  let sent = 0;
+
+  for (const item of pending) {
+    const to = item.billingEmail?.trim() || item.buyerEmail;
+    const recipientName =
+      item.buyerName?.trim() || item.businessName?.trim() || "there";
+    const amountCents = item.invoiceAmountCents ?? 0;
+    const amount = `$${(amountCents / 100).toFixed(2)}`;
+    const hasInvoice = Boolean(item.invoiceId) && amountCents > 0;
+    const actionText = hasInvoice
+      ? `A new invoice for ${amount} is now available. Please pay it within the 7-day grace period to keep this agent active.`
+      : "No post-trial payment is due for this agent.";
+
+    try {
+      await sendPlatformEmail({
+        purpose: "billing",
+        to,
+        subject: `Your trial for ${item.agentName} has ended`,
+        text: `Hi ${recipientName}, your trial for ${item.agentName} ended on ${item.endedAt.toLocaleDateString("en-US")}. ${actionText} View billing: ${billingUrl}`,
+        html: [
+          `<p>Hi ${escapeEmailHtml(recipientName)},</p>`,
+          `<p>Your trial for <strong>${escapeEmailHtml(item.agentName)}</strong> has ended.</p>`,
+          `<p>${escapeEmailHtml(actionText)}</p>`,
+          `<p><a href="${escapeEmailHtml(billingUrl)}">View billing and usage</a></p>`
+        ].join("")
+      });
+
+      const marked = await prisma.$executeRaw`
+        UPDATE "Payment"
+        SET "trialEndedEmailSentAt" = ${now}
+        WHERE "id" = ${item.paymentId}
+          AND "trialEndedEmailSentAt" IS NULL
+      `;
+      if (marked > 0) sent += 1;
+    } catch (error) {
+      console.error("[billing-cycle] trial-ended email failed", {
+        paymentId: item.paymentId,
+        error
+      });
+    }
+  }
+
+  return { considered: pending.length, sent };
+}
+
 async function createCalendarSubscriptionInvoices(now: Date) {
   const periodStart = utcMonthStart(now);
   const periodEnd = nextUtcMonthStart(now);
@@ -625,14 +831,18 @@ async function reconcileCanonicalExecutions(now: Date) {
 
 export async function runBillingCycle(now = new Date()) {
   const executionReconciliation = await reconcileCanonicalExecutions(now);
+  const trialEndingOneDayEmails = await sendPendingTrialEndingOneDayEmails(now);
   const trialCompletions = await completeExpiredTrials(now);
+  const trialEndEmails = await sendPendingTrialEndEmails(now);
   const subscriptionInvoices = await createCalendarSubscriptionInvoices(now);
   const usageInvoices = await processUsageInvoiceLifecycle(now);
   const agentSuspensions = await processAgentDebtSuspensions(now);
   return {
     billingMonth: billingMonthFor(now),
     executionReconciliation,
+    trialEndingOneDayEmails,
     trialCompletions,
+    trialEndEmails,
     subscriptionInvoices,
     usageInvoices,
     agentSuspensions
