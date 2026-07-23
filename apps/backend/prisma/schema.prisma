@@ -509,6 +509,7 @@ model Appointment {
   customerName       String?
   service            String?
   providerName       String?
+  bookingCallId      String?
   startAt            DateTime
   endAt              DateTime
   timeZone           String?
@@ -531,6 +532,7 @@ model Appointment {
   @@index([startAt])
   @@index([calendarEventId])
   @@index([executionMode])
+  @@index([bookingCallId])
 }
 
 model TestCalendarEvent {

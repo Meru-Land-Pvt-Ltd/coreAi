@@ -745,6 +745,7 @@ async function createBusinessAppointment({
   customerName,
   service,
   providerName,
+  bookingCallId,
   startAt,
   endAt,
   conversationId,
@@ -756,6 +757,7 @@ async function createBusinessAppointment({
   customerName?: string | null;
   service: string;
   providerName?: string | null;
+  bookingCallId?: string | null;
   startAt: Date | string;
   endAt: Date | string;
   conversationId?: string | null;
@@ -802,6 +804,7 @@ async function createBusinessAppointment({
       customerName: customerName ?? undefined,
       service,
       providerName: providerName ?? undefined,
+      bookingCallId: bookingCallId ?? undefined,
       startAt: new Date(calendarEvent.startAt),
       endAt: new Date(calendarEvent.endAt),
       timeZone: calendarEvent.timeZone,
@@ -2453,7 +2456,7 @@ type VapiToolContext = {
 };
 
 const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
-const callContactCache = new Map<string, { name?: string; phone?: string; at: number }>();
+const callContactCache = new Map<string, { name?: string; phone?: string; appointmentId?: string; at: number }>();
 
 function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
   if (!ctx.callId || !ctx.business?.businessId) return null;
@@ -2474,7 +2477,10 @@ async function smsDisclosureOffered(ctx: VapiToolContext): Promise<boolean> {
   return false;
 }
 
-export function rememberCallContact(callId: string | undefined, contact: { name?: string; phone?: string }) {
+export function rememberCallContact(
+  callId: string | undefined,
+  contact: { name?: string; phone?: string; appointmentId?: string }
+) {
   if (!callId) return;
   const now = Date.now();
   for (const [key, value] of callContactCache) {
@@ -2484,15 +2490,18 @@ export function rememberCallContact(callId: string | undefined, contact: { name?
   callContactCache.set(callId, {
     name: contact.name || existing?.name,
     phone: contact.phone || existing?.phone,
+    appointmentId: contact.appointmentId || existing?.appointmentId,
     at: now
   });
 }
 
-export function recallCallContact(callId: string | undefined): { name?: string; phone?: string } {
+export function recallCallContact(
+  callId: string | undefined
+): { name?: string; phone?: string; appointmentId?: string } {
   if (!callId) return {};
   const entry = callContactCache.get(callId);
   if (!entry || Date.now() - entry.at > CALL_CONTACT_TTL_MS) return {};
-  return { name: entry.name, phone: entry.phone };
+  return { name: entry.name, phone: entry.phone, appointmentId: entry.appointmentId };
 }
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -2823,16 +2832,24 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   const rawPhone = argStr(args, PHONE_ARG_KEYS);
 
-  // Web calls have NO caller ID, so a dictated number is the only identity we
-  // get — a bare 10-digit number is ambiguous across countries and must not
-  // be booked on a guess (wrong-number texts, unverifiable reschedules).
   const callerIdPhone = normalizePhoneE164(ctx.customerPhone);
-  if (!callerIdPhone && !rememberedContact.phone && rawPhone && !hasExplicitCountryCode(rawPhone)) {
-    console.log("[vapi-tool] book_appointment missing fields", ["country_code"]);
-    return NEEDS_COUNTRY_CODE_RESULT;
+  let patientPhone = "";
+  if (rawPhone && !hasExplicitCountryCode(rawPhone)) {
+    const dictatedDigits = rawPhone.replace(/\D/g, "");
+    if (callerIdPhone && dictatedDigits.length >= 7 && callerIdPhone.endsWith(dictatedDigits)) {
+      // The caller dictated their OWN number without the code — the verified
+      // caller-ID form is the confirmed canonical recipient.
+      patientPhone = callerIdPhone;
+    } else if (rememberedContact.phone) {
+      // A full number was already confirmed earlier in this call.
+      patientPhone = rememberedContact.phone;
+    } else {
+      console.log("[vapi-tool] book_appointment missing fields", ["country_code"]);
+      return NEEDS_COUNTRY_CODE_RESULT;
+    }
+  } else {
+    patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.phone || "";
   }
-
-  let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.phone || "";
 
   if (!patientPhone && ctx.dental?.dryRun) {
     const digits = (rawPhone ?? "").replace(/\D/g, "");
@@ -3111,6 +3128,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
             customerName: patientName,
             service,
             providerName: providerName ?? undefined,
+            bookingCallId: ctx.callId ?? undefined,
             startAt,
             endAt,
             timeZone: ctx.timeZone,
@@ -3118,6 +3136,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
           },
           select: { id: true }
         });
+        rememberCallContact(ctx.callId, { appointmentId: localAppointment?.id });
       } catch (error) {
         console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
       }
@@ -3171,6 +3190,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
             customerName: patientName,
             service,
             providerName,
+            bookingCallId: ctx.callId ?? null,
             startAt,
             endAt,
             conversationId: ctx.conversationId,
@@ -3195,6 +3215,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       }
 
       const { calendarEvent, appointment } = reservation.booking;
+      rememberCallContact(ctx.callId, { appointmentId: appointment.id });
       await upsertConversation({
         businessId: ctx.business.businessId,
         customerPhone: patientPhone,
@@ -3921,19 +3942,68 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
 
   const consentRawPhone = argStr(args, PHONE_ARG_KEYS);
   const consentContact = recallCallContact(ctx.callId);
-  if (
-    !normalizePhoneE164(ctx.customerPhone) &&
-    !consentContact.phone &&
-    consentRawPhone &&
-    !hasExplicitCountryCode(consentRawPhone)
-  ) {
-    return { ...NEEDS_COUNTRY_CODE_RESULT, consent_recorded: false };
+
+  const appointmentSelect = {
+    id: true,
+    customerPhone: true,
+    customerName: true,
+    service: true,
+    startAt: true,
+    timeZone: true
+  } as const;
+  let bookedAppointment:
+    | { id: string; customerPhone: string; customerName: string | null; service: string | null; startAt: Date; timeZone: string | null }
+    | null = null;
+  if (consentContact.appointmentId) {
+    bookedAppointment = await prisma.appointment.findUnique({
+      where: { id: consentContact.appointmentId },
+      select: appointmentSelect
+    });
+  }
+  if (!bookedAppointment && ctx.callId) {
+    bookedAppointment = await prisma.appointment.findFirst({
+      where: { businessId: ctx.business.businessId, bookingCallId: ctx.callId, status: "BOOKED" },
+      orderBy: { createdAt: "desc" },
+      select: appointmentSelect
+    });
   }
 
-  const phone =
-    resolvePatientPhone(consentRawPhone, ctx.customerPhone) || consentContact.phone || "";
-  if (!phone) {
-    return { success: false, error: "customer_phone_unavailable", consent_recorded: false };
+  let phone: string;
+  if (bookedAppointment) {
+    phone = bookedAppointment.customerPhone;
+    const argsNormalized = consentRawPhone ? normalizePhoneE164(consentRawPhone) : "";
+    if (
+      argsNormalized &&
+      argsNormalized !== phone &&
+      consentRawPhone &&
+      hasExplicitCountryCode(consentRawPhone)
+    ) {
+      // An explicitly DIFFERENT full number was given — never silently pick
+      // one. The assistant must confirm which number receives texts.
+      return {
+        success: false,
+        needs_clarification: true,
+        error: "RECIPIENT_MISMATCH",
+        consent_recorded: false,
+        sms_allowed: false,
+        message: `The booking is under the number ending ${phone.slice(-4)}, but a different number ending ${argsNormalized.slice(-4)} was just given. Confirm with the caller which number should receive texts, then call record_sms_consent again — omit the phone to use the booked number, or pass the full corrected number with its country code.`
+      };
+    }
+    // Args absent, equal, or ambiguous (no country code — transcription
+    // noise): the booked number is the confirmed canonical recipient.
+  } else {
+    if (
+      !normalizePhoneE164(ctx.customerPhone) &&
+      !consentContact.phone &&
+      consentRawPhone &&
+      !hasExplicitCountryCode(consentRawPhone)
+    ) {
+      return { ...NEEDS_COUNTRY_CODE_RESULT, consent_recorded: false };
+    }
+    phone = resolvePatientPhone(consentRawPhone, ctx.customerPhone) || consentContact.phone || "";
+    if (!phone) {
+      return { success: false, error: "customer_phone_unavailable", consent_recorded: false };
+    }
   }
 
   // Architect browser test: acknowledge without persisting.
@@ -3965,49 +4035,69 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     callId: ctx.callId ?? null
   });
 
+  // A booking earlier in this call had its confirmation SUPPRESSED (no
+  // consent yet). Now that the caller opted in, send it to the SAME canonical
+  // recipient the booking stored — a previous SUPPRESSED row never blocks
+  // this (it holds no dedupe key), while the deterministic
+  // appointment-confirmation:{appointmentId} key makes retries send-once.
   let confirmationSmsSent = false;
+  let confirmationAttempted = false;
   if (outcome.consent.status === "OPTED_IN") {
     try {
-      const recentAppointment = await prisma.appointment.findFirst({
-        where: {
-          businessId: ctx.business.businessId,
-          customerPhone: phone,
-          status: "BOOKED",
-          executionMode: "LIVE",
-          createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) }
-        },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, customerName: true, service: true, startAt: true, timeZone: true }
-      });
-      if (recentAppointment) {
+      const target =
+        bookedAppointment ??
+        (await prisma.appointment.findFirst({
+          // Legacy fallback for appointments created before bookingCallId
+          // existed: same business + the SAME canonical number, recent.
+          where: {
+            businessId: ctx.business.businessId,
+            customerPhone: phone,
+            status: "BOOKED",
+            executionMode: "LIVE",
+            createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) }
+          },
+          orderBy: { createdAt: "desc" },
+          select: appointmentSelect
+        }));
+      if (target) {
+        confirmationAttempted = true;
         const smsOutcome = await sendAppointmentConfirmationSms({
-          appointmentId: recentAppointment.id,
+          appointmentId: target.id,
           businessId: ctx.business.businessId,
           installedAgentId: ctx.business.installedAgentId ?? null,
           vapiCallId: ctx.callId ?? null,
-          customerName: recentAppointment.customerName ?? "",
-          customerPhone: phone,
-          serviceName: recentAppointment.service ?? "appointment",
-          appointmentDate: recentAppointment.startAt,
-          timeZone: recentAppointment.timeZone || ctx.timeZone
+          customerName: target.customerName ?? "",
+          customerPhone: target.customerPhone,
+          serviceName: target.service ?? "appointment",
+          appointmentDate: target.startAt,
+          timeZone: target.timeZone || ctx.timeZone
         });
-        confirmationSmsSent = smsOutcome.sent || smsOutcome.alreadySent;
+        // "Sent" is claimed ONLY on provider acceptance: a live send with a
+        // stored messageSid (or simulated test credentials), or a dedupe hit
+        // whose existing row carries a messageSid.
+        confirmationSmsSent =
+          (smsOutcome.sent && (Boolean(smsOutcome.messageSid) || smsOutcome.simulated)) ||
+          (smsOutcome.alreadySent && Boolean(smsOutcome.messageSid));
       }
     } catch (error) {
       console.error("[vapi-webhook] post-consent confirmation SMS failed (non-fatal)", error);
     }
   }
 
+  const recipientEnding = phone.slice(-4);
   return {
     success: true,
     consent_recorded: true,
     sms_allowed: outcome.consent.status === "OPTED_IN",
     confirmation_sms_sent: confirmationSmsSent,
+    recipient_ending: recipientEnding,
     message:
       outcome.consent.status === "OPTED_IN"
         ? confirmationSmsSent
-          ? "SMS consent recorded and the appointment confirmation text was just sent to the caller."
-          : "SMS consent recorded. Transactional texts may now be sent."
+          ? `SMS consent recorded for the number ending ${recipientEnding}. Tell the caller: "Your appointment confirmation text has been sent."`
+          : confirmationAttempted
+            ? `SMS consent recorded for the number ending ${recipientEnding}, but the confirmation text could NOT be sent. Tell the caller: "Your appointment is still booked, but I couldn't send the confirmation text." Never claim a text was sent.`
+            : `SMS consent recorded for the number ending ${recipientEnding}. Transactional texts may now be sent.`
         : "Declined recorded. Do not send texts. Continue the booking normally — it is not affected."
   };
 }

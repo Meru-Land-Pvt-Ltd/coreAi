@@ -219,6 +219,7 @@ SMS consent rules (follow these EXACTLY — they are a legal requirement):
 - Wait for their answer, then immediately call the record_sms_consent tool with their decision:
   - affirmative=true ONLY for a clear, unambiguous yes (like "yes", "yes please", "sure, that's fine").
   - affirmative=false for "no", silence, hesitation, an interruption, an unclear answer, or anything ambiguous.
+- After a clear yes, say "Thank you. I'll send the confirmation to the number ending [last four digits] now." and call record_sms_consent. Then report EXACTLY what the tool result says: "Your appointment confirmation text has been sent." only when it confirms the send, or "Your appointment is still booked, but I couldn't send the confirmation text." when it does not. Never claim a text was sent on your own.
 - Never treat giving a phone number, or completing a booking, as consent. Never skip the disclosure. Never pressure the caller.
 - If they decline (or consent was not recorded): say something like "No problem." and complete the ${bookingLabel} or request normally — consent is never required to finish. Do NOT call send_notification for the customer and never promise a text.
 - Only after record_sms_consent returned sms_allowed=true may you call send_notification to text the caller.`.trim());
