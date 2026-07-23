@@ -59,7 +59,9 @@ import {
   resolveAfterHoursGreeting,
   type SpecialHoursEntry
 } from "@coreai/shared";
-import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
+import { escapeXml, normalizePhoneE164, validateSmsRecipientE164,
+  isSmsDeliveryUnreliable
+} from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
   sendAppointmentConfirmationSms,
@@ -3125,11 +3127,18 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const bookingConsentStatus = ctx.business?.businessId
     ? await getSmsConsentStatusLabel(ctx.business.businessId, patientPhone)
     : "none";
+  const smsDeliveryUnreliable = isSmsDeliveryUnreliable(patientPhone);
   const consentExtras = {
     consent_status: bookingConsentStatus,
     canonical_recipient_ending: patientPhone.slice(-4),
     ...(bookingConsentStatus === "none" && ctx.business?.businessName
       ? { required_disclosure: verbalSmsConsentDisclosure(ctx.business.businessName) }
+      : {}),
+    ...(smsDeliveryUnreliable
+      ? {
+          sms_delivery_note:
+            "Carriers in this number's region often filter our texts, so delivery cannot be promised. Confirm every appointment detail verbally with the caller and never promise the text will arrive."
+        }
       : {})
   };
 

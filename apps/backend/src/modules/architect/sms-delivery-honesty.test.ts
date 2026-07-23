@@ -277,6 +277,9 @@ describe("consent-status synchronization through booking", () => {
     const result = await postTool(fixture, `call_${RUN}_optin`, "book_appointment", bookArgs());
     expect(result.success).toBe(true);
     expect(result.consentStatus).toBe("granted");
+    // +91 destination: carriers filter our US long code — the agent is told
+    // delivery cannot be promised and to confirm details verbally.
+    expect(String(result.message)).toContain("delivery cannot be promised");
     expect(result.requiredDisclosure).toBeUndefined();
     expect(result.customerSafeMessage).toBe("Your confirmation text has been submitted.");
     expect(result.recipientEnding).toBe(INDIA_PHONE.slice(-4));
@@ -375,6 +378,15 @@ describe("consent-status synchronization through booking", () => {
     expect(consentRow?.phoneNumber).toBe(INDIA_PHONE);
     expect(smsRow?.toPhone).toBe(INDIA_PHONE);
   }, 40000);
+});
+
+describe("unreliable-destination flag", () => {
+  it("flags +91 and not +1 (SMS_UNRELIABLE_COUNTRY_PREFIXES)", async () => {
+    const { isSmsDeliveryUnreliable } = await import("./twilio-connector");
+    expect(isSmsDeliveryUnreliable("+916396039675")).toBe(true);
+    expect(isSmsDeliveryUnreliable("+16505551234")).toBe(false);
+    expect(isSmsDeliveryUnreliable("6396039675")).toBe(false);
+  });
 });
 
 describe("identity isolation", () => {

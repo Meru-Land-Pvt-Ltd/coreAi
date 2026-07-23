@@ -68,12 +68,15 @@ export function twilioRestAuthHeader(): string | null {
   return null;
 }
 
-/**
- * VOICE-path phone normalization (spoken/typed numbers from calls), biased to
- * India then US for bare national numbers. Kept for the Vapi booking tools —
- * do NOT use it for outbound SMS recipients; SMS requires explicit E.164 via
- * validateSmsRecipientE164().
- */
+export function isSmsDeliveryUnreliable(e164: string): boolean {
+  if (!e164.startsWith("+")) return false;
+  const digits = e164.slice(1);
+  return env.SMS_UNRELIABLE_COUNTRY_PREFIXES.split(",")
+    .map((prefix) => prefix.trim())
+    .filter(Boolean)
+    .some((prefix) => digits.startsWith(prefix));
+}
+
 export function normalizePhoneE164(raw?: string | null): string {
   if (typeof raw !== "string") return "";
   const trimmed = raw.trim();

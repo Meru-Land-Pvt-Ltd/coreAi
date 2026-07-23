@@ -124,6 +124,9 @@ export function toAiSafeBookingResult(internal: InternalCalendarResult): AiSafeB
     }
   }
 
+  const deliveryNote = str(internal.sms_delivery_note);
+  if (deliveryNote) parts.push(deliveryNote);
+
   const date = str(internal.date);
   const time = str(internal.time);
 
