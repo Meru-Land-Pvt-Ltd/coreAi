@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { PaymentStatus } from "@prisma/client";
+import { PaymentInvoiceKind, PaymentStatus, UsageInvoiceStatus } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -46,6 +46,10 @@ paymentRoutes.use("*", requireRole(["BUSINESS"]));
 function currentMonthStart(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+function dateToIsoOrNull(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
 }
 
 function resolveInvoicePaymentId(paymentId: string) {
@@ -594,8 +598,9 @@ paymentRoutes.get("/billing", async (c) => {
       status: status === "SUSPENDED_BILLING" ? status : payment.status,
       purchasedAt: payment.createdAt.toISOString(),
       trialEndsAt:
-        payment.invoiceKind === "TRIAL" || payment.status === "TRIALING"
-          ? payment.periodEnd?.toISOString() ?? null
+        payment.invoiceKind === PaymentInvoiceKind.TRIAL ||
+        payment.status === PaymentStatus.TRIALING
+          ? dateToIsoOrNull(payment.periodEnd)
           : null,
       trialExecutionLimit: installed?.trialExecutionLimit ?? 50,
       trialExecutionsUsed: installed?.trialExecutionsUsed ?? 0,
@@ -641,9 +646,9 @@ paymentRoutes.get("/billing", async (c) => {
             : latestPayment?.status ?? installed.status,
         purchasedAt: installed.createdAt.toISOString(),
         trialEndsAt:
-          latestPayment?.invoiceKind === "TRIAL" ||
-          latestPayment?.status === "TRIALING"
-            ? latestPayment.periodEnd?.toISOString() ?? null
+          latestPayment?.invoiceKind === PaymentInvoiceKind.TRIAL ||
+          latestPayment?.status === PaymentStatus.TRIALING
+            ? dateToIsoOrNull(latestPayment.periodEnd)
             : null,
         trialExecutionLimit: installed.trialExecutionLimit,
         trialExecutionsUsed: installed.trialExecutionsUsed,
@@ -715,15 +720,26 @@ paymentRoutes.get("/billing", async (c) => {
       prisma.businessUsageInvoice.aggregate({
         where: {
           businessId: business.id,
-          status: { in: ["OPEN", "PENDING", "OVERDUE"] }
+          status: {
+            in: [
+              UsageInvoiceStatus.OPEN,
+              UsageInvoiceStatus.PENDING,
+              UsageInvoiceStatus.OVERDUE
+            ]
+          }
         },
         _sum: { totalMicroUsd: true }
       }),
       prisma.payment.aggregate({
         where: {
           userId: authUser.id,
-          status: { in: ["PENDING", "OVERDUE"] },
-          invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] }
+          status: { in: [PaymentStatus.PENDING, PaymentStatus.OVERDUE] },
+          invoiceKind: {
+            in: [
+              PaymentInvoiceKind.POST_TRIAL,
+              PaymentInvoiceKind.SUBSCRIPTION_RENEWAL
+            ]
+          }
         },
         _sum: { amountCents: true }
       })
@@ -808,8 +824,7 @@ paymentRoutes.get("/billing", async (c) => {
         thresholdCents: business?.spendingAlertThresholdCents ?? 5000,
         currentMonthCostCents: currentMonthExecutionCostCents,
         lastNotifiedMonth: business?.spendingAlertLastNotifiedMonth ?? null,
-        lastNotifiedAt:
-          business?.spendingAlertLastNotifiedAt?.toISOString() ?? null
+        lastNotifiedAt: dateToIsoOrNull(business?.spendingAlertLastNotifiedAt)
       },
       invoices,
       paymentMethod,
@@ -957,11 +972,14 @@ paymentRoutes.get("/my-agents", async (c) => {
     sms: buyerPricing.sms,
     phoneNumber: buyerPricing.phoneNumber
   };
-  const installedByListingId = new Map(
-    installedAgents
-      .filter((agent) => agent.listingId)
-      .map((agent) => [agent.listingId as string, agent])
-  );
+  type InstalledAgentRow = (typeof installedAgents)[number];
+
+  const installedByListingId = new Map<string, InstalledAgentRow>();
+  for (const agent of installedAgents) {
+    if (agent.listingId) {
+      installedByListingId.set(agent.listingId, agent);
+    }
+  }
 
   // Group payments by listing
   const paymentsByListing = new Map<string, typeof payments>();
@@ -1123,7 +1141,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       isTrial,
       installedAgentId: installedAgent?.id ?? null,
       installedAgentStatus: installedAgent?.status ?? null,
-      installedAgentPausedAt: installedAgent?.pausedAt?.toISOString() ?? null,
+      installedAgentPausedAt: dateToIsoOrNull(installedAgent?.pausedAt),
       pricing: {
         agentPrice: {
           amountCents: listing.priceCents,
@@ -1266,7 +1284,9 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
     where: {
       id: invoiceId,
       userId: authUser.id,
-      invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] }
+      invoiceKind: {
+        in: [PaymentInvoiceKind.POST_TRIAL, PaymentInvoiceKind.SUBSCRIPTION_RENEWAL]
+      }
     },
     include: {
       business: { select: { id: true, stripeCustomerId: true } },
@@ -1286,7 +1306,8 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
       alreadyPaid: true
     });
   }
-  if (!["PENDING", "OVERDUE"].includes(invoice.status)) {
+  const payableStatuses: PaymentStatus[] = [PaymentStatus.PENDING, PaymentStatus.OVERDUE];
+  if (!payableStatuses.includes(invoice.status)) {
     return errorResponse(c, "Invoice cannot be paid", 409, "INVOICE_NOT_PAYABLE");
   }
   if (invoice.amountCents < 50) {
@@ -1445,7 +1466,10 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
     );
   } catch (error) {
     await prisma.payment.updateMany({
-      where: { id: invoiceId, status: { in: ["PENDING", "OVERDUE"] } },
+      where: {
+        id: invoiceId,
+        status: { in: [PaymentStatus.PENDING, PaymentStatus.OVERDUE] }
+      },
       data: { paymentPendingAt: null }
     });
     const failure = describeStripeError(error);

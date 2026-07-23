@@ -106,6 +106,12 @@ export type ResolvedVoicePipeline = {
   llmProvider: string;
   transcriberProvider: string;
   voiceProvider: string;
+  /** Model identifiers per hop — optional because assistants deployed before
+   * models were recorded only have providers; usage pricing treats a missing
+   * model as an unknown mapping rather than guessing. */
+  llmModel?: string;
+  transcriberModel?: string;
+  voiceModel?: string;
 };
 
 function str(value: unknown): string {
@@ -123,11 +129,17 @@ export function resolveDefaultLiveVoicePipeline(
   config: WorkspaceGuardConfig = envConfig()
 ): ResolvedVoicePipeline {
   const rawLlm = normalizeAiProvider(str(config["VAPI_DEFAULT_LLM_PROVIDER"]) || "openai");
+  const anthropicGated = rawLlm === "anthropic" && !isConfirmed(config["VAPI_ANTHROPIC_ENABLED"]);
   return {
     orchestrator: "vapi",
-    llmProvider: rawLlm === "anthropic" && !isConfirmed(config["VAPI_ANTHROPIC_ENABLED"]) ? "openai" : rawLlm,
+    llmProvider: anthropicGated ? "openai" : rawLlm,
     transcriberProvider: normalizeAiProvider(str(config["VAPI_TRANSCRIBER_PROVIDER"]) || "deepgram"),
-    voiceProvider: "elevenlabs"
+    voiceProvider: "elevenlabs",
+    // When the anthropic gate falls back to openai, the env's model name (an
+    // anthropic id) does not apply — resolveVapiModel deploys gpt-4o-mini.
+    llmModel: anthropicGated ? "gpt-4o-mini" : str(config["VAPI_DEFAULT_LLM_MODEL"]) || "gpt-4o-mini",
+    transcriberModel: str(config["VAPI_TRANSCRIBER_MODEL"]) || "nova-3",
+    voiceModel: str(config["VAPI_ELEVENLABS_MODEL"]) || "eleven_flash_v2_5"
   };
 }
 
@@ -141,11 +153,17 @@ export function parseStoredVoicePipeline(configJson: unknown): ResolvedVoicePipe
   const transcriber = str(record["transcriberProvider"]);
   const voice = str(record["voiceProvider"]);
   if (!llm || !transcriber || !voice) return null;
+  const llmModel = str(record["llmModel"]);
+  const transcriberModel = str(record["transcriberModel"]);
+  const voiceModel = str(record["voiceModel"]);
   return {
     orchestrator: "vapi",
     llmProvider: normalizeAiProvider(llm),
     transcriberProvider: normalizeAiProvider(transcriber),
-    voiceProvider: normalizeAiProvider(voice)
+    voiceProvider: normalizeAiProvider(voice),
+    ...(llmModel ? { llmModel } : {}),
+    ...(transcriberModel ? { transcriberModel } : {}),
+    ...(voiceModel ? { voiceModel } : {})
   };
 }
 

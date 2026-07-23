@@ -1215,11 +1215,19 @@ export async function deployVapiAssistant({
 
   // The Limited Use guard validates the EXACT providers this assistant runs
   // on, so capture them from the payload we just sent — not from env guesses.
+  // Model identifiers ride along for usage-service pricing resolution; a
+  // vapi-built-in voice has no ElevenLabs model, so voiceModel stays unset
+  // there and pricing treats it as an unknown mapping instead of guessing.
+  const voiceModel =
+    voiceResolution.config.provider === "11labs" ? env.VAPI_ELEVENLABS_MODEL : undefined;
   const pipeline: ResolvedVoicePipeline = {
     orchestrator: "vapi",
     llmProvider: normalizeAiProvider(resolvedModel.provider),
     transcriberProvider: normalizeAiProvider(env.VAPI_TRANSCRIBER_PROVIDER),
-    voiceProvider: normalizeAiProvider(voiceResolution.config.provider)
+    voiceProvider: normalizeAiProvider(voiceResolution.config.provider),
+    llmModel: resolvedModel.model,
+    transcriberModel: env.VAPI_TRANSCRIBER_MODEL,
+    ...(voiceModel ? { voiceModel } : {})
   };
 
   return {

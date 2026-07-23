@@ -2993,6 +2993,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         appointmentId,
         businessId: ctx.business.businessId,
         installedAgentId: ctx.business.installedAgentId ?? null,
+        vapiCallId: ctx.callId ?? null,
         customerName: patientName,
         customerPhone: patientPhone,
         serviceName: service,
@@ -3378,6 +3379,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
       smsPurpose: "CANCELLATION_CONFIRMATION",
       installedAgentId: ctx.business.installedAgentId ?? null,
       appointmentId: target.id,
+      vapiCallId: ctx.callId ?? null,
       dedupeKey: `appointment-cancellation:${target.id}`
     });
     smsSent = smsOutcome.sent || smsOutcome.alreadySent;
@@ -3694,6 +3696,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
       smsPurpose: "RESCHEDULE_CONFIRMATION",
       installedAgentId: ctx.business.installedAgentId ?? null,
       appointmentId: target.id,
+      vapiCallId: ctx.callId ?? null,
       dedupeKey: `appointment-reschedule:${target.id}:${newStartAt.toISOString()}`
     });
     smsSent = smsOutcome.sent || smsOutcome.alreadySent;
@@ -3970,6 +3973,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
             appointmentId: recentAppointment.id,
             businessId: ctx.business.businessId,
             installedAgentId: ctx.business.installedAgentId ?? null,
+            vapiCallId: ctx.callId ?? null,
             customerName: customerName || recentAppointment.customerName || "",
             customerPhone,
             serviceName: recentAppointment.service || service,
@@ -3991,6 +3995,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
             businessName: ctx.business.businessName,
             smsPurpose: "APPOINTMENT_CONFIRMATION",
             installedAgentId: ctx.business.installedAgentId ?? null,
+            vapiCallId: ctx.callId ?? null,
             dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:customer` : null
           });
           customerSmsSent = outcome.sent || outcome.alreadySent;
@@ -4049,6 +4054,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           messageType: "TEAM_NOTIFICATION",
           businessId: ctx.business.businessId,
           installedAgentId: ctx.business.installedAgentId ?? null,
+          vapiCallId: ctx.callId ?? null,
           dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:team` : null
         });
         // Delivery is claimed only when the provider confirmed the send.

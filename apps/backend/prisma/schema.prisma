@@ -372,6 +372,9 @@ model InstalledAgent {
   listingId                 String?
   name                      String
   status                    String                  @default("ACTIVE")
+  /// Buyer pause timestamp: executions started before this instant may settle
+  /// their actual provider usage; new executions are blocked while set.
+  pausedAt                  DateTime?
   installSource             InstallSource           @default(MARKETPLACE_PURCHASE)
   /// Snapshotted from the listing at acquisition so later marketplace price
   /// edits never change an existing buyer's per-run terms.
@@ -585,6 +588,7 @@ model VapiCall {
   billedCostMicroUsd    Int?
   usageLineItemsJson    Json?
   vapiCostBreakdownJson Json?
+  pricingSnapshotJson   Json?
   pricingState          String                @default("PENDING")
   billingMonth          String?
   billingRecordedAt     DateTime?
@@ -688,24 +692,24 @@ model Payment {
   billingEmail   String?
   billingAddress String?
 
-  description   String?
-  invoiceKind   PaymentInvoiceKind @default(PURCHASE)
+  description         String?
+  invoiceKind         PaymentInvoiceKind @default(PURCHASE)
   /// Stable scheduler/idempotency key, for example
   /// "post-trial:<trialPaymentId>" or "subscription:<user>:<listing>:2026-07".
-  invoiceKey    String?            @unique
-  periodStart   DateTime?
-  periodEnd     DateTime?
-  dueAt         DateTime?
-  graceEndsAt   DateTime?
-  paidAt        DateTime?
-  suspendedAt   DateTime?
-  paymentAttemptCount Int @default(0)
-  paymentPendingAt DateTime?
+  invoiceKey          String?            @unique
+  periodStart         DateTime?
+  periodEnd           DateTime?
+  dueAt               DateTime?
+  graceEndsAt         DateTime?
+  paidAt              DateTime?
+  suspendedAt         DateTime?
+  paymentAttemptCount Int                @default(0)
+  paymentPendingAt    DateTime?
   /// Buyer-facing fee breakdown: [{ label, amountCents }] — agent price plus
   /// the "AI Receptionist No." number fee when one was provisioned.
-  lineItemsJson Json?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  lineItemsJson       Json?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   business Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
@@ -1639,6 +1643,7 @@ model SmsExecution {
   /// Idempotency key, e.g. "appointment-confirmation:{appointmentId}" — the
   /// unique constraint is what makes duplicate triggers safe under concurrency.
   dedupeKey            String?            @unique
+  vapiCallId           String?
   provider             SmsProvider        @default(TWILIO)
   messageSid           String?            @unique
   messagingServiceSid  String?
