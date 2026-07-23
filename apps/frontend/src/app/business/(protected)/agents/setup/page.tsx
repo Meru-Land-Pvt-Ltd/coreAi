@@ -40,6 +40,7 @@ import {
   type AnsweringDayRow
 } from "@/components/business/setup/ai-call-coverage-editor";
 import { businessSetupPath } from "@/lib/routes";
+import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
 import { GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
 import {
@@ -4663,6 +4664,12 @@ function StepGoLive({
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [readyDocs, setReadyDocs] = useState<number | null>(null);
 
+  const {
+    pricing: executionPricing,
+    loading: executionPricingLoading,
+    error: executionPricingError
+  } = useBuyerExecutionPricing();
+
   useEffect(() => {
     let cancelled = false;
     void getBusinessFacts().then((res) => {
@@ -4941,6 +4948,14 @@ function StepGoLive({
             </dl>
           </div>
         </div>
+
+        <ExecutionPricingSummary
+          pricing={executionPricing}
+          loading={executionPricingLoading}
+          unavailable={executionPricingError}
+          variant="full"
+          className="mt-3 text-xs text-slate-500"
+        />
       </div>
     </div>
   );

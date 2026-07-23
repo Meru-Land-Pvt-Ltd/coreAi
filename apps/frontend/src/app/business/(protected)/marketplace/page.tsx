@@ -15,6 +15,11 @@ import {
 } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
 import { X, Check, Dot, Download, Search, BotIcon, Star } from "lucide-react";
+import {
+  ExecutionPricingSummary,
+  useBuyerExecutionPricing,
+  type BuyerExecutionPricingPayload,
+} from "@/components/business/execution-pricing-summary";
 
 type Agent = {
   id: string;
@@ -544,6 +549,12 @@ export default function MarketplacePage() {
     () => new Set(),
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  const {
+    pricing: executionPricing,
+    loading: executionPricingLoading,
+    error: executionPricingError,
+  } = useBuyerExecutionPricing();
 
   useEffect(() => {
     const token = localStorage.getItem("coreai-token") || localStorage.getItem("coreai_token");
@@ -1452,6 +1463,9 @@ export default function MarketplacePage() {
                         agent={agent}
                         onOpen={() => openAgentPage(agent)}
                         onViewDetails={() => openDetailsModal(agent)}
+                        executionPricing={executionPricing}
+                        executionPricingLoading={executionPricingLoading}
+                        executionPricingUnavailable={executionPricingError}
                       />
                     ) : (
                       <AgentListCard
@@ -1459,6 +1473,9 @@ export default function MarketplacePage() {
                         agent={agent}
                         onOpen={() => openAgentPage(agent)}
                         onViewDetails={() => openDetailsModal(agent)}
+                        executionPricing={executionPricing}
+                        executionPricingLoading={executionPricingLoading}
+                        executionPricingUnavailable={executionPricingError}
                       />
                     ),
                   )}
@@ -1528,6 +1545,9 @@ export default function MarketplacePage() {
           isOwned={isOwnedAgent(detailsAgent.id)}
           setupPending={needsSetup(detailsAgent.id)}
           onClose={closeDetailsModal}
+          executionPricing={executionPricing}
+          executionPricingLoading={executionPricingLoading}
+          executionPricingUnavailable={executionPricingError}
         />
       ) : null}
     </main>
@@ -1569,11 +1589,17 @@ function AgentDetailsModal({
   isOwned,
   setupPending,
   onClose,
+  executionPricing,
+  executionPricingLoading,
+  executionPricingUnavailable,
 }: {
   agent: Agent;
   isOwned: boolean;
   setupPending?: boolean;
   onClose: () => void;
+  executionPricing: BuyerExecutionPricingPayload | null;
+  executionPricingLoading: boolean;
+  executionPricingUnavailable: boolean;
 }) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -1708,6 +1734,14 @@ function AgentDetailsModal({
               ))}
             </ul>
           </div>
+
+          <ExecutionPricingSummary
+            pricing={executionPricing}
+            loading={executionPricingLoading}
+            unavailable={executionPricingUnavailable}
+            variant="full"
+            className="text-xs text-slate-500"
+          />
         </div>
 
         <div
@@ -1785,10 +1819,16 @@ function AgentGridCard({
   agent,
   onOpen,
   onViewDetails,
+  executionPricing,
+  executionPricingLoading,
+  executionPricingUnavailable,
 }: {
   agent: Agent;
   onOpen: () => void;
   onViewDetails: () => void;
+  executionPricing: BuyerExecutionPricingPayload | null;
+  executionPricingLoading: boolean;
+  executionPricingUnavailable: boolean;
 }) {
   const category = agent.category;
   const otherTags = Array.from(
@@ -1842,6 +1882,13 @@ function AgentGridCard({
                   ? "Usage charges apply separately"
                   : "Usage charges billed separately"}
             </span>
+            <ExecutionPricingSummary
+              pricing={executionPricing}
+              loading={executionPricingLoading}
+              unavailable={executionPricingUnavailable}
+              variant="compact"
+              className="mt-1 text-right text-[9px] leading-tight text-slate-400"
+            />
             {agent.pricingModel !== "FREE" &&
             agent.freeTrialEnabled &&
             (agent.trialDays ?? 7) > 0 ? (
@@ -1963,10 +2010,16 @@ function AgentListCard({
   agent,
   onOpen,
   onViewDetails,
+  executionPricing,
+  executionPricingLoading,
+  executionPricingUnavailable,
 }: {
   agent: Agent;
   onOpen: () => void;
   onViewDetails: () => void;
+  executionPricing: BuyerExecutionPricingPayload | null;
+  executionPricingLoading: boolean;
+  executionPricingUnavailable: boolean;
 }) {
   return (
     <article
@@ -2049,6 +2102,13 @@ function AgentListCard({
                 ? "Usage charges apply separately"
                 : "Usage charges billed separately"}
           </span>
+          <ExecutionPricingSummary
+            pricing={executionPricing}
+            loading={executionPricingLoading}
+            unavailable={executionPricingUnavailable}
+            variant="compact"
+            className="mt-1 text-right text-[9px] leading-tight text-slate-400"
+          />
           {agent.pricingModel !== "FREE" && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
             <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mt-1 block">
               {agent.trialDays ?? 7}-Day Trial

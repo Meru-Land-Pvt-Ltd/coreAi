@@ -4,6 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { microUsdToUsd, usdToMicroUsd } from "../../lib/usage-pricing";
 import { listUsageServicePricing } from "./usage-pricing-service";
+import { repriceUnpricedExecutions } from "./reprice-unpriced";
 
 export const adminPricingRoutes = new Hono();
 
@@ -134,6 +135,49 @@ adminPricingRoutes.post("/services", async (c) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid input", 400, "PRICING_INVALID_INPUT");
+    }
+    throw error;
+  }
+});
+
+const repriceSchema = z.object({
+  executionIds: z.array(z.string().trim().min(1)).max(500).optional(),
+  billingMonth: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "billingMonth must be YYYY-MM")
+    .optional(),
+  /** Report-only unless the caller EXPLICITLY passes dryRun: false. */
+  dryRun: z.boolean().optional(),
+  limit: z.number().int().min(1).max(500).optional()
+});
+
+adminPricingRoutes.post("/reprice-unpriced", async (c) => {
+  try {
+    const raw = await c.req.json().catch(() => ({}));
+    const input = repriceSchema.parse(raw ?? {});
+    const actor = c.get("authUser") as { id?: string } | null | undefined;
+
+    const result = await repriceUnpricedExecutions({
+      executionIds: input.executionIds,
+      billingMonth: input.billingMonth,
+      dryRun: input.dryRun !== false,
+      limit: input.limit ?? 100,
+      actorId: actor?.id ?? null
+    });
+
+    return successResponse(
+      c,
+      result,
+      result.dryRun
+        ? "Dry run — no executions were modified"
+        : `Repriced ${result.priced} execution(s)`
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid input", 400, "PRICING_INVALID_INPUT");
+    }
+    if (error instanceof Error && error.message.includes("Invalid billingMonth")) {
+      return errorResponse(c, error.message, 400, "PRICING_INVALID_INPUT");
     }
     throw error;
   }

@@ -16,7 +16,8 @@ RUN npm run build:shared
 WORKDIR /app/apps/backend
 
 RUN npx prisma generate --schema prisma/schema.prisma
-RUN npm run build
+# tsc on this codebase needs more heap than Node's in-container default.
+RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build
 
 EXPOSE 8787
 

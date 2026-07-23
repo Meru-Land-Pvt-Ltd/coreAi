@@ -24,6 +24,11 @@ import {
     businessSetupPath
 } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
+import {
+    ExecutionPricingSummary,
+    useBuyerExecutionPricing,
+    type BuyerExecutionPricingPayload
+} from "@/components/business/execution-pricing-summary";
 
 type CheckoutWorkflowNode = {
     data?: {
@@ -805,6 +810,12 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [listingAccess, setListingAccess] = useState<ListingAccess | null>(null);
     const [confirmation, setConfirmation] = useState(false);
     const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
+
+    const {
+        pricing: executionPricing,
+        loading: executionPricingLoading,
+        error: executionPricingError
+    } = useBuyerExecutionPricing();
 
     const isFree = listingAccess?.pricingModel === "FREE";
     const trialDays = listingAccess?.trialDays ?? 7;
@@ -1775,6 +1786,9 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                         freeTrialEnabled={listingAccess?.freeTrialEnabled}
                                         trialDays={listingAccess?.trialDays}
                                         usageRatePerMinuteUsd={listingAccess?.usagePricing?.perMinuteUsd ?? null}
+                                        executionPricing={executionPricing}
+                                        executionPricingLoading={executionPricingLoading}
+                                        executionPricingUnavailable={executionPricingError}
                                     />
                                 )}
                             </aside>
@@ -1833,6 +1847,9 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                     pricingModel={listingAccess?.pricingModel}
                     trialDays={listingAccess?.trialDays}
                     freeTrialEnabled={listingAccess?.freeTrialEnabled}
+                    executionPricing={executionPricing}
+                    executionPricingLoading={executionPricingLoading}
+                    executionPricingUnavailable={executionPricingError}
                 />
             )}
 
@@ -2068,7 +2085,10 @@ function OrderSummary({
     pricingModel = "subscription",
     freeTrialEnabled = true,
     trialDays = 7,
-    usageRatePerMinuteUsd = null
+    usageRatePerMinuteUsd = null,
+    executionPricing = null,
+    executionPricingLoading = false,
+    executionPricingUnavailable = false
 }: {
     trialDate: string;
     includedItems: string[];
@@ -2086,6 +2106,9 @@ function OrderSummary({
     trialDays?: number | null;
     /** Configured per-minute execution rate; null = no rate available at display time. */
     usageRatePerMinuteUsd?: number | null;
+    executionPricing?: BuyerExecutionPricingPayload | null;
+    executionPricingLoading?: boolean;
+    executionPricingUnavailable?: boolean;
 }) {
     const priceLabel = price.toFixed(2);
     const dueTodayLabel = dueTodayAmount.toFixed(2);
@@ -2164,6 +2187,13 @@ function OrderSummary({
                                 </p>
                             </div>
                         ) : null}
+                        <ExecutionPricingSummary
+                            pricing={executionPricing}
+                            loading={executionPricingLoading}
+                            unavailable={executionPricingUnavailable}
+                            variant="full"
+                            className="text-xs text-slate-400"
+                        />
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
@@ -2239,7 +2269,10 @@ function ConfirmationView({
     onDashboard,
     pricingModel = "subscription",
     trialDays = 7,
-    freeTrialEnabled = true
+    freeTrialEnabled = true,
+    executionPricing = null,
+    executionPricingLoading = false,
+    executionPricingUnavailable = false
 }: {
     email: string;
     agentName: string;
@@ -2248,6 +2281,9 @@ function ConfirmationView({
     pricingModel?: string | null;
     trialDays?: number | null;
     freeTrialEnabled?: boolean | null;
+    executionPricing?: BuyerExecutionPricingPayload | null;
+    executionPricingLoading?: boolean;
+    executionPricingUnavailable?: boolean;
 }) {
     return (
         <main className="fade-up mx-auto max-w-2xl px-5 py-14 text-center sm:py-16">
@@ -2301,6 +2337,14 @@ function ConfirmationView({
                     ⏱ Takes about 2 minutes
                 </p>
             </div>
+
+            <ExecutionPricingSummary
+                pricing={executionPricing}
+                loading={executionPricingLoading}
+                unavailable={executionPricingUnavailable}
+                variant="full"
+                className="mx-auto mt-6 max-w-md text-left text-xs text-slate-400"
+            />
 
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
                 <button

@@ -19,10 +19,7 @@ import {
   resolveDefaultLiveVoicePipeline
 } from "../compliance/workspace-ai-guard";
 import { fetchVapiCallById } from "../architect/vapi-connector";
-import {
-  loadActiveUsageServicePricing,
-  USAGE_RATE_NOT_CONFIGURED
-} from "../admin/usage-pricing-service";
+import { loadActiveUsageServicePricing } from "../admin/usage-pricing-service";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import {

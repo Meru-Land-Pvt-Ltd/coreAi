@@ -72,6 +72,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!dbAvailable) return;
   await prisma.vapiCall.deleteMany({ where: { businessId } });
+  await prisma.agentUsageExecution.deleteMany({ where: { businessId } });
   await prisma.installedAgent.deleteMany({ where: { businessId } });
   await prisma.business.deleteMany({ where: { id: businessId } });
   await prisma.workflowDefinition.deleteMany({ where: { id: workflowId } });

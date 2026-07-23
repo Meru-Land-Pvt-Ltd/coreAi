@@ -8,6 +8,8 @@ import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { businessCheckoutPath } from "@/lib/routes";
+import { shouldShowSyntheticAccrual } from "@/components/business/current-month-accrual";
+import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -544,6 +546,12 @@ export default function BusinessBillingUsagePage() {
     const [spendingAlertSaving, setSpendingAlertSaving] = useState(false);
     const [spendingAlertError, setSpendingAlertError] = useState("");
 
+    const {
+        pricing: executionPricing,
+        loading: executionPricingLoading,
+        error: executionPricingError
+    } = useBuyerExecutionPricing();
+
     const loadBilling = useCallback(async (initialLoad = false) => {
         try {
             if (initialLoad) setIsLoading(true);
@@ -889,13 +897,15 @@ export default function BusinessBillingUsagePage() {
     const pendingPurchaseInvoices = invoices.filter((invoice) => purchaseInvoiceTab(invoice) === "pending");
     const overduePurchaseInvoices = invoices.filter((invoice) => purchaseInvoiceTab(invoice) === "overdue");
     const paidUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "PAID");
-    const persistedCurrentAccrual = usageInvoices.find((invoice) =>
-        invoice.billingMonth === CURRENT_MONTH && (invoice.isAccruing || invoice.status === "PENDING" || invoice.status === "OPEN")
-    );
-    const currentUsageStatement: UsageInvoice | null = !persistedCurrentAccrual
-        && currentUsage
-        && (currentUsage.totalExecutions ?? currentUsage.totalCalls) > 0
-        && (currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd) > 0
+    const showSyntheticAccrual = currentUsage
+        ? shouldShowSyntheticAccrual({
+            invoices: usageInvoices,
+            currentMonth: CURRENT_MONTH,
+            executionCount: currentUsage.totalExecutions ?? currentUsage.totalCalls,
+            costUsd: currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd
+        })
+        : false;
+    const currentUsageStatement: UsageInvoice | null = showSyntheticAccrual && currentUsage
         ? {
             id: `accrued-${currentUsage.month}`,
             invoiceNumber: `ACCRUED-${currentUsage.month.replace("-", "")}`,
@@ -1160,6 +1170,14 @@ export default function BusinessBillingUsagePage() {
                     <p className="mt-1 text-xs text-slate-400">
                         {usage?.updatedAt ? `Updated ${formatDate(usage.updatedAt)}` : "No usage recorded for this month"}
                     </p>
+
+                    <ExecutionPricingSummary
+                        pricing={executionPricing}
+                        loading={executionPricingLoading}
+                        unavailable={executionPricingError}
+                        variant="full"
+                        className="mt-4 border-t border-gray-100 pt-4 text-xs text-slate-400"
+                    />
                 </section>
 
            

@@ -788,6 +788,11 @@ function genericAssistantTools() {
               type: "string",
               description: "Requested service or appointment type."
             },
+            doctor: {
+              type: "string",
+              description:
+                "The doctor, practitioner, or staff member the caller chose, exactly as listed in the business context (e.g. \"Dr. Patel\"). Omit when the business lists only one provider or the caller has no preference — never invent a name."
+            },
             duration_minutes: {
               type: "number",
               description: "Appointment length in minutes."

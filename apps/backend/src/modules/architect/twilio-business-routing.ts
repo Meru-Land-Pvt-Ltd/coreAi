@@ -716,11 +716,34 @@ function formatAppointmentTime(iso: string, timeZone?: string | null): string {
   }
 }
 
+export function resolveRequestedProvider(args: Record<string, unknown>): string | null {
+  const raw = argStr(args, [
+    "doctor",
+    "doctor_name",
+    "doctorName",
+    "provider",
+    "provider_name",
+    "providerName",
+    "practitioner",
+    "dentist",
+    "staff_member",
+    "staff_name",
+    "with_whom"
+  ]);
+  const cleaned = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (!cleaned) return null;
+  if (/^(any|anyone|either|whoever|no preference|none|no|first available|doesn'?t matter)$/i.test(cleaned)) {
+    return null;
+  }
+  return cleaned.slice(0, 120);
+}
+
 async function createBusinessAppointment({
   business,
   customerPhone,
   customerName,
   service,
+  providerName,
   startAt,
   endAt,
   conversationId,
@@ -731,6 +754,7 @@ async function createBusinessAppointment({
   customerPhone: string;
   customerName?: string | null;
   service: string;
+  providerName?: string | null;
   startAt: Date | string;
   endAt: Date | string;
   conversationId?: string | null;
@@ -754,6 +778,7 @@ async function createBusinessAppointment({
     customerName,
     customerPhone,
     service,
+    providerName,
     startAt,
     endAt,
     summaryOverride: isTestMode ? calendarEventTitleForMode(executionMode, service) : undefined,
@@ -775,6 +800,7 @@ async function createBusinessAppointment({
       customerPhone,
       customerName: customerName ?? undefined,
       service,
+      providerName: providerName ?? undefined,
       startAt: new Date(calendarEvent.startAt),
       endAt: new Date(calendarEvent.endAt),
       timeZone: calendarEvent.timeZone,
@@ -2149,9 +2175,12 @@ function bracketTemplateValues(input: {
   customerName: string;
   customerPhone: string;
   teamName: string;
+  /** The provider the caller chose for THIS booking — beats the configured default. */
+  providerName?: string | null;
   date: string;
   time: string;
 }): Record<string, string> {
+  const provider = input.providerName?.trim() || input.teamName;
   return {
     service: input.service,
     date: input.date,
@@ -2166,11 +2195,12 @@ function bracketTemplateValues(input: {
     "customer phone": input.customerPhone,
     "patient phone": input.customerPhone,
     "business name": input.teamName,
-    "doctor name": input.teamName,
-    "provider name": input.teamName,
+    "doctor name": provider,
+    "provider name": provider,
+    doctor: provider,
     team: input.teamName,
     "team name": input.teamName,
-    "staff name": input.teamName
+    "staff name": provider
   };
 }
 
@@ -2774,6 +2804,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) ||
     ctx.dental?.bookingLabel ||
     "Appointment";
+  const providerName = resolveRequestedProvider(args);
   const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
   const time =
     parseClockTime(argStr(args, ["time", "appointment_time"])) ?? parseClockTime(ctx.transcript) ?? { hour: 9, minute: 0 };
@@ -2802,17 +2833,19 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         customerName: patientName,
         customerPhone: patientPhone,
         teamName,
+        providerName,
         date: whenLabel,
         time: whenLabel
       })
     )
-    : `Perfect, ${patientName} — you're booked for ${service} on ${whenLabel}.`;
+    : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
 
   const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
   const eventDescription = [
     ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
     `Customer: ${patientName}`,
     `Phone: ${patientPhone || "not provided"}`,
+    ...(providerName ? [`With: ${providerName}`] : []),
     `Service: ${service}`,
     "Source: Triven AI voice receptionist",
     ctx.callId ? `Call ID: ${ctx.callId}` : null
@@ -2836,7 +2869,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       executionMode: "ARCHITECT_DRY_RUN",
       ownerUserId: architectUserId,
       testSessionId: ctx.dental.testSessionId,
-      serviceName: service,
+      serviceName: providerName ? `${service} with ${providerName}` : service,
       customerName: patientName,
       customerPhone: patientPhone,
       startAt,
@@ -2862,6 +2895,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       customer_name: patientName,
       date,
       service_type: service,
+      doctor: providerName ?? null,
       status: testEvent.event.status
     }));
     return {
@@ -2873,6 +2907,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       date,
       time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
       service_type: service,
+      doctor: providerName ?? null,
       event_id: testEvent.event.googleEventId ?? testEvent.event.testEventId,
       event_link: testEvent.event.htmlLink,
       test_event_id: testEvent.event.testEventId,
@@ -2933,7 +2968,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       businessId: ctx.business?.businessId ?? null,
       installedAgentId: ctx.business?.installedAgentId ?? null,
       testSessionId: ctx.dental?.testSessionId ?? null,
-      serviceName: service,
+      serviceName: providerName ? `${service} with ${providerName}` : service,
       customerName: patientName,
       customerPhone: patientPhone,
       startAt,
@@ -2959,6 +2994,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       customer_name: patientName,
       date,
       service_type: service,
+      doctor: providerName ?? null,
       status: testEvent.event.status
     }));
     return {
@@ -2970,6 +3006,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       date,
       time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
       service_type: service,
+      doctor: providerName ?? null,
       event_id: testEvent.event.googleEventId ?? testEvent.event.testEventId,
       event_link: testEvent.event.htmlLink,
       test_event_id: testEvent.event.testEventId,
@@ -3026,6 +3063,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
             customerPhone: patientPhone || "unknown",
             customerName: patientName,
             service,
+            providerName: providerName ?? undefined,
             startAt,
             endAt,
             timeZone: ctx.timeZone,
@@ -3055,6 +3093,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       date,
       time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
       service_type: service,
+      doctor: providerName ?? null,
       startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
       confirmation,
@@ -3084,6 +3123,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
             customerPhone: patientPhone,
             customerName: patientName,
             service,
+            providerName,
             startAt,
             endAt,
             conversationId: ctx.conversationId,
@@ -3131,6 +3171,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
         date,
         time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
         service_type: service,
+      doctor: providerName ?? null,
         startAt: calendarEvent.startAt,
         endAt: calendarEvent.endAt,
         confirmation,
@@ -3541,6 +3582,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     select: {
       id: true,
       service: true,
+      providerName: true,
       startAt: true,
       endAt: true,
       timeZone: true,
@@ -3645,6 +3687,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
           customerName: target.customerName ?? undefined,
           customerPhone: target.customerPhone,
           service: target.service ?? undefined,
+          providerName: target.providerName ?? undefined,
           startAt: newStartAt,
           endAt: newEndAt
         });

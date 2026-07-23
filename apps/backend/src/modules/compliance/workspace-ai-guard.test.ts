@@ -132,7 +132,10 @@ describe("live voice pipeline gate (Vapi + Deepgram + LLM + voice)", () => {
       orchestrator: "vapi",
       llmProvider: "openai",
       transcriberProvider: "deepgram",
-      voiceProvider: "elevenlabs"
+      voiceProvider: "elevenlabs",
+      llmModel: "gpt-4o-mini",
+      transcriberModel: "nova-3",
+      voiceModel: "eleven_flash_v2_5"
     });
   });
 

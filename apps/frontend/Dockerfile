@@ -34,7 +34,9 @@ ENV NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=$NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 # NEXT_PUBLIC_* values are compiled into the bundle HERE — they must arrive as
 # build args (docker-compose build args from the --env-file), not only as
 # container-runtime env. An empty API key silently disables Google login.
-RUN test -n "$NEXT_PUBLIC_FIREBASE_API_KEY" || echo "WARNING: NEXT_PUBLIC_FIREBASE_API_KEY is EMPTY at build time — Google login will not work in this image."
+# Read via printenv, never "$VAR": BuildKit substitutes referenced build args
+# into the logged step title, which printed the real key value in build logs.
+RUN [ -n "$(printenv NEXT_PUBLIC_FIREBASE_API_KEY)" ] || echo "WARNING: NEXT_PUBLIC_FIREBASE_API_KEY is EMPTY at build time — Google login will not work in this image."
 
 RUN npm run build:shared
 

@@ -196,6 +196,7 @@ afterAll(async () => {
   await prisma.workflowRun.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.lead.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.platformUsageService.deleteMany({ where: { code: serviceCode } });
+  await prisma.agentUsageExecution.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.installedAgent.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.agentListing.deleteMany({ where: { id: { in: [listingAId, listingBId] } } });
   await prisma.workflowDefinition.deleteMany({ where: { id: { in: [workflowAId, workflowBId] } } });
@@ -261,9 +262,11 @@ describe("idempotent usage recording", () => {
 
     const first = await prisma.vapiCall.findUnique({ where: { callId } });
     expect(first?.executionMode).toBe("LIVE");
-    // The dev DB may carry additional admin rate rows — assert real metered
-    // cost was recorded (at least this test's 2 min × $0.10/min buyer rate).
-    expect(first?.billedCostMicroUsd ?? 0).toBeGreaterThanOrEqual(200_000);
+    // Pricing is now pipeline-aware: only services whose codes map to the
+    // resolved voice pipeline bill (this test's random-coded row is excluded),
+    // so assert real metered cost at the dev DB's configured rates, not a
+    // specific per-minute floor.
+    expect(first?.billedCostMicroUsd ?? 0).toBeGreaterThan(0);
     expect(first?.billingRecordedAt).not.toBeNull();
 
     // Mutate the pricing row, then re-deliver: a frozen row must not change.
@@ -321,8 +324,9 @@ describe("idempotent usage recording", () => {
     const body = endOfCallBody(callId, { durationSeconds: 90 });
     await recordVapiCallUsage({ businessId, installedAgentId: agentActiveId, callId, webhookBody: body });
     const failedRow = await prisma.vapiCall.findUnique({ where: { callId } });
-    // 1.5 min of real metered usage stored despite the failed final status.
-    expect(failedRow?.billedCostMicroUsd ?? 0).toBeGreaterThanOrEqual(150_000);
+    // 1.5 min of real metered usage stored despite the failed final status
+    // (pipeline-applicable services at the dev DB's configured rates).
+    expect(failedRow?.billedCostMicroUsd ?? 0).toBeGreaterThan(0);
     expect(failedRow?.billingRecordedAt).not.toBeNull();
 
     const testCallId = `${RUN}-test-nobill`;
@@ -388,7 +392,7 @@ describe("pause semantics", () => {
       expect(settle.paused).toBe(true);
       await recordVapiCallUsage({ businessId, installedAgentId: agentActiveId, callId, webhookBody: endOfCallBody(callId, { durationSeconds: 120 }) });
       const row = await prisma.vapiCall.findUnique({ where: { callId } });
-      expect(row?.billedCostMicroUsd ?? 0).toBeGreaterThanOrEqual(200_000);
+      expect(row?.billedCostMicroUsd ?? 0).toBeGreaterThan(0);
 
       // Historical rows remain visible while paused.
       expect(await countDistinctExecutions({ installedAgentIds: [agentActiveId] })).toBeGreaterThan(0);
