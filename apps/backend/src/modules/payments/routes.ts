@@ -928,7 +928,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       select: {
         id: true,
         installedAgents: {
-          select: { id: true, listingId: true, status: true, createdAt: true, installSource: true }
+          select: { id: true, listingId: true, status: true, pausedAt: true, createdAt: true, installSource: true }
         }
       }
     })
@@ -938,6 +938,20 @@ paymentRoutes.get("/my-agents", async (c) => {
   const runStatsByAgentId = business
     ? await buildInstalledAgentRunStats(business.id, installedAgents, { start: currentMonthStart() })
     : new Map<string, { runs: number; costMicroUsd: number }>();
+
+  const activeUsageServices = await prisma.platformUsageService.findMany({
+    where: { isActive: true },
+    select: { unit: true, updatedCostMicroUsd: true }
+  });
+  const perMinuteRateMicroUsd = activeUsageServices
+    .filter((service) => service.unit === "PER_MINUTE")
+    .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);
+  const executionPricing = {
+    billingType: "USAGE_BASED" as const,
+    unit: "PER_MINUTE" as const,
+    ratePerMinuteUsd: perMinuteRateMicroUsd > 0 ? perMinuteRateMicroUsd / 1_000_000 : null,
+    currency: "USD" as const
+  };
   const installedByListingId = new Map(
     installedAgents
       .filter((agent) => agent.listingId)
@@ -1104,6 +1118,16 @@ paymentRoutes.get("/my-agents", async (c) => {
       isTrial,
       installedAgentId: installedAgent?.id ?? null,
       installedAgentStatus: installedAgent?.status ?? null,
+      installedAgentPausedAt: installedAgent?.pausedAt?.toISOString() ?? null,
+      pricing: {
+        agentPrice: {
+          amountCents: listing.priceCents,
+          currency: "USD",
+          model: listing.pricingModel,
+          label: listing.priceCents === 0 ? "Free" : null
+        },
+        executionPricing
+      },
       stats: {
         runsThisMonth: stats.runs,
         costThisMonthMicroUsd: stats.costMicroUsd

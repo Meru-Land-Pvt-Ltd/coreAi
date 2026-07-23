@@ -64,6 +64,15 @@ const SEED_CONFIG = {
   scheduling: { bookingLabel: "Visit" },
   emailRecipients: { recipientType: "team", customRecipient: "", cc: [], bcc: [] },
   customFields: [{ key: "parking", label: "Parking", value: "Behind the building" }],
+  afterHoursPolicy: {
+    enabled: true,
+    emergencyScreeningEnabled: true,
+    emergencyCategory: "DENTAL",
+    emergencyContactMethod: "SMS",
+    offerAppointmentBooking: true,
+    useEmergencySlots: false,
+    allowUrgentCallbackRequest: true
+  },
   phoneRouting: {
     mode: "BUSY",
     publicBusinessNumber: "+15550001111",
@@ -153,6 +162,8 @@ describe("setup save preserves everything it doesn't own", () => {
     expect(config.scheduling).toEqual(SEED_CONFIG.scheduling);
     expect(config.emailRecipients).toEqual(SEED_CONFIG.emailRecipients);
     expect(config.customFields).toEqual(SEED_CONFIG.customFields);
+    // After-hours policy survives a save that omits it.
+    expect(config.afterHoursPolicy).toEqual(SEED_CONFIG.afterHoursPolicy);
     // Architect-written phoneRouting fields and the buyer's mode survive.
     expect(config.phoneRouting.mode).toBe("BUSY");
     expect(config.phoneRouting.publicBusinessNumber).toBe("+15550001111");
@@ -257,5 +268,41 @@ describe("setup save preserves everything it doesn't own", () => {
     const body = (await res.json()) as { data: Record<string, any> };
     expect(body.data.aiCallCoverage).toBe("custom");
     expect(body.data.answeringMode).toBe("CUSTOM_HOURS");
+  });
+
+  it("a save WITH afterHoursPolicy replaces it (normalized) and it reads back on GET /business/setup", async () => {
+    if (!dbAvailable) return;
+
+    const res = await postSetup({
+      afterHoursPolicy: {
+        enabled: true,
+        emergencyScreeningEnabled: true,
+        emergencyCategory: "SERVICE",
+        emergencyContactMethod: "EMAIL",
+        offerAppointmentBooking: false,
+        greeting: "We're closed right now, {{businessName}} will help tomorrow."
+      }
+    });
+    expect(res.status).toBe(200);
+
+    const config = await readAgentConfig();
+    expect(config.afterHoursPolicy.enabled).toBe(true);
+    expect(config.afterHoursPolicy.emergencyCategory).toBe("SERVICE");
+    expect(config.afterHoursPolicy.emergencyContactMethod).toBe("EMAIL");
+    expect(config.afterHoursPolicy.offerAppointmentBooking).toBe(false);
+    // Normalizer defaults fill unsent booleans.
+    expect(config.afterHoursPolicy.allowUrgentCallbackRequest).toBe(true);
+    expect(config.afterHoursPolicy.preferEarliestAvailableSlot).toBe(false);
+    expect(config.afterHoursPolicy.includeCallbackInStaffAlert).toBe(true);
+
+    const readBack = await getSetup();
+    const body = (await readBack.json()) as { data: Record<string, any> };
+    expect(body.data.afterHoursPolicy?.emergencyCategory).toBe("SERVICE");
+
+    // A follow-up save WITHOUT the field preserves the replaced policy.
+    const minimal = await postSetup({});
+    expect(minimal.status).toBe(200);
+    const preserved = await readAgentConfig();
+    expect(preserved.afterHoursPolicy.emergencyCategory).toBe("SERVICE");
   });
 });

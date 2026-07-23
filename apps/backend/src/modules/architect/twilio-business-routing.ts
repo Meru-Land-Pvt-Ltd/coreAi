@@ -37,11 +37,25 @@ import {
 import { detectFactIntents, loadBusinessFacts, lookupStructuredFacts } from "../business/business-facts";
 import { businessOpenStatusNow, specialEntriesFromRows } from "../business/business-hours-state";
 import {
+  buildAfterHoursSnapshotForBusiness,
+  logAfterHoursRouting,
+  resolveAfterHoursPolicyForBusiness
+} from "../business/after-hours-state";
+import {
+  endLiveAfterHoursCall,
+  gateLiveAfterHoursAction,
+  resolveLiveAfterHoursGateContext,
+  type LiveAfterHoursGateContext
+} from "./after-hours-live-gate";
+import { updateAfterHoursStaffNotificationStatus } from "../business/after-hours-call-state";
+import { buildRedFlagStaffAlert, buildUrgentStaffAlert } from "@coreai/shared";
+import {
   addDaysToDate,
   businessOpenStatus,
   dateInTimeZone,
   describeOpenStatus,
   normalizeWeeklyHours,
+  resolveAfterHoursGreeting,
   type SpecialHoursEntry
 } from "@coreai/shared";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
@@ -848,9 +862,49 @@ async function maybeStartVapiAfterMissedCall({
 }) {
   if (existingCallId || !agent.business) return existingCallId ?? null;
 
+  // Pause race closure: re-read the persisted status immediately before the
+  // billable outbound Vapi POST (the missed-call workflow may have run for a
+  // while since the webhook-entry gate).
+  if (agent.business.businessId) {
+    const pausedNow = await isVapiInstalledAgentPaused(
+      agent.business.businessId,
+      agent.business.installedAgentId ?? undefined
+    );
+    if (pausedNow) {
+      console.log("[pause] outbound Vapi callback aborted — agent paused just before provider call", {
+        businessId: agent.business.businessId,
+        installedAgentId: agent.business.installedAgentId ?? null
+      });
+      return null;
+    }
+  }
+
+  // Same deterministic server-side hours decision as inbound answering, so the
+  // outbound AI callback's prompt sees the correct open/closed state (falls
+  // back to the safe "unknown" default if the lookup fails).
+  let outboundHours: { state: "open" | "closed" | "unknown"; statusLine: string; nextOpenText: string } | null =
+    null;
+  try {
+    const businessId = agent.business.businessId;
+    const policy = businessId
+      ? await resolveAfterHoursPolicyForBusiness(businessId, agent.business.installedAgentId)
+      : null;
+    if (businessId && policy?.enabled) {
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      outboundHours = {
+        state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
+        statusLine: snapshot.statusLine,
+        nextOpenText: snapshot.nextOpenText
+      };
+    }
+  } catch (error) {
+    console.error("[after-hours] outbound hours decision failed (non-fatal)", error);
+  }
+
   const call = await startVapiOutboundCall({
     customerPhone: callerNumber,
     customerName: callerName,
+    businessHours: outboundHours,
     business: {
       businessId: agent.business.businessId,
       businessName: agent.business.businessName,
@@ -1013,10 +1067,66 @@ async function buildVapiAnswerTwiml({
   const business = agent.business;
   if (!business || !callerNumber) return null;
 
+  // Pause race closure: pause may land between the webhook-entry gate and
+  // this point — re-read the persisted status immediately before the billable
+  // Vapi POST so no new execution (and no usage) can start on a paused agent.
+  if (business.businessId) {
+    const pausedNow = await isVapiInstalledAgentPaused(business.businessId, business.installedAgentId ?? undefined);
+    if (pausedNow) {
+      console.log("[pause] inbound Vapi answer aborted — agent paused just before provider call", {
+        businessId: business.businessId,
+        installedAgentId: business.installedAgentId ?? null
+      });
+      return null;
+    }
+  }
+
+  let hoursVariables: { state: "open" | "closed" | "unknown"; statusLine: string; nextOpenText: string } | null =
+    null;
+  let firstMessageOverride: string | null = null;
+
+  try {
+    const businessId = business.businessId;
+    const policy = businessId
+      ? await resolveAfterHoursPolicyForBusiness(businessId, business.installedAgentId)
+      : null;
+    if (businessId && policy?.enabled) {
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      hoursVariables = {
+        state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
+        statusLine: snapshot.statusLine,
+        nextOpenText: snapshot.nextOpenText
+      };
+
+      if (snapshot.state === "CLOSED") {
+        firstMessageOverride = resolveAfterHoursGreeting({ policy, businessName: business.businessName });
+      }
+
+      logAfterHoursRouting({
+        event: "live_call_hours_decision",
+        businessId: business.businessId,
+        installedAgentId: business.installedAgentId ?? null,
+        timeZone: snapshot.timeZone,
+        hoursState: snapshot.state,
+        executionMode: "LIVE",
+        callerPhone: callerNumber,
+        ...(snapshot.state === "UNKNOWN"
+          ? { warning: "business hours not configured/confirmed — neutral wording used, no closed claim" }
+          : {})
+      });
+    }
+  } catch (error) {
+    // The hours decision must never break call answering — fall back to the
+    // neutral "unknown" behavior baked into the prompt.
+    console.error("[after-hours] live hours decision failed (non-fatal)", error);
+  }
+
   return createVapiInboundTwiml({
     callerNumber,
     callerName,
     reason,
+    businessHours: hoursVariables,
+    firstMessageOverride,
     business: {
       businessId: business.businessId,
       businessName: business.businessName,
@@ -2306,6 +2416,8 @@ type VapiToolContext = {
   transcript: string;
   executionMode?: "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
   installedAgentId?: string;
+  /** Server-side after-hours gate state for this LIVE call (undefined = inactive). */
+  afterHours?: LiveAfterHoursGateContext;
   /** The deployed assistant's ACTUAL provider pipeline (stored at deploy). */
   voicePipeline?: ResolvedVoicePipeline | null;
 };
@@ -3778,6 +3890,13 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     ctx.business?.businessName ||
     "";
 
+  // After-hours urgency marks the INTERNAL team notification only — it never
+  // creates a customer send, and never bypasses the customer consent gate.
+  const urgencyRaw = (argStr(args, ["urgency"]) || "").toLowerCase();
+  const urgency = urgencyRaw === "urgent" || urgencyRaw === "emergency" ? urgencyRaw : null;
+  // The model may pass a `reason` arg, but the staff alert templates carry
+  // minimum information by design (§ privacy) — the reason is never included.
+
   // Architect and buyer browser tests: preview the SMS, never call Twilio.
   if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
@@ -3818,7 +3937,19 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
       time: argStr(args, ["appointment_time", "time"]) || ""
     });
 
-    if ((ctx.dental?.sendToPatient ?? true) && customerPhone) {
+    const afterHoursGate = ctx.afterHours ?? { active: false };
+    const customerSmsGate = gateLiveAfterHoursAction(afterHoursGate, "customer_sms");
+    const customerEmailGate = gateLiveAfterHoursAction(afterHoursGate, "customer_email");
+
+    if (!customerSmsGate.allowed) {
+      customerSmsBlockedReason = customerSmsGate.code;
+      console.log("[vapi-webhook] send_notification: customer SMS blocked by after-hours gate", {
+        code: customerSmsGate.code,
+        callId: ctx.callId ?? null
+      });
+    }
+
+    if (customerSmsGate.allowed && (ctx.dental?.sendToPatient ?? true) && customerPhone) {
       try {
         const recentAppointment = await prisma.appointment.findFirst({
           where: {
@@ -3830,7 +3961,12 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           select: { id: true, service: true, startAt: true, timeZone: true, customerName: true }
         });
 
-        if (recentAppointment) {
+        if (urgency && !recentAppointment) {
+          console.log("[vapi-webhook] send_notification: customer SMS skipped for urgency-only notification", {
+            urgency,
+            callId: ctx.callId ?? null
+          });
+        } else if (recentAppointment) {
           const outcome = await sendAppointmentConfirmationSms({
             appointmentId: recentAppointment.id,
             businessId: ctx.business.businessId,
@@ -3856,8 +3992,6 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
             businessName: ctx.business.businessName,
             smsPurpose: "APPOINTMENT_CONFIRMATION",
             installedAgentId: ctx.business.installedAgentId ?? null,
-            // Vapi retries the same tool call on webhook timeouts — same call
-            // + same recipient must never text twice.
             dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:customer` : null
           });
           customerSmsSent = outcome.sent || outcome.alreadySent;
@@ -3879,24 +4013,71 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
 
     const teamPhone = ctx.dental?.dentistPhone;
     if ((ctx.dental?.sendToDentist ?? true) && teamPhone) {
+      const redFlagRoute = ctx.afterHours?.state?.route === "RED_FLAG_DETECTED" || urgency === "emergency";
+      const afterHoursUrgent = redFlagRoute || urgency === "urgent" || ctx.afterHours?.state?.route === "URGENT_DENTAL" || ctx.afterHours?.state?.route === "HUMAN_REVIEW";
+      const includeCallback = ctx.afterHours?.policy?.includeCallbackInStaffAlert !== false;
+
       try {
-        const sms = applyBracketTemplate(
-          ctx.dental?.dentistTemplate ?? "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
-          values
-        );
+        const sms = afterHoursUrgent
+          ? redFlagRoute
+            ? buildRedFlagStaffAlert({
+                businessName: ctx.business.businessName,
+                callerName: customerName || null,
+                callbackNumber: customerPhone || null,
+                callId: ctx.callId ?? null,
+                includeCallback
+              })
+            : buildUrgentStaffAlert({
+                businessName: ctx.business.businessName,
+                callerName: customerName || null,
+                callbackNumber: customerPhone || null,
+                callId: ctx.callId ?? null,
+                includeCallback
+              })
+          : applyBracketTemplate(
+              ctx.dental?.dentistTemplate ??
+                "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
+              values
+            );
+
+        if (afterHoursUrgent && ctx.business.businessId && ctx.callId) {
+          await updateAfterHoursStaffNotificationStatus(ctx.business.businessId, ctx.callId, "PENDING").catch(() => null);
+        }
+
         const outcome = await sendTrackedSms({
           to: teamPhone,
-          // Message to the business's own staff — TEAM_NOTIFICATION is exempt
-          // from the customer-consent gate.
           body: sms,
           messageType: "TEAM_NOTIFICATION",
           businessId: ctx.business.businessId,
           installedAgentId: ctx.business.installedAgentId ?? null,
           dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:team` : null
         });
+        // Delivery is claimed only when the provider confirmed the send.
         teamSmsSent = outcome.sent || outcome.alreadySent;
+        if (afterHoursUrgent && ctx.business.businessId && ctx.callId) {
+          await updateAfterHoursStaffNotificationStatus(
+            ctx.business.businessId,
+            ctx.callId,
+            teamSmsSent ? "SENT" : "FAILED"
+          ).catch(() => null);
+        }
+        if (afterHoursUrgent || urgency) {
+          logAfterHoursRouting({
+            event: "staff_notification",
+            businessId: ctx.business.businessId,
+            installedAgentId: ctx.business.installedAgentId ?? null,
+            callId: ctx.callId ?? null,
+            executionMode: ctx.executionMode ?? null,
+            staffNotificationAttempted: true,
+            outcome: teamSmsSent ? "sent" : "failed",
+            callerPhone: customerPhone || null
+          });
+        }
       } catch (error) {
         console.error("[vapi-webhook] team SMS failed (non-fatal)", error);
+        if (afterHoursUrgent && ctx.business.businessId && ctx.callId) {
+          await updateAfterHoursStaffNotificationStatus(ctx.business.businessId, ctx.callId, "FAILED").catch(() => null);
+        }
       }
     }
 
@@ -3933,6 +4114,11 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
 
       if (!to) {
         console.log("[vapi-webhook] send_email node: no recipient resolved — skipped");
+      } else if (emailNode.recipientType !== "team" && !customerEmailGate.allowed) {
+        console.log("[vapi-webhook] send_email node: customer email blocked by after-hours gate", {
+          code: customerEmailGate.allowed ? null : customerEmailGate.code,
+          callId: ctx.callId ?? null
+        });
       } else {
         const purpose =
           emailNode.purpose !== "auto"
@@ -4022,7 +4208,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           console.error("[vapi-webhook] send_email node error (non-fatal)", error);
         }
       }
-    } else if (customerEmail) {
+    } else if (customerEmail && customerEmailGate.allowed) {
       try {
         // Vapi retries the same tool call on webhook timeouts — same call +
         // same recipient must never email twice.
@@ -4230,8 +4416,13 @@ export async function handleVapiWebhook(c: Context) {
       ? await isVapiInstalledAgentPaused(businessContext.businessId, metadataInstalledAgentId)
       : false;
 
-    if (agentPaused) {
-      console.log("[vapi-webhook] response status", 200, "(agent paused — node execution skipped)");
+    const existingCallRow =
+      agentPaused && callId
+        ? await prisma.vapiCall.findUnique({ where: { callId }, select: { id: true } }).catch(() => null)
+        : null;
+
+    if (agentPaused && !existingCallRow) {
+      console.log("[vapi-webhook] response status", 200, "(agent paused — blocked attempt, nothing recorded)");
       if (toolCalls.length === 0) return c.json({ ok: true, paused: true });
 
       return c.json({
@@ -4350,16 +4541,42 @@ export async function handleVapiWebhook(c: Context) {
           .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
       }
 
-      console.log("[vapi-webhook] response status", 200, "(non-tool event)");
-      return c.json({ ok: true });
+      // Call ended — clear the distributed after-hours routing state.
+      if (executionMode === "LIVE" && /end-of-call-report|end|ended|report/i.test(messageType ?? "")) {
+        await endLiveAfterHoursCall(businessContext?.businessId, callId);
+      }
+
+      console.log("[vapi-webhook] response status", 200, agentPaused ? "(non-tool event, paused settle)" : "(non-tool event)");
+      return c.json(agentPaused ? { ok: true, paused: true } : { ok: true });
     }
+
+    if (agentPaused) {
+      console.log("[vapi-webhook] response status", 200, "(agent paused — tools blocked)");
+      return c.json({
+        results: toolCalls.map((toolCall) => ({
+          name: toolCall.name,
+          toolCallId: toolCall.id,
+          result: JSON.stringify({
+            success: false,
+            code: "AGENT_PAUSED",
+            message: "This agent is paused. No workflow action was performed."
+          })
+        }))
+      });
+    }
+
+    const afterHoursGate = await resolveLiveAfterHoursGateContext({
+      businessId: businessContext?.businessId,
+      installedAgentId: metadataInstalledAgentId,
+      callId,
+      executionMode,
+      body
+    });
 
     const dental = businessContext?.businessId ? await loadDentalToolConfig(businessContext.businessId) : null;
     const baseCtx: VapiToolContext = {
       business: businessContext,
       dental,
-      // Browser-test agents use the architect-selected test timezone; live
-      // agents use the business profile timezone. Never the server's zone.
       timeZone: dental?.testTimeZone || businessContext?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
       customerPhone,
       patientPhone: customerPhone,
@@ -4369,9 +4586,7 @@ export async function handleVapiWebhook(c: Context) {
       transcript,
       executionMode,
       installedAgentId: metadataInstalledAgentId,
-      // The deployed assistant's actual provider pipeline (recorded from the
-      // final Vapi payload at deploy) — the Limited Use guard checks THESE
-      // providers, falling back to env-level resolution for older deploys.
+      afterHours: afterHoursGate,
       voicePipeline: metadataInstalledAgentId
         ? await prisma.installedAgent
           .findUnique({ where: { id: metadataInstalledAgentId }, select: { configJson: true } })
@@ -4380,7 +4595,6 @@ export async function handleVapiWebhook(c: Context) {
         : null
     };
 
-    // Run every tool call in the request; return one result per toolCallId.
     const results: Array<{ name: string; toolCallId: string; result: string }> = [];
     for (const toolCall of toolCalls) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
@@ -4396,7 +4610,29 @@ export async function handleVapiWebhook(c: Context) {
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
       };
 
+      const gatedAction = isCheck
+        ? ("check_availability" as const)
+        : isBook || isCancel || isReschedule
+          ? ("book_appointment" as const)
+          : null;
+      const afterHoursBlock = gatedAction ? gateLiveAfterHoursAction(afterHoursGate, gatedAction) : { allowed: true as const };
+
       let payload: unknown;
+      let afterHoursBlocked = false;
+      if (!afterHoursBlock.allowed) {
+        afterHoursBlocked = true;
+        payload = { success: false, code: afterHoursBlock.code, message: afterHoursBlock.message };
+        logAfterHoursRouting({
+          event: "live_tool_blocked",
+          businessId: businessContext?.businessId ?? null,
+          installedAgentId: metadataInstalledAgentId ?? null,
+          callId,
+          route: afterHoursGate.state?.route ?? null,
+          executionMode,
+          outcome: afterHoursBlock.code,
+          callerPhone: customerPhone || null
+        });
+      } else
       try {
         if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
         else if (isLookup) payload = await runLookupKnowledgeTool(toolCall.parameters, ctx);
@@ -4423,7 +4659,7 @@ export async function handleVapiWebhook(c: Context) {
                     : { success: false };
       }
 
-      if (payload && typeof payload === "object") {
+      if (payload && typeof payload === "object" && !afterHoursBlocked) {
         if (isCheck) payload = toAiSafeAvailabilityResult(payload as Record<string, unknown>);
         else if (isBook) payload = toAiSafeBookingResult(payload as Record<string, unknown>);
         else if (isCancel || isReschedule) {

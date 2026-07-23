@@ -2129,17 +2129,25 @@ export function MyAgentsView() {
             </TrendFooter>
           </div>
 
-          {/* Total Executions */}
+          {/* Active executions — canonical backend metric: distinct LIVE
+              provider executions this period from ACTIVE installations only
+              (paused installations excluded). Lifetime shown separately. */}
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500" data-testid="architect-ui-my-agents-view-in-review-text">
-              Total Executions
+              Active Executions
             </p>
             <p className="mt-1 text-3xl font-bold text-slate-900" data-testid="architect-ui-my-agents-view-counts-review-text">
-              <CountUp value={stats.totalExecutions} />
+              <CountUp value={stats.activeExecutionCount ?? stats.totalExecutions} />
             </p>
             <TrendFooter direction={executionsTrendDirection} testId="my-agents-stats-executions-trend">
               {executionsTrendText}
             </TrendFooter>
+            <p className="mt-1 text-xs font-semibold text-slate-400" data-testid="my-agents-stats-lifetime-executions">
+              Lifetime: {stats.lifetimeExecutionCount ?? stats.totalExecutions}
+              {typeof stats.excludedPausedInstallationCount === "number" && stats.excludedPausedInstallationCount > 0
+                ? ` · ${stats.excludedPausedInstallationCount} paused install${stats.excludedPausedInstallationCount === 1 ? "" : "s"} excluded`
+                : ""}
+            </p>
           </div>
 
           {/* Total approved earnings — same value as the Payouts page. */}

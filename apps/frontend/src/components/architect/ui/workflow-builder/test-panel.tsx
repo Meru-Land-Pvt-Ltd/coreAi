@@ -50,6 +50,7 @@ export function TestPanel({
   appointmentService,
   testDate = "",
   testTime = "",
+  testAfterHoursState = "current",
   useTestCalendar = false,
   conversationCalendarEvent = null,
   conversationConfigError = null,
@@ -84,6 +85,7 @@ export function TestPanel({
   onAppointmentServiceChange,
   onTestDateChange,
   onTestTimeChange,
+  onTestAfterHoursStateChange,
   onUseTestCalendarChange,
   onDeleteTestEvent,
   onTestEmailChange,
@@ -115,6 +117,8 @@ export function TestPanel({
   appointmentService: string;
   testDate?: string;
   testTime?: string;
+  /** After-hours simulation for chat + voice tests ("current" = no override). */
+  testAfterHoursState?: "current" | "open" | "closed";
   useTestCalendar?: boolean;
   conversationCalendarEvent?: ArchitectTestCalendarEvent | null;
   conversationConfigError?: { code: string; message: string; remediation: string } | null;
@@ -149,6 +153,7 @@ export function TestPanel({
   onAppointmentServiceChange: (value: string) => void;
   onTestDateChange?: (value: string) => void;
   onTestTimeChange?: (value: string) => void;
+  onTestAfterHoursStateChange?: (value: "current" | "open" | "closed") => void;
   onUseTestCalendarChange?: (value: boolean) => void;
   onDeleteTestEvent?: (testEventId: string) => void;
   onTestEmailChange?: (value: string) => void;
@@ -488,6 +493,24 @@ export function TestPanel({
                           </option>
                         ))}
                       </select>
+                    </label>
+                    <label data-testid="builder-test-after-hours-label">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Business-hours state</span>
+                      <select
+                        data-testid="builder-test-after-hours-select"
+                        value={testAfterHoursState}
+                        onChange={(event) =>
+                          onTestAfterHoursStateChange?.(event.target.value as "current" | "open" | "closed")
+                        }
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+                      >
+                        <option value="current">Use current configured time</option>
+                        <option value="open">Simulate open</option>
+                        <option value="closed">Simulate closed (after hours)</option>
+                      </select>
+                      <span className="mt-1.5 block text-[11px] leading-4 text-slate-400" data-testid="builder-test-after-hours-hint">
+                        Simulate closed to exercise the after-hours greeting and emergency screening. Test only — never affects live calls.
+                      </span>
                     </label>
                     <label data-testid="builder-test-date-label">
                       <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Requested date</span>

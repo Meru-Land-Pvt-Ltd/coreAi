@@ -82,17 +82,21 @@ function parseDurationMinutes(payload: Record<string, unknown>): number {
   return 0;
 }
 
-function countSmsFromWebhook(body: Record<string, unknown>): number {
-  const messages = body.message;
-  if (!Array.isArray(messages)) return 0;
+function countSmsFromWebhook(message: Record<string, unknown>): number {
+  const artifact =
+    typeof message.artifact === "object" && message.artifact !== null
+      ? (message.artifact as Record<string, unknown>)
+      : {};
+  const candidates = [artifact.messages, message.messages].find(Array.isArray) as unknown[] | undefined;
+  if (!candidates) return 0;
 
   let count = 0;
-  for (const entry of messages) {
+  for (const entry of candidates) {
     if (typeof entry !== "object" || entry === null) continue;
     const record = entry as Record<string, unknown>;
     const role = typeof record.role === "string" ? record.role.toLowerCase() : "";
-    const content = `${record.message ?? ""} ${record.content ?? ""}`.toLowerCase();
-    if (role === "tool" && /sms|text message|notification sent/.test(content)) {
+    const content = `${record.message ?? ""} ${record.content ?? ""} ${record.result ?? ""}`.toLowerCase();
+    if (/^tool/.test(role) && /"customer_sms_sent":\s*true|"patient_sms_sent":\s*true/.test(content)) {
       count += 1;
     }
   }
@@ -194,10 +198,31 @@ export async function recordVapiCallUsage({
 
   const callRow = await prisma.vapiCall.findUnique({
     where: { callId },
-    select: { executionMode: true }
+    select: { executionMode: true, billingRecordedAt: true, usageInvoiceId: true, recordingUrl: true }
   });
   if (callRow && callRow.executionMode !== "LIVE") {
     console.log("[usage-billing] skipped: non-live call", { businessId, callId, executionMode: callRow.executionMode });
+    return;
+  }
+
+  if (callRow?.billingRecordedAt || callRow?.usageInvoiceId) {
+    if (!callRow.recordingUrl) {
+      const message =
+        typeof webhookBody.message === "object" && webhookBody.message !== null
+          ? (webhookBody.message as Record<string, unknown>)
+          : webhookBody;
+      const lateRecordingUrl = extractRecordingUrl(message);
+      if (lateRecordingUrl) {
+        await prisma.vapiCall
+          .update({ where: { callId }, data: { recordingUrl: lateRecordingUrl } })
+          .catch(() => null);
+      }
+    }
+    console.log("[usage-billing] skipped: usage already recorded (idempotent re-delivery)", {
+      businessId,
+      callId,
+      invoiced: Boolean(callRow.usageInvoiceId)
+    });
     return;
   }
 
@@ -344,6 +369,7 @@ export async function recordVapiCallUsage({
       installedAgentId: installedAgentId ?? undefined,
       callId,
       customerPhone: customerPhone || "unknown",
+      executionMode: "LIVE",
       status: "end-of-call-report",
       recordingUrl,
       durationSeconds:

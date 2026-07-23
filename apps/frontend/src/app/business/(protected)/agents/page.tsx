@@ -573,7 +573,7 @@ function OwnedAgentCard({
                             <span className="block text-[10px] font-semibold text-slate-600 mt-1">
                                 {agent.pricingModel === "FREE" || agent.price === 0 ? "Free to install" : agent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
                             </span>
-                            <span className="block text-[9px] text-slate-400 italic text-right leading-tight max-w-[130px]">
+                            <span className="block text-[9px] text-slate-400 italic text-right leading-tight max-w-[130px]" data-testid="business-my-agent-usage-caveat-text">
                                 {agent.pricingModel === "FREE" || agent.price === 0 ? "Pay only for usage" : agent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
                             </span>
                         </div>
@@ -760,6 +760,15 @@ function OwnedAgentCard({
                         Continue Setup
                     </button>
                 )}
+
+                {!trialEnded && !isPaymentFailed && setupCompleted && paused ? (
+                    <p
+                        className="mt-1 text-center text-[10px] leading-4 text-slate-400"
+                        data-testid={`business-my-agent-paused-charges-${agent.listingId}`}
+                    >
+                        No new executions will start while paused. Charges already incurred this period remain billable.
+                    </p>
+                ) : null}
 
                 {isTrial ? (
                     <p

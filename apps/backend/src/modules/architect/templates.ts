@@ -1,12 +1,5 @@
 import { buildVoiceBookingWorkflow, getNodeDefinition, VOICE_NODE_TYPES } from "@coreai/shared";
 
-/**
- * Template gallery — static seed (no DB migration for MVP), still served over the
- * API so the frontend never hardcodes templates. A template is ONLY metadata +
- * workflowJson (nodes + edges + node.data). "Use" clones the workflowJson into a
- * WorkflowDefinition; deploy/runtime read only node.data, never a template flag.
- */
-
 export type WorkflowTemplate = {
   id: string;
   slug: string;
@@ -65,14 +58,9 @@ function flow(specs: NodeSpec[]) {
   return { nodes: tnodes(specs), edges: tedges(specs.map((s) => s.id)) };
 }
 
-/**
- * Dental AI Receptionist = the generic 6-node voice-booking workflow with dental
- * values overlaid into node.data only. No special node types or flags — a user
- * could drag the same nodes and type these values manually.
- */
 function buildDentalReceptionistWorkflow() {
   const base = buildVoiceBookingWorkflow();
-  const overrides: Record<string, Record<string, string>> = {
+  const overrides: Record<string, Record<string, unknown>> = {
     [VOICE_NODE_TYPES.phoneCallTrigger]: { callHandlingMode: "AI_ANSWERS" },
     [VOICE_NODE_TYPES.voiceConversation]: {
       practiceName: "",
@@ -88,7 +76,17 @@ function buildDentalReceptionistWorkflow() {
         "Never quote exact prices; give a general range and offer to have the team follow up with details.",
         "Free parking is available behind the building.",
         "Always repeat the chosen date and time back to the patient to confirm before booking."
-      ].join("\n")
+      ].join("\n"),
+      afterHoursPolicy: {
+        enabled: true,
+        emergencyScreeningEnabled: true,
+        emergencyCategory: "DENTAL",
+        emergencyContactMethod: "SMS",
+        offerAppointmentBooking: true,
+        preferEarliestAvailableSlot: true,
+        allowUrgentCallbackRequest: true,
+        includeCallbackInStaffAlert: true
+      }
     },
     [VOICE_NODE_TYPES.bookAppointment]: {
       eventTitleFormat: "[Service] - [Patient Name]",

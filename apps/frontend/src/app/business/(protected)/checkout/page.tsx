@@ -1774,6 +1774,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                         pricingModel={listingAccess?.pricingModel}
                                         freeTrialEnabled={listingAccess?.freeTrialEnabled}
                                         trialDays={listingAccess?.trialDays}
+                                        usageRatePerMinuteUsd={listingAccess?.usagePricing?.perMinuteUsd ?? null}
                                     />
                                 )}
                             </aside>
@@ -2066,7 +2067,8 @@ function OrderSummary({
     phoneFeeAmount = 0,
     pricingModel = "subscription",
     freeTrialEnabled = true,
-    trialDays = 7
+    trialDays = 7,
+    usageRatePerMinuteUsd = null
 }: {
     trialDate: string;
     includedItems: string[];
@@ -2082,6 +2084,8 @@ function OrderSummary({
     pricingModel?: string | null;
     freeTrialEnabled?: boolean | null;
     trialDays?: number | null;
+    /** Configured per-minute execution rate; null = no rate available at display time. */
+    usageRatePerMinuteUsd?: number | null;
 }) {
     const priceLabel = price.toFixed(2);
     const dueTodayLabel = dueTodayAmount.toFixed(2);
@@ -2144,6 +2148,22 @@ function OrderSummary({
                         {isPurchaseMode || pricingModel === "FREE" ? null : (
                             <PriceRow label={`${trialDays}-day free trial`} value={`−$${trialDiscountLabel}`} green />
                         )}
+                        {!isUsageMode ? (
+                            <div data-testid="checkout-execution-charges-row">
+                                <PriceRow
+                                    label="Execution charges"
+                                    value={
+                                        usageRatePerMinuteUsd && usageRatePerMinuteUsd > 0
+                                            ? `$${usageRatePerMinuteUsd.toFixed(2)}/min`
+                                            : "Usage-based"
+                                    }
+                                    muted
+                                />
+                                <p className="mt-1 text-xs leading-4 text-slate-400" data-testid="checkout-execution-charges-note">
+                                    Usage-based charges apply when this agent handles calls or performs configured billable actions. Billed monthly from actual usage.
+                                </p>
+                            </div>
+                        ) : null}
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
@@ -2191,8 +2211,8 @@ function OrderSummary({
 
                         <ul className="mt-2 space-y-1 text-xs text-amber-700">
                             <li data-testid="business-protected-checkout-full-agent-functionality-item">• Full agent functionality</li>
-                            <li data-testid="business-protected-checkout-up-to-50-free-executions-item">• Up to 50 free executions</li>
-                            <li data-testid="business-protected-checkout-cancel-anytime-no-charge-item">• Cancel anytime — no charge</li>
+                            <li data-testid="business-protected-checkout-up-to-50-free-executions-item">• Usage-based execution charges apply</li>
+                            <li data-testid="business-protected-checkout-cancel-anytime-no-charge-item">• Cancel anytime — no further agent fee</li>
                         </ul>
                     </div>
                 )}

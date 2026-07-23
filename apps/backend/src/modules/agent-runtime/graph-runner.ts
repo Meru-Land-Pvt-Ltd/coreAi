@@ -5,6 +5,7 @@ import {
   humanSlotList,
   inferConversationState,
   isPureGreeting,
+  setVariables,
   stringVariable,
   timeLabelFrom24h,
   type AgentBusinessContext,
@@ -16,6 +17,18 @@ import {
   type AgentRuntimeMode,
   type AgentToolCall
 } from "./runtime-context";
+import {
+  AFTER_HOURS_CLARIFY_QUESTION,
+  AFTER_HOURS_RED_FLAG_QUESTION,
+  asksEmergencyQuestion,
+  buildAfterHoursPromptSection,
+  buildAfterHoursTurnStateSection,
+  deriveAfterHoursState,
+  policyScreensForEmergencies,
+  resolveAfterHoursGreeting,
+  resolveLifeThreateningInstruction,
+  type AfterHoursConversationState
+} from "@coreai/shared";
 import {
   collectDownstreamTools,
   hasCapability,
@@ -99,8 +112,6 @@ export function parseGraph(workflowJson: unknown, channel: AgentChannel): Parsed
     nodes[0] ??
     null;
 
-  // Legacy workflows saved before edges mattered: with zero edges, fall back to
-  // node array order. With ANY edges present, only the connected graph runs.
   if (edges.length === 0 && nodes.length > 1) {
     return { nodes, nodeById, outgoing, incoming, startNode, executionOrder: [...nodes] };
   }
@@ -230,6 +241,37 @@ function buildRuntimeSystemPrompt(params: {
 }): string {
   const { context, tools, nodeInstructions, firstMessage, graph } = params;
   const { business, conversation, turn } = context;
+
+  const afterHoursSections: string[] = [];
+  if (business.afterHours?.policy.enabled && business.afterHours.snapshot.state !== "OPEN") {
+    const policySection = buildAfterHoursPromptSection({
+      policy: business.afterHours.policy,
+      businessName: business.name,
+      bookingLabel: business.appointmentService,
+      capabilities: {
+        canCheckAvailability: hasCapability(tools, "calendar.check_availability"),
+        canBook: hasCapability(tools, "calendar.book_appointment"),
+        canNotifyStaff: hasCapability(tools, "sms.send") || hasCapability(tools, "email.send")
+      },
+      render: {
+        kind: "literal",
+        state: business.afterHours.snapshot.state,
+        statusLine: business.afterHours.snapshot.statusLine,
+        nextOpenText: business.afterHours.snapshot.nextOpenText
+      }
+    });
+    if (policySection) afterHoursSections.push(policySection);
+
+    if (context.afterHoursState) {
+      afterHoursSections.push(
+        buildAfterHoursTurnStateSection({
+          state: context.afterHoursState,
+          policy: business.afterHours.policy,
+          snapshot: business.afterHours.snapshot
+        })
+      );
+    }
+  }
   const slots = context.variables["calendar.available_slots"];
   const slotStrings = Array.isArray(slots) ? slots.filter((s): s is string => typeof s === "string") : [];
   const spokenRaw = context.variables["calendar.spoken_slots"];
@@ -295,6 +337,7 @@ ${workflowMap}
             `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${business.factsLines.map((line) => `- ${line}`).join("\n")}`
           ]
         : []),
+      ...afterHoursSections,
       turnState
     ]
   });
@@ -359,11 +402,48 @@ function answerFromKnowledge(params: {
   return `I'm sorry, I don't have that detail on hand right now — the ${business.name} team can confirm it for you. Is there anything else I can help you with?`;
 }
 
-/**
- * Fallback reply used when no LLM key is configured. Small and generic: it is
- * driven entirely by the connected tools, the node prompt/knowledge, and the
- * current turn state — no business-specific script.
- */
+function afterHoursFallbackReply(context: AgentRuntimeContext): string | null {
+  const state = context.afterHoursState;
+  const afterHours = context.business.afterHours;
+  if (!state || !afterHours) return null;
+
+  const policy = afterHours.policy;
+  const instruction = resolveLifeThreateningInstruction(policy).replace(/\n\n/g, " ");
+
+  if (state.route === "RED_FLAG_DETECTED") {
+    if (!state.emergencyInstructionGiven) {
+      return `${instruction} If you'd like, I can also take your name and number and let the team know — but please call 911 first.`;
+    }
+    return `Please go ahead and call 911 or get to the nearest emergency department now. If you'd like, tell me your name and best callback number and I'll pass this to the team — that never replaces emergency care.`;
+  }
+
+  if (state.needsClarification) {
+    return AFTER_HOURS_CLARIFY_QUESTION;
+  }
+
+  if (state.route === "HUMAN_REVIEW") {
+    return `I don't want to guess about something this important. Can I have your name and the best number to reach you? The team will review this and follow up — and if you develop difficulty breathing or swallowing, severe swelling, or bleeding that won't stop, please call 911 or go to the nearest emergency department.`;
+  }
+
+  if (state.route === "POSSIBLE_EMERGENCY" && !state.redFlagQuestionAsked) {
+    return `I'm sorry you're dealing with this. I'll ask a few quick questions to understand how urgently you may need help. ${AFTER_HOURS_RED_FLAG_QUESTION}`;
+  }
+
+  if (state.route === "URGENT_DENTAL") {
+    const care = policy.emergencyCategory === "DENTAL" ? "dental care" : "help";
+    return `I'm sorry you're going through that. I'll ask a few quick questions so I can understand how urgently you may need ${care}. Please briefly tell me what happened.`;
+  }
+
+  if (state.route === "STANDARD_BOOKING") {
+    const lastAssistant = [...context.history].reverse().find((item) => item.role === "assistant")?.content ?? "";
+    if (asksEmergencyQuestion(lastAssistant) && !context.conversation.collectedName) {
+      return `I'm glad to hear that. I'd be happy to help you schedule the next available ${context.business.appointmentService.toLowerCase() || "appointment"}. May I have your name, please?`;
+    }
+  }
+
+  return null;
+}
+
 function fallbackReply(params: {
   context: AgentRuntimeContext;
   tools: AgentTool[];
@@ -373,6 +453,9 @@ function fallbackReply(params: {
   const { context, tools, nodeInstructions, firstMessage } = params;
   const { business, conversation, turn } = context;
   const message = context.userMessage;
+
+  const afterHoursScripted = afterHoursFallbackReply(context);
+  if (afterHoursScripted) return afterHoursScripted;
   const canOfferSlots = hasCapability(tools, "calendar.check_availability");
   const canBook = hasCapability(tools, "calendar.book_appointment");
   const canText = hasCapability(tools, "sms.send");
@@ -395,8 +478,6 @@ function fallbackReply(params: {
     return "You're right, I'm sorry about that. Can I have your full name and the best phone number to reach you?";
   }
 
-  // Message-taking: the caller's turn after "what would you like me to pass
-  // along?" is the message itself — acknowledge it, then collect contact info.
   if (conversation.messageFollowUp) {
     if (!conversation.collectedName || !conversation.collectedPhone) {
       return "Got it — I'll pass that along to the team. Can I have your name and the best number to reach you?";
@@ -430,8 +511,6 @@ function fallbackReply(params: {
     const slots = context.variables["calendar.available_slots"];
     const slotStrings = Array.isArray(slots) ? slots.filter((s): s is string => typeof s === "string") : [];
 
-    // Offer times before asking for anything else. Keep the spoken list
-    // voice-friendly: with many openings, mention a subset and narrow down.
     if (turn.slotsOffered && slotStrings.length > 0 && !selectedSlot) {
       if (slotStrings.length > 6) {
         return `I have several openings, including ${humanSlotList(slotStrings.slice(0, 5), business.timezone)}. Would you prefer morning or afternoon?`;
@@ -510,9 +589,6 @@ export type AgentWorkflowInput = {
   history: AgentMessage[];
   business: AgentBusinessContext;
   caller: AgentCallerContext;
-  /** Test-form pre-selected appointment date ("YYYY-MM-DD"). Seeds the
-   * conversation so the tester need not repeat it in chat; anything the
-   * caller states in the conversation still wins. */
   requestedDate?: string;
   /** Test-form pre-selected appointment time ("HH:mm", 24h). */
   requestedTime?: string;
@@ -539,9 +615,6 @@ export async function runAgentWorkflow(params: {
   const aiNode = findAiNode(graph);
   const tools = aiTools(graph);
 
-  // Assistant identity source of truth: configured context (buyer/test) first,
-  // then the AI node's configured name (template preview), then the generic
-  // fallback. Never a hidden persona name.
   const business: AgentBusinessContext = {
     ...input.business,
     assistantName: resolveAssistantName(input.business.assistantName, asString(aiNode?.data?.assistantName)),
@@ -559,7 +632,29 @@ export async function runAgentWorkflow(params: {
     hasAi: Boolean(aiNode)
   };
 
-  // Call start: connect the trigger and speak the AI node's opening line.
+  const afterHours = business.afterHours?.policy.enabled ? business.afterHours : undefined;
+  const afterHoursClosed = afterHours?.snapshot.state === "CLOSED";
+  const afterHoursUnknown = afterHours?.snapshot.state === "UNKNOWN";
+
+  if (afterHoursUnknown) {
+    console.warn("[after-hours] business hours missing/invalid — using neutral wording (no closed claim)", {
+      workflowId,
+      timeZone: business.timezone
+    });
+  }
+
+  const afterHoursVariables: Record<string, unknown> = afterHours
+    ? {
+        "afterHours.state": afterHours.snapshot.state,
+        "afterHours.timezone": afterHours.snapshot.timeZone,
+        "afterHours.localDate": afterHours.snapshot.localDate,
+        "afterHours.localTime": afterHours.snapshot.localTime,
+        ...(afterHours.snapshot.simulated ? { "afterHours.simulated": afterHours.snapshot.simulated } : {})
+      }
+    : {};
+
+  // Call start: connect the trigger and speak the AI node's opening line —
+  // or the after-hours greeting when the business is closed.
   if (input.event === "call_start") {
     const executedNodes: AgentRuntimeLog[] = [];
 
@@ -572,17 +667,29 @@ export async function runAgentWorkflow(params: {
       });
     }
 
+    const closedGreeting =
+      afterHoursClosed && afterHours
+        ? resolveAfterHoursGreeting({ policy: afterHours.policy, businessName: business.name })
+        : null;
+
     executedNodes.push(
       aiNode
-        ? { nodeId: aiNode.id, label: nodeLabel(aiNode, "AI Conversation"), status: "success", message: "Spoke opening greeting." }
+        ? {
+            nodeId: aiNode.id,
+            label: nodeLabel(aiNode, "AI Conversation"),
+            status: "success",
+            message: closedGreeting
+              ? `Spoke the after-hours greeting (business closed — ${afterHours?.snapshot.statusLine ?? ""}).`
+              : "Spoke opening greeting."
+          }
         : { nodeId: "ai-missing", label: "AI Conversation", status: "waiting", message: "No AI conversation node is connected; replies use a generic receptionist." }
     );
 
     return {
-      reply: firstMessage,
+      reply: closedGreeting ?? firstMessage,
       executedNodes,
       toolCalls: [],
-      variables: {},
+      variables: { ...afterHoursVariables },
       capabilities,
       turn: { bookedThisTurn: false, smsThisTurn: false, slotsOffered: false, missingVariables: [], endReached: false }
     };
@@ -595,8 +702,6 @@ export async function runAgentWorkflow(params: {
     business
   });
 
-  // Test-form date/time seeding: the tester's selected values apply unless the
-  // conversation itself stated a date ("today"/"tomorrow") or a specific time.
   if (input.requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(input.requestedDate)) {
     const statedDate = [...input.history.map((item) => item.content), input.message].some((text) =>
       /\b(today|tomorrow)\b/i.test(text)
@@ -608,6 +713,15 @@ export async function runAgentWorkflow(params: {
     const label = timeLabelFrom24h(input.requestedTime);
     if (label) conversation.lastTimeMessage = `at ${label.toLowerCase()}`;
   }
+
+  const afterHoursState: AfterHoursConversationState | undefined =
+    afterHours && (afterHoursClosed || afterHoursUnknown)
+      ? deriveAfterHoursState({
+          history: input.history,
+          message: input.message,
+          screeningEnabled: policyScreensForEmergencies(afterHours.policy)
+        })
+      : undefined;
 
   const context: AgentRuntimeContext = {
     mode,
@@ -621,11 +735,20 @@ export async function runAgentWorkflow(params: {
     caller: input.caller,
     conversation,
     turn: { bookedThisTurn: false, smsThisTurn: false, slotsOffered: false, missingVariables: [], endReached: false },
+    ...(afterHoursState ? { afterHoursState } : {}),
     executedNodes: [],
     toolCalls: []
   };
 
   seedConversationVariables(context);
+  setVariables(context, afterHoursVariables);
+  if (afterHoursState) {
+    setVariables(context, {
+      "afterHours.route": afterHoursState.route,
+      ...(afterHoursState.outcome ? { "afterHours.outcome": afterHoursState.outcome } : {}),
+      ...(afterHoursState.redFlags.length > 0 ? { "afterHours.redFlags": afterHoursState.redFlags } : {})
+    });
+  }
 
   for (const node of graph.executionOrder) {
     const result = await executeNode(node, context, providers);

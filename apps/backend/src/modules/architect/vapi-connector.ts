@@ -276,19 +276,26 @@ function requireVapiConfig(assistantId?: string | null, phoneNumberId?: string |
   };
 }
 
+export type VapiBusinessHoursVariables = {
+  state: "open" | "closed" | "unknown";
+  statusLine?: string;
+  nextOpenText?: string;
+};
+
 export function buildVapiVariableValues({
   customerPhone,
   customerName,
   business,
   reason,
-  smsConsentStatus
+  smsConsentStatus,
+  businessHours
 }: {
   customerPhone: string;
   customerName?: string | null;
   business: VapiBusinessContext;
   reason: string;
-  /** "granted" | "declined" | "none" — resolved per call by the caller of this fn. */
   smsConsentStatus?: string | null;
+  businessHours?: VapiBusinessHoursVariables | null;
 }) {
   const timeZone = business.timeZone
     ? normalizeTimeZone(business.timeZone)
@@ -326,7 +333,10 @@ export function buildVapiVariableValues({
     calendarId: business.calendarId || "primary",
     timeZone,
     callReason: reason,
-    smsConsentStatus: smsConsentStatus || "unknown"
+    smsConsentStatus: smsConsentStatus || "unknown",
+    businessOpenState: businessHours?.state ?? "unknown",
+    businessHoursStatusLine: businessHours?.statusLine ?? "Business hours were not evaluated for this call.",
+    businessNextOpenTime: businessHours?.nextOpenText ?? ""
   };
 }
 
@@ -338,7 +348,8 @@ export async function startVapiOutboundCall({
   assistantId,
   phoneNumberId,
   metadata = {},
-  smsConsentStatus
+  smsConsentStatus,
+  businessHours
 }: {
   customerPhone: string;
   customerName?: string | null;
@@ -348,6 +359,7 @@ export async function startVapiOutboundCall({
   phoneNumberId?: string | null;
   metadata?: Record<string, unknown>;
   smsConsentStatus?: string | null;
+  businessHours?: VapiBusinessHoursVariables | null;
 }): Promise<VapiCallResult> {
   const config = requireVapiConfig(assistantId, phoneNumberId);
 
@@ -370,7 +382,8 @@ export async function startVapiOutboundCall({
           customerName,
           business,
           reason,
-          smsConsentStatus
+          smsConsentStatus,
+          businessHours
         })
       },
       metadata: {
@@ -407,7 +420,9 @@ export async function createVapiInboundTwiml({
   phoneNumberId,
   phoneNumber,
   metadata = {},
-  smsConsentStatus
+  smsConsentStatus,
+  businessHours,
+  firstMessageOverride
 }: {
   callerNumber: string;
   callerName?: string | null;
@@ -418,6 +433,8 @@ export async function createVapiInboundTwiml({
   phoneNumber?: string | null;
   metadata?: Record<string, unknown>;
   smsConsentStatus?: string | null;
+  businessHours?: VapiBusinessHoursVariables | null;
+  firstMessageOverride?: string | null;
 }): Promise<string | null> {
   const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
 
@@ -437,8 +454,10 @@ export async function createVapiInboundTwiml({
         customerName: callerName,
         business,
         reason,
-        smsConsentStatus
-      })
+        smsConsentStatus,
+        businessHours
+      }),
+      ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {})
     },
     metadata: {
       ...metadata,
@@ -907,10 +926,20 @@ function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.sendNotification,
         description:
-          "Send an SMS or notification after the booking or lead action is completed, if the buyer has SMS configured.",
+          "Send an SMS or notification after the booking or lead action is completed, if the buyer has SMS configured. Also used to alert the business team about urgent after-hours requests.",
         parameters: {
           type: "object",
           properties: {
+            urgency: {
+              type: "string",
+              enum: ["normal", "urgent", "emergency"],
+              description:
+                "Set 'urgent' for an urgent after-hours request, 'emergency' when the caller was directed to 911/emergency care and asked for the team to be notified. Marks the INTERNAL team notification only — it never sends the customer anything."
+            },
+            reason: {
+              type: "string",
+              description: "One short neutral sentence for the team, e.g. 'urgent after-hours callback requested'. Never a diagnosis."
+            },
             customer_phone: {
               type: "string",
               description: "Customer phone number."

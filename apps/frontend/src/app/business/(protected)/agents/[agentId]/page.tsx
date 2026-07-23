@@ -677,9 +677,14 @@ export default function BusinessAgentDetailPage() {
                 {/* Pricing Display */}
                 <div className="mt-3">
                   {(listing?.pricingModel ?? "SUBSCRIPTION") === "FREE" ? (
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Free</span>
-                      <span className="text-sm font-medium text-slate-500">forever</span>
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Free</span>
+                        <span className="text-sm font-medium text-slate-500" data-testid="agent-detail-price-model-text">agent price</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-500" data-testid="agent-detail-execution-charges-text">
+                        Execution charges: usage-based charges apply when this agent handles calls or performs configured billable actions.
+                      </p>
                     </div>
                   ) : (listing?.pricingModel ?? "SUBSCRIPTION") === "ONE_TIME" ? (
                     <div>
@@ -687,7 +692,9 @@ export default function BusinessAgentDetailPage() {
                         <span className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">${price}</span>
                         <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-600">one-time</span>
                       </div>
-                      <p className="mt-1 text-sm text-slate-500">Pay once, use forever — no recurring fees.</p>
+                      <p className="mt-1 text-sm text-slate-500" data-testid="agent-detail-execution-charges-text">
+                        Pay once for the agent — usage-based execution charges are billed separately.
+                      </p>
                     </div>
                   ) : (
                     <div>
@@ -855,7 +862,7 @@ export default function BusinessAgentDetailPage() {
 
         <section className="px-6 pt-16 pb-4 sm:pt-20 sm:pb-4">
           <div className="mx-auto w-full max-w-none">
-            <SectionHeader title="What's included" description="One flat price. No usage caps on anything that matters." />
+            <SectionHeader title="What's included" description="Everything below is included with the agent. Usage-based execution charges apply when it runs." />
 
             <div className="mt-10 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
               <ul className="divide-y divide-gray-100">

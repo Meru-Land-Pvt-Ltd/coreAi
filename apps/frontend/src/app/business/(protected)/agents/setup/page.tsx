@@ -27,6 +27,11 @@ import { AgentIdentitySection } from "@/components/business/setup/agent-identity
 import { KnowledgeSection } from "@/components/business/setup/knowledge-section";
 import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
+import {
+  AfterHoursPolicySection,
+  DEFAULT_AFTER_HOURS_POLICY_FORM,
+  type AfterHoursPolicyFormValue
+} from "@/components/business/setup/after-hours-policy-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
 import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
 import {
@@ -539,6 +544,15 @@ function SetupWizard() {
   const [tone, setTone] = useState("friendly");
 
   const [coverageKind, setCoverageKind] = useState<AiCoverageKind>("always");
+  const [afterHoursPolicy, setAfterHoursPolicyState] = useState<AfterHoursPolicyFormValue>(
+    DEFAULT_AFTER_HOURS_POLICY_FORM
+  );
+  const [afterHoursLoaded, setAfterHoursLoaded] = useState(false);
+  const updateAfterHoursPolicy = (next: AfterHoursPolicyFormValue) => {
+    setAfterHoursPolicyState(next);
+    setAfterHoursLoaded(true);
+    setConfigDirty(true);
+  };
   const [answeringDays, setAnsweringDays] = useState<AnsweringDayRow[]>(defaultAnsweringDays);
 
   const [businessHours, setBusinessHoursState] = useState<{
@@ -721,6 +735,31 @@ function SetupWizard() {
         if (Array.isArray(data.profile.faqs) && data.profile.faqs.length > 0) {
           setFaqs(data.profile.faqs);
         }
+      }
+
+      // Stored After-Hours policy (configJson.afterHoursPolicy).
+      const savedAfterHours = (data as { afterHoursPolicy?: Record<string, unknown> | null }).afterHoursPolicy;
+      if (savedAfterHours && typeof savedAfterHours === "object") {
+        setAfterHoursPolicyState({
+          enabled: savedAfterHours.enabled === true,
+          emergencyScreeningEnabled: savedAfterHours.emergencyScreeningEnabled === true,
+          emergencyCategory: (["DENTAL", "MEDICAL", "SERVICE", "NONE"].includes(String(savedAfterHours.emergencyCategory))
+            ? String(savedAfterHours.emergencyCategory)
+            : "NONE") as AfterHoursPolicyFormValue["emergencyCategory"],
+          greeting: typeof savedAfterHours.greeting === "string" ? savedAfterHours.greeting : "",
+          emergencyContactMethod: (["SMS", "EMAIL", "NONE"].includes(String(savedAfterHours.emergencyContactMethod))
+            ? String(savedAfterHours.emergencyContactMethod)
+            : "NONE") as AfterHoursPolicyFormValue["emergencyContactMethod"],
+          emergencyContact: typeof savedAfterHours.emergencyContact === "string" ? savedAfterHours.emergencyContact : "",
+          offerAppointmentBooking: savedAfterHours.offerAppointmentBooking !== false,
+          preferEarliestAvailableSlot:
+            savedAfterHours.preferEarliestAvailableSlot === true || savedAfterHours.useEmergencySlots === true,
+          allowUrgentCallbackRequest: savedAfterHours.allowUrgentCallbackRequest !== false,
+          lifeThreateningInstruction:
+            typeof savedAfterHours.lifeThreateningInstruction === "string" ? savedAfterHours.lifeThreateningInstruction : "",
+          includeCallbackInStaffAlert: savedAfterHours.includeCallbackInStaffAlert !== false
+        });
+        setAfterHoursLoaded(true);
       }
 
       // AI Call Coverage (phoneRouting.coverage) + the custom answering
@@ -1175,6 +1214,25 @@ function SetupWizard() {
             customRecipient: emailCustomRecipient.trim(),
             cc: emailCc.trim(),
             bcc: emailBcc.trim()
+          }
+        }
+        : {}),
+      // Sent only after the section loaded/was edited — omitting it preserves
+      // the stored policy (configJson MERGE).
+      ...(afterHoursLoaded
+        ? {
+          afterHoursPolicy: {
+            enabled: afterHoursPolicy.enabled,
+            emergencyScreeningEnabled: afterHoursPolicy.emergencyScreeningEnabled,
+            emergencyCategory: afterHoursPolicy.emergencyCategory,
+            greeting: afterHoursPolicy.greeting.trim(),
+            emergencyContactMethod: afterHoursPolicy.emergencyContactMethod,
+            emergencyContact: afterHoursPolicy.emergencyContact.trim(),
+            offerAppointmentBooking: afterHoursPolicy.offerAppointmentBooking,
+            preferEarliestAvailableSlot: afterHoursPolicy.preferEarliestAvailableSlot,
+            allowUrgentCallbackRequest: afterHoursPolicy.allowUrgentCallbackRequest,
+            lifeThreateningInstruction: afterHoursPolicy.lifeThreateningInstruction.trim(),
+            includeCallbackInStaffAlert: afterHoursPolicy.includeCallbackInStaffAlert
           }
         }
         : {}),
@@ -1880,6 +1938,24 @@ function SetupWizard() {
                   triggerKind={triggerKind}
                 />
               </ConfigureSectionCard>
+
+              {showVoice ? (
+                <ConfigureSectionCard
+                  id="after-hours"
+                  title="After-Hours & Emergency Routing"
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                  }
+                  status={afterHoursPolicy.enabled ? "complete" : "optional"}
+                  open={Boolean(openSections["after-hours"])}
+                  onToggle={(open) => toggleSection("after-hours", open)}
+                >
+                  <AfterHoursPolicySection value={afterHoursPolicy} onChange={updateAfterHoursPolicy} />
+                </ConfigureSectionCard>
+              ) : null}
 
               <ConfigureSectionCard
                 id="agent-behavior"
@@ -2996,6 +3072,8 @@ function PreviewCallSection({
   const [micMuted, setMicMuted] = useState(false);
   const [transcript, setTranscript] = useState<PreviewTranscriptEntry[]>([]);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
+  // After-hours simulation for the preview ("current" = real configured hours).
+  const [afterHoursSimulation, setAfterHoursSimulation] = useState<"current" | "open" | "closed">("current");
 
   const clientRef = useRef<PreviewVapiClient | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
@@ -3086,7 +3164,7 @@ function PreviewCallSection({
     setState("starting");
 
     try {
-      const res = await startBusinessSetupPreviewCall();
+      const res = await startBusinessSetupPreviewCall({ simulateBusinessHoursState: afterHoursSimulation });
 
       if (!res.success || !res.data?.session) {
         setState("idle");
@@ -3403,6 +3481,26 @@ function PreviewCallSection({
               />
             )}
           </div>
+
+          {/* After-hours simulation for the next preview call (test only). */}
+          {state === "idle" || state === "ended" ? (
+            <label
+              className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-400"
+              data-testid="business-setup-preview-after-hours-label"
+            >
+              <span className="font-semibold text-slate-300">Business-hours state:</span>
+              <select
+                data-testid="business-setup-preview-after-hours-select"
+                value={afterHoursSimulation}
+                onChange={(event) => setAfterHoursSimulation(event.target.value as "current" | "open" | "closed")}
+                className="rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-amber-400/60"
+              >
+                <option value="current">Use current configured time</option>
+                <option value="open">Simulate open</option>
+                <option value="closed">Simulate closed (after hours)</option>
+              </select>
+            </label>
+          ) : null}
         </div>
 
         {/* Right Stage Column: Real-Time Voice Transcript Stream (Positioned on the Right Side of Mic) */}
@@ -4209,6 +4307,8 @@ function BusinessCalendarTestSection({
   const [toolCalls, setToolCalls] = useState<BusinessChatTestToolCall[]>([]);
   const [executedNodes, setExecutedNodes] = useState<BusinessTestExecutedNode[]>([]);
   const [deletingEvent, setDeletingEvent] = useState(false);
+  // After-hours simulation ("current" = evaluate the real configured hours).
+  const [afterHoursSimulation, setAfterHoursSimulation] = useState<"current" | "open" | "closed">("current");
   const testSessionIdRef = useRef<string>(`bts_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
 
   const send = async () => {
@@ -4224,7 +4324,8 @@ function BusinessCalendarTestSection({
     const res = await runBusinessSetupChatTest({
       message,
       history: messages,
-      testSessionId: testSessionIdRef.current
+      testSessionId: testSessionIdRef.current,
+      simulateBusinessHoursState: afterHoursSimulation
     });
 
     setSending(false);
@@ -4286,6 +4387,21 @@ function BusinessCalendarTestSection({
         Business timezone: <span className="font-semibold text-slate-700">{timeZone || "not set"}</span>
         {calendarConnected ? " · Google Calendar connected" : " · Google Calendar not connected — bookings will fail safely"}
       </p>
+
+      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500" data-testid="business-test-after-hours-label">
+        <span className="font-semibold text-slate-700">Business-hours state:</span>
+        <select
+          data-testid="business-test-after-hours-select"
+          value={afterHoursSimulation}
+          onChange={(event) => setAfterHoursSimulation(event.target.value as "current" | "open" | "closed")}
+          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+        >
+          <option value="current">Use current configured time</option>
+          <option value="open">Simulate open</option>
+          <option value="closed">Simulate closed (after hours)</option>
+        </select>
+        <span className="text-[11px] text-slate-400">Test only — live calls always use your real hours.</span>
+      </label>
 
       <div className="mt-4 rounded-xl border border-gray-200 bg-white">
         <div className="max-h-64 space-y-2 overflow-y-auto p-4" data-testid="business-setup-calendar-test-transcript">

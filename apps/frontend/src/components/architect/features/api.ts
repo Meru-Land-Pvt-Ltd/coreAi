@@ -31,6 +31,11 @@ export type ArchitectAgentsStats = {
   executionsThisMonth: number;
   executionsPrevMonth: number;
   executionsChangePercent: number | null;
+  /** Canonical ledger metrics: distinct LIVE provider executions only. */
+  activeExecutionCount?: number;
+  periodExecutionCount?: number;
+  lifetimeExecutionCount?: number;
+  excludedPausedInstallationCount?: number;
   totalEarningsCents: number;
   revenue30dCents: number;
   revenuePrev30dCents: number;
@@ -647,6 +652,8 @@ export function runArchitectConversationTest(
     testSessionId?: string;
     /** Create real events in the architect's OWN connected test calendar. */
     useTestCalendar?: boolean;
+    /** After-hours simulation: evaluate as open/closed ("current" = no override). */
+    simulateBusinessHoursState?: "current" | "open" | "closed";
     testContext?: {
       businessName?: string;
       businessType?: string;
@@ -801,6 +808,8 @@ export function startArchitectVapiBrowserTest(
       useTestCalendar?: boolean;
       /** Groups this browser test's records (test calendar events). */
       testSessionId?: string;
+      /** After-hours simulation for this voice test session. */
+      simulateBusinessHoursState?: "current" | "open" | "closed";
     };
   } = {}
 ) {
