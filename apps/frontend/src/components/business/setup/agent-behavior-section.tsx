@@ -5,6 +5,7 @@ import { CUSTOM_INSTRUCTION_SUGGESTIONS, DEFAULT_SILENCE } from "@coreai/shared"
 import type { BuyerCustomFieldValue, BuyerSetupFieldDef } from "@/components/business/features/api";
 import { BuyerSetupFieldControl } from "./buyer-setup-field";
 import { FIELD, LABEL } from "./ui";
+import { InfoTooltip } from "./InfoTooltip";
 
 /**
  * Agent Behavior section of the Configure step: how the agent handles
@@ -54,10 +55,10 @@ export function AgentBehaviorSection({
           are the details this template requires from the buyer. */}
       {setupFields.length > 0 ? (
         <div className="mb-7 border-b border-gray-100 pb-6" data-testid="business-setup-custom-fields">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Agent setup details</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Details this agent needs to answer callers accurately.
-          </p>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 inline-flex items-center">
+            Agent setup details
+            <InfoTooltip content="Details this agent needs to answer callers accurately." />
+          </h3>
           {setupInstructions ? (
             <p
               className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 px-3.5 py-2.5 text-sm text-amber-900/90"
@@ -80,10 +81,10 @@ export function AgentBehaviorSection({
       ) : null}
 
       <div data-testid="business-setup-instructions">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Custom instructions</h3>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Tell the AI how to handle calls.
-        </p>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 inline-flex items-center">
+          Custom instructions
+          <InfoTooltip content="Tell the AI how to handle calls." />
+        </h3>
 
         <div className="mt-3 flex flex-wrap gap-2" data-testid="business-setup-instruction-chips">
           {CUSTOM_INSTRUCTION_SUGGESTIONS.map((suggestion) => (
@@ -121,13 +122,11 @@ export function AgentBehaviorSection({
             onClick={() => setAdvancedOpen((current) => !current)}
             aria-expanded={advancedOpen}
             data-testid="business-setup-advanced-toggle"
-            className="flex w-full items-center justify-between gap-3 text-left"
+            className="flex w-full items-center justify-between gap-3 text-left cursor-pointer"
           >
-            <span>
+            <span className="inline-flex items-center">
               <span className="block text-xs font-bold uppercase tracking-wider text-slate-800">Advanced call behavior</span>
-              <span className="mt-0.5 block text-xs text-slate-500">
-                Goodbye message when ending calls.
-              </span>
+              <InfoTooltip content="Goodbye message when ending calls." />
             </span>
             <svg
               viewBox="0 0 24 24"

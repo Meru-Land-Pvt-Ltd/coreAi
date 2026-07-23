@@ -5,6 +5,7 @@ import { BusinessAddressSection } from "@/components/business/business-settings-
 import type { BusinessFaq } from "@/components/business/features/api";
 import { DocumentUploadSection, FaqSection } from "./knowledge-section";
 import { FIELD } from "./ui";
+import { InfoTooltip } from "./InfoTooltip";
 
 const SERVICE_MAP: Record<string, string[]> = {
   dental: ["Consultation", "Root canal", "Cleaning", "Whitening", "Braces"],
@@ -171,8 +172,10 @@ export function BusinessProfileSection({
         </div>
 
         <div className="border-t border-gray-100 pt-3.5">
-          <h4 className="mb-0.5 text-xs font-bold text-slate-800 uppercase tracking-wider">Services</h4>
-          <p className="text-xs text-slate-500 mb-2.5">Select what applies, or add your own.</p>
+          <h4 className="mb-2 text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center">
+            Services
+            <InfoTooltip content="Select what applies, or add your own." />
+          </h4>
           <div id="serviceChips" className="flex flex-wrap gap-1.5">
             {selectedServices.map((s, i) => (
               <button

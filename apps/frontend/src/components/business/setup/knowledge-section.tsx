@@ -14,6 +14,7 @@ import {
   type KnowledgeLiveSync,
   type BusinessFactsData
 } from "@/components/business/features/api";
+import { InfoTooltip } from "./InfoTooltip";
 
 
 const KNOWLEDGE_MAX_FILE_BYTES = 10 * 1024 * 1024; // matches backend MAX_FILE_BYTES
@@ -230,12 +231,12 @@ export function DocumentUploadSection({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Documents & Knowledge Base</h4>
+        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center">
+          Documents & Knowledge Base
+          <InfoTooltip content="Brochures, price lists, policies, or service catalogs." />
+        </h4>
         <span className="text-xs text-slate-400 font-medium">Optional</span>
       </div>
-      <p className="mt-0.5 text-xs text-slate-500">
-        Brochures, price lists, policies, or service catalogs.
-      </p>
 
       <label
         htmlFor="file-input"
@@ -281,7 +282,7 @@ export function DocumentUploadSection({
           {pendingUploads.map((row) => (
             <div
               key={row.key}
-              className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5 group transition-colors hover:border-slate-200"
+              className="flex items-center gap-3 border-b border-gray-150 py-2.5 group"
               data-testid="business-setup-knowledge-file"
             >
               <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
@@ -311,7 +312,7 @@ export function DocumentUploadSection({
             return (
               <div
                 key={file.id}
-                className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5 group transition-colors hover:border-slate-200"
+                className="flex items-center gap-3 border-b border-gray-150 py-2.5 group"
                 data-testid="business-setup-knowledge-file"
               >
                 <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
@@ -399,7 +400,7 @@ export function DocumentUploadSection({
 
       {/* Unified minimalist confirmation card for extracted details */}
       {(facts?.documentSuggestion || hoursSuggestionReady) ? (
-        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm animate-fade-in space-y-3.5">
+        <div className="mt-4 border-t border-gray-200/60 pt-4 animate-fade-in space-y-3.5">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
@@ -413,7 +414,7 @@ export function DocumentUploadSection({
 
           <div className="grid gap-2.5">
             {facts?.documentSuggestion ? (
-              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-white border border-slate-100 hover:border-amber-200 transition-all shadow-2xs">
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
                 <div className="min-w-0">
                   <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Address</span>
                   <p className="text-xs text-slate-700 font-medium truncate mt-0.5" title={facts.documentSuggestion.formatted}>
@@ -432,7 +433,7 @@ export function DocumentUploadSection({
             ) : null}
 
             {hoursSuggestionReady ? (
-              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-white border border-slate-100 hover:border-amber-200 transition-all shadow-2xs" data-testid="business-setup-knowledge-hours-hint">
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0" data-testid="business-setup-knowledge-hours-hint">
                 <div className="min-w-0">
                   <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Opening Hours</span>
                   <p className="text-xs text-slate-700 font-medium mt-0.5">
@@ -446,7 +447,7 @@ export function DocumentUploadSection({
                     onClick={onReviewHours}
                     className="shrink-0 text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
                   >
-                    Review Timings
+                     Review Timings
                   </button>
                 ) : null}
               </div>
@@ -469,8 +470,10 @@ export function FaqSection({
     <div>
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">FAQs</h4>
-          <p className="mt-0.5 text-xs text-slate-500">Exact answers the agent should give.</p>
+          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center">
+            FAQs
+            <InfoTooltip content="Exact answers the agent should give." />
+          </h4>
         </div>
         <button
           type="button"
@@ -489,7 +492,7 @@ export function FaqSection({
       {faqs.length > 0 ? (
         <div className="mt-2.5 space-y-2.5">
           {faqs.map((faq, index) => (
-            <div key={index} className="border border-gray-200 rounded-xl p-3 flex gap-2.5 bg-slate-50/50" data-testid="business-setup-faq-row">
+            <div key={index} className="border-b border-gray-150 py-3 flex gap-2.5" data-testid="business-setup-faq-row">
               <div className="flex-1 space-y-1.5">
                 <input
                   type="text"
