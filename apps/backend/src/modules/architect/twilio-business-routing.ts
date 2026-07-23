@@ -2509,6 +2509,23 @@ const NEEDS_CUSTOMER_PHONE_RESULT = {
   message: "Please ask the caller for their phone number."
 } as const;
 
+const NEEDS_COUNTRY_CODE_RESULT = {
+  success: false,
+  needs_clarification: true,
+  missing_field: "country_code",
+  message:
+    "The caller's phone number has no country code, so texts could go to the wrong number. Ask which country the number is from (for example 'plus one' for the US or Canada, 'plus nine one' for India), then call the tool again with the FULL number including the country code, like +16505551234 or +916396039675."
+} as const;
+
+export function hasExplicitCountryCode(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("+")) return true;
+  const digits = trimmed.replace(/\D/g, "");
+  if (trimmed.replace(/[\s().-]/g, "").startsWith("00") && digits.length >= 11) return true;
+  // 11+ digits necessarily include a country code (1 + US 10, 91 + IN 10, …).
+  return digits.length >= 11;
+}
+
 const INVALID_PATIENT_NAMES = new Set([
   "john doe", "jane doe", "full name", "patient name", "patient full name", "test user",
   "customer name", "guest name", "lead name", "client name",
@@ -2805,6 +2822,16 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   rememberCallContact(ctx.callId, { name: patientName });
 
   const rawPhone = argStr(args, PHONE_ARG_KEYS);
+
+  // Web calls have NO caller ID, so a dictated number is the only identity we
+  // get — a bare 10-digit number is ambiguous across countries and must not
+  // be booked on a guess (wrong-number texts, unverifiable reschedules).
+  const callerIdPhone = normalizePhoneE164(ctx.customerPhone);
+  if (!callerIdPhone && !rememberedContact.phone && rawPhone && !hasExplicitCountryCode(rawPhone)) {
+    console.log("[vapi-tool] book_appointment missing fields", ["country_code"]);
+    return NEEDS_COUNTRY_CODE_RESULT;
+  }
+
   let patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.phone || "";
 
   if (!patientPhone && ctx.dental?.dryRun) {
@@ -3892,7 +3919,19 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     };
   }
 
-  const phone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
+  const consentRawPhone = argStr(args, PHONE_ARG_KEYS);
+  const consentContact = recallCallContact(ctx.callId);
+  if (
+    !normalizePhoneE164(ctx.customerPhone) &&
+    !consentContact.phone &&
+    consentRawPhone &&
+    !hasExplicitCountryCode(consentRawPhone)
+  ) {
+    return { ...NEEDS_COUNTRY_CODE_RESULT, consent_recorded: false };
+  }
+
+  const phone =
+    resolvePatientPhone(consentRawPhone, ctx.customerPhone) || consentContact.phone || "";
   if (!phone) {
     return { success: false, error: "customer_phone_unavailable", consent_recorded: false };
   }

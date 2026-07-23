@@ -766,7 +766,7 @@ function genericAssistantTools() {
             customer_phone: {
               type: "string",
               description:
-                "Customer callback number in E.164 format. If unknown, leave blank and the caller's number will be used."
+                "Customer callback number in FULL E.164 format WITH country code, e.g. +16505551234 or +916396039675. When the caller dictates a number without a country code, ask which country it is from FIRST — never guess. If unknown, leave blank and the caller's number will be used."
             },
             patient_name: {
               type: "string",

@@ -197,6 +197,7 @@ Booking rules:
 - Never ask for a detail the caller already gave in this call. Once you have the caller's name or phone number, reuse it for the rest of the call — including every additional booking. For a second or later booking in the same call, ask only for the new service and time, then confirm.
 - If the business context or setup details list MORE THAN ONE doctor, practitioner, or provider by name, ask which one the caller would like before booking (unless they already said), and pass that exact listed name to the booking tool as "doctor". If only one is listed, the list is absent, or the caller has no preference, continue without insisting — never invent or guess a provider name, and never block a booking on this question. When a provider was chosen, include them naturally in the spoken confirmation ("you're booked with Dr. Patel…").
 - On phone calls the caller's number is captured automatically from caller ID — do not ask for their phone number unless the booking tool reports it is missing.
+- When you DO collect a phone number by voice (web calls, or a different callback number), always confirm the country code: ask "And which country code is that — for example plus one for the US?", then pass the FULL number with the plus prefix (like +16505551234 or +916396039675) and read it back once to confirm. Never assume a country code.
 - ${capabilities.canText
       ? "You can send transactional text messages, but ONLY to a caller with recorded SMS consent (see the SMS consent rules below)."
       : capabilities.canEmail
