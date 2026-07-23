@@ -9,6 +9,8 @@ import { apiGet, apiPost } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
 import { BUSINESS_BILLING_PATH, BUSINESS_LOGIN_PATH } from "@/lib/routes";
+import { shouldShowSyntheticAccrual } from "@/components/business/current-month-accrual";
+import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
@@ -256,6 +258,12 @@ export default function BusinessInvoiceDetailPage() {
     const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
     const [toast, setToast] = useState("");
 
+    const {
+        pricing: executionPricing,
+        loading: executionPricingLoading,
+        error: executionPricingError
+    } = useBuyerExecutionPricing();
+
     const authUser = useMemo(() => (authReady ? getAuthUser() : null), [authReady]);
 
     useEffect(() => {
@@ -430,13 +438,15 @@ export default function BusinessInvoiceDetailPage() {
         }
     }
 
-    const hasPersistedCurrentStatement = usage
-        ? usageInvoices.some((item) => item.billingMonth === usage.month && (item.status === "PENDING" || item.status === "OPEN"))
+    const showSyntheticAccrual = usage
+        ? shouldShowSyntheticAccrual({
+            invoices: usageInvoices,
+            currentMonth: usage.month,
+            executionCount: usage.totalCalls,
+            costUsd: usage.totalBilledUsd
+        })
         : false;
-    const currentUsageStatement: UsageInvoice | null = usage
-        && usage.totalCalls > 0
-        && usage.totalBilledUsd > 0
-        && !hasPersistedCurrentStatement
+    const currentUsageStatement: UsageInvoice | null = usage && showSyntheticAccrual
         ? {
             id: `accrued-${usage.month}`,
             invoiceNumber: `ACCRUED-${usage.month.replace("-", "")}`,
@@ -574,6 +584,14 @@ export default function BusinessInvoiceDetailPage() {
                         }
                     />
                 )}
+
+                <ExecutionPricingSummary
+                    pricing={executionPricing}
+                    loading={executionPricingLoading}
+                    unavailable={executionPricingError}
+                    variant="full"
+                    className="no-print mx-auto mt-6 max-w-[800px] text-xs text-slate-400"
+                />
             </main>
 
             <div className="no-print pointer-events-none fixed bottom-4 left-4 right-4 z-[70] flex flex-col items-stretch gap-2 sm:left-auto sm:items-end" aria-live="polite">

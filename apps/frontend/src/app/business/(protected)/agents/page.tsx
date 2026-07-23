@@ -15,6 +15,7 @@ import {
     businessSetupPath
 } from "@/lib/routes";
 import {  BotIcon } from "lucide-react";
+import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 const TRIAL_DAYS = 7;
 
@@ -275,6 +276,12 @@ export default function BusinessMyAgentsPage() {
     const [apiError, setApiError] = useState("");
     const [agents, setAgents] = useState<OwnedAgent[]>([]);
 
+    const {
+        pricing: executionPricing,
+        loading: executionPricingLoading,
+        error: executionPricingError
+    } = useBuyerExecutionPricing();
+
     useEffect(() => {
         const token = getAuthToken();
         const user = getAuthUser();
@@ -446,6 +453,14 @@ export default function BusinessMyAgentsPage() {
                         </div>
                     )}
                 </div>
+
+                <ExecutionPricingSummary
+                    pricing={executionPricing}
+                    loading={executionPricingLoading}
+                    unavailable={executionPricingError}
+                    variant="full"
+                    className="mt-8 max-w-sm text-xs text-slate-400"
+                />
             </div>
         </main>
     );

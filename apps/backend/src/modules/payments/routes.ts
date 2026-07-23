@@ -14,6 +14,7 @@ import {
 } from "../../lib/billing-invoices";
 import {
   buildAgentPurchaseLineItems,
+  getPhoneNumberBillingState,
   getPhoneNumberFee,
   listingNeedsPhoneNumber,
   markPhoneNumberFeeBilled,
@@ -439,6 +440,32 @@ paymentRoutes.get("/config", (c) => {
   return successResponse(c, {
     publishableKey: env.STRIPE_PUBLISHABLE_KEY ?? null,
     stripeEnabled: isStripeConfigured()
+  });
+});
+
+/**
+ * Buyer-safe execution pricing for every buyer surface (marketplace, agent
+ * detail, checkout, dashboards). Billing rates only — vendor actual costs are
+ * never exposed. Null rates mean "usage pricing unavailable", never zero, and
+ * phone-number billing reports an honest enabled/disabled state.
+ */
+paymentRoutes.get("/execution-pricing", async (c) => {
+  const [buyerPricing, phoneNumberBilling] = await Promise.all([
+    loadActiveUsageServicePricing().then(buyerExecutionPricingView),
+    getPhoneNumberBillingState()
+  ]);
+
+  return successResponse(c, {
+    executionPricing: {
+      billingType: "USAGE_BASED" as const,
+      unit: "PER_MINUTE" as const,
+      ratePerMinuteUsd: buyerPricing.voice.billingRatePerMinuteUsd,
+      currency: buyerPricing.currency,
+      voice: buyerPricing.voice,
+      sms: buyerPricing.sms,
+      phoneNumber: buyerPricing.phoneNumber
+    },
+    phoneNumberBilling
   });
 });
 
@@ -963,6 +990,7 @@ paymentRoutes.get("/my-agents", async (c) => {
   // never vendor actual costs. Null rate = "usage pricing unavailable" in the
   // UI, never zero and never free.
   const buyerPricing = buyerExecutionPricingView(await loadActiveUsageServicePricing());
+  const phoneNumberBilling = await getPhoneNumberBillingState();
   const executionPricing = {
     billingType: "USAGE_BASED" as const,
     unit: "PER_MINUTE" as const,
@@ -970,7 +998,8 @@ paymentRoutes.get("/my-agents", async (c) => {
     currency: buyerPricing.currency,
     voice: buyerPricing.voice,
     sms: buyerPricing.sms,
-    phoneNumber: buyerPricing.phoneNumber
+    phoneNumber: buyerPricing.phoneNumber,
+    phoneNumberBilling
   };
   type InstalledAgentRow = (typeof installedAgents)[number];
 
@@ -1244,6 +1273,7 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
 
   const needsPhone = await listingNeedsPhoneNumber(listing.id);
   const phoneFee = needsPhone ? await getPhoneNumberFee() : null;
+  const phoneNumberBilling = await getPhoneNumberBillingState();
 
   return successResponse(c, {
     listingId: listing.id,
@@ -1255,6 +1285,9 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     phoneNumberFee: phoneFee && phoneFee.amountCents > 0
       ? { label: phoneFee.label, amountCents: phoneFee.amountCents }
       : null,
+    // Honest phone-number billing state: when disabled, the UI must say so
+    // instead of displaying a payable rate that is never charged.
+    phoneNumberBilling,
     currency: "usd",
     usagePricing: {
       perMinuteUsd: perMinuteMicroUsd / 1_000_000,

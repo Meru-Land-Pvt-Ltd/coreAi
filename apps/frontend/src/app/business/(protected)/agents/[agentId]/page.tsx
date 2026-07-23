@@ -9,6 +9,7 @@ import { BUSINESS_AGENTS_PATH, BUSINESS_MARKETPLACE_PATH, businessCheckoutPath, 
 import { getConnectorIncludedItem, getLlmIncludedItem, getHowItWorksSteps, getHowItWorksSubtitle } from "@coreai/shared";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
 import { ExpandableText } from "@/components/common/expandable-text";
+import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 const TRIAL_DAYS = 7;
 
@@ -363,6 +364,12 @@ export default function BusinessAgentDetailPage() {
   const heroCtaRef = useRef<HTMLAnchorElement | null>(null);
   const demoRef = useRef<HTMLDivElement | null>(null);
 
+  const {
+    pricing: executionPricing,
+    loading: executionPricingLoading,
+    error: executionPricingError,
+  } = useBuyerExecutionPricing();
+
   useEffect(() => {
     if (!agentId) return;
 
@@ -710,6 +717,14 @@ export default function BusinessAgentDetailPage() {
                     </div>
                   )}
                 </div>
+
+                <ExecutionPricingSummary
+                  pricing={executionPricing}
+                  loading={executionPricingLoading}
+                  unavailable={executionPricingError}
+                  variant="full"
+                  className="mt-2 text-xs text-slate-500"
+                />
 
                 {ownedAgent ? (
                   <div className="mt-5 flex flex-col gap-3 sm:flex-row">

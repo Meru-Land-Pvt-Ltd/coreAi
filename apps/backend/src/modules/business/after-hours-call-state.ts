@@ -21,7 +21,42 @@ export class AfterHoursStateStoreUnavailableError extends Error {
   }
 }
 
-function redisClient(): Redis | null {
+/**
+ * Minimal Redis surface this store depends on — injectable so operational
+ * readiness and failure paths are integration-testable without a real Redis
+ * and without binding behavior at module import.
+ */
+export type AfterHoursRedisAdapter = {
+  readonly status: string;
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, mode: "EX", ttlSeconds: number): Promise<unknown>;
+  del(key: string): Promise<unknown>;
+  ping?(): Promise<string>;
+};
+
+/** undefined = no override; null = simulate "not configured"; object = fake. */
+let adapterOverride: AfterHoursRedisAdapter | null | undefined;
+let adapterOverrideActive = false;
+/** null = use the real env; boolean = simulate production-ness in tests. */
+let productionOverride: boolean | null = null;
+
+export function setAfterHoursRedisAdapterForTests(
+  adapter: AfterHoursRedisAdapter | null | undefined
+): void {
+  adapterOverrideActive = adapter !== undefined;
+  adapterOverride = adapter;
+}
+
+export function setAfterHoursProductionModeForTests(value: boolean | null): void {
+  productionOverride = value;
+}
+
+function effectiveProduction(): boolean {
+  return productionOverride ?? isProduction;
+}
+
+function redisClient(): AfterHoursRedisAdapter | null {
+  if (adapterOverrideActive) return adapterOverride ?? null;
   if (redis !== undefined) return redis;
 
   if (!env.REDIS_URL) {
@@ -46,6 +81,7 @@ function redisClient(): Redis | null {
 }
 
 export function afterHoursCallStateStoreIsDistributed(): boolean {
+  if (adapterOverrideActive) return adapterOverride !== null;
   return Boolean(env.REDIS_URL);
 }
 
@@ -53,6 +89,45 @@ export function afterHoursCallStateStoreIsDistributed(): boolean {
 export function afterHoursStateStoreReady(): boolean {
   const client = redisClient();
   return Boolean(client && client.status === "ready");
+}
+
+/**
+ * Async operational probe: configuration, live connection status, and a real
+ * PING round-trip. `safeForLive` is the production gate — a configured URL
+ * whose connection is refused or whose PING fails is NOT ready.
+ */
+export async function probeAfterHoursStateStore(): Promise<{
+  distributed: boolean;
+  production: boolean;
+  connectionReady: boolean;
+  pingOk: boolean;
+  ready: boolean;
+  safeForLive: boolean;
+}> {
+  const distributed = afterHoursCallStateStoreIsDistributed();
+  const production = effectiveProduction();
+  const client = redisClient();
+  const connectionReady = Boolean(client && client.status === "ready");
+
+  let pingOk = false;
+  if (client && connectionReady) {
+    try {
+      const pong = client.ping ? await client.ping() : "PONG";
+      pingOk = typeof pong === "string" && pong.toUpperCase().includes("PONG");
+    } catch {
+      pingOk = false;
+    }
+  }
+
+  const ready = connectionReady && pingOk;
+  return {
+    distributed,
+    production,
+    connectionReady,
+    pingOk,
+    ready,
+    safeForLive: isAfterHoursStoreSafeForLive({ distributed, production, ready })
+  };
 }
 
 /**
@@ -72,7 +147,7 @@ export function isAfterHoursStoreSafeForLive(params: {
 export function afterHoursStateStoreAvailableForLive(): boolean {
   return isAfterHoursStoreSafeForLive({
     distributed: afterHoursCallStateStoreIsDistributed(),
-    production: isProduction,
+    production: effectiveProduction(),
     ready: afterHoursStateStoreReady()
   });
 }
@@ -109,14 +184,14 @@ export async function readAfterHoursCallState(
     } catch (error) {
       // PRODUCTION never degrades to per-process memory — that would let two
       // backend instances hold divergent safety state. Fail closed instead.
-      if (isProduction) {
+      if (effectiveProduction()) {
         throw new AfterHoursStateStoreUnavailableError(
           `redis get failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
       console.error("[after-hours-call-state] redis get failed — using memory fallback (non-production)", error);
     }
-  } else if (isProduction) {
+  } else if (effectiveProduction()) {
     throw new AfterHoursStateStoreUnavailableError("redis not configured in production");
   }
 
@@ -138,14 +213,14 @@ export async function writeAfterHoursCallState(
       await client.set(key, JSON.stringify(state), "EX", CALL_STATE_TTL_SECONDS);
       return;
     } catch (error) {
-      if (isProduction) {
+      if (effectiveProduction()) {
         throw new AfterHoursStateStoreUnavailableError(
           `redis set failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
       console.error("[after-hours-call-state] redis set failed — using memory fallback (non-production)", error);
     }
-  } else if (isProduction) {
+  } else if (effectiveProduction()) {
     throw new AfterHoursStateStoreUnavailableError("redis not configured in production");
   }
 
@@ -183,7 +258,7 @@ export async function updateAfterHoursStaffNotificationStatus(
   });
 }
 
-/** Test hook: clear memory state and re-resolve the client (marketplace-demo pattern). */
+/** Test hook: clear memory state, overrides, and re-resolve the client. */
 export function resetAfterHoursCallStateStore(): void {
   memoryStore.clear();
   if (redis) {
@@ -194,4 +269,7 @@ export function resetAfterHoursCallStateStore(): void {
     }
   }
   redis = undefined;
+  adapterOverride = undefined;
+  adapterOverrideActive = false;
+  productionOverride = null;
 }

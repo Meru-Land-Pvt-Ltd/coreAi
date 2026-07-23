@@ -13,6 +13,7 @@ import {
 } from "./execution-billing";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import { resolvePrimaryBusinessId } from "./primary-business";
+import { countStandaloneBillableSms } from "./usage-billing";
 
 function microUsdToUsd(value: number) {
   return value / 1_000_000;
@@ -89,6 +90,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       averageCostPerExecutionUsd: 0,
       averageCostPerCustomerInteractionUsd: 0,
       updatedAt: null,
+      standaloneSms: { count: 0 },
       agentRollup: [],
       serviceRollup: [],
       executions: [],
@@ -96,7 +98,7 @@ export async function getBusinessExecutionUsage(c: Context) {
     });
   }
 
-  const [executions, calls, executionMonths, invoiceMonths] = await Promise.all([
+  const [executions, calls, executionMonths, invoiceMonths, standaloneSmsCount] = await Promise.all([
     prisma.agentUsageExecution.findMany({
       where: { businessId: business.id, billingMonth: month },
       orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
@@ -146,7 +148,11 @@ export async function getBusinessExecutionUsage(c: Context) {
       where: { businessId: business.id },
       distinct: ["billingMonth"],
       select: { billingMonth: true }
-    })
+    }),
+    // Provider-accepted customer SMS with NO provable voice-execution link —
+    // business-period SMS usage, reported separately so it is neither
+    // discarded nor falsely attached to a call execution.
+    countStandaloneBillableSms(business.id, selectedBounds)
   ]);
 
   const agentsById = new Map(business.installedAgents.map((agent) => [agent.id, agent]));
@@ -265,6 +271,7 @@ export async function getBusinessExecutionUsage(c: Context) {
     averageCostPerCustomerInteractionUsd:
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
     updatedAt: executions[0]?.occurredAt.toISOString() ?? null,
+    standaloneSms: { count: standaloneSmsCount },
     agentRollup,
     serviceRollup: [
       {

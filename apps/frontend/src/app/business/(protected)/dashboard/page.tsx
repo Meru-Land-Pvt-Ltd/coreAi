@@ -10,6 +10,7 @@ import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business
 import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-confirmation-modal";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
+import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
@@ -395,6 +396,12 @@ export default function BusinessDashboardPage() {
     const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
     const [agents, setAgents] = useState<Agent[]>([]);
     const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
+
+    const {
+        pricing: executionPricing,
+        loading: executionPricingLoading,
+        error: executionPricingError
+    } = useBuyerExecutionPricing();
 
     const chartDays = useMemo(() => {
         const days = overview?.activityChart?.days ?? [];
@@ -864,6 +871,14 @@ export default function BusinessDashboardPage() {
                                 Pause all agents
                             </Link>
                         </div>
+
+                        <ExecutionPricingSummary
+                            pricing={executionPricing}
+                            loading={executionPricingLoading}
+                            unavailable={executionPricingError}
+                            variant="full"
+                            className="mt-4 border-t border-gray-100 pt-4 text-xs text-slate-400"
+                        />
                     </section>
                 </div>
             </div>
