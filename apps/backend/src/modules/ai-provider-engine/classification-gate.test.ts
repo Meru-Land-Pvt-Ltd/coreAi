@@ -1,14 +1,36 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AIProviderEngine } from "./provider-engine";
 import type { AIProviderAdapter } from "./types";
 import type { ProviderRegistry } from "./provider-registry";
+import { env } from "../../config/env";
 
-/**
- * The engine-level Limited Use gate: with the default (all-false) confirmation
- * flags, GOOGLE_WORKSPACE_DERIVED and RAW requests must be blocked BEFORE any
- * adapter/network call, for every provider — including Gemini (no free-tier
- * fallback). GENERAL requests pass through untouched.
- */
+const GUARD_FLAGS = [
+  "GOOGLE_WORKSPACE_AI_PROCESSING_ENABLED",
+  "VAPI_WORKSPACE_NO_TRAINING_CONFIRMED",
+  "VAPI_HIPAA_OR_ZDR_CONFIRMED",
+  "OPENAI_NO_TRAINING_CONFIRMED",
+  "OPENAI_DATA_SHARING_DISABLED_CONFIRMED",
+  "ANTHROPIC_NO_TRAINING_CONFIRMED",
+  "ANTHROPIC_FEEDBACK_SHARING_DISABLED_CONFIRMED",
+  "GEMINI_PAID_SERVICE_CONFIRMED",
+  "GEMINI_DATASET_SHARING_DISABLED_CONFIRMED",
+  "DEEPGRAM_MIP_OPT_OUT_CONFIRMED",
+  "ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED"
+] as const;
+const savedFlags = new Map<string, unknown>();
+
+beforeAll(() => {
+  for (const flag of GUARD_FLAGS) {
+    savedFlags.set(flag, (env as Record<string, unknown>)[flag]);
+    (env as Record<string, unknown>)[flag] = false;
+  }
+});
+
+afterAll(() => {
+  for (const flag of GUARD_FLAGS) {
+    (env as Record<string, unknown>)[flag] = savedFlags.get(flag);
+  }
+});
 
 function fakeAdapter(providerId: string): AIProviderAdapter {
   return {
