@@ -50,7 +50,11 @@ import {
   getBillingStatus,
   handleStripeWebhook
 } from "./billing";
-import { getBusinessUsageBill, getBusinessUsageInvoices, payBusinessUsageInvoice } from "./usage-billing";
+import {
+  getBusinessExecutionInvoices,
+  getBusinessExecutionUsage,
+  payBusinessExecutionInvoice
+} from "./execution-usage-routes";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
@@ -111,6 +115,7 @@ import { businessSettingsRoutes } from "./settings-routes";
 import { businessOnboardingRoutes } from "./onboarding-routes";
 import { businessHoursRoutes } from "./business-hours";
 import { fetchVapiCallById, isPresignedRecordingUrl } from "../architect/vapi-connector";
+import { updateBusinessSpendingAlert } from "./spending-alert";
 
 export const businessRoutes = new Hono();
 
@@ -166,9 +171,11 @@ businessRoutes.use("*", requireRole(["BUSINESS"]));
 
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
-businessRoutes.get("/billing/usage", getBusinessUsageBill);
-businessRoutes.get("/billing/usage-invoices", getBusinessUsageInvoices);
-businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessUsageInvoice);
+businessRoutes.get("/billing/usage", getBusinessExecutionUsage);
+businessRoutes.get("/billing/usage-invoices", getBusinessExecutionInvoices);
+businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessExecutionInvoice);
+businessRoutes.put("/billing/spending-alert", updateBusinessSpendingAlert);
+businessRoutes.post("/billing/spending-alert", updateBusinessSpendingAlert);
 businessRoutes.route("/settings", businessSettingsRoutes);
 businessRoutes.route("/onboarding", businessOnboardingRoutes);
 businessRoutes.route("/hours", businessHoursRoutes);
@@ -2699,6 +2706,12 @@ businessRoutes.post("/setup", async (c) => {
     const existingAgent = resolved.listingId
       ? existing?.installedAgents?.find((agent) => agent.listingId === resolved.listingId) ?? null
       : existing?.installedAgents?.[0] ?? null;
+    const resolvedListingTerms = resolved.listingId
+      ? await prisma.agentListing.findUnique({
+          where: { id: resolved.listingId },
+          select: { executionFeeCents: true }
+        })
+      : null;
 
     let installedAgent: InstalledAgent;
     if (existingAgent) {
@@ -2720,6 +2733,8 @@ businessRoutes.post("/setup", async (c) => {
             listingId: resolved.listingId ?? undefined,
             name: resolved.workflow.name,
             status: "PROVISIONING",
+            executionFeeCents: resolvedListingTerms?.executionFeeCents ?? 0,
+            trialExecutionLimit: 50,
             configJson: configJson as never
           }
         });
@@ -2744,6 +2759,45 @@ businessRoutes.post("/setup", async (c) => {
           }
         });
       }
+    }
+
+    const billingNow = new Date();
+    const [blockingUsageDebt, blockingAgentDebt] = await Promise.all([
+      prisma.businessUsageInvoice.count({
+        where: {
+          businessId: business.id,
+          status: "OVERDUE",
+          OR: [
+            { suspendedAt: { not: null } },
+            { graceEndsAt: { lte: billingNow } }
+          ]
+        }
+      }),
+      resolved.listingId
+        ? prisma.payment.count({
+            where: {
+              userId: authUser.id,
+              listingId: resolved.listingId,
+              status: "OVERDUE",
+              OR: [
+                { suspendedAt: { not: null } },
+                { graceEndsAt: { lte: billingNow } }
+              ]
+            }
+          })
+        : Promise.resolve(0)
+    ]);
+    if (
+      installedAgent.status === "SUSPENDED_BILLING" ||
+      blockingUsageDebt > 0 ||
+      blockingAgentDebt > 0
+    ) {
+      return errorResponse(
+        c,
+        "Clear overdue billing before reactivating this agent.",
+        402,
+        "BILLING_PAYMENT_REQUIRED"
+      );
     }
 
     const forward = normalizePhoneNumber(input.forwardToPhone || "");

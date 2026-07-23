@@ -227,6 +227,8 @@ export async function ensureBusinessAndAgent(opts: {
           name: opts.listing.name,
           status: "PROVISIONING",
           installSource,
+          executionFeeCents: opts.listing.executionFeeCents,
+          trialExecutionLimit: 50,
           configJson: {} as never
         }
       });
@@ -742,6 +744,15 @@ setupRoutes.post("/go-live", async (c) => {
 
   try {
     const { agent } = await ensureBusinessAndAgent({ ownerId: authUser.id, listing });
+
+    if (agent.status === "SUSPENDED_BILLING") {
+      return errorResponse(
+        c,
+        "Clear overdue billing before reactivating this agent.",
+        402,
+        "BILLING_PAYMENT_REQUIRED"
+      );
+    }
 
     await prisma.installedAgent.update({
       where: { id: agent.id },

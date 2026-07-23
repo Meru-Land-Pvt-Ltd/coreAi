@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
+import { recordWorkflowRunUsage } from "../business/execution-billing";
 
 export type CreateWorkflowRunInput = {
   workflowId: string;
@@ -69,6 +70,14 @@ export async function completeWorkflowRun(workflowRunId: string): Promise<void> 
   await prisma.workflowRun.update({
     where: { id: workflowRunId },
     data: { status: "COMPLETED", finishedAt: new Date() },
+  });
+  await recordWorkflowRunUsage(workflowRunId).catch((error) => {
+    // A billing ledger retry/reconciliation must never change a successfully
+    // completed workflow into a failed customer interaction.
+    console.error("[workflow-run] execution billing failed (non-fatal)", {
+      workflowRunId,
+      error
+    });
   });
 }
 

@@ -14,6 +14,15 @@ import {
 } from "../admin/usage-pricing-service";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
+import {
+  billingMonthFor,
+  monthBounds,
+  monthLabel,
+  normalizeUsageInvoiceStatus,
+  reconcileBusinessExecutionUsage,
+  recordVapiExecutionUsage,
+  rollupExecutions
+} from "./execution-billing";
 
 const PLATFORM_SERVICE_CODES = new Set(["database_storage", "google_calendar"]);
 type ServiceRoleMap = Map<string, string | null>;
@@ -435,6 +444,21 @@ export async function recordVapiCallUsage({
       metadataJson: webhookBody as never
     }
   });
+
+  if (installedAgent?.id) {
+    await recordVapiExecutionUsage({
+      installedAgentId: installedAgent.id,
+      callId,
+      occurredAt: endedAt,
+      actualCostMicroUsd: totals.actualCostMicroUsd
+    }).catch((error) => {
+      console.error("[usage-billing] canonical execution write failed (non-fatal)", {
+        callId,
+        installedAgentId: installedAgent.id,
+        error
+      });
+    });
+  }
 
   console.log("[usage-billing] recorded call usage", {
     businessId,

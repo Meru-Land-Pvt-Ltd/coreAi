@@ -36,6 +36,7 @@ import {
 import { resolvePrimaryBusinessId } from "../business/primary-business";
 import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
+import { restoreBusinessAfterBillingPayment } from "../business/billing-cycle";
 
 export const paymentRoutes = new Hono();
 
@@ -471,7 +472,9 @@ paymentRoutes.get("/billing", async (c) => {
             id: true,
             name: true,
             pricingModel: true,
-            trialDays: true
+            trialDays: true,
+            iconUrl: true,
+            executionFeeCents: true
           }
         }
       }
@@ -486,11 +489,19 @@ paymentRoutes.get("/billing", async (c) => {
         billingEmail: true,
         billingAddress: true,
         billingPostalCode: true,
+        spendingAlertEnabled: true,
+        spendingAlertThresholdCents: true,
+        spendingAlertLastNotifiedMonth: true,
+        spendingAlertLastNotifiedAt: true,
         installedAgents: {
           select: {
             id: true,
             createdAt: true,
             status: true,
+            installSource: true,
+            executionFeeCents: true,
+            trialExecutionLimit: true,
+            trialExecutionsUsed: true,
             listingId: true,
             listing: {
               select: {
@@ -498,7 +509,9 @@ paymentRoutes.get("/billing", async (c) => {
                 name: true,
                 pricingModel: true,
                 trialDays: true,
-                priceCents: true
+                priceCents: true,
+                iconUrl: true,
+                executionFeeCents: true
               }
             }
           }
@@ -507,18 +520,35 @@ paymentRoutes.get("/billing", async (c) => {
     })
   ]);
 
-  const activeStatuses: string[] = ["TRIALING", "SUCCEEDED", "PENDING"];
+  const activeStatuses: string[] = [
+    "TRIALING",
+    "SUCCEEDED",
+    "PENDING",
+    "OVERDUE",
+    "COMPLETED"
+  ];
 
   // Unique agents the business has purchased/started, with the price paid.
   const agentMap = new Map<
     string,
     {
       id: string;
+      listingId: string;
+      installedAgentId: string | null;
       name: string;
       priceCents: number;
+      monthlyCostCents: number;
+      iconUrl: string | null;
+      executionFeeCents: number;
       pricingModel?: string | null;
       trialDays?: number | null;
       isTrial?: boolean;
+      status: string;
+      purchasedAt: string;
+      trialEndsAt: string | null;
+      trialExecutionLimit: number;
+      trialExecutionsUsed: number;
+      trialExecutionsRemaining: number;
     }
   >();
 
@@ -536,37 +566,91 @@ paymentRoutes.get("/billing", async (c) => {
     if (!activeStatuses.includes(payment.status)) continue;
     if (agentMap.has(payment.listing.id)) continue;
 
-    // Exclude if currently suspended
+    const installed = business?.installedAgents.find(
+      (agent) => agent.listingId === payment.listing?.id
+    );
     const status = installedAgentMap.get(payment.listing.id);
-    if (status === "SUSPENDED_BILLING") continue;
+    const planPriceCents =
+      parsePaymentLineItems(payment.lineItemsJson)?.[0]?.amountCents ??
+      payment.amountCents;
 
     agentMap.set(payment.listing.id, {
       id: payment.listing.id,
+      listingId: payment.listing.id,
+      installedAgentId: installed?.id ?? null,
       name: payment.listing.name,
-      priceCents: payment.amountCents,
+      priceCents: planPriceCents,
+      monthlyCostCents:
+        payment.listing.pricingModel === "SUBSCRIPTION" &&
+        !["INACTIVE", "CANCELED"].includes((status ?? "").toUpperCase())
+          ? planPriceCents
+          : 0,
+      iconUrl: payment.listing.iconUrl,
+      executionFeeCents:
+        installed?.executionFeeCents ?? payment.listing.executionFeeCents,
       pricingModel: payment.listing.pricingModel,
       trialDays: payment.listing.trialDays,
-      isTrial: payment.status === "TRIALING"
+      isTrial: payment.status === "TRIALING",
+      status: status === "SUSPENDED_BILLING" ? status : payment.status,
+      purchasedAt: payment.createdAt.toISOString(),
+      trialEndsAt:
+        payment.invoiceKind === "TRIAL" || payment.status === "TRIALING"
+          ? payment.periodEnd?.toISOString() ?? null
+          : null,
+      trialExecutionLimit: installed?.trialExecutionLimit ?? 50,
+      trialExecutionsUsed: installed?.trialExecutionsUsed ?? 0,
+      trialExecutionsRemaining: Math.max(
+        0,
+        (installed?.trialExecutionLimit ?? 50) -
+          (installed?.trialExecutionsUsed ?? 0)
+      )
     });
   }
 
   if (business?.installedAgents) {
     for (const installed of business.installedAgents) {
       if (!installed.listing) continue;
-      if (agentMap.has(installed.listing.id)) continue;
-      if (installed.status === "SUSPENDED_BILLING") continue;
-
-      // Paid agents must have active/valid payment records to show up under Current Plan.
-      // Therefore, the installedAgents loop only serves to include active free agents.
-      if (installed.listing.pricingModel !== "FREE") continue;
+      if (installed.installSource === "ARCHITECT_SELF_TEST") continue;
+      const latestPayment = payments.find(
+        (payment) => payment.listingId === installed.listingId
+      );
+      const planPriceCents = latestPayment
+        ? parsePaymentLineItems(latestPayment.lineItemsJson)?.[0]?.amountCents ??
+          latestPayment.amountCents
+        : installed.listing.priceCents;
 
       agentMap.set(installed.listing.id, {
         id: installed.listing.id,
+        listingId: installed.listing.id,
+        installedAgentId: installed.id,
         name: installed.listing.name,
-        priceCents: 0,
+        priceCents: planPriceCents,
+        monthlyCostCents:
+          installed.listing.pricingModel === "SUBSCRIPTION" &&
+          !["INACTIVE", "CANCELED"].includes(installed.status.toUpperCase())
+            ? planPriceCents
+            : 0,
+        iconUrl: installed.listing.iconUrl,
+        executionFeeCents: installed.executionFeeCents,
         pricingModel: installed.listing.pricingModel,
         trialDays: installed.listing.trialDays,
-        isTrial: false
+        isTrial: latestPayment?.status === "TRIALING",
+        status:
+          installed.status === "SUSPENDED_BILLING"
+            ? installed.status
+            : latestPayment?.status ?? installed.status,
+        purchasedAt: installed.createdAt.toISOString(),
+        trialEndsAt:
+          latestPayment?.invoiceKind === "TRIAL" ||
+          latestPayment?.status === "TRIALING"
+            ? latestPayment.periodEnd?.toISOString() ?? null
+            : null,
+        trialExecutionLimit: installed.trialExecutionLimit,
+        trialExecutionsUsed: installed.trialExecutionsUsed,
+        trialExecutionsRemaining: Math.max(
+          0,
+          installed.trialExecutionLimit - installed.trialExecutionsUsed
+        )
       });
     }
   }
@@ -596,13 +680,22 @@ paymentRoutes.get("/billing", async (c) => {
         amountCents: 0,
         displayAmountCents: 0,
         currency: "usd",
-        status: "SUCCEEDED",
+        status: "PAID",
+        lifecycleStatus: "SUCCEEDED",
+        tabStatus: "PAID",
+        invoiceKind: "PURCHASE",
         listingId: installed.listingId,
         listingName: installed.listing.name,
         billingName: business.billingName,
         billingEmail: business.billingEmail,
         billingAddress: business.billingAddress,
-        lineItems: [{ label: `Installation fee`, amountCents: 0 }]
+        lineItems: [{ label: `Installation fee`, amountCents: 0 }],
+        periodStart: installed.createdAt.toISOString(),
+        periodEnd: null,
+        dueAt: null,
+        graceEndsAt: null,
+        paidAt: installed.createdAt.toISOString(),
+        suspendedAt: null
       });
     }
   }
@@ -610,22 +703,36 @@ paymentRoutes.get("/billing", async (c) => {
   invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const currentBillingMonth = new Date().toISOString().slice(0, 7);
-  const [currentUsage, unpaidUsageInvoices] = business
+  const [currentUsage, unpaidUsageInvoices, unpaidAgentInvoices] = business
     ? await Promise.all([
-      prisma.vapiCall.aggregate({
+      prisma.agentUsageExecution.aggregate({
         where: {
           businessId: business.id,
-          billingMonth: currentBillingMonth,
-          billingRecordedAt: { not: null }
+          billingMonth: currentBillingMonth
         },
-        _sum: { billedCostMicroUsd: true }
+        _sum: { amountMicroUsd: true, legacyBilledCostMicroUsd: true }
       }),
       prisma.businessUsageInvoice.aggregate({
-        where: { businessId: business.id, status: { in: ["OPEN", "OVERDUE"] } },
+        where: {
+          businessId: business.id,
+          status: { in: ["OPEN", "PENDING", "OVERDUE"] }
+        },
         _sum: { totalMicroUsd: true }
+      }),
+      prisma.payment.aggregate({
+        where: {
+          userId: authUser.id,
+          status: { in: ["PENDING", "OVERDUE"] },
+          invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] }
+        },
+        _sum: { amountCents: true }
       })
     ])
-    : [{ _sum: { billedCostMicroUsd: null } }, { _sum: { totalMicroUsd: null } }];
+    : [
+        { _sum: { amountMicroUsd: null, legacyBilledCostMicroUsd: null } },
+        { _sum: { totalMicroUsd: null } },
+        { _sum: { amountCents: null } }
+      ];
 
   // Best-effort fetch of the default card from Stripe. Any failure -> null (UI shows NA).
   type BillingCardSummary = {
@@ -667,6 +774,20 @@ paymentRoutes.get("/billing", async (c) => {
     }
   }
 
+  const currentExecutionMicroUsd =
+    (currentUsage._sum.amountMicroUsd ?? 0) +
+    (currentUsage._sum.legacyBilledCostMicroUsd ?? 0);
+  const currentMonthExecutionCostCents = Math.round(
+    currentExecutionMicroUsd / 10_000
+  );
+  const currentPlanMonthlyCostCents = agents.reduce(
+    (sum, agent) => sum + agent.monthlyCostCents,
+    0
+  );
+  const nextChargeCents =
+    Math.round((unpaidUsageInvoices._sum.totalMicroUsd ?? 0) / 10_000) +
+    (unpaidAgentInvoices._sum.amountCents ?? 0);
+
   return successResponse(c, {
     billing: {
       plan: {
@@ -676,10 +797,20 @@ paymentRoutes.get("/billing", async (c) => {
       agents,
       summary: {
         totalAgentFeesPaidCents,
-        currentMonthExecutionCostCents: Math.round((currentUsage._sum.billedCostMicroUsd ?? 0) / 10_000),
-        nextChargeCents: Math.round((unpaidUsageInvoices._sum.totalMicroUsd ?? 0) / 10_000)
+        currentPlanMonthlyCostCents,
+        monthlyCostCents: currentPlanMonthlyCostCents,
+        currentMonthExecutionCostCents,
+        nextChargeCents
       },
       usage: { billingMonth: currentBillingMonth },
+      spendingAlert: {
+        enabled: business?.spendingAlertEnabled ?? false,
+        thresholdCents: business?.spendingAlertThresholdCents ?? 5000,
+        currentMonthCostCents: currentMonthExecutionCostCents,
+        lastNotifiedMonth: business?.spendingAlertLastNotifiedMonth ?? null,
+        lastNotifiedAt:
+          business?.spendingAlertLastNotifiedAt?.toISOString() ?? null
+      },
       invoices,
       paymentMethod,
       backupPaymentMethod,
@@ -1125,6 +1256,212 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
   });
 });
 
+// POST /payments/invoices/:id/pay — settles this exact post-trial or monthly
+// subscription debt. Generic checkout must never create a separate paid row
+// while leaving the overdue invoice (and suspension) behind.
+paymentRoutes.post("/invoices/:id/pay", async (c) => {
+  const authUser = c.get("authUser");
+  const invoiceId = c.req.param("id");
+  const invoice = await prisma.payment.findFirst({
+    where: {
+      id: invoiceId,
+      userId: authUser.id,
+      invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] }
+    },
+    include: {
+      business: { select: { id: true, stripeCustomerId: true } },
+      listing: { select: { id: true, name: true } }
+    }
+  });
+  if (!invoice) {
+    return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+  if (invoice.status === "SUCCEEDED") {
+    if (invoice.businessId) {
+      await restoreBusinessAfterBillingPayment(invoice.businessId);
+    }
+    return successResponse(c, {
+      invoiceId,
+      status: "PAID",
+      alreadyPaid: true
+    });
+  }
+  if (!["PENDING", "OVERDUE"].includes(invoice.status)) {
+    return errorResponse(c, "Invoice cannot be paid", 409, "INVOICE_NOT_PAYABLE");
+  }
+  if (invoice.amountCents < 50) {
+    return errorResponse(
+      c,
+      "This balance is below the card network minimum and will carry into the next statement.",
+      409,
+      "INVOICE_CARRIED_FORWARD"
+    );
+  }
+
+  const stripe = getStripeClient();
+  if (!stripe || !isStripeConfigured()) {
+    return errorResponse(c, "Stripe is not configured", 503, "STRIPE_NOT_CONFIGURED");
+  }
+  const customerId =
+    invoice.business?.stripeCustomerId ?? invoice.stripeCustomerId ?? null;
+  if (!customerId || !invoice.stripePaymentId) {
+    return errorResponse(
+      c,
+      "Update your payment method before paying this invoice.",
+      409,
+      "PAYMENT_METHOD_REQUIRED"
+    );
+  }
+
+  let paymentMethodId = invoice.stripePaymentId;
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    if (typeof customer !== "string" && !customer.deleted) {
+      const defaultMethod = customer.invoice_settings.default_payment_method;
+      paymentMethodId =
+        (typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id) ||
+        paymentMethodId;
+    }
+  } catch {
+    // Fall back to the method captured on the invoice.
+  }
+
+  const claimed = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-invoice-pay:${invoiceId}`}))`;
+    const fresh = await tx.payment.findUnique({ where: { id: invoiceId } });
+    if (!fresh) return { kind: "missing" as const };
+    if (fresh.status === "SUCCEEDED") {
+      return { kind: "paid" as const, fresh };
+    }
+    const pendingIsFresh =
+      fresh.paymentPendingAt &&
+      Date.now() - fresh.paymentPendingAt.getTime() < 10 * 60 * 1000;
+    if (pendingIsFresh) return { kind: "in_progress" as const };
+    const attempt = fresh.paymentAttemptCount + 1;
+    const updated = await tx.payment.update({
+      where: { id: fresh.id },
+      data: {
+        paymentAttemptCount: attempt,
+        paymentPendingAt: new Date()
+      }
+    });
+    return { kind: "claimed" as const, fresh: updated, attempt };
+  });
+
+  if (claimed.kind === "missing") {
+    return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+  if (claimed.kind === "paid") {
+    if (invoice.businessId) {
+      await restoreBusinessAfterBillingPayment(invoice.businessId);
+    }
+    return successResponse(c, { invoiceId, status: "PAID", alreadyPaid: true });
+  }
+  if (claimed.kind === "in_progress") {
+    return errorResponse(
+      c,
+      "This invoice payment is already processing.",
+      409,
+      "INVOICE_PAYMENT_IN_PROGRESS"
+    );
+  }
+
+  try {
+    let intent = claimed.fresh.stripeSessionId
+      ? await stripe.paymentIntents
+          .retrieve(claimed.fresh.stripeSessionId)
+          .catch(() => null)
+      : null;
+
+    if (!intent || intent.status === "canceled") {
+      intent = await stripe.paymentIntents.create(
+        {
+          amount: claimed.fresh.amountCents,
+          currency: claimed.fresh.currency,
+          customer: customerId,
+          description: claimed.fresh.description ?? "Triven agent invoice",
+          metadata: {
+            paymentInvoiceId: claimed.fresh.id,
+            businessId: claimed.fresh.businessId ?? "",
+            listingId: claimed.fresh.listingId ?? "",
+            invoiceKind: claimed.fresh.invoiceKind
+          }
+        },
+        {
+          idempotencyKey: `agent-invoice:${claimed.fresh.id}:${claimed.attempt}`
+        }
+      );
+      await prisma.payment.update({
+        where: { id: claimed.fresh.id },
+        data: { stripeSessionId: intent.id }
+      });
+    }
+
+    if (intent.status !== "succeeded") {
+      intent = await stripe.paymentIntents.confirm(intent.id, {
+        payment_method: paymentMethodId,
+        off_session: true
+      });
+    }
+
+    if (intent.status !== "succeeded") {
+      await prisma.payment.update({
+        where: { id: claimed.fresh.id },
+        data: { paymentPendingAt: null }
+      });
+      return errorResponse(
+        c,
+        "Payment requires attention. Update your card and try again.",
+        409,
+        "INVOICE_PAYMENT_INCOMPLETE"
+      );
+    }
+
+    const paidAt = new Date();
+    const paid = await prisma.payment.update({
+      where: { id: claimed.fresh.id },
+      data: {
+        status: "SUCCEEDED",
+        paidAt,
+        suspendedAt: null,
+        paymentPendingAt: null,
+        stripeCustomerId: customerId,
+        stripePaymentId: paymentMethodId,
+        stripeSessionId: intent.id
+      }
+    });
+    const servicesRestored = paid.businessId
+      ? await restoreBusinessAfterBillingPayment(paid.businessId)
+      : false;
+    return successResponse(
+      c,
+      {
+        invoiceId: paid.id,
+        status: "PAID",
+        paidAt: paidAt.toISOString(),
+        servicesRestored
+      },
+      "Invoice paid"
+    );
+  } catch (error) {
+    await prisma.payment.updateMany({
+      where: { id: invoiceId, status: { in: ["PENDING", "OVERDUE"] } },
+      data: { paymentPendingAt: null }
+    });
+    const failure = describeStripeError(error);
+    if (failure) {
+      return errorResponse(c, failure.message, failure.status, failure.code);
+    }
+    console.error("[payments] invoice payment failed", { invoiceId, error });
+    return errorResponse(
+      c,
+      "The invoice payment could not be completed.",
+      500,
+      "INVOICE_PAYMENT_FAILED"
+    );
+  }
+});
+
 // GET /payments/invoice/:id/html — same invoice card layout as the billing detail page.
 paymentRoutes.get("/invoice/:id/html", async (c) => {
   const authUser = c.get("authUser");
@@ -1273,6 +1610,10 @@ paymentRoutes.post("/start-trial", async (c) => {
   });
 
   const trialDays = listing.trialDays || 7;
+  const trialStartedAt = new Date();
+  const trialEndsAt = new Date(
+    trialStartedAt.getTime() + trialDays * 24 * 60 * 60 * 1000
+  );
 
   const trialCreate = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-trial:${authUser.id}:${listing.id}`}))`;
@@ -1299,6 +1640,11 @@ paymentRoutes.post("/start-trial", async (c) => {
         amountCents: listing.priceCents,
         currency: "usd",
         status: "TRIALING",
+        invoiceKind: "TRIAL",
+        periodStart: trialStartedAt,
+        periodEnd: trialEndsAt,
+        paidAt: trialStartedAt,
+        createdAt: trialStartedAt,
         stripeCustomerId: customerId,
         stripePaymentId: attachedPaymentMethodId,
         description: `${trialDays}-day trial for ${listing.name}`,
@@ -1377,7 +1723,7 @@ paymentRoutes.post("/start-trial", async (c) => {
       payment,
       subscriptionId: null,
       assignedPhoneNumber,
-      trialEndsAt: new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
+      trialEndsAt: trialEndsAt.toISOString()
     },
     "Trial started",
     201

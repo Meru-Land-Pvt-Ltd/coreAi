@@ -348,6 +348,11 @@ async function latestActiveInstalledAgent(businessId: string) {
   });
 }
 
+export function isInstalledAgentActivityPaused(status?: string | null) {
+  const normalized = status?.trim().toUpperCase();
+  return normalized === "PAUSED" || normalized === "SUSPENDED_BILLING";
+}
+
 /**
  * Vapi may keep sending tool callbacks for a call that was already in progress
  * when the buyer paused the agent. Re-check the persisted status for every
@@ -359,14 +364,17 @@ async function isVapiInstalledAgentPaused(businessId: string, installedAgentId?:
       where: { id: installedAgentId, businessId },
       select: { status: true }
     });
-    return agent?.status === "PAUSED";
+    return isInstalledAgentActivityPaused(agent?.status);
   }
 
   // Older Vapi calls may not carry installedAgentId. Only treat the business
   // as paused when it has no active agent and at least one paused agent.
   const [active, paused] = await Promise.all([
     prisma.installedAgent.findFirst({ where: { businessId, status: "ACTIVE" }, select: { id: true } }),
-    prisma.installedAgent.findFirst({ where: { businessId, status: "PAUSED" }, select: { id: true } })
+    prisma.installedAgent.findFirst({
+      where: { businessId, status: { in: ["PAUSED", "SUSPENDED_BILLING"] } },
+      select: { id: true }
+    })
   ]);
   return !active && Boolean(paused);
 }
@@ -398,7 +406,7 @@ function toResolvedAgent(opts: {
     routingMode: readRoutingMode(installedAgent.configJson),
     coverage: readCoverage(installedAgent.configJson),
     answeringHours: readAnsweringHours(installedAgent.configJson),
-    agentPaused: installedAgent.status === "PAUSED",
+    agentPaused: isInstalledAgentActivityPaused(installedAgent.status),
     business: buildBusinessContext(business, phoneNumber, installedAgent),
     matchedBusinessPhoneNumberId: opts.matchedBusinessPhoneNumberId,
     matchedPlatformPhoneNumberId: opts.matchedPlatformPhoneNumberId,

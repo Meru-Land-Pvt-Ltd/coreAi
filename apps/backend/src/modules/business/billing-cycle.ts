@@ -2,42 +2,20 @@ import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
-import { resolvePrimaryBusinessId } from "./primary-business";
-import type { UsageLineItem } from "../../lib/usage-pricing";
-import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { parsePaymentLineItems, type PaymentLineItem } from "../../lib/billing-invoices";
 import {
+  billingMonthFor,
+  monthLabel,
+  reconcileBusinessExecutionUsage,
+  usageBalanceIsCollectible
+} from "./execution-billing";
+import {
   buildAgentPurchaseLineItems,
-  findBuyerPlatformNumber,
   listingNeedsPhoneNumber,
-  markPhoneNumberFeeBilled,
   resolveUnbilledPhoneFee
 } from "./phone-provisioning";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function monthKey(date: Date) {
-  return date.toISOString().slice(0, 7);
-}
-
-function monthBounds(month: string) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const start = new Date(Date.UTC(year, monthNumber - 1, 1));
-  const end = new Date(Date.UTC(year, monthNumber, 1));
-  return { start, end };
-}
-
-function previousMonth(now: Date) {
-  return monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
-}
-
-function invoiceNumber(businessId: string, month: string) {
-  return `USG-${month.replace("-", "")}-${businessId.slice(-8).toUpperCase()}`;
-}
-
-function reminderAlreadySentToday(lastReminderAt: Date | null, now: Date) {
-  return Boolean(lastReminderAt && lastReminderAt.toISOString().slice(0, 10) === now.toISOString().slice(0, 10));
-}
 
 function jsonRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -45,497 +23,630 @@ function jsonRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-async function suspendBusinessForInvoice(businessId: string, invoiceId: string, now: Date) {
-  const activePhones = await prisma.businessPhoneNumber.findMany({
-    where: { businessId, isActive: true },
-    select: { id: true, configJson: true }
-  });
+function utcMonthStart(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
 
-  await prisma.$transaction([
-    prisma.installedAgent.updateMany({
-      where: { businessId, status: "ACTIVE" },
-      data: { status: "SUSPENDED_BILLING" }
-    }),
-    ...activePhones.map((phone) =>
-      prisma.businessPhoneNumber.update({
+function nextUtcMonthStart(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+}
+
+function graceEndFor(dueAt: Date) {
+  return new Date(dueAt.getTime() + 7 * DAY_MS);
+}
+
+function reminderAlreadySentToday(lastReminderAt: Date | null, now: Date) {
+  return Boolean(
+    lastReminderAt &&
+      lastReminderAt.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)
+  );
+}
+
+async function suspendPhones(
+  phones: Array<{ id: string; configJson: unknown }>,
+  kind: "USAGE" | "SUBSCRIPTION",
+  sourceId: string
+) {
+  await Promise.all(
+    phones.map((phone) => {
+      const config = jsonRecord(phone.configJson);
+      const kinds = Array.isArray(config.billingSuspensionKinds)
+        ? config.billingSuspensionKinds.filter(
+            (value): value is string => typeof value === "string"
+          )
+        : [];
+      const sources = Array.isArray(config.billingSuspensionSourceIds)
+        ? config.billingSuspensionSourceIds.filter(
+            (value): value is string => typeof value === "string"
+          )
+        : [];
+      return prisma.businessPhoneNumber.update({
         where: { id: phone.id },
         data: {
           isActive: false,
           configJson: {
-            ...jsonRecord(phone.configJson),
+            ...config,
             billingSuspended: true,
-            billingInvoiceId: invoiceId
+            billingSuspensionKinds: [...new Set([...kinds, kind])],
+            billingSuspensionSourceIds: [...new Set([...sources, sourceId])]
           } as Prisma.InputJsonValue
         }
-      })
-    ),
-    prisma.businessUsageInvoice.update({
-      where: { id: invoiceId },
-      data: { status: "OVERDUE", suspendedAt: now }
+      });
     })
-  ]);
+  );
 }
 
-export async function restoreBusinessAfterBillingPayment(businessId: string) {
-  const otherOverdue = await prisma.businessUsageInvoice.count({
-    where: { businessId, status: { in: ["OPEN", "OVERDUE"] }, dueAt: { lte: new Date() } }
+async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
+  const invoice = await prisma.businessUsageInvoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, businessId: true, suspendedAt: true }
   });
-  if (otherOverdue > 0) return false;
+  if (!invoice) return false;
 
   const phones = await prisma.businessPhoneNumber.findMany({
-    where: { businessId },
+    where: { businessId: invoice.businessId, isActive: true },
     select: { id: true, configJson: true }
   });
-  const billingPhones = phones.filter((phone) => jsonRecord(phone.configJson).billingSuspended === true);
 
   await prisma.$transaction([
     prisma.installedAgent.updateMany({
-      where: { businessId, status: "SUSPENDED_BILLING" },
-      data: { status: "ACTIVE" }
+      where: {
+        businessId: invoice.businessId,
+        installSource: { not: "ARCHITECT_SELF_TEST" },
+        status: { in: ["ACTIVE", "PROVISIONING"] }
+      },
+      data: { status: "SUSPENDED_BILLING" }
     }),
-    ...billingPhones.map((phone) => {
-      const config = { ...jsonRecord(phone.configJson) };
-      delete config.billingSuspended;
-      delete config.billingInvoiceId;
-      return prisma.businessPhoneNumber.update({
-        where: { id: phone.id },
-        data: { isActive: true, configJson: config as Prisma.InputJsonValue }
-      });
+    prisma.businessUsageInvoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: "OVERDUE",
+        suspendedAt: invoice.suspendedAt ?? now
+      }
     })
   ]);
-
-  return true;
+  await suspendPhones(phones, "USAGE", invoice.id);
+  return !invoice.suspendedAt || phones.length > 0;
 }
 
-async function createInvoiceForBusiness(businessId: string, billingMonth: string, now: Date) {
-  const calls = await prisma.vapiCall.findMany({
-    where: {
-      businessId,
-      billingMonth,
-      billingRecordedAt: { not: null },
-      usageInvoiceId: null,
-      billedCostMicroUsd: { gt: 0 }
-    },
-    select: { id: true, billedCostMicroUsd: true, usageLineItemsJson: true }
-  });
-  if (calls.length === 0) return null;
-
-  const rollup = new Map<string, {
-    serviceCode: string;
-    serviceName: string;
-    unit: UsageLineItem["unit"];
-    quantity: number;
-    unitPriceMicroUsd: number;
-    amountMicroUsd: number;
-  }>();
-
-  for (const call of calls) {
-    const items = Array.isArray(call.usageLineItemsJson)
-      ? (call.usageLineItemsJson as unknown as UsageLineItem[])
-      : [];
-    for (const item of items) {
-      if (item.billedCostMicroUsd <= 0 || item.quantity <= 0) continue;
-      const current = rollup.get(item.serviceCode);
-      if (current) {
-        current.quantity += item.quantity;
-        current.amountMicroUsd += item.billedCostMicroUsd;
-      } else {
-        rollup.set(item.serviceCode, {
-          serviceCode: item.serviceCode,
-          serviceName: item.serviceName,
-          unit: item.unit,
-          quantity: item.quantity,
-          unitPriceMicroUsd: Math.round(item.billedCostMicroUsd / item.quantity),
-          amountMicroUsd: item.billedCostMicroUsd
-        });
-      }
+async function suspendAgentForPayment(paymentId: string, now: Date) {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: {
+      id: true,
+      businessId: true,
+      listingId: true,
+      suspendedAt: true,
+      userId: true
     }
-  }
-
-  const totalMicroUsd = calls.reduce((sum, call) => sum + (call.billedCostMicroUsd ?? 0), 0);
-  const { start, end } = monthBounds(billingMonth);
-  const issuedAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  // Payment is accepted through the end of the 7th; suspension starts at 00:00 on the 8th UTC.
-  const dueAt = new Date(Date.UTC(issuedAt.getUTCFullYear(), issuedAt.getUTCMonth(), 8));
-
-  return prisma.$transaction(async (tx) => {
-    const existing = await tx.businessUsageInvoice.findUnique({
-      where: { businessId_billingMonth: { businessId, billingMonth } }
-    });
-    if (existing) return existing;
-
-    const invoice = await tx.businessUsageInvoice.create({
-      data: {
-        businessId,
-        billingMonth,
-        invoiceNumber: invoiceNumber(businessId, billingMonth),
-        periodStart: start,
-        periodEnd: end,
-        issuedAt,
-        dueAt,
-        subtotalMicroUsd: totalMicroUsd,
-        totalMicroUsd,
-        lineItems: { create: [...rollup.values()] }
-      }
-    });
-
-    await tx.vapiCall.updateMany({
-      where: { id: { in: calls.map((call) => call.id) }, usageInvoiceId: null },
-      // INVOICED freezes the execution: no reprice path may ever touch it.
-      data: { usageInvoiceId: invoice.id, pricingState: "INVOICED" }
-    });
-    return invoice;
   });
-}
+  if (!payment || !payment.listingId) return false;
 
-async function sendInvoiceReminder(invoice: {
-  id: string;
-  invoiceNumber: string;
-  billingMonth: string;
-  totalMicroUsd: number;
-  dueAt: Date;
-  business: { name: string; billingEmail: string | null; owner: { email: string; fullName: string | null } };
-}) {
-  const to = invoice.business.billingEmail || invoice.business.owner.email;
-  const amount = (invoice.totalMicroUsd / 1_000_000).toFixed(2);
-  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
-
-  if (!isPlatformMailConfigured()) {
-    console.warn(`[billing-cycle] reminder skipped: email not configured (${invoice.invoiceNumber}, ${to})`);
+  const installedAgent = await prisma.installedAgent.findFirst({
+    where: {
+      listingId: payment.listingId,
+      ...(payment.businessId
+        ? { businessId: payment.businessId }
+        : { business: { ownerId: payment.userId } })
+    },
+    select: { id: true, businessId: true, status: true }
+  });
+  if (!installedAgent) {
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { suspendedAt: now }
+    });
     return false;
   }
 
-  await sendPlatformEmail({
-    purpose: "billing",
-    to,
-    subject: `Usage invoice ${invoice.invoiceNumber} — $${amount} due by the 7th`,
-    text: `Your ${invoice.billingMonth} Triven.ai usage invoice is $${amount}. Please pay by the end of the 7th to avoid service suspension. ${billingUrl}`,
-    html: `<p>Hi ${invoice.business.owner.fullName || invoice.business.name},</p><p>Your Triven.ai usage invoice <strong>${invoice.invoiceNumber}</strong> is <strong>$${amount}</strong>.</p><p>Please pay by the end of the 7th to avoid agent service suspension.</p><p><a href="${billingUrl}">View and pay invoice</a></p>`
+  const phones = await prisma.businessPhoneNumber.findMany({
+    where: { installedAgentId: installedAgent.id, isActive: true },
+    select: { id: true, configJson: true }
   });
-  return true;
-}
-
-async function convertExpiredTrials(now: Date) {
-  const stripe = getStripeClient();
-  if (!stripe || !isStripeConfigured()) return { converted: 0, failed: 0 };
-
-  const cutoff = new Date(now.getTime() - 7 * DAY_MS);
-  const trials = await prisma.payment.findMany({
-    where: {
-      status: "TRIALING",
-      createdAt: { lte: cutoff },
-      stripeCustomerId: { not: null },
-      stripePaymentId: { not: null },
-      listingId: { not: null }
-    },
-    include: { listing: { select: { id: true, name: true, priceCents: true } } }
-  });
-
-  let converted = 0;
-  let failed = 0;
-  for (const trial of trials) {
-    if (!trial.listing || !trial.stripeCustomerId || !trial.stripePaymentId) continue;
-
-    // Pin the charge breakdown on the trial row BEFORE touching Stripe: the
-    // fixed idempotency key requires byte-identical params on retry, so the
-    // amount must not drift between runs (fee appearing/disappearing, admin
-    // price edits). A transient failure here skips the trial until the next
-    // hourly run — it must never mark a never-charged trial FAILED.
-    let businessId: string | null = null;
-    let lineItems: PaymentLineItem[];
-    try {
-      businessId =
-        trial.businessId ??
-        (
-          await prisma.business.findFirst({
-            where: { id: (await resolvePrimaryBusinessId(trial.userId)) ?? "" },
-            select: { id: true }
-          })
-        )?.id ??
-        null;
-
-      const pinned = parsePaymentLineItems(trial.lineItemsJson);
-      if (pinned) {
-        lineItems = pinned;
-      } else {
-        // The number was allotted (free) at trial start — now that the agent
-        // is being paid for, bill its fee as a second invoice line, once per
-        // number.
-        const unbilledFee =
-          (await listingNeedsPhoneNumber(trial.listing.id))
-            ? await resolveUnbilledPhoneFee({ buyerUserId: trial.userId, businessId })
-            : null;
-        lineItems = buildAgentPurchaseLineItems({
-          agentLabel: trial.listing.name,
-          agentPriceCents: trial.listing.priceCents,
-          phoneFee: unbilledFee?.fee ?? null
-        });
-        await prisma.payment.update({
-          where: { id: trial.id },
-          data: { lineItemsJson: lineItems as never }
-        });
-      }
-    } catch (error) {
-      console.error("[billing-cycle] conversion pre-charge step failed — retrying next run", {
-        trialId: trial.id,
-        error
-      });
-      continue;
-    }
-
-    const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
-    const phoneFeeCents = lineItems.length > 1 ? lineItems[1]!.amountCents : 0;
-
-    try {
-      const intent = await stripe.paymentIntents.create(
-        {
-          amount: totalCents,
-          currency: "usd",
-          customer: trial.stripeCustomerId,
-          payment_method: trial.stripePaymentId,
-          confirm: true,
-          off_session: true,
-          description: `One-time purchase of ${trial.listing.name} after trial`,
-          metadata: {
-            userId: trial.userId,
-            listingId: trial.listing.id,
-            trialPaymentId: trial.id,
-            ...(phoneFeeCents > 0 ? { phoneFeeCents: String(phoneFeeCents) } : {})
-          }
-        },
-        { idempotencyKey: `trial-conversion-${trial.id}` }
-      );
-      if (intent.status !== "succeeded") throw new Error(`PaymentIntent status ${intent.status}`);
-
-      await prisma.$transaction([
-        prisma.payment.update({ where: { id: trial.id }, data: { status: "CANCELED" } }),
-        prisma.payment.create({
-          data: {
-            userId: trial.userId,
-            businessId,
-            listingId: trial.listing.id,
-            amountCents: totalCents,
-            currency: "usd",
-            status: "SUCCEEDED",
-            stripeCustomerId: trial.stripeCustomerId,
-            stripePaymentId: trial.stripePaymentId,
-            billingName: trial.billingName,
-            billingEmail: trial.billingEmail,
-            billingAddress: trial.billingAddress,
-            description: `Purchase of ${trial.listing.name}`,
-            lineItemsJson: lineItems as never
-          }
-        })
-      ]);
-
-      // The fee line was charged — stamp the buyer's number so no later
-      // purchase re-bills it. Best-effort: markPhoneNumberFeeBilled is
-      // idempotent and a miss here only risks a duplicate fee, never a crash.
-      if (phoneFeeCents > 0) {
-        const number = await findBuyerPlatformNumber({ buyerUserId: trial.userId, businessId });
-        if (number) await markPhoneNumberFeeBilled(number.id);
-      }
-
-      converted += 1;
-    } catch (error) {
-      console.error("[billing-cycle] trial conversion failed", { trialId: trial.id, error });
-      await prisma.payment.update({ where: { id: trial.id }, data: { status: "FAILED" } });
-      failed += 1;
-    }
-  }
-  return { converted, failed };
-}
-
-async function processSubscriptionRenewals(now: Date) {
-  const stripe = getStripeClient();
-  if (!stripe || !isStripeConfigured()) return { renewed: 0, failed: 0 };
-
-  // 30 days ago
-  const cutoff = new Date(now.getTime() - 30 * DAY_MS);
-
-  // Find all succeeded payments for subscription agents.
-  const candidates = await prisma.payment.findMany({
-    where: {
-      status: "SUCCEEDED",
-      listing: {
-        is: { pricingModel: "SUBSCRIPTION" }
+  await prisma.$transaction([
+    prisma.installedAgent.updateMany({
+      where: {
+        id: installedAgent.id,
+        status: { in: ["ACTIVE", "PROVISIONING"] }
       },
-      stripeCustomerId: { not: null },
-      stripePaymentId: { not: null }
+      data: { status: "SUSPENDED_BILLING" }
+    }),
+    prisma.payment.update({
+      where: { id: payment.id },
+      data: { suspendedAt: payment.suspendedAt ?? now }
+    })
+  ]);
+  await suspendPhones(phones, "SUBSCRIPTION", payment.id);
+  return !payment.suspendedAt || phones.length > 0;
+}
+
+async function hasSuspendingSubscriptionDebt(
+  businessId: string,
+  listingId: string | null
+) {
+  if (!listingId) return false;
+  const blocking = await prisma.payment.aggregate({
+    where: {
+      businessId,
+      listingId,
+      status: "OVERDUE",
+      invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] },
+      graceEndsAt: { lte: new Date() }
     },
+    _sum: { amountCents: true }
+  });
+  return (blocking._sum.amountCents ?? 0) >= 50;
+}
+
+/**
+ * Restores billing-suspended services after a successful payment.
+ *
+ * Usage debt is business-wide: one usage invoice beyond grace pauses every
+ * buyer service. Subscription/post-trial debt is scoped to its installed
+ * agent. An agent is restored only after both blocking categories are clear.
+ */
+export async function restoreBusinessAfterBillingPayment(
+  businessId: string,
+  _installedAgentId?: string | null
+) {
+  const usageStillBlocking =
+    (await prisma.businessUsageInvoice.count({
+      where: {
+        businessId,
+        status: "OVERDUE",
+        suspendedAt: { not: null }
+      }
+    })) > 0;
+  if (usageStillBlocking) return false;
+
+  const suspendedAgents = await prisma.installedAgent.findMany({
+    where: { businessId, status: "SUSPENDED_BILLING" },
+    select: { id: true, listingId: true }
+  });
+  const restoredAgentIds: string[] = [];
+  for (const agent of suspendedAgents) {
+    if (await hasSuspendingSubscriptionDebt(businessId, agent.listingId)) continue;
+    await prisma.installedAgent.update({
+      where: { id: agent.id },
+      data: { status: "ACTIVE" }
+    });
+    restoredAgentIds.push(agent.id);
+  }
+
+  const phones = await prisma.businessPhoneNumber.findMany({
+    where: { businessId },
+    select: { id: true, installedAgentId: true, configJson: true }
+  });
+  for (const phone of phones) {
+    const config = jsonRecord(phone.configJson);
+    if (config.billingSuspended !== true) continue;
+    const subscriptionStillBlocking = phone.installedAgentId
+      ? !restoredAgentIds.includes(phone.installedAgentId) &&
+        (await hasSuspendingSubscriptionDebt(
+          businessId,
+          (
+            await prisma.installedAgent.findUnique({
+              where: { id: phone.installedAgentId },
+              select: { listingId: true }
+            })
+          )?.listingId ?? null
+        ))
+      : false;
+    if (subscriptionStillBlocking) continue;
+
+    delete config.billingSuspended;
+    delete config.billingSuspensionKinds;
+    delete config.billingSuspensionSourceIds;
+    await prisma.businessPhoneNumber.update({
+      where: { id: phone.id },
+      data: { isActive: true, configJson: config as Prisma.InputJsonValue }
+    });
+  }
+
+  return restoredAgentIds.length > 0 || phones.length > 0;
+}
+
+async function completedTrialLineItems(trial: {
+  id: string;
+  userId: string;
+  businessId: string | null;
+  amountCents: number;
+  lineItemsJson: unknown;
+  listing: { id: string; name: string; priceCents: number };
+}) {
+  const pinned = parsePaymentLineItems(trial.lineItemsJson);
+  if (pinned) return pinned;
+
+  const unbilledPhoneFee = (await listingNeedsPhoneNumber(trial.listing.id))
+    ? await resolveUnbilledPhoneFee({
+        buyerUserId: trial.userId,
+        businessId: trial.businessId
+      })
+    : null;
+  return buildAgentPurchaseLineItems({
+    agentLabel: trial.listing.name,
+    agentPriceCents: trial.amountCents,
+    phoneFee: unbilledPhoneFee?.fee ?? null
+  });
+}
+
+async function completeExpiredTrials(now: Date) {
+  const trials = await prisma.payment.findMany({
+    where: { status: "TRIALING", listingId: { not: null } },
     include: {
       listing: {
         select: {
           id: true,
           name: true,
-          priceCents: true
+          priceCents: true,
+          trialDays: true
         }
       }
-    },
-    orderBy: {
-      createdAt: "desc"
     }
   });
 
-  // Group by userId + listingId to find the latest payment for each pair.
-  const latestPayments = new Map<string, typeof candidates[number]>();
-  for (const payment of candidates) {
-    const key = `${payment.userId}::${payment.listingId}`;
-    if (!latestPayments.has(key)) {
-      latestPayments.set(key, payment);
-    }
-  }
+  let completed = 0;
+  let overdueCreated = 0;
+  for (const trial of trials) {
+    if (!trial.listing) continue;
+    const listing = trial.listing;
+    const days = Math.max(0, listing.trialDays || 0);
+    const endsAt = trial.periodEnd ?? new Date(trial.createdAt.getTime() + days * DAY_MS);
+    if (now < endsAt) continue;
 
-  let renewed = 0;
-  let failed = 0;
+    const invoiceKey = `post-trial:${trial.id}`;
+    const lineItems = await completedTrialLineItems({
+      ...trial,
+      listing
+    });
+    const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
 
-  for (const payment of latestPayments.values()) {
-    if (!payment.listing || !payment.stripeCustomerId || !payment.stripePaymentId || !payment.listingId) continue;
+    const outcome = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${invoiceKey}))`;
+      const fresh = await tx.payment.findUnique({
+        where: { id: trial.id },
+        select: { status: true }
+      });
+      const existing = await tx.payment.findUnique({ where: { invoiceKey } });
+      if (fresh?.status !== "TRIALING") return { changed: false, created: false };
 
-    // Check if the latest succeeded payment is due for renewal
-    if (payment.createdAt > cutoff) continue;
-
-    // It's due! Charge it.
-    try {
-      const intent = await stripe.paymentIntents.create(
-        {
-          amount: payment.listing.priceCents,
-          currency: "usd",
-          customer: payment.stripeCustomerId,
-          payment_method: payment.stripePaymentId,
-          confirm: true,
-          off_session: true,
-          description: `Monthly renewal for ${payment.listing.name}`,
-          metadata: {
-            userId: payment.userId,
-            listingId: payment.listingId,
-            chargeType: "subscription_renewal",
-            originalPaymentId: payment.id
-          }
-        },
-        { idempotencyKey: `sub-renewal-${payment.id}-${now.toISOString().slice(0, 10)}` }
-      );
-
-      if (intent.status !== "succeeded") throw new Error(`PaymentIntent status ${intent.status}`);
-
-      // Create new succeeded payment
-      await prisma.payment.create({
+      await tx.payment.update({
+        where: { id: trial.id },
         data: {
-          userId: payment.userId,
-          businessId: payment.businessId,
-          listingId: payment.listingId,
-          amountCents: payment.listing.priceCents,
-          currency: "usd",
-          status: "SUCCEEDED",
-          stripeCustomerId: payment.stripeCustomerId,
-          stripePaymentId: payment.stripePaymentId,
-          billingName: payment.billingName,
-          billingEmail: payment.billingEmail,
-          billingAddress: payment.billingAddress,
-          description: `Monthly renewal for ${payment.listing.name}`
+          status: "COMPLETED",
+          invoiceKind: "TRIAL",
+          periodEnd: endsAt,
+          paidAt: endsAt
         }
       });
+      if (existing || totalCents <= 0) {
+        return { changed: true, created: false };
+      }
 
-      renewed += 1;
-    } catch (error) {
-      console.error("[billing-cycle] subscription renewal failed", { paymentId: payment.id, error });
-
-      // Update the previous succeeded payment to CANCELED so access is revoked,
-      // and create a FAILED payment to record the failed charge.
-      await prisma.$transaction([
-        prisma.payment.update({
-          where: { id: payment.id },
-          data: { status: "CANCELED" }
-        }),
-        prisma.payment.create({
-          data: {
-            userId: payment.userId,
-            businessId: payment.businessId,
-            listingId: payment.listingId,
-            amountCents: payment.listing.priceCents,
-            currency: "usd",
-            status: "FAILED",
-            stripeCustomerId: payment.stripeCustomerId,
-            stripePaymentId: payment.stripePaymentId,
-            billingName: payment.billingName,
-            billingEmail: payment.billingEmail,
-            billingAddress: payment.billingAddress,
-            description: `Monthly renewal failed for ${payment.listing.name}`
-          }
-        }),
-        prisma.installedAgent.updateMany({
-          where: {
-            business: { ownerId: payment.userId },
-            listingId: payment.listingId
-          },
-          data: {
-            status: "SUSPENDED_BILLING"
-          }
-        })
-      ]);
-
-      failed += 1;
-    }
+      await tx.payment.create({
+        data: {
+          userId: trial.userId,
+          businessId: trial.businessId,
+          listingId: trial.listingId,
+          amountCents: totalCents,
+          currency: trial.currency,
+          status: "OVERDUE",
+          invoiceKind: "POST_TRIAL",
+          invoiceKey,
+          periodStart: endsAt,
+          periodEnd: nextUtcMonthStart(endsAt),
+          dueAt: endsAt,
+          graceEndsAt: graceEndFor(endsAt),
+          stripeCustomerId: trial.stripeCustomerId,
+          stripePaymentId: trial.stripePaymentId,
+          billingName: trial.billingName,
+          billingEmail: trial.billingEmail,
+          billingAddress: trial.billingAddress,
+          description: `${listing.name} plan after trial`,
+          lineItemsJson: lineItems as never
+        }
+      });
+      return { changed: true, created: true };
+    });
+    if (outcome.changed) completed += 1;
+    if (outcome.created) overdueCreated += 1;
   }
-
-  return { renewed, failed };
+  return { completed, overdueCreated };
 }
 
-export async function runBillingCycle(now = new Date()) {
-  const trialConversions = await convertExpiredTrials(now);
-  const subscriptionRenewals = await processSubscriptionRenewals(now);
-  const billingMonth = previousMonth(now);
-  const businessIds = await prisma.vapiCall.findMany({
-    where: { billingMonth, billingRecordedAt: { not: null }, billedCostMicroUsd: { gt: 0 } },
-    distinct: ["businessId"],
-    select: { businessId: true }
+async function createCalendarSubscriptionInvoices(now: Date) {
+  const periodStart = utcMonthStart(now);
+  const periodEnd = nextUtcMonthStart(now);
+  const billingPeriod = billingMonthFor(periodStart);
+  const agents = await prisma.installedAgent.findMany({
+    where: {
+      installSource: { not: "ARCHITECT_SELF_TEST" },
+      status: { notIn: ["CANCELED", "INACTIVE"] },
+      listingId: { not: null },
+      listing: { is: { pricingModel: "SUBSCRIPTION", priceCents: { gt: 0 } } }
+    },
+    include: {
+      business: { select: { ownerId: true } },
+      listing: { select: { id: true, name: true, priceCents: true } }
+    }
   });
 
-  for (const { businessId } of businessIds) {
-    await createInvoiceForBusiness(businessId, billingMonth, now);
+  let created = 0;
+  for (const agent of agents) {
+    if (!agent.listing || !agent.listingId) continue;
+    // Calendar billing starts on the first full month after this feature (or
+    // acquisition for new installs), preventing retroactive renewals.
+    const firstDue = nextUtcMonthStart(
+      agent.createdAt > agent.executionBillingStartedAt
+        ? agent.createdAt
+        : agent.executionBillingStartedAt
+    );
+    if (periodStart < firstDue) continue;
+
+    const invoiceKey =
+      `subscription:${agent.businessId}:${agent.listingId}:${billingPeriod}`;
+    const exists = await prisma.payment.findUnique({
+      where: { invoiceKey },
+      select: { id: true }
+    });
+    if (exists) continue;
+
+    const [latestPaid, unresolvedPostTrial] = await Promise.all([
+      prisma.payment.findFirst({
+        where: {
+          userId: agent.business.ownerId,
+          OR: [{ businessId: agent.businessId }, { businessId: null }],
+          listingId: agent.listingId,
+          status: "SUCCEEDED"
+        },
+        orderBy: { createdAt: "desc" }
+      }),
+      prisma.payment.count({
+        where: {
+          userId: agent.business.ownerId,
+          OR: [{ businessId: agent.businessId }, { businessId: null }],
+          listingId: agent.listingId,
+          invoiceKind: "POST_TRIAL",
+          status: "OVERDUE"
+        }
+      })
+    ]);
+    if (!latestPaid || unresolvedPostTrial > 0) continue;
+    if (latestPaid.periodEnd && latestPaid.periodEnd > periodStart) continue;
+    const pinnedPlanCents =
+      parsePaymentLineItems(latestPaid.lineItemsJson)?.[0]?.amountCents ??
+      latestPaid.amountCents;
+
+    try {
+      await prisma.payment.create({
+        data: {
+          userId: agent.business.ownerId,
+          businessId: agent.businessId,
+          listingId: agent.listingId,
+          amountCents: pinnedPlanCents,
+          currency: latestPaid.currency,
+          status: "OVERDUE",
+          invoiceKind: "SUBSCRIPTION_RENEWAL",
+          invoiceKey,
+          periodStart,
+          periodEnd,
+          dueAt: periodStart,
+          graceEndsAt: graceEndFor(periodStart),
+          stripeCustomerId: latestPaid.stripeCustomerId,
+          stripePaymentId: latestPaid.stripePaymentId,
+          billingName: latestPaid.billingName,
+          billingEmail: latestPaid.billingEmail,
+          billingAddress: latestPaid.billingAddress,
+          description: `${monthLabel(billingPeriod)} subscription for ${agent.listing.name}`,
+          lineItemsJson: [
+            {
+              label: `${agent.listing.name} monthly plan`,
+              amountCents: pinnedPlanCents
+            }
+          ] as PaymentLineItem[] as never
+        }
+      });
+      created += 1;
+    } catch (error) {
+      // invoiceKey is unique: a concurrent hourly scheduler already won.
+      if (
+        !(
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2002"
+        )
+      ) {
+        throw error;
+      }
+    }
   }
+  return { billingPeriod, created };
+}
 
-  const openInvoices = await prisma.businessUsageInvoice.findMany({
-    where: { status: { in: ["OPEN", "OVERDUE"] } },
-    include: { business: { select: { name: true, billingEmail: true, owner: { select: { email: true, fullName: true } } } } }
+async function sendUsageReminder(invoice: {
+  invoiceNumber: string;
+  billingMonth: string;
+  totalMicroUsd: number;
+  dueAt: Date;
+  business: {
+    name: string;
+    billingEmail: string | null;
+    owner: { email: string; fullName: string | null };
+  };
+}) {
+  if (!isPlatformMailConfigured()) return false;
+  const amount = (invoice.totalMicroUsd / 1_000_000).toFixed(2);
+  const to = invoice.business.billingEmail || invoice.business.owner.email;
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  await sendPlatformEmail({
+    purpose: "billing",
+    to,
+    subject: `Usage invoice ${invoice.invoiceNumber} is overdue`,
+    text: `Your ${monthLabel(invoice.billingMonth)} execution invoice is $${amount}. Pay before the end of the 7-day grace period to avoid service suspension. ${billingUrl}`,
+    html: `<p>Hi ${invoice.business.owner.fullName || invoice.business.name},</p><p>Your execution invoice <strong>${invoice.invoiceNumber}</strong> is <strong>$${amount}</strong>.</p><p>Please pay before the end of the 7-day grace period to avoid service suspension.</p><p><a href="${billingUrl}">View and pay invoice</a></p>`
+  });
+  return true;
+}
+
+async function processUsageInvoiceLifecycle(now: Date) {
+  await prisma.businessUsageInvoice.updateMany({
+    where: {
+      status: { in: ["PENDING", "OPEN"] },
+      paidAt: null,
+      dueAt: { lte: now }
+    },
+    data: { status: "OVERDUE" }
   });
 
+  const invoices = await prisma.businessUsageInvoice.findMany({
+    where: { status: "OVERDUE", paidAt: null },
+    include: {
+      business: {
+        select: {
+          name: true,
+          billingEmail: true,
+          owner: { select: { email: true, fullName: true } }
+        }
+      }
+    }
+  });
   let remindersSent = 0;
   let suspended = 0;
-  for (const invoice of openInvoices) {
-    if (now >= invoice.dueAt) {
-      if (!invoice.suspendedAt) {
-        await suspendBusinessForInvoice(invoice.businessId, invoice.id, now);
-        suspended += 1;
+  const overdueTotals = new Map<string, number>();
+  for (const overdue of invoices) {
+    const key = `${overdue.businessId}:${overdue.installedAgentId ?? "legacy"}`;
+    overdueTotals.set(
+      key,
+      (overdueTotals.get(key) ?? 0) + overdue.totalMicroUsd
+    );
+  }
+  for (const invoice of invoices) {
+    const suspendAt = invoice.graceEndsAt ?? invoice.dueAt;
+    if (now >= suspendAt) {
+      const scopeKey = `${invoice.businessId}:${invoice.installedAgentId ?? "legacy"}`;
+      if (!usageBalanceIsCollectible(overdueTotals.get(scopeKey) ?? 0)) {
+        // Stripe cannot collect less than $0.50. Keep the balance overdue and
+        // carry it into a later same-agent statement without suspending service.
+        continue;
       }
+      if (await suspendBusinessForUsageInvoice(invoice.id, now)) suspended += 1;
       continue;
     }
-
-    const daysUntilDue = Math.ceil((invoice.dueAt.getTime() - now.getTime()) / DAY_MS);
-    if (daysUntilDue <= 7 && !reminderAlreadySentToday(invoice.lastReminderAt, now)) {
+    if (!reminderAlreadySentToday(invoice.lastReminderAt, now)) {
       try {
-        const sent = await sendInvoiceReminder(invoice);
-        if (sent) {
+        if (await sendUsageReminder(invoice)) {
           await prisma.businessUsageInvoice.update({
             where: { id: invoice.id },
-            data: { reminderCount: { increment: 1 }, lastReminderAt: now }
+            data: {
+              reminderCount: { increment: 1 },
+              lastReminderAt: now
+            }
           });
           remindersSent += 1;
         }
       } catch (error) {
-        console.error("[billing-cycle] reminder failed", { invoiceId: invoice.id, error });
+        console.error("[billing-cycle] usage reminder failed", {
+          invoiceId: invoice.id,
+          error
+        });
       }
     }
   }
+  return { considered: invoices.length, remindersSent, suspended };
+}
 
-  return { billingMonth, invoicesConsidered: businessIds.length, remindersSent, suspended, trialConversions, subscriptionRenewals };
+async function processAgentDebtSuspensions(now: Date) {
+  const payments = await prisma.payment.findMany({
+    where: {
+      status: "OVERDUE",
+      invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] },
+      amountCents: { gte: 50 },
+      suspendedAt: null,
+      graceEndsAt: { lte: now }
+    },
+    select: {
+      id: true,
+      businessId: true,
+      userId: true,
+      listingId: true,
+      amountCents: true
+    }
+  });
+  const totals = new Map<string, number>();
+  for (const payment of payments) {
+    const key = `${payment.businessId ?? `owner:${payment.userId}`}:${payment.listingId}`;
+    totals.set(key, (totals.get(key) ?? 0) + payment.amountCents);
+  }
+  let suspended = 0;
+  for (const payment of payments) {
+    const key = `${payment.businessId ?? `owner:${payment.userId}`}:${payment.listingId}`;
+    if ((totals.get(key) ?? 0) < 50) continue;
+    if (await suspendAgentForPayment(payment.id, now)) suspended += 1;
+  }
+  return { considered: payments.length, suspended };
+}
+
+let initialExecutionReconciliationComplete = false;
+
+async function reconcileCanonicalExecutions(now: Date) {
+  const businesses = await prisma.installedAgent.findMany({
+    where: { installSource: { not: "ARCHITECT_SELF_TEST" } },
+    distinct: ["businessId"],
+    select: { businessId: true }
+  });
+  let considered = 0;
+  let recorded = 0;
+  const month = billingMonthFor(now);
+  const since = initialExecutionReconciliationComplete
+    ? new Date(now.getTime() - 2 * 60 * 60 * 1000)
+    : undefined;
+  for (const business of businesses) {
+    try {
+      const result = await reconcileBusinessExecutionUsage(
+        business.businessId,
+        month,
+        { since }
+      );
+      considered += result.considered;
+      recorded += result.recorded;
+    } catch (error) {
+      // One malformed legacy row must not prevent every other workspace's
+      // trial completion, invoice aging, reminders, or suspension checks.
+      console.error("[billing-cycle] execution reconciliation failed", {
+        businessId: business.businessId,
+        error
+      });
+    }
+  }
+  initialExecutionReconciliationComplete = true;
+  return { businesses: businesses.length, considered, recorded };
+}
+
+export async function runBillingCycle(now = new Date()) {
+  const executionReconciliation = await reconcileCanonicalExecutions(now);
+  const trialCompletions = await completeExpiredTrials(now);
+  const subscriptionInvoices = await createCalendarSubscriptionInvoices(now);
+  const usageInvoices = await processUsageInvoiceLifecycle(now);
+  const agentSuspensions = await processAgentDebtSuspensions(now);
+  return {
+    billingMonth: billingMonthFor(now),
+    executionReconciliation,
+    trialCompletions,
+    subscriptionInvoices,
+    usageInvoices,
+    agentSuspensions
+  };
 }
 
 let billingTimer: NodeJS.Timeout | null = null;
 
 export function startBillingScheduler() {
   if (billingTimer) return;
-  const execute = () => runBillingCycle().catch((error) => console.error("[billing-cycle] run failed", error));
+  const execute = () =>
+    runBillingCycle().catch((error) =>
+      console.error("[billing-cycle] run failed", error)
+    );
   void execute();
   billingTimer = setInterval(execute, 60 * 60 * 1000);
   billingTimer.unref();

@@ -313,6 +313,8 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
         amountCents: params.amountCents,
         currency: "usd",
         status: "SUCCEEDED",
+        invoiceKind: "PURCHASE",
+        paidAt: new Date(),
         stripeCustomerId: params.customerId,
         stripePaymentId: params.paymentMethodId,
         // PaymentIntent id — the dedupe key between response path and webhook.
@@ -367,7 +369,11 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
       status: "TRIALING",
       NOT: { id: payment.id }
     },
-    data: { status: "CANCELED" }
+    data: {
+      status: "COMPLETED",
+      invoiceKind: "TRIAL",
+      periodEnd: new Date()
+    }
   });
 
   if (params.priorTrialPaymentId) {
