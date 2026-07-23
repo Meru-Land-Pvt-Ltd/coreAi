@@ -6,7 +6,7 @@ import {
   wasConsentOffered,
   type ConsentOfferKey
 } from "../notifications/consent-offer-store";
-import { transcriptShowsCompleteSmsDisclosure } from "../notifications/sms-disclosure";
+import { parseTranscriptSegments, transcriptShowsCompleteSmsDisclosure } from "../notifications/sms-disclosure";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import {
   appointmentAiRef,
@@ -43,6 +43,7 @@ import {
 } from "../business/after-hours-state";
 import {
   endLiveAfterHoursCall,
+  extractStructuredCallTurns,
   gateLiveAfterHoursAction,
   resolveLiveAfterHoursGateContext,
   type LiveAfterHoursGateContext
@@ -2562,7 +2563,6 @@ function cleanNameCandidate(raw: string): string {
   return words.join(" ").trim();
 }
 
-/** Pull a real full name out of the caller transcript using common phrasings. */
 function extractPatientNameFromTranscript(transcript: string): string | null {
   if (typeof transcript !== "string" || !transcript.trim()) return null;
   const patterns = [
@@ -2584,11 +2584,25 @@ function extractPatientNameFromTranscript(transcript: string): string | null {
   return null;
 }
 
-/** Resolve the customer's real full name: validated arg → transcript → null (ask). */
+function callerOnlyTranscript(transcript: string): string {
+  if (!transcript.trim()) return "";
+  const segments = parseTranscriptSegments(transcript);
+  if (!segments.some((segment) => segment.role === "assistant" || segment.role === "user")) {
+    return transcript;
+  }
+  return segments
+    .filter((segment) => segment.role === "user")
+    .map((segment) => segment.text)
+    .join("\n");
+}
+
 function resolvePatientName(args: Record<string, unknown>, transcript: string, summary: string): string | null {
   const argName = argStr(args, NAME_ARG_KEYS);
   if (isValidPatientName(argName)) return (argName as string).trim().replace(/\s+/g, " ");
-  return extractPatientNameFromTranscript(`${transcript}\n${summary}`);
+  return (
+    extractPatientNameFromTranscript(callerOnlyTranscript(transcript)) ??
+    extractPatientNameFromTranscript(summary)
+  );
 }
 
 /** Prefer a clean caller-provided number; otherwise the Vapi call's customer number. */
@@ -2807,7 +2821,9 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const providerName = resolveRequestedProvider(args);
   const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
   const time =
-    parseClockTime(argStr(args, ["time", "appointment_time"])) ?? parseClockTime(ctx.transcript) ?? { hour: 9, minute: 0 };
+    parseClockTime(argStr(args, ["time", "appointment_time"])) ??
+    parseClockTime(callerOnlyTranscript(ctx.transcript)) ??
+    { hour: 9, minute: 0 };
 
   const startAt = zonedWallClockToUtc(date, time.hour, time.minute, ctx.timeZone);
   const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
@@ -4463,7 +4479,11 @@ export async function handleVapiWebhook(c: Context) {
     const conversationId = typeof metadata.conversationId === "string" ? metadata.conversationId : undefined;
     const messageType = firstNestedString(body, [["message", "type"], ["type"]]);
     const summary = firstNestedString(body, [["message", "summary"], ["summary"]]);
-    const transcript = firstNestedString(body, [["message", "transcript"], ["transcript"]]);
+    const transcript =
+      firstNestedString(body, [["message", "transcript"], ["transcript"]]) ||
+      extractStructuredCallTurns(body)
+        .map((turn) => `${turn.role === "assistant" ? "AI" : "User"}: ${turn.content}`)
+        .join("\n");
 
     const agentPaused = businessContext?.businessId
       ? await isVapiInstalledAgentPaused(businessContext.businessId, metadataInstalledAgentId)

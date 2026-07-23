@@ -1173,10 +1173,7 @@ export default function BusinessBillingUsagePage() {
 
                     
                 </section>
-
-           
                 
-
                 {/* 3. Invoice history */}
                 <section className="rounded-2xl border border-gray-100 bg-white shadow-sm" aria-label="Invoice history">
                     <div className="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
