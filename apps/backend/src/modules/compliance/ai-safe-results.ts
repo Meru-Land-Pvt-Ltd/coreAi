@@ -89,6 +89,10 @@ export function toAiSafeBookingResult(internal: InternalCalendarResult): AiSafeB
     const smsRecord = sms as Record<string, unknown>;
     if (smsRecord.sent === true) {
       parts.push("A confirmation text was sent to the caller.");
+    } else if (smsRecord.blocked_reason === "SMS_CONSENT_REQUIRED") {
+      parts.push(
+        "No text was sent — the caller has NOT consented to SMS yet. Read the SMS consent disclosure to them WORD-FOR-WORD now, wait for their yes or no, and call record_sms_consent; after a yes the confirmation text is sent automatically."
+      );
     } else if (smsRecord.attempted === true || smsRecord.blocked_reason) {
       parts.push("No confirmation text was sent — do not tell the caller a text was sent.");
     }

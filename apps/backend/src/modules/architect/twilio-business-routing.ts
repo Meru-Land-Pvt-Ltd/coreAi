@@ -3925,13 +3925,50 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     optedIn: outcome.consent.status === "OPTED_IN",
     callId: ctx.callId ?? null
   });
+
+  let confirmationSmsSent = false;
+  if (outcome.consent.status === "OPTED_IN") {
+    try {
+      const recentAppointment = await prisma.appointment.findFirst({
+        where: {
+          businessId: ctx.business.businessId,
+          customerPhone: phone,
+          status: "BOOKED",
+          executionMode: "LIVE",
+          createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) }
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, customerName: true, service: true, startAt: true, timeZone: true }
+      });
+      if (recentAppointment) {
+        const smsOutcome = await sendAppointmentConfirmationSms({
+          appointmentId: recentAppointment.id,
+          businessId: ctx.business.businessId,
+          installedAgentId: ctx.business.installedAgentId ?? null,
+          vapiCallId: ctx.callId ?? null,
+          customerName: recentAppointment.customerName ?? "",
+          customerPhone: phone,
+          serviceName: recentAppointment.service ?? "appointment",
+          appointmentDate: recentAppointment.startAt,
+          timeZone: recentAppointment.timeZone || ctx.timeZone
+        });
+        confirmationSmsSent = smsOutcome.sent || smsOutcome.alreadySent;
+      }
+    } catch (error) {
+      console.error("[vapi-webhook] post-consent confirmation SMS failed (non-fatal)", error);
+    }
+  }
+
   return {
     success: true,
     consent_recorded: true,
     sms_allowed: outcome.consent.status === "OPTED_IN",
+    confirmation_sms_sent: confirmationSmsSent,
     message:
       outcome.consent.status === "OPTED_IN"
-        ? "SMS consent recorded. Transactional texts may now be sent."
+        ? confirmationSmsSent
+          ? "SMS consent recorded and the appointment confirmation text was just sent to the caller."
+          : "SMS consent recorded. Transactional texts may now be sent."
         : "Declined recorded. Do not send texts. Continue the booking normally — it is not affected."
   };
 }
@@ -3942,8 +3979,6 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   let teamSmsSent = false;
   let customerEmailSent = false;
   let teamEmailSent = false;
-  // Set when the consent gate suppressed the customer SMS — surfaced to the
-  // assistant so it can explain instead of claiming a text was sent.
   let customerSmsBlockedReason: string | null = null;
 
   const service = argStr(args, ["service", "service_type"]) || ctx.dental?.bookingLabel || "appointment";
@@ -3953,14 +3988,8 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     ctx.business?.businessName ||
     "";
 
-  // After-hours urgency marks the INTERNAL team notification only — it never
-  // creates a customer send, and never bypasses the customer consent gate.
   const urgencyRaw = (argStr(args, ["urgency"]) || "").toLowerCase();
   const urgency = urgencyRaw === "urgent" || urgencyRaw === "emergency" ? urgencyRaw : null;
-  // The model may pass a `reason` arg, but the staff alert templates carry
-  // minimum information by design (§ privacy) — the reason is never included.
-
-  // Architect and buyer browser tests: preview the SMS, never call Twilio.
   if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
     const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);

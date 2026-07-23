@@ -185,11 +185,22 @@ describe("toAiSafeBookingResult", () => {
     const sent = toAiSafeBookingResult(LEAKY_BOOKING_INTERNAL);
     expect(sent.message).toContain("confirmation text was sent");
 
-    const blocked = toAiSafeBookingResult({
+    // Consent-blocked → actionable: the model is told to read the disclosure
+    // now so the caller is proactively OFFERED texts, not left without them.
+    const consentBlocked = toAiSafeBookingResult({
       ...LEAKY_BOOKING_INTERNAL,
       sms: { attempted: true, sent: false, blocked_reason: "SMS_CONSENT_REQUIRED", messageSid: null, status: null }
     });
-    expect(blocked.message).toContain("No confirmation text was sent");
+    expect(consentBlocked.message).toContain("No text was sent");
+    expect(consentBlocked.message).toContain("SMS consent disclosure");
+    expect(consentBlocked.message).toContain("record_sms_consent");
+
+    // Any other block keeps the generic never-claim-a-text-was-sent line.
+    const otherBlocked = toAiSafeBookingResult({
+      ...LEAKY_BOOKING_INTERNAL,
+      sms: { attempted: true, sent: false, blocked_reason: "SMS_OPTED_OUT", messageSid: null, status: null }
+    });
+    expect(otherBlocked.message).toContain("No confirmation text was sent");
   });
 
   it("keeps failure guidance (verdict → status, alternatives → message)", () => {
