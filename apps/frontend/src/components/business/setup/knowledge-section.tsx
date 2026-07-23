@@ -7,9 +7,12 @@ import {
   reprocessBusinessKnowledgeFile,
   syncBusinessKnowledge,
   uploadBusinessKnowledgeFiles,
+  getBusinessFacts,
+  saveBusinessAddressApi,
   type BusinessFaq,
   type KnowledgeFileSummary,
-  type KnowledgeLiveSync
+  type KnowledgeLiveSync,
+  type BusinessFactsData
 } from "@/components/business/features/api";
 
 
@@ -58,6 +61,39 @@ export function DocumentUploadSection({
   const [syncRetrying, setSyncRetrying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [facts, setFacts] = useState<BusinessFactsData | null>(null);
+  const [addressApplying, setAddressApplying] = useState(false);
+
+  const refreshFacts = useCallback(async () => {
+    const res = await getBusinessFacts();
+    if (res.success && res.data) setFacts(res.data);
+  }, []);
+
+  async function handleApplyAddress(suggestion: NonNullable<BusinessFactsData["documentSuggestion"]>) {
+    setAddressApplying(true);
+    setUploadError("");
+    const res = await saveBusinessAddressApi({
+      line1: suggestion.line1,
+      line2: "",
+      city: suggestion.city ?? "",
+      state: suggestion.state ?? "",
+      postalCode: suggestion.postalCode ?? "",
+      country: "",
+      landmark: "",
+      directions: "",
+      mapsLink: "",
+      source: "pdf_suggestion",
+      confirm: true
+    });
+    setAddressApplying(false);
+    if (res.success) {
+      void refreshFacts();
+      onKnowledgeChanged?.();
+    } else {
+      setUploadError(res.error ?? "Failed to apply address suggestion.");
+    }
+  }
+
   function applyLiveSync(sync: KnowledgeLiveSync | undefined) {
     if (!sync) return;
     if (!sync.attempted) {
@@ -93,7 +129,8 @@ export function DocumentUploadSection({
 
   useEffect(() => {
     void refreshKnowledgeFiles();
-  }, [refreshKnowledgeFiles]);
+    void refreshFacts();
+  }, [refreshKnowledgeFiles, refreshFacts]);
 
   useEffect(() => {
     onSummaryChange?.({
@@ -144,6 +181,7 @@ export function DocumentUploadSection({
       });
       applyLiveSync(res.data.liveSync);
       void refreshKnowledgeFiles();
+      void refreshFacts();
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Upload failed. Please try again.");
@@ -165,6 +203,7 @@ export function DocumentUploadSection({
       setKnowledgeFiles((prev) => prev.filter((file) => file.id !== id));
       applyLiveSync(res.data?.liveSync);
       void refreshKnowledgeFiles();
+      void refreshFacts();
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Could not remove the document. Please try again.");
@@ -181,6 +220,7 @@ export function DocumentUploadSection({
       setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
       applyLiveSync(res.data.liveSync);
       void refreshKnowledgeFiles();
+      void refreshFacts();
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Could not reprocess the document. Please try again.");
@@ -190,8 +230,8 @@ export function DocumentUploadSection({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">Documents & Knowledge Base</h4>
-        <span className="text-xs text-slate-400">Optional</span>
+        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Documents & Knowledge Base</h4>
+        <span className="text-xs text-slate-400 font-medium">Optional</span>
       </div>
       <p className="mt-0.5 text-xs text-slate-500">
         Brochures, price lists, policies, or service catalogs.
@@ -357,24 +397,61 @@ export function DocumentUploadSection({
         </p>
       ) : null}
 
-      {hoursSuggestionReady ? (
-        <div
-          className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-100 bg-amber-50/70 px-3.5 py-2"
-          data-testid="business-setup-knowledge-hours-hint"
-        >
-          <p className="text-xs text-amber-800">
-            We found opening hours in your documents — review and apply them.
-          </p>
-          {onReviewHours ? (
-            <button
-              type="button"
-              data-testid="business-setup-knowledge-hours-hint-review"
-              onClick={onReviewHours}
-              className="text-xs font-semibold text-amber-700 underline hover:text-amber-800"
-            >
-              Review timings
-            </button>
-          ) : null}
+      {/* Unified minimalist confirmation card for extracted details */}
+      {(facts?.documentSuggestion || hoursSuggestionReady) ? (
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm animate-fade-in space-y-3.5">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h5 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              Detected details from your documents
+            </h5>
+          </div>
+
+          <div className="grid gap-2.5">
+            {facts?.documentSuggestion ? (
+              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-white border border-slate-100 hover:border-amber-200 transition-all shadow-2xs">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Address</span>
+                  <p className="text-xs text-slate-700 font-medium truncate mt-0.5" title={facts.documentSuggestion.formatted}>
+                    {facts.documentSuggestion.formatted}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={addressApplying}
+                  onClick={() => void handleApplyAddress(facts.documentSuggestion!)}
+                  className="shrink-0 text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {addressApplying ? "Applying..." : "Use Address"}
+                </button>
+              </div>
+            ) : null}
+
+            {hoursSuggestionReady ? (
+              <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-white border border-slate-100 hover:border-amber-200 transition-all shadow-2xs" data-testid="business-setup-knowledge-hours-hint">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Opening Hours</span>
+                  <p className="text-xs text-slate-700 font-medium mt-0.5">
+                    Opening hours detected in document
+                  </p>
+                </div>
+                {onReviewHours ? (
+                  <button
+                    type="button"
+                    data-testid="business-setup-knowledge-hours-hint-review"
+                    onClick={onReviewHours}
+                    className="shrink-0 text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Review Timings
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
@@ -392,7 +469,7 @@ export function FaqSection({
     <div>
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wide">FAQs</h4>
+          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">FAQs</h4>
           <p className="mt-0.5 text-xs text-slate-500">Exact answers the agent should give.</p>
         </div>
         <button

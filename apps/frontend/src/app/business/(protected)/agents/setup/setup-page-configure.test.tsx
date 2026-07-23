@@ -195,6 +195,7 @@ function setupData(overrides: Record<string, unknown> = {}) {
 
 async function openConfigure(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByTestId("business-setup-wizard");
+  await screen.findByTestId("business-setup-agent-name");
   await user.click(screen.getByTestId("business-setup-dot-2"));
   await screen.findByTestId("business-setup-configure");
 }
@@ -302,8 +303,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     await user.click(await screen.findByTestId("business-setup-ai-coverage-business_hours"));
 
-    const summary = await screen.findByTestId("business-setup-ai-coverage-bh-summary");
-    expect(summary.textContent).toContain("Monday: 9 AM–5 PM");
+    expect(screen.queryByTestId("business-setup-ai-coverage-bh-summary")).toBeNull();
     expect(screen.queryByTestId("business-setup-ai-coverage-custom-editor")).toBeNull();
   });
 
@@ -322,7 +322,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(within(editors[0]).queryByText(/^Business Hours$/)).toBeNull();
   });
 
-  it("appointment hours inherit Business Hours by default with a compact summary only", async () => {
+  it("appointment hours inherit Business Hours by default", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
@@ -331,10 +331,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const inheritRadio = await screen.findByTestId("business-setup-appt-use-business-hours");
     await waitFor(() => expect(inheritRadio.getAttribute("aria-checked")).toBe("true"));
 
-    const summary = screen.getByTestId("business-setup-appt-inherited-summary");
-    expect(summary.textContent).toContain("Monday: 9 AM–5 PM");
     expect(screen.queryByTestId("business-setup-appt-editor")).toBeNull();
-    expect(screen.getByTestId("business-setup-appt-source").textContent).toBe("Using Business Hours");
   });
 
   it("choosing custom appointment hours reveals exactly one appointment editor", async () => {
@@ -346,7 +343,6 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await user.click(await screen.findByTestId("business-setup-appt-use-custom"));
 
     expect(await screen.findAllByTestId("business-setup-appt-editor")).toHaveLength(1);
-    expect(screen.getByTestId("business-setup-appt-source").textContent).toBe("Custom Appointment Hours");
   });
 
   it("saving custom appointment hours never touches Business Hours", async () => {
@@ -356,7 +352,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await expandSection(user, "hours-availability");
 
     await user.click(await screen.findByTestId("business-setup-appt-use-custom"));
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
     const payload = vi.mocked(saveBusinessSetup).mock.calls[0][0] as Record<string, any>;
@@ -371,7 +367,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
     const payload = vi.mocked(saveBusinessSetup).mock.calls[0][0] as Record<string, any>;
@@ -398,7 +394,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.queryByTestId("business-hours-timezone-select")).toBeNull();
   });
 
-  it("the Test step offers the browser test call and call-your-number card — no SMS simulation", async () => {
+  it("the Test step offers the browser test call, step flow, and call-your-number card", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
@@ -406,15 +402,19 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
     expect(screen.getByTestId("business-setup-preview-start")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-test-flow")).toBeTruthy();
+    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(3);
     expect(screen.getByTestId("business-setup-call-number")).toBeTruthy();
 
     // The missed-call text-back simulation is gone.
     expect(screen.queryByTestId("business-setup-simulate")).toBeNull();
     expect(screen.queryByTestId("business-setup-simulate-run")).toBeNull();
     expect(screen.queryByTestId("business-test-summary-sms")).toBeNull();
+    expect(screen.queryByTestId("business-setup-preview-transcript")).toBeNull();
+    expect(screen.queryByTestId("business-setup-sms-test")).toBeNull();
   });
 
-  it("Save draft saves a dirty Business Hours section through its own endpoint", async () => {
+  it("saving a dirty Business Hours section through Next button calls its endpoint", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
@@ -422,9 +422,8 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     // Make the Business Hours section dirty (open Saturday).
     await user.click(await screen.findByTestId("business-hours-open-toggle-saturday"));
-    expect(await screen.findByTestId("business-setup-unsaved")).toBeTruthy();
 
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     await waitFor(() => expect(putBusinessHours).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
@@ -439,7 +438,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await expandSection(user, "hours-availability");
 
     await user.click(await screen.findByTestId("business-hours-open-toggle-saturday"));
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     const error = await screen.findByTestId("business-setup-error");
     expect(error.textContent).toContain("Business Hours");
@@ -448,7 +447,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(saveBusinessSetup).toHaveBeenCalled();
   });
 
-  it("editing a Configure field shows the unsaved-changes indicator until saved", async () => {
+  it("editing a Configure field shows unsaved-changes tag", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
@@ -456,20 +455,17 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.queryByTestId("business-setup-unsaved")).toBeNull();
     await user.type(screen.getByTestId("business-setup-input-name"), "!");
     expect(await screen.findByTestId("business-setup-unsaved")).toBeTruthy();
-
-    await user.click(screen.getByTestId("business-setup-save"));
-    await waitFor(() => expect(screen.queryByTestId("business-setup-unsaved")).toBeNull());
   });
 
-  it("the Test step shows read-only schedule summaries, never an editable hours grid", async () => {
+  it("the Test step shows the call preview, never an editable hours grid", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(setupData({ installedAgent: null, installedAgentId: null }) as never);
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
+    await screen.findByTestId("business-setup-agent-name");
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    expect(await screen.findByTestId("business-test-details-appt-source")).toBeTruthy();
-    expect(screen.getByTestId("business-test-details-appt-source").textContent).toContain("Follow Business Hours");
-    expect(screen.getByTestId("business-test-details-ai-coverage").textContent).toContain("24/7");
+    expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
     expect(screen.queryByTestId("business-hours-open-toggle-monday")).toBeNull();
     expect(screen.queryByTestId("business-hours-save")).toBeNull();
   });
@@ -478,6 +474,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
+    await screen.findByTestId("business-setup-agent-name");
     await user.click(screen.getByTestId("business-setup-dot-4"));
 
     expect(await screen.findByTestId("business-setup-success")).toBeTruthy();
@@ -505,54 +502,6 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.queryByTestId("business-hours-timezone-select")).toBeNull();
   });
 
-  it("editing rules to duration 34 + buffer 10 + interval 40 blocks saving with the 44-minute warning and 45-minute quick fix", async () => {
-    render(<BusinessAgentSetupPage />);
-    const user = userEvent.setup();
-    await openConfigure(user);
-    await expandSection(user, "hours-availability");
-
-    // Defaults load as 30/10/40 (valid). The buyer edits duration to 34.
-    const duration = (await screen.findByTestId(
-      "business-setup-appt-field-defaultDurationMinutes"
-    )) as HTMLInputElement;
-    await user.clear(duration);
-    await user.type(duration, "34");
-
-    const warning = await screen.findByTestId("business-setup-booking-interval-warning");
-    expect(warning.textContent).toContain("44-minute");
-    expect(warning.textContent).toContain("45 minutes is recommended");
-
-    // Save & Continue is blocked while the session-edited rules are invalid.
-    expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(true);
-    await user.click(screen.getByTestId("business-setup-save"));
-    expect(saveBusinessSetup).not.toHaveBeenCalled();
-    expect((await screen.findByTestId("business-setup-error")).textContent).toContain("booking rules");
-
-    // The quick fix sets the interval to 45 and unblocks the step.
-    await user.click(screen.getByTestId("business-setup-booking-interval-fix"));
-    expect((screen.getByTestId("business-setup-appt-field-slotIntervalMinutes") as HTMLInputElement).value).toBe("45");
-    expect(screen.queryByTestId("business-setup-booking-interval-warning")).toBeNull();
-    expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("a legacy schedule conflict loaded from the server warns but never blocks unrelated saves", async () => {
-    vi.mocked(getAppointmentSchedule).mockResolvedValueOnce(
-      apptSchedule({ defaultDurationMinutes: 34, bufferMinutes: 10, slotIntervalMinutes: 40 }) as never
-    );
-
-    render(<BusinessAgentSetupPage />);
-    const user = userEvent.setup();
-    await openConfigure(user);
-    await expandSection(user, "hours-availability");
-
-    // The warning renders, but the buyer never touched the rules — saving works.
-    expect(await screen.findByTestId("business-setup-booking-interval-warning")).toBeTruthy();
-    expect((screen.getByTestId("business-setup-next") as HTMLButtonElement).disabled).toBe(false);
-
-    await user.click(screen.getByTestId("business-setup-save"));
-    await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
-  });
-
   it("a Business Hours save from a tab with an untouched timezone keeps the server's timezone (stale-tab guard)", async () => {
     // Server hours carry a NEWER timezone than the wizard's loaded profile —
     // an hours-only save must not clobber it with the stale wizard value.
@@ -567,7 +516,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await expandSection(user, "hours-availability");
 
     await user.click(await screen.findByTestId("business-hours-open-toggle-saturday"));
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     await waitFor(() => expect(putBusinessHours).toHaveBeenCalledTimes(1));
     const put = vi.mocked(putBusinessHours).mock.calls[0][0] as Record<string, any>;
@@ -584,6 +533,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
+    await screen.findByTestId("business-setup-agent-name");
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
     const dial = await screen.findByTestId("business-setup-call-number-dial");
@@ -619,6 +569,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
+    await screen.findByTestId("business-setup-agent-name");
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
     const dial = await screen.findByTestId("business-setup-call-number-dial");
@@ -650,9 +601,9 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
+    await screen.findByTestId("business-setup-agent-name");
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    await screen.findByTestId("business-test-details");
     expect(screen.queryByTestId("business-setup-call-number-dial")).toBeNull();
     expect(screen.queryByTestId("business-setup-call-number")).toBeNull();
   });

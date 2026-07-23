@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { VOICE_PRESETS } from "@coreai/shared";
 import { getVoiceSamplePreview } from "@/components/business/features/api";
-import { FIELD } from "./ui";
+import { FIELD, LABEL } from "./ui";
 
 /**
  * Agent Identity section of the Configure step: the agent's name, voice (with
@@ -120,7 +120,7 @@ export function AgentIdentitySection({
     <div>
       {showVoice ? (
         <div>
-          <label htmlFor="agent-name" className="block text-sm font-medium text-slate-700 mb-2">Name your agent</label>
+          <label htmlFor="agent-name" className={LABEL}>Name your agent</label>
           <input
             id="agent-name"
             data-testid="business-setup-input-assistant-name"
@@ -134,8 +134,8 @@ export function AgentIdentitySection({
       ) : null}
 
       {showVoice ? (
-        <div className="mt-5">
-          <label htmlFor="agent-voice-select" className="block text-sm font-medium text-slate-700 mb-1.5">
+        <div className="mt-4">
+          <label htmlFor="agent-voice-select" className={LABEL}>
             Agent voice
           </label>
           <div className="flex items-center gap-2">
@@ -150,12 +150,12 @@ export function AgentIdentitySection({
                 className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-left shadow-sm transition-all hover:border-slate-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 cursor-pointer"
               >
                 <div className="min-w-0 pr-2">
-                  <span className="block truncate text-sm font-bold text-slate-900 leading-snug">
+                  <span className="block truncate text-xs font-semibold text-slate-800 leading-snug">
                     {voiceChoice === "custom"
                       ? "Custom voice"
                       : VOICE_OPTIONS.find((v) => v.value === voiceChoice)?.name || "Select voice"}
                   </span>
-                  <span className="block truncate text-xs font-medium text-slate-500 leading-snug">
+                  <span className="block truncate text-[11px] font-normal text-slate-500 leading-snug">
                     {voiceChoice === "custom"
                       ? "ElevenLabs voice ID"
                       : VOICE_OPTIONS.find((v) => v.value === voiceChoice)?.style || "Choose assistant voice"}
@@ -200,8 +200,8 @@ export function AgentIdentitySection({
                         }`}
                       >
                         <div className="min-w-0 pr-2">
-                          <div className="text-sm font-bold text-slate-900 leading-snug">{opt.name}</div>
-                          <div className="text-xs font-medium text-slate-500 leading-snug mt-0.5">{opt.style}</div>
+                          <div className="text-xs font-semibold text-slate-800 leading-snug">{opt.name}</div>
+                          <div className="text-[11px] font-normal text-slate-500 leading-snug mt-0.5">{opt.style}</div>
                         </div>
                         {isSelected ? (
                           <svg
@@ -234,8 +234,8 @@ export function AgentIdentitySection({
                     }`}
                   >
                     <div className="min-w-0 pr-2">
-                      <div className="text-sm font-bold text-slate-900 leading-snug">Custom voice</div>
-                      <div className="text-xs font-medium text-slate-500 leading-snug mt-0.5">Use your ElevenLabs voice ID</div>
+                      <div className="text-xs font-semibold text-slate-800 leading-snug">Custom voice</div>
+                      <div className="text-[11px] font-normal text-slate-500 leading-snug mt-0.5">Use your ElevenLabs voice ID</div>
                     </div>
                     {voiceChoice === "custom" ? (
                       <svg
@@ -283,7 +283,7 @@ export function AgentIdentitySection({
 
           {voiceChoice === "custom" ? (
             <div className="mt-2.5">
-              <label htmlFor="custom-voice-id" className="mb-1 block text-xs font-medium text-slate-600">
+              <label htmlFor="custom-voice-id" className={LABEL}>
                 Custom voice ID
               </label>
               <input
@@ -307,8 +307,8 @@ export function AgentIdentitySection({
       ) : null}
 
       {/* Conversation tone — applies to calls and text-back messages alike. */}
-      <div className={showVoice ? "mt-6" : ""}>
-        <span className="block text-sm font-medium text-slate-700 mb-2">Tone</span>
+      <div className={showVoice ? "mt-5" : ""}>
+        <span className={LABEL}>Tone</span>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Conversation tone" data-testid="business-setup-tone">
           {TONES.map((option) => {
             const selected = tone === option.value;
@@ -333,11 +333,11 @@ export function AgentIdentitySection({
       </div>
 
       {/* Greeting preview — updates immediately with the names above. */}
-      <p className="text-xs text-slate-400 mt-4 font-semibold" data-testid="business-setup-greeting-preview">
+      <p className="text-xs text-slate-500 mt-4 font-normal" data-testid="business-setup-greeting-preview">
         Example: &ldquo;Hello, this is{" "}
-        <span className="font-semibold text-slate-600">{assistantName.trim() || DEFAULT_ASSISTANT_NAME}</span>{" "}
+        <span className="font-semibold text-slate-700">{assistantName.trim() || DEFAULT_ASSISTANT_NAME}</span>{" "}
         from{" "}
-        <span className="font-semibold text-slate-600">{businessName.trim() || "your business"}</span>. How can I help today?&rdquo;
+        <span className="font-semibold text-slate-700">{businessName.trim() || "your business"}</span>. How can I help today?&rdquo;
       </p>
     </div>
   );

@@ -169,6 +169,8 @@ export function BusinessHoursSection({
   const [suggestion, setSuggestion] = useState<BusinessHoursData["suggestion"]>(null);
   const [sameHoursForAll, setSameHoursForAll] = useState(true);
   const [selectedDay, setSelectedDay] = useState<BusinessHoursWeekday>("monday");
+  const [showPreview, setShowPreview] = useState(false);
+
 
   const effectiveTimeZone = timeZoneOverride?.trim() ? timeZoneOverride.trim() : timeZone;
 
@@ -279,7 +281,7 @@ export function BusinessHoursSection({
   const unifiedOpen = firstOpenDay?.periods[0]?.open ?? "08:00";
   const unifiedClose = firstOpenDay?.periods[0]?.close ?? "18:00";
 
-  const selectedDayRow = week.find((d) => d.day === selectedDay) ?? week[0];
+  const selectedDayRow = week?.find((d) => d.day === selectedDay) ?? week[0];
   const displayOpen = sameHoursForAll
     ? unifiedOpen
     : (selectedDayRow?.periods[0]?.open ?? unifiedOpen);
@@ -723,17 +725,168 @@ export function BusinessHoursSection({
           </div>
         </div>
 
+        {/* Sleek Compact Weekly Schedule Preview Toggle / Content */}
+        <div className="mt-4 pt-3.5 border-t border-amber-200/50">
+          {showPreview ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Weekly Schedule Preview</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(false)}
+                  className="text-xs font-bold text-amber-700 hover:text-amber-800 transition"
+                >
+                  Hide Preview
+                </button>
+              </div>
+              <CompactWeeklyPreview summary={summarizeWeek(week)} />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between text-xs text-slate-600">
+              <span className="font-medium">
+                Weekly schedule: <span className="font-semibold text-slate-700">{week.filter(d => !d.closed).length} days active</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPreview(true)}
+                className="font-bold text-amber-700 hover:text-amber-800 transition bg-amber-100/50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200/50"
+              >
+                Show Preview
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Aesthetic & Minimalist Holidays & Special Dates Section */}
+        {!compact ? (
+          <div className="mt-4 pt-4 border-t border-amber-200/50">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Holidays &amp; Special Dates</h4>
+                <p className="mt-0.5 text-xs text-slate-400">Add single-date overrides or temporary closures.</p>
+              </div>
+              <button
+                type="button"
+                data-testid="business-hours-add-special"
+                onClick={addSpecialDate}
+                className="btn rounded-xl border border-amber-200 bg-amber-100/50 hover:bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800 transition"
+              >
+                + Add date
+              </button>
+            </div>
+
+            {specialDates.length > 0 ? (
+              <div className="mt-3.5 space-y-2.5">
+                {specialDates.map((entry, index) => (
+                  <div
+                    key={index}
+                    data-testid={`business-hours-special-${index}`}
+                    className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200/80 bg-white p-3.5 shadow-2xs transition hover:border-amber-300"
+                  >
+                    <input
+                      type="date"
+                      data-testid={`business-hours-special-date-${index}`}
+                      value={entry.date}
+                      onChange={(event) => patchSpecialDate(index, { date: event.target.value })}
+                      className="field rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
+                    />
+
+                    <select
+                      value={entry.kind}
+                      data-testid={`business-hours-special-kind-${index}`}
+                      onChange={(event) =>
+                        patchSpecialDate(index, { kind: event.target.value as BusinessSpecialHoursInput["kind"] })
+                      }
+                      className="field rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none"
+                    >
+                      <option value="holiday">Holiday</option>
+                      <option value="special">Special hours</option>
+                      <option value="closure">Temporary closure</option>
+                    </select>
+
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        data-testid={`business-hours-special-closed-${index}`}
+                        checked={entry.closed}
+                        onChange={(event) =>
+                          patchSpecialDate(index, {
+                            closed: event.target.checked,
+                            periods: event.target.checked
+                              ? []
+                              : entry.periods.length
+                                ? entry.periods
+                                : [{ open: "09:00", close: "13:00" }]
+                          })
+                        }
+                        className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 accent-amber-500 cursor-pointer"
+                      />
+                      Closed all day
+                    </label>
+
+                    {!entry.closed
+                      ? entry.periods.map((period, periodIndex) => (
+                          <div key={periodIndex} className="flex items-center gap-1.5">
+                            <input
+                              type="time"
+                              value={period.open}
+                              onChange={(event) =>
+                                patchSpecialDate(index, {
+                                  periods: entry.periods.map((p, i) =>
+                                    i === periodIndex ? { ...p, open: event.target.value } : p
+                                  )
+                                })
+                              }
+                              className="field rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold tabular-nums text-slate-800"
+                            />
+                            <span className="text-xs text-slate-400 font-bold">–</span>
+                            <input
+                              type="time"
+                              value={period.close}
+                              onChange={(event) =>
+                                patchSpecialDate(index, {
+                                  periods: entry.periods.map((p, i) =>
+                                    i === periodIndex ? { ...p, close: event.target.value } : p
+                                  )
+                                })
+                              }
+                              className="field rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold tabular-nums text-slate-800"
+                            />
+                          </div>
+                        ))
+                      : null}
+
+                    <input
+                      type="text"
+                      data-testid={`business-hours-special-note-${index}`}
+                      value={entry.note ?? ""}
+                      placeholder="Note (e.g. Christmas Day)"
+                      onChange={(event) => patchSpecialDate(index, { note: event.target.value || undefined })}
+                      className="field min-w-[140px] flex-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs text-slate-700 placeholder-slate-400 outline-none focus:border-amber-500"
+                    />
+
+                    <button
+                      type="button"
+                      data-testid={`business-hours-remove-special-${index}`}
+                      onClick={() => removeSpecialDate(index)}
+                      aria-label="Remove special date"
+                      className="rounded-lg p-1.5 text-xs font-bold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Hidden accessibility container for test compatibility */}
         <div className="hidden" aria-hidden="true">
           <button type="button" data-testid="business-hours-copy-monday" onClick={copyMondayToWeekdays}>Apply Mon to Mon–Fri</button>
           <button type="button" data-testid="business-hours-weekdays-9-5" onClick={setWeekdaysNineToFive}>Weekdays 9–5</button>
           <button type="button" data-testid="business-hours-close-weekends" onClick={closeWeekends}>Close weekends</button>
         </div>
-      </div>
-
-      {/* Sleek Compact Weekly Schedule Preview */}
-      <div className="mt-3.5">
-        <CompactWeeklyPreview summary={summarizeWeek(week)} heading="Weekly Schedule Preview" />
       </div>
 
       {/* Hidden Per-day elements for test compatibility */}
@@ -774,129 +927,6 @@ export function BusinessHoursSection({
         ))}
       </div>
 
-      {/* Aesthetic & Minimalist Holidays & Special Dates Section */}
-      {!compact ? (
-        <div className="mt-6 border-t border-gray-100 pt-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Holidays &amp; Special Dates</h4>
-              <p className="mt-0.5 text-xs text-slate-400">Add single-date overrides or temporary closures.</p>
-            </div>
-            <button
-              type="button"
-              data-testid="business-hours-add-special"
-              onClick={addSpecialDate}
-              className="btn rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100"
-            >
-              + Add date
-            </button>
-          </div>
-
-          {specialDates.length > 0 ? (
-            <div className="mt-3.5 space-y-2.5">
-              {specialDates.map((entry, index) => (
-                <div
-                  key={index}
-                  data-testid={`business-hours-special-${index}`}
-                  className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200/80 bg-white p-3.5 shadow-2xs transition hover:border-amber-300"
-                >
-                  <input
-                    type="date"
-                    data-testid={`business-hours-special-date-${index}`}
-                    value={entry.date}
-                    onChange={(event) => patchSpecialDate(index, { date: event.target.value })}
-                    className="field rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
-                  />
-
-                  <select
-                    value={entry.kind}
-                    data-testid={`business-hours-special-kind-${index}`}
-                    onChange={(event) =>
-                      patchSpecialDate(index, { kind: event.target.value as BusinessSpecialHoursInput["kind"] })
-                    }
-                    className="field rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none"
-                  >
-                    <option value="holiday">Holiday</option>
-                    <option value="special">Special hours</option>
-                    <option value="closure">Temporary closure</option>
-                  </select>
-
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      data-testid={`business-hours-special-closed-${index}`}
-                      checked={entry.closed}
-                      onChange={(event) =>
-                        patchSpecialDate(index, {
-                          closed: event.target.checked,
-                          periods: event.target.checked
-                            ? []
-                            : entry.periods.length
-                              ? entry.periods
-                              : [{ open: "09:00", close: "13:00" }]
-                        })
-                      }
-                      className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 accent-amber-500 cursor-pointer"
-                    />
-                    Closed all day
-                  </label>
-
-                  {!entry.closed
-                    ? entry.periods.map((period, periodIndex) => (
-                        <div key={periodIndex} className="flex items-center gap-1.5">
-                          <input
-                            type="time"
-                            value={period.open}
-                            onChange={(event) =>
-                              patchSpecialDate(index, {
-                                periods: entry.periods.map((p, i) =>
-                                  i === periodIndex ? { ...p, open: event.target.value } : p
-                                )
-                              })
-                            }
-                            className="field rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold tabular-nums text-slate-800"
-                          />
-                          <span className="text-xs text-slate-400 font-bold">–</span>
-                          <input
-                            type="time"
-                            value={period.close}
-                            onChange={(event) =>
-                              patchSpecialDate(index, {
-                                periods: entry.periods.map((p, i) =>
-                                  i === periodIndex ? { ...p, close: event.target.value } : p
-                                )
-                              })
-                            }
-                            className="field rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold tabular-nums text-slate-800"
-                          />
-                        </div>
-                      ))
-                    : null}
-
-                  <input
-                    type="text"
-                    data-testid={`business-hours-special-note-${index}`}
-                    value={entry.note ?? ""}
-                    placeholder="Note (e.g. Christmas Day)"
-                    onChange={(event) => patchSpecialDate(index, { note: event.target.value || undefined })}
-                    className="field min-w-[140px] flex-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs text-slate-700 placeholder-slate-400 outline-none focus:border-amber-500"
-                  />
-
-                  <button
-                    type="button"
-                    data-testid={`business-hours-remove-special-${index}`}
-                    onClick={() => removeSpecialDate(index)}
-                    aria-label="Remove special date"
-                    className="rounded-lg p-1.5 text-xs font-bold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {!embedded ? (

@@ -76,7 +76,7 @@ export function ConfigureSectionCard({
               {icon}
             </span>
           ) : null}
-          <span className="text-sm font-bold text-slate-900 truncate">{title}</span>
+          <span className="text-sm font-bold text-slate-800 truncate">{title}</span>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
