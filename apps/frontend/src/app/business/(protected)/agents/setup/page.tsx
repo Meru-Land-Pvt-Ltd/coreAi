@@ -532,6 +532,8 @@ function SetupWizard() {
 
   const [businessName, setBusinessName] = useState("");
   const [listing, setListing] = useState<any>(null);
+  const [setupTimeEstimate, setSetupTimeEstimate] = useState<string | null>(null);
+  const [isAddressValid, setIsAddressValid] = useState(false);
   const [businessType, setBusinessType] = useState("");
   const [connectStepValidated, setConnectStepValidated] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -692,16 +694,34 @@ function SetupWizard() {
       if (mailRes.success && mailRes.data) setMailAlias(mailRes.data.alias);
     });
 
+    try {
+      const factsRes = await getBusinessFacts();
+      if (factsRes.success && factsRes.data) {
+        const address = factsRes.data.address;
+        setIsAddressValid(Boolean(address?.line1?.trim() && address?.city?.trim()));
+      }
+    } catch (e) {
+      console.error("Failed to load business facts:", e);
+    }
+
     const res = await getBusinessSetup(listingId);
 
     if (res.success && res.data) {
       const data = res.data;
+
+      if (data.setupTimeEstimate) {
+        setSetupTimeEstimate(data.setupTimeEstimate);
+      }
 
       const existingVapiAssistantId = readLiveVapiAssistantId(data);
       const existingInstalledAgentId = readInstalledAgentId(data);
 
       setLiveVapiAssistantId(existingVapiAssistantId);
       setLiveInstalledAgentId(existingInstalledAgentId);
+      const isDeployed =
+        (data.installedAgent && data.installedAgent.status === "ACTIVE") ||
+        Boolean(existingVapiAssistantId);
+      setDeployed(isDeployed);
       setAssistantName(readAssistantName(data));
 
       if (data.business) {
@@ -827,6 +847,9 @@ function SetupWizard() {
 
         if (listingRes.success && listingRes.data?.listing) {
           setListing(listingRes.data.listing);
+          if (listingRes.data.listing.setupTimeEstimate) {
+            setSetupTimeEstimate(listingRes.data.listing.setupTimeEstimate);
+          }
           if (!data.installedAgent) {
             keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
           }
@@ -1294,6 +1317,10 @@ function SetupWizard() {
     setError("");
 
     if (step === 1) {
+      if (!connectComplete) {
+        setError("Complete the Connect step before continuing.");
+        return;
+      }
       setConnectStepValidated(true);
     }
 
@@ -1422,7 +1449,6 @@ function SetupWizard() {
   }
 
   const needs = new Set(requiredKeys);
-  const [isAddressValid, setIsAddressValid] = useState(false);
   const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2 && isAddressValid;
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -1497,7 +1523,7 @@ function SetupWizard() {
     (!needsCalendar || calendar.connected) &&
     (!needsGmail || calendar.connected) &&
     (!needsMail || mailComplete);
-  const connectReady = connectStepValidated || connectComplete;
+  const connectReady = connectComplete;
   const configureComplete = businessComplete && buyerSetupComplete && (!showVoice || voiceComplete);
   const stepDone: Record<number, boolean> = {
     1: connectComplete,
@@ -1723,9 +1749,21 @@ function SetupWizard() {
           {/* Right side: Estimated Setup Time */}
           <div className="flex items-center justify-end min-w-0 pl-2 sm:pl-4">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+              {(anyUnsaved || tzEdited) ? (
+                <span
+                  data-testid="business-setup-unsaved"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200/60"
+                >
+                  Unsaved changes
+                </span>
+              ) : null}
               <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                ~3 min setup
+                {setupTimeEstimate ? (
+                  setupTimeEstimate.startsWith("~") ? `${setupTimeEstimate} setup` : `~${setupTimeEstimate} setup`
+                ) : (
+                  "~3 min setup"
+                )}
               </span>
             </div>
           </div>
@@ -2090,7 +2128,7 @@ function SetupWizard() {
                       onClick={() =>
                         setStep((current) => Math.min(current + 1, STEPS.length))
                       }
-                      disabled={saving || (step === 2 && !configureComplete)}
+                      disabled={saving || (step === 1 && !connectComplete) || (step === 2 && !configureComplete)}
                       data-testid="business-setup-skip"
                       className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
                     >
@@ -2105,7 +2143,7 @@ function SetupWizard() {
                     <button
                       type="button"
                       onClick={goNext}
-                      disabled={saving || (step === 2 && (!configureComplete || bookingRulesBlocked))}
+                      disabled={saving || (step === 1 && !connectComplete) || (step === 2 && (!configureComplete || bookingRulesBlocked))}
                       data-testid="business-setup-next"
                       className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
                     >
@@ -2115,7 +2153,7 @@ function SetupWizard() {
                     <button
                       type="button"
                       onClick={handleDeploy}
-                      disabled={saving || !connectReady || !configureComplete}
+                      disabled={saving || !connectComplete || !configureComplete}
                       data-testid="business-setup-submit"
                       className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
                     >
@@ -2546,7 +2584,7 @@ interface ForwardingStepsModalProps {
   assignedNumber: string | null;
 }
 
-export function ForwardingStepsModal({ isOpen, onClose, assignedNumber }: ForwardingStepsModalProps) {
+function ForwardingStepsModal({ isOpen, onClose, assignedNumber }: ForwardingStepsModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -2775,160 +2813,216 @@ function MailSetupSection({
   const previewAddress = `${localPart.trim() || "your-alias"}@${domain}`;
 
   return (
-    <div className={SECTION} data-testid="business-setup-mail">
-      <h3 className={SECTION_TITLE}>Mail Setup</h3>
-      <p className="mt-0.5 text-sm text-slate-500">
-        Choose the email address customers will see when your AI assistant sends confirmations, summaries, and follow-ups.
+    <div className="mt-8 border-t border-gray-100 pt-8" data-testid="business-setup-mail">
+      <div className="flex items-center justify-between mb-1.5">
+        <h3 className="text-sm font-bold text-slate-900">Mail Setup</h3>
+        {savedAlias && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-50 text-green-700">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+            Active
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+        Configure the sender name, email alias, and routing preferences for customer notifications and call summaries.
       </p>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={LABEL} htmlFor="mail-display-name">
-            Sender name
-          </label>
-          <input
-            data-testid="business-setup-mail-display-name"
-            id="mail-display-name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder={businessName.trim() || "Smile Dental"}
-            className={FIELD}
-          />
-        </div>
-
-        <div>
-          <label className={LABEL} htmlFor="mail-alias">
-            Email alias
-          </label>
-          <div className="flex items-center gap-2">
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 space-y-6">
+        {/* Core Settings Grid */}
+        <div className="grid gap-5 sm:grid-cols-2">
+          {/* Sender Name */}
+          <div>
+            <label className={LABEL} htmlFor="mail-display-name">
+              Sender name
+            </label>
             <input
-              data-testid="business-setup-mail-alias"
-              id="mail-alias"
-              value={localPart}
-              onChange={(e) => setLocalPart(e.target.value.toLowerCase())}
-              placeholder="smile-dental"
-              className={FIELD}
+              data-testid="business-setup-mail-display-name"
+              id="mail-display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={businessName.trim() || "Smile Dental"}
+              className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
             />
-            <span className="whitespace-nowrap text-sm font-semibold text-slate-500">@ {domain}</span>
           </div>
-          {availability ? (
-            <p
-              data-testid="business-setup-mail-availability"
-              className={`mt-1 text-xs font-semibold ${availability.available ? "text-green-600" : "text-red-500"}`}
+
+          {/* Email Alias */}
+          <div>
+            <label className={LABEL} htmlFor="mail-alias">
+              Email alias
+            </label>
+            <div className="flex rounded-xl border border-gray-200 bg-white focus-within:border-amber-400 focus-within:ring-1 focus-within:ring-amber-400 overflow-hidden">
+              <input
+                data-testid="business-setup-mail-alias"
+                id="mail-alias"
+                value={localPart}
+                onChange={(e) => setLocalPart(e.target.value.toLowerCase())}
+                placeholder="smile-dental"
+                className="w-full bg-transparent px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+              />
+              <span className="flex items-center bg-slate-50 border-l border-gray-200 px-4 text-sm font-semibold text-slate-500 select-none">
+                @{domain}
+              </span>
+            </div>
+            {availability && (
+              <p
+                data-testid="business-setup-mail-availability"
+                className={`mt-1.5 text-xs font-semibold ${availability.available ? "text-green-600" : "text-red-500"}`}
+              >
+                {availability.available ? "✓ Alias is available" : `✗ ${availability.reason ?? "Alias is not available"}`}
+              </p>
+            )}
+            {savedAlias && localPart !== savedAlias.localPart && (
+              <p className="mt-1.5 text-xs font-semibold text-amber-600" data-testid="business-setup-mail-change-warning">
+                ⚠ Changing alias updates the public address. History is kept.
+              </p>
+            )}
+          </div>
+
+          {/* Forward Replies */}
+          <div>
+            <label className={LABEL} htmlFor="mail-forward">
+              Forward replies to
+            </label>
+            <input
+              data-testid="business-setup-mail-forward"
+              id="mail-forward"
+              type="email"
+              value={forwardToEmail}
+              onChange={(e) => setForwardToEmail(e.target.value)}
+              placeholder="frontdesk@yourbusiness.com"
+              className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+            />
+          </div>
+
+          {/* Reply Handling */}
+          <div>
+            <label className={LABEL} htmlFor="mail-reply-mode">
+              Reply handling
+            </label>
+            <select
+              data-testid="business-setup-mail-reply-mode"
+              id="mail-reply-mode"
+              value={replyMode}
+              onChange={(e) => setReplyMode(e.target.value as BusinessEmailAliasData["replyHandlingMode"])}
+              className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
             >
-              {availability.available ? "Alias is available" : availability.reason ?? "Alias is not available"}
+              {REPLY_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Toggles Grid */}
+        <div className="grid gap-4 sm:grid-cols-2 pt-2">
+          {/* Email Customers */}
+          <label
+            className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-all ${
+              customerEmailsEnabled
+                ? "border-amber-200 bg-amber-50/10 shadow-xs"
+                : "border-gray-200 bg-white hover:border-gray-300"
+            }`}
+            htmlFor="mail-toggle-customer"
+          >
+            <input
+              data-testid="business-setup-mail-toggle-customer"
+              id="mail-toggle-customer"
+              type="checkbox"
+              checked={customerEmailsEnabled}
+              onChange={(e) => setCustomerEmailsEnabled(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 focus:ring-offset-0"
+            />
+            <div className="space-y-0.5">
+              <span className="block text-sm font-semibold text-slate-800">Email customers</span>
+              <span className="block text-xs text-slate-500">Send confirmations and follow-ups after calls.</span>
+            </div>
+          </label>
+
+          {/* Email Team */}
+          <label
+            className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-all ${
+              summaryEmailsEnabled
+                ? "border-amber-200 bg-amber-50/10 shadow-xs"
+                : "border-gray-200 bg-white hover:border-gray-300"
+            }`}
+            htmlFor="mail-toggle-summary"
+          >
+            <input
+              data-testid="business-setup-mail-toggle-summary"
+              id="mail-toggle-summary"
+              type="checkbox"
+              checked={summaryEmailsEnabled}
+              onChange={(e) => setSummaryEmailsEnabled(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 focus:ring-offset-0"
+            />
+            <div className="space-y-0.5">
+              <span className="block text-sm font-semibold text-slate-800">Email team summaries</span>
+              <span className="block text-xs text-slate-500">Send summaries and details to your forward address.</span>
+            </div>
+          </label>
+        </div>
+
+        {/* Sender Preview Card */}
+        <div
+          className="rounded-xl border border-slate-100 bg-slate-55/30 p-4"
+          data-testid="business-setup-mail-preview"
+        >
+          <div className="flex items-center gap-2 mb-2.5">
+            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Sender Preview</span>
+          </div>
+
+          <div className="bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 text-xs">
+            <div className="flex items-baseline gap-2 border-b border-slate-50 pb-1.5">
+              <span className="text-slate-400 font-medium w-16">From:</span>
+              <span className="text-slate-800 font-semibold">
+                {previewName} <span className="text-slate-500 font-normal">&lt;{previewAddress}&gt;</span>
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-slate-400 font-medium w-16">Reply-To:</span>
+              <span className="text-slate-650 font-medium">
+                {previewAddress}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-200/60">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-testid="business-setup-mail-save"
+              onClick={() => void handleSave()}
+              disabled={busy || !localPart.trim() || !displayName.trim()}
+              className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {busy ? "Working…" : savedAlias ? "Update setup" : "Save setup"}
+            </button>
+            <button
+              type="button"
+              data-testid="business-setup-mail-test"
+              onClick={() => void handleTestEmail()}
+              disabled={busy || !savedAlias}
+              className="btn rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-350 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              Send test email
+            </button>
+          </div>
+          {message ? (
+            <p
+              data-testid="business-setup-mail-message"
+              className={`text-xs font-semibold ${messageTone === "ok" ? "text-green-600" : "text-red-500"}`}
+            >
+              {message}
             </p>
           ) : null}
-          {savedAlias && localPart !== savedAlias.localPart ? (
-            <p className="mt-1 text-xs font-semibold text-amber-600" data-testid="business-setup-mail-change-warning">
-              Changing your alias changes the address customers see. Old email history is kept.
-            </p>
-          ) : null}
         </div>
-
-        <div>
-          <label className={LABEL} htmlFor="mail-forward">
-            Forward replies to
-          </label>
-          <input
-            data-testid="business-setup-mail-forward"
-            id="mail-forward"
-            type="email"
-            value={forwardToEmail}
-            onChange={(e) => setForwardToEmail(e.target.value)}
-            placeholder="frontdesk@yourbusiness.com"
-            className={FIELD}
-          />
-        </div>
-
-        <div>
-          <label className={LABEL} htmlFor="mail-reply-mode">
-            Reply handling
-          </label>
-          <select
-            data-testid="business-setup-mail-reply-mode"
-            id="mail-reply-mode"
-            value={replyMode}
-            onChange={(e) => setReplyMode(e.target.value as BusinessEmailAliasData["replyHandlingMode"])}
-            className={FIELD}
-          >
-            {REPLY_MODE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="flex items-start gap-2.5 text-sm text-slate-600" htmlFor="mail-toggle-customer">
-          <input
-            data-testid="business-setup-mail-toggle-customer"
-            id="mail-toggle-customer"
-            type="checkbox"
-            checked={customerEmailsEnabled}
-            onChange={(e) => setCustomerEmailsEnabled(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
-          />
-          <span>
-            <span className="font-semibold text-slate-700">Email customers</span>
-            <span className="block text-xs text-slate-500">Booking confirmations and follow-ups after calls.</span>
-          </span>
-        </label>
-        <label className="flex items-start gap-2.5 text-sm text-slate-600" htmlFor="mail-toggle-summary">
-          <input
-            data-testid="business-setup-mail-toggle-summary"
-            id="mail-toggle-summary"
-            type="checkbox"
-            checked={summaryEmailsEnabled}
-            onChange={(e) => setSummaryEmailsEnabled(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
-          />
-          <span>
-            <span className="font-semibold text-slate-700">Email my team call summaries</span>
-            <span className="block text-xs text-slate-500">Lead details and call summaries to your forward-to address.</span>
-          </span>
-        </label>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5" data-testid="business-setup-mail-preview">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Customers will receive emails from</p>
-        <p className="mt-1 text-sm font-semibold text-slate-800">
-          {previewName} via Triven &lt;{previewAddress}&gt;
-        </p>
-        <p className="mt-1.5 text-xs text-slate-500">
-          Replies will go to: <span className="font-semibold text-slate-700">{previewAddress}</span>
-        </p>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          data-testid="business-setup-mail-save"
-          onClick={() => void handleSave()}
-          disabled={busy || !localPart.trim() || !displayName.trim()}
-          className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600"
-        >
-          {busy ? "Working…" : savedAlias ? "Update mail setup" : "Save mail setup"}
-        </button>
-        <button
-          type="button"
-          data-testid="business-setup-mail-test"
-          onClick={() => void handleTestEmail()}
-          disabled={busy || !savedAlias}
-          className="btn rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-slate-600 hover:border-amber-300"
-        >
-          Send test email
-        </button>
-        {message ? (
-          <p
-            data-testid="business-setup-mail-message"
-            className={`text-xs font-semibold ${messageTone === "ok" ? "text-green-600" : "text-red-500"}`}
-          >
-            {message}
-          </p>
-        ) : null}
       </div>
     </div>
   );
@@ -3867,7 +3961,7 @@ function StepTest({
       )}
 
       {/* Workflow stepper card */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6" data-testid="workflow-test-stepper">
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6" data-testid="business-setup-test-flow">
         {/* Card header */}
         <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-100">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Live agent feed</p>
@@ -3885,7 +3979,7 @@ function StepTest({
             const isLast = index === workflowSteps.length - 1;
 
             return (
-              <li key={step.id} className="flex gap-4" data-testid={`workflow-step-${step.id}`}>
+              <li key={step.id} className="flex gap-4" data-testid="business-setup-test-flow-step">
                 {/* Step indicator column */}
                 <div className="flex flex-col items-center shrink-0">
                   <div
@@ -4120,103 +4214,152 @@ function WorkflowVoiceStepPanel({
     }
   }
 
-  // Browser-based Vapi preview call
-  if (showPreview) {
-    return (
-      <div className="space-y-4">
-        {/* Microphone animation — all rings contained inside overflow-hidden wrapper */}
-        <div className="flex flex-col items-center py-2">
-          <div className="relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-full">
-            {/* Ripple ring 1 — outermost, only visible during call */}
-            {callState === "in-progress" && (
+  // Browser-based Vapi preview call or phone fallback
+  return (
+    <div className="space-y-6">
+      {showPreview && (
+        <div className="space-y-4 animate-fadeIn" data-testid="business-setup-preview-call">
+          {/* Microphone animation — all rings contained inside overflow-hidden wrapper */}
+          <div className="flex flex-col items-center py-2">
+            <div className="relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-full">
+              {/* Ripple ring 1 — outermost, only visible during call */}
+              {callState === "in-progress" && (
+                <span
+                  className={`absolute inset-0 rounded-full ${
+                    agentSpeaking
+                      ? "bg-amber-400/20 animate-[ping_0.8s_ease-out_infinite]"
+                      : "bg-amber-400/10 animate-[ping_1.5s_ease-out_infinite]"
+                  }`}
+                  style={{ animationFillMode: "both" }}
+                />
+              )}
+              {/* Ring 2 — middle */}
               <span
-                className={`absolute inset-0 rounded-full ${
-                  agentSpeaking
-                    ? "bg-amber-400/20 animate-[ping_0.8s_ease-out_infinite]"
-                    : "bg-amber-400/10 animate-[ping_1.5s_ease-out_infinite]"
+                className={`absolute rounded-full transition-all duration-500 ${
+                  callState === "in-progress"
+                    ? agentSpeaking
+                      ? "inset-3 border-2 border-amber-400/60 bg-amber-400/10"
+                      : "inset-4 border-2 border-amber-400/40 bg-amber-400/5 animate-pulse"
+                    : "inset-6 border border-gray-200 bg-gray-50"
                 }`}
-                style={{ animationFillMode: "both" }}
               />
+              {/* Mic button — always centered, never moves */}
+              <button
+                type="button"
+                data-testid={callState === "in-progress" ? "business-setup-preview-end" : "business-setup-preview-start"}
+                onClick={() => callState === "in-progress" ? endPreviewCall() : void startPreviewCall()}
+                className={`relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${
+                  callState === "in-progress"
+                    ? "bg-red-500 ring-4 ring-red-400/20 hover:bg-red-600"
+                    : "bg-amber-500 ring-4 ring-amber-400/15 hover:bg-amber-600"
+                }`}
+              >
+                <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  {callState === "in-progress" ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.684A1 1 0 008.279 3H5z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  )}
+                </svg>
+              </button>
+            </div>
+
+            <p className="mt-2 text-sm font-semibold text-slate-700">
+              {callState === "idle"
+                ? "Start Call"
+                : callState === "in-progress"
+                ? agentSpeaking ? "Agent Speaking…" : micMuted ? "Microphone Muted" : "Listening…"
+                : "Call Ended"}
+            </p>
+            {callState === "in-progress" && elapsedSeconds > 0 && (
+              <p className="text-xs text-slate-500 mt-0.5" data-testid="business-test-call-duration">{formatSeconds(elapsedSeconds)} elapsed</p>
             )}
-            {/* Ring 2 — middle */}
-            <span
-              className={`absolute rounded-full transition-all duration-500 ${
-                callState === "in-progress"
-                  ? agentSpeaking
-                    ? "inset-3 border-2 border-amber-400/60 bg-amber-400/10"
-                    : "inset-4 border-2 border-amber-400/40 bg-amber-400/5 animate-pulse"
-                  : "inset-6 border border-gray-200 bg-gray-50"
-              }`}
-            />
-            {/* Mic button — always centered, never moves */}
-            <button
-              type="button"
-              data-testid={callState === "in-progress" ? "business-setup-preview-end" : "business-setup-preview-start"}
-              onClick={() => callState === "in-progress" ? endPreviewCall() : void startPreviewCall()}
-              className={`relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${
-                callState === "in-progress"
-                  ? "bg-red-500 ring-4 ring-red-400/20 hover:bg-red-600"
-                  : "bg-amber-500 ring-4 ring-amber-400/15 hover:bg-amber-600"
-              }`}
-            >
-              <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                {callState === "in-progress" ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.684A1 1 0 008.279 3H5z" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                )}
-              </svg>
-            </button>
           </div>
 
-          <p className="mt-2 text-sm font-semibold text-slate-700">
-            {callState === "idle"
-              ? "Start Call"
-              : callState === "in-progress"
-              ? agentSpeaking ? "Agent Speaking…" : micMuted ? "Microphone Muted" : "Listening…"
-              : "Call Ended"}
-          </p>
-          {callState === "in-progress" && elapsedSeconds > 0 && (
-            <p className="text-xs text-slate-500 mt-0.5" data-testid="business-test-call-duration">{formatSeconds(elapsedSeconds)} elapsed</p>
+          {/* Controls */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {callState === "in-progress" && (
+              <>
+                <button
+                  type="button"
+                  data-testid="business-test-call-mute"
+                  aria-pressed={micMuted}
+                  onClick={toggleMute}
+                  className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold border transition-all ${
+                    micMuted
+                      ? "border-amber-400/40 bg-amber-500/15 text-amber-700"
+                      : "border-gray-200 bg-white text-slate-600 hover:border-gray-300"
+                  }`}
+                >
+                  {micMuted ? "Unmute mic" : "Mute mic"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => endPreviewCall()}
+                  className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-all"
+                >
+                  End Call
+                </button>
+              </>
+            )}
+            {callState === "ended" && (
+              <>
+                <button
+                  type="button"
+                  data-testid="business-test-call-reset"
+                  onClick={() => { setError(""); setElapsedSeconds(0); setSession(null); onCallStateChange("idle"); }}
+                  className="rounded-lg border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-gray-300 transition-all"
+                >
+                  Reset test
+                </button>
+                <button
+                  type="button"
+                  data-testid="workflow-voice-complete"
+                  onClick={onComplete}
+                  className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-5 py-2 text-sm font-bold text-white hover:bg-green-600 transition-all shadow-sm"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Mark as Complete
+                </button>
+              </>
+            )}
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-600 text-center rounded-lg border border-red-100 bg-red-50 px-3 py-2" data-testid="business-setup-preview-error">{error}</p>
+          )}
+
+          {session && callState !== "idle" && (
+            <p className="text-center text-xs text-slate-400 truncate" data-testid="business-setup-preview-assistant">
+              Connected: <span className="font-semibold text-slate-500">{session.assistantName}</span>
+            </p>
           )}
         </div>
+      )}
 
-        {/* Controls */}
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {callState === "in-progress" && (
-            <>
-              <button
-                type="button"
-                data-testid="business-test-call-mute"
-                aria-pressed={micMuted}
-                onClick={toggleMute}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold border transition-all ${
-                  micMuted
-                    ? "border-amber-400/40 bg-amber-500/15 text-amber-700"
-                    : "border-gray-200 bg-white text-slate-600 hover:border-gray-300"
-                }`}
+      {/* Fallback: phone number card */}
+      <div className={`space-y-3 ${showPreview ? "pt-5 border-t border-gray-100" : ""}`} data-testid="business-setup-call-number">
+        {assignedNumber ? (
+          <>
+            <p className="text-sm text-slate-600">{labels.callHint}</p>
+            <p className="text-2xl font-bold tracking-tight text-slate-900" data-testid="business-setup-call-number-value">{assignedNumber}</p>
+            {labels.cta && (
+              <a
+                href={`${labels.cta.scheme}${assignedNumber.replace(/[^\d+]/g, "")}`}
+                data-testid="business-setup-call-number-dial"
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 transition-all"
               >
-                {micMuted ? "Unmute mic" : "Mute mic"}
-              </button>
-              <button
-                type="button"
-                onClick={() => endPreviewCall()}
-                className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-all"
-              >
-                End Call
-              </button>
-            </>
-          )}
-          {callState === "ended" && (
-            <>
-              <button
-                type="button"
-                data-testid="business-test-call-reset"
-                onClick={() => { setError(""); setElapsedSeconds(0); setSession(null); onCallStateChange("idle"); }}
-                className="rounded-lg border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-gray-300 transition-all"
-              >
-                Reset test
-              </button>
+                {labels.cta.label}
+              </a>
+            )}
+            {!deployedLive && labels.isVoice && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2" data-testid="business-setup-test-predeploy-note">
+                Not live yet — click Go live, then call to test.
+              </p>
+            )}
+            {!showPreview && (
               <button
                 type="button"
                 data-testid="workflow-voice-complete"
@@ -4226,61 +4369,14 @@ function WorkflowVoiceStepPanel({
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Mark as Complete
+                I spoke to the agent — Continue
               </button>
-            </>
-          )}
-        </div>
-
-        {error && (
-          <p className="text-xs text-red-600 text-center rounded-lg border border-red-100 bg-red-50 px-3 py-2" data-testid="business-setup-preview-error">{error}</p>
-        )}
-
-        {session && callState !== "idle" && (
-          <p className="text-center text-xs text-slate-400 truncate" data-testid="business-setup-preview-assistant">
-            Connected: <span className="font-semibold text-slate-500">{session.assistantName}</span>
-          </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-amber-700 font-semibold" data-testid="business-setup-call-number-missing">No number yet — assign one in the Connect step.</p>
         )}
       </div>
-    );
-  }
-
-  // Fallback: phone number card when no browser preview
-  return (
-    <div className="space-y-3">
-      {assignedNumber ? (
-        <>
-          <p className="text-sm text-slate-600">{labels.callHint}</p>
-          <p className="text-2xl font-bold tracking-tight text-slate-900" data-testid="business-setup-call-number-value">{assignedNumber}</p>
-          {labels.cta && (
-            <a
-              href={`${labels.cta.scheme}${assignedNumber.replace(/[^\d+]/g, "")}`}
-              data-testid="business-setup-call-number-dial"
-              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 transition-all"
-            >
-              {labels.cta.label}
-            </a>
-          )}
-          {!deployedLive && labels.isVoice && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2" data-testid="business-setup-test-predeploy-note">
-              Not live yet — click Go live, then call to test.
-            </p>
-          )}
-          <button
-            type="button"
-            data-testid="workflow-voice-complete"
-            onClick={onComplete}
-            className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-5 py-2 text-sm font-bold text-white hover:bg-green-600 transition-all shadow-sm"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            I spoke to the agent — Continue
-          </button>
-        </>
-      ) : (
-        <p className="text-sm text-amber-700 font-semibold" data-testid="business-setup-call-number-missing">No number yet — assign one in the Connect step.</p>
-      )}
     </div>
   );
 }

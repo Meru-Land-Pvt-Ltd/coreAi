@@ -88,10 +88,10 @@ vi.mock("@/components/business/features/api", () => ({
     success: true,
     data: {
       businessName: null,
-      address: null,
+      address: { line1: "123 Main St", city: "New York", state: "NY", postalCode: "10001" },
       addressFormatted: null,
-      addressComplete: false,
-      addressConfirmed: false,
+      addressComplete: true,
+      addressConfirmed: true,
       phone: null,
       documentSuggestion: null,
       conflict: false
@@ -173,7 +173,7 @@ function setupData(overrides: Record<string, unknown> = {}) {
         vapiAssistantId: null,
         vapiPhoneNumberId: null
       },
-      phoneNumber: null,
+      phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "123456789", twilioPhoneNumberSid: null },
       installedAgent: null,
       knowledge: [],
       calendar: { connected: false, email: null },
@@ -398,12 +398,15 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
+    await waitFor(() => {
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+    });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
     expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
     expect(screen.getByTestId("business-setup-preview-start")).toBeTruthy();
     expect(screen.getByTestId("business-setup-test-flow")).toBeTruthy();
-    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(3);
+    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(4);
     expect(screen.getByTestId("business-setup-call-number")).toBeTruthy();
 
     // The missed-call text-back simulation is gone.
@@ -471,10 +474,18 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
   });
 
   it("the Go-live step shows the final success screen with capabilities and Edit setup button", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        installedAgent: { id: "agent-1", status: "ACTIVE" }
+      }) as never
+    );
+
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
-    await screen.findByTestId("business-setup-agent-name");
+    await waitFor(() => {
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+    });
     await user.click(screen.getByTestId("business-setup-dot-4"));
 
     expect(await screen.findByTestId("business-setup-success")).toBeTruthy();
@@ -526,14 +537,16 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
   it("voice/missed-call workflows get a tel: CTA on the call-your-number card", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
-        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null }
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "1234567", twilioPhoneNumberSid: null }
       }) as never
     );
 
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
-    await screen.findByTestId("business-setup-agent-name");
+    await waitFor(() => {
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+    });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
     const dial = await screen.findByTestId("business-setup-call-number-dial");
@@ -541,11 +554,10 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(dial.textContent).toContain("Call now");
 
     // The browser test-call card discloses the calendar side effect.
-    const preview = screen.getByTestId("business-setup-preview-call");
-    expect(preview.textContent).toMatch(/clearly marked test event/i);
+    expect(screen.getByTestId("business-setup-test-flow").textContent).toMatch(/speak to the assistant/i);
   });
 
-  it("SMS workflows get an sms: CTA labeled Text now — never Call now", async () => {
+  it("SMS workflows get an SMS test panel", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
@@ -572,10 +584,9 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await screen.findByTestId("business-setup-agent-name");
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    const dial = await screen.findByTestId("business-setup-call-number-dial");
-    expect(dial.getAttribute("href")).toBe("sms:+12135550999");
-    expect(dial.textContent).toContain("Text now");
-    expect(dial.textContent).not.toContain("Call now");
+    expect(screen.getByTestId("workflow-sms-phone")).toBeTruthy();
+    expect(screen.getByTestId("workflow-sms-send")).toBeTruthy();
+    expect(screen.queryByTestId("business-setup-call-number-dial")).toBeNull();
   });
 
   it("email workflows get no phone CTA at all", async () => {
