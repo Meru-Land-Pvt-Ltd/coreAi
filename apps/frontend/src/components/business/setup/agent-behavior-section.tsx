@@ -54,7 +54,7 @@ export function AgentBehaviorSection({
           are the details this template requires from the buyer. */}
       {setupFields.length > 0 ? (
         <div className="mb-7 border-b border-gray-100 pb-6" data-testid="business-setup-custom-fields">
-          <h3 className="text-sm font-bold text-slate-900">Agent setup details</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Agent setup details</h3>
           <p className="mt-0.5 text-xs text-slate-500">
             Details this agent needs to answer callers accurately.
           </p>
@@ -80,8 +80,8 @@ export function AgentBehaviorSection({
       ) : null}
 
       <div data-testid="business-setup-instructions">
-        <h3 className="text-sm font-bold text-slate-900">Custom instructions</h3>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Custom instructions</h3>
+        <p className="mt-0.5 text-xs text-slate-500">
           Tell the AI how to handle calls.
         </p>
 
@@ -124,7 +124,7 @@ export function AgentBehaviorSection({
             className="flex w-full items-center justify-between gap-3 text-left"
           >
             <span>
-              <span className="block text-sm font-bold text-slate-900">Advanced call behavior</span>
+              <span className="block text-xs font-bold uppercase tracking-wider text-slate-800">Advanced call behavior</span>
               <span className="mt-0.5 block text-xs text-slate-500">
                 Goodbye message when ending calls.
               </span>

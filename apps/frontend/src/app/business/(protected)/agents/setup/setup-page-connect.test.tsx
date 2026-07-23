@@ -112,6 +112,7 @@ vi.mock("@/components/business/features/api", () => ({
 }));
 
 import {
+  getBusinessFacts,
   getBusinessHours,
   getBusinessSetup,
   getPhoneCities,
@@ -160,6 +161,19 @@ function setupData(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   cleanup();
+  vi.mocked(getBusinessFacts).mockReset().mockResolvedValue({
+    success: true,
+    data: {
+      businessName: null,
+      address: null,
+      addressFormatted: null,
+      addressComplete: false,
+      addressConfirmed: false,
+      phone: null,
+      documentSuggestion: null,
+      conflict: false
+    }
+  } as never);
   vi.mocked(getBusinessSetup).mockReset().mockResolvedValue(setupData() as never);
   vi.mocked(getPhoneCountries).mockReset().mockResolvedValue(COUNTRIES as never);
   vi.mocked(getPhoneStates).mockReset().mockResolvedValue({
@@ -195,6 +209,38 @@ describe("Connect step — number-first flow", () => {
 
     // Nothing on page load purchased a number.
     expect(purchaseBusinessPhoneNumber).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Configure step locked until the Connect step is complete", async () => {
+    vi.mocked(getBusinessFacts).mockResolvedValue({
+      success: true,
+      data: {
+        businessName: "Test Biz",
+        address: null,
+        addressFormatted: null,
+        addressComplete: true,
+        addressConfirmed: true,
+        phone: null,
+        documentSuggestion: null,
+        conflict: false
+      }
+    } as never);
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+
+    await screen.findByTestId("business-setup-wizard");
+
+    const configureStep = screen.getByTestId("business-setup-dot-2");
+    expect(configureStep.getAttribute("aria-disabled")).toBe("true");
+    expect(configureStep.className).not.toContain("done");
+
+    await user.click(configureStep);
+
+    expect(screen.getByTestId("business-setup-dot-1").getAttribute("aria-current")).toBe("step");
+
+    await user.click(screen.getByTestId("business-setup-next"));
+    expect(screen.getByTestId("business-setup-dot-2").getAttribute("aria-disabled")).toBeNull();
   });
 
   it("an assigned number shows the Active card and offers no way to search or assign again", async () => {
@@ -292,9 +338,6 @@ describe("Connect step — number-first flow", () => {
 
     await screen.findByTestId("business-setup-routing-card");
 
-    await user.click(screen.getByTestId("business-setup-save"));
-    await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
-
     await user.click(screen.getByTestId("business-setup-next"));
     // Step 2 (Configure) becomes active — no "add your phone" error blocked us.
     await waitFor(() => expect(screen.getByTestId("business-setup-input-name")).toBeTruthy());
@@ -330,7 +373,7 @@ describe("Connect step — number-first flow", () => {
     expect((select as HTMLSelectElement).value).toBe("America/Los_Angeles");
 
     await user.selectOptions(select, "America/Chicago");
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     await waitFor(() => expect(saveBusinessSetup).toHaveBeenCalled());
     const payload = vi.mocked(saveBusinessSetup).mock.calls[0][0] as Record<string, any>;
@@ -378,7 +421,7 @@ describe("Connect step — number-first flow", () => {
 
     const select = await screen.findByTestId("business-setup-timezone-select");
     await user.selectOptions(select, "America/Denver");
-    await user.click(screen.getByTestId("business-setup-save"));
+    await user.click(screen.getByTestId("business-setup-next"));
 
     // The timezone rides the live-safe hours endpoint; the main setup save is
     // skipped for live agents and no false success toast appears.

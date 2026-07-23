@@ -16,6 +16,8 @@ export type AppointmentConfirmationInput = {
   appointmentId: string;
   businessId: string;
   installedAgentId?: string | null;
+  /** Provider call id when the booking happened during a voice call. */
+  vapiCallId?: string | null;
   customerName: string;
   customerPhone: string;
   serviceName: string;
@@ -109,6 +111,9 @@ export type TrackedSmsInput = {
   businessId?: string | null;
   installedAgentId?: string | null;
   appointmentId?: string | null;
+  /** Provider call id (VapiCall.callId) of the voice execution that provably
+   * originated this SMS — the direct billing attribution. Never guessed. */
+  vapiCallId?: string | null;
   /** Business display name — REQUIRED for consent-gated customer SMS (campaign attribution). */
   businessName?: string | null;
   smsPurpose?: TransactionalSmsPurpose;
@@ -154,6 +159,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
           businessId: input.businessId ?? null,
           installedAgentId: input.installedAgentId ?? null,
           appointmentId: input.appointmentId ?? null,
+          vapiCallId: input.vapiCallId ?? null,
           messageType: input.messageType,
           toPhone: to,
           body: input.body,
@@ -192,6 +198,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
           businessId: input.businessId ?? null,
           installedAgentId: input.installedAgentId ?? null,
           appointmentId: input.appointmentId ?? null,
+          vapiCallId: input.vapiCallId ?? null,
           messageType: input.messageType,
           toPhone: to,
           body: input.body,
@@ -220,6 +227,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
         businessId: input.businessId ?? null,
         installedAgentId: input.installedAgentId ?? null,
         appointmentId: input.appointmentId ?? null,
+        vapiCallId: input.vapiCallId ?? null,
         dedupeKey: input.dedupeKey ?? null,
         messageType: input.messageType,
         toPhone: to,
@@ -409,6 +417,7 @@ export async function sendAppointmentConfirmationSms(
     smsPurpose: "APPOINTMENT_CONFIRMATION",
     installedAgentId: input.installedAgentId ?? null,
     appointmentId: input.appointmentId,
+    vapiCallId: input.vapiCallId ?? null,
     dedupeKey: appointmentConfirmationDedupeKey(input.appointmentId)
   });
 }
@@ -496,3 +505,4 @@ export async function applyTwilioMessageStatus(
   const updated = await prisma.smsExecution.update({ where: { id: execution.id }, data });
   return { ok: true, executionId: updated.id, status: updated.status };
 }
+

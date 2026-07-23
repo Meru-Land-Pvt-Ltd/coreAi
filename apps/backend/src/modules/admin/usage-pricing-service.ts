@@ -5,25 +5,20 @@ export const USAGE_PRICING_CURRENCY = "USD" as const;
 
 export const USAGE_RATE_NOT_CONFIGURED = "USAGE_RATE_NOT_CONFIGURED";
 
-/** Normalized canonical pricing record (micro-USD integer minor units). */
 export type UsageServicePricingRecord = {
-  /** PlatformUsageService.id — the pricing record id used in snapshots. */
   pricingRecordId: string;
-  /** Stable service key (admin "Service ID"), e.g. "twilio_voice". */
   serviceId: string;
   name: string;
-  /** Buyer-facing label: the admin description (`role`) or the name. */
   invoiceLabel: string;
+  description: string | null;
   unit: UsageServiceUnit;
-  /** Vendor cost per unit — internal profitability only, never buyer-facing. */
   actualCostMicroUsd: number;
-  /** Buyer billing cost per unit. */
   billingCostMicroUsd: number;
   currency: typeof USAGE_PRICING_CURRENCY;
   active: boolean;
   sortOrder: number;
-  /** No dedicated version column exists — record id + update instant. */
   pricingVersion: string;
+  createdAt: Date;
   updatedAt: Date;
 };
 
@@ -37,6 +32,7 @@ function normalizeRecord(row: {
   updatedCostMicroUsd: number;
   isActive: boolean;
   sortOrder: number;
+  createdAt: Date;
   updatedAt: Date;
 }): UsageServicePricingRecord {
   return {
@@ -44,6 +40,7 @@ function normalizeRecord(row: {
     serviceId: row.code,
     name: row.name,
     invoiceLabel: row.role?.trim() || row.name,
+    description: row.role,
     unit: row.unit,
     actualCostMicroUsd: row.actualCostMicroUsd,
     billingCostMicroUsd: row.updatedCostMicroUsd,
@@ -51,6 +48,7 @@ function normalizeRecord(row: {
     active: row.isActive,
     sortOrder: row.sortOrder,
     pricingVersion: `${row.id}@${row.updatedAt.toISOString()}`,
+    createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
 }

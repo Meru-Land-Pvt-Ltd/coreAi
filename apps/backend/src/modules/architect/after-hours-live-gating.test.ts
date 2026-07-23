@@ -287,6 +287,53 @@ describe("live server-side tool gating", () => {
     expect(await readAfterHoursCallState(businessId, `${RUN}-c5`)).toBeNull();
   });
 
+  it("a MIXED end-of-call payload carrying tool calls still settles usage exactly once and clears after-hours state", async () => {
+    if (!dbAvailable) return;
+    const callId = `${RUN}-mixed-1`;
+
+    // Establish routing state on an earlier tool event.
+    await postWebhook(
+      toolCallBody({ callId, toolName: "book_appointment", turns: [{ role: "bot", message: GREETING }] })
+    );
+    expect(await readAfterHoursCallState(businessId, callId)).not.toBeNull();
+
+    // Sanitized end-of-call-report shape CARRYING a tool call (mixed payload).
+    const mixedBody = {
+      message: {
+        type: "end-of-call-report",
+        durationSeconds: 120,
+        summary: "Caller asked about availability after hours.",
+        artifact: {
+          messages: [
+            { role: "bot", message: GREETING, time: 1 },
+            { role: "user", message: "no emergency, just checking", time: 2 }
+          ]
+        },
+        toolCalls: [{ id: "tc_mixed", function: { name: "book_appointment", arguments: "{}" } }],
+        call: { id: callId, type: "inboundPhoneCall", customer: { number: "+15555550123" } }
+      },
+      metadata: { businessId, installedAgentId: agentId }
+    };
+
+    const payload = await postWebhook(mixedBody);
+    expect(payload.results).toHaveLength(1); // tools processed independently
+
+    const settled = await prisma.vapiCall.findUnique({ where: { callId } });
+    expect(settled?.pricingState).toBe("PRICED");
+    expect(settled?.billingRecordedAt).not.toBeNull();
+    expect(settled?.durationMinutes).toBe(2);
+    const firstBilled = settled?.billedCostMicroUsd ?? null;
+
+    // After-hours state cleared despite the tool calls in the same payload.
+    expect(await readAfterHoursCallState(businessId, callId)).toBeNull();
+
+    // Retried mixed delivery: still one execution, cost unchanged.
+    await postWebhook(mixedBody);
+    const retried = await prisma.vapiCall.findMany({ where: { callId } });
+    expect(retried).toHaveLength(1);
+    expect(retried[0]?.billedCostMicroUsd).toBe(firstBilled);
+  });
+
   it("business and call state stay isolated; test-mode (webCall) calls are never gated", async () => {
     if (!dbAvailable) return;
     // Call A hits a red flag; call B on the same business stays independent.

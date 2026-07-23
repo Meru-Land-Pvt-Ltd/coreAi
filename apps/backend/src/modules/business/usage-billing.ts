@@ -1,14 +1,28 @@
 import type { Context } from "hono";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
-  calculateUsageLineItems,
   microUsdToUsd,
-  sumLineItems,
+  priceExecutionUsage,
   type UsageLineItem
 } from "../../lib/usage-pricing";
+import {
+  buildUsagePricingSnapshot,
+  requiredServiceCodesForUsage,
+  resolveApplicableUsageServiceCodes,
+  UNKNOWN_USAGE_SERVICE_MAPPING
+} from "../../lib/usage-service-resolver";
+import {
+  parseStoredVoicePipeline,
+  resolveDefaultLiveVoicePipeline
+} from "../compliance/workspace-ai-guard";
 import { fetchVapiCallById } from "../architect/vapi-connector";
+import {
+  loadActiveUsageServicePricing,
+  USAGE_RATE_NOT_CONFIGURED
+} from "../admin/usage-pricing-service";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import {
@@ -82,38 +96,112 @@ function parseDurationMinutes(payload: Record<string, unknown>): number {
   return 0;
 }
 
-function countSmsFromWebhook(message: Record<string, unknown>): number {
-  const artifact =
-    typeof message.artifact === "object" && message.artifact !== null
-      ? (message.artifact as Record<string, unknown>)
-      : {};
-  const candidates = [artifact.messages, message.messages].find(Array.isArray) as unknown[] | undefined;
-  if (!candidates) return 0;
+/**
+ * SMS billable-status policy: FAILED / SUPPRESSED / SIMULATED are never
+ * billable. Among the remaining statuses, a row is billable only when the
+ * PROVIDER accepted it — it carries a messageSid (Twilio returns one on create
+ * even while still "queued") or a provider-reported delivery status.
+ * UNDELIVERED stays billable because Twilio accepted and charged the message.
+ * A bare QUEUED row with no sid is a local write that never reached the
+ * provider (e.g. a crash between the local queue insert and the Twilio call)
+ * and must NOT be billed.
+ */
+const BILLABLE_SMS_STATUSES = ["QUEUED", "ACCEPTED", "SENDING", "SENT", "DELIVERED", "UNDELIVERED"] as const;
+const PROVIDER_REPORTED_SMS_STATUSES = ["ACCEPTED", "SENDING", "SENT", "DELIVERED", "UNDELIVERED"] as const;
 
-  let count = 0;
-  for (const entry of candidates) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const record = entry as Record<string, unknown>;
-    const role = typeof record.role === "string" ? record.role.toLowerCase() : "";
-    const content = `${record.message ?? ""} ${record.content ?? ""} ${record.result ?? ""}`.toLowerCase();
-    if (/^tool/.test(role) && /"customer_sms_sent":\s*true|"patient_sms_sent":\s*true/.test(content)) {
-      count += 1;
+export function providerAcceptedSmsWhere(): Prisma.SmsExecutionWhereInput {
+  return {
+    status: { in: [...BILLABLE_SMS_STATUSES] },
+    OR: [
+      { messageSid: { not: null } },
+      { status: { in: [...PROVIDER_REPORTED_SMS_STATUSES] } }
+    ]
+  };
+}
+
+/**
+ * Customer SMS attributable to ONE voice execution. Primary association is the
+ * direct SmsExecution.vapiCallId link; the legacy dedupeKey convention
+ * (`send_notification:{callId}:customer`) and the appointment-confirmation
+ * relation remain as fallbacks for historical rows. A row provably linked to a
+ * DIFFERENT call is never counted here — attribution is direct or absent,
+ * never guessed.
+ */
+export async function countBillableCustomerSms(
+  callId: string,
+  conversationId: string | null
+): Promise<number> {
+  const directRows = await prisma.smsExecution.findMany({
+    where: {
+      AND: [
+        providerAcceptedSmsWhere(),
+        {
+          OR: [
+            { vapiCallId: callId },
+            { dedupeKey: { startsWith: `send_notification:${callId}:` } }
+          ]
+        }
+      ]
+    },
+    select: { id: true, dedupeKey: true, messageType: true }
+  });
+  const countedIds = new Set(
+    directRows
+      .filter((row) => row.messageType !== "TEAM_NOTIFICATION" && !row.dedupeKey?.endsWith(":team"))
+      .map((row) => row.id)
+  );
+
+  let confirmations = 0;
+  if (conversationId) {
+    const appointments = await prisma.appointment.findMany({
+      where: { conversationId },
+      select: { id: true }
+    });
+    if (appointments.length > 0) {
+      confirmations = await prisma.smsExecution.count({
+        where: {
+          AND: [
+            providerAcceptedSmsWhere(),
+            {
+              appointmentId: { in: appointments.map((appointment) => appointment.id) },
+              messageType: "APPOINTMENT_CONFIRMATION",
+              id: { notIn: [...countedIds] },
+              // A confirmation directly attributed to another call belongs to
+              // that call's execution, not this one.
+              OR: [{ vapiCallId: null }, { vapiCallId: callId }]
+            }
+          ]
+        }
+      });
     }
   }
 
-  return count;
+  return countedIds.size + confirmations;
 }
 
-async function loadActivePricingServices() {
-  return prisma.platformUsageService.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: {
-      code: true,
-      name: true,
-      unit: true,
-      actualCostMicroUsd: true,
-      updatedCostMicroUsd: true
+/**
+ * Valid billable customer SMS for a business period with NO provable link to a
+ * voice execution (no vapiCallId, no appointment, not a call-scoped
+ * send_notification key). These are business-period SMS usage — they must not
+ * be attached to any call execution, and equally must not be discarded.
+ */
+export async function countStandaloneBillableSms(
+  businessId: string,
+  range: { start: Date; end: Date }
+): Promise<number> {
+  return prisma.smsExecution.count({
+    where: {
+      AND: [
+        providerAcceptedSmsWhere(),
+        {
+          businessId,
+          createdAt: { gte: range.start, lt: range.end },
+          vapiCallId: null,
+          appointmentId: null,
+          messageType: { not: "TEAM_NOTIFICATION" },
+          NOT: { dedupeKey: { startsWith: "send_notification:" } }
+        }
+      ]
     }
   });
 }
@@ -198,14 +286,21 @@ export async function recordVapiCallUsage({
 
   const callRow = await prisma.vapiCall.findUnique({
     where: { callId },
-    select: { executionMode: true, billingRecordedAt: true, usageInvoiceId: true, recordingUrl: true }
+    select: {
+      executionMode: true,
+      billingRecordedAt: true,
+      usageInvoiceId: true,
+      recordingUrl: true,
+      pricingState: true,
+      conversationId: true
+    }
   });
   if (callRow && callRow.executionMode !== "LIVE") {
     console.log("[usage-billing] skipped: non-live call", { businessId, callId, executionMode: callRow.executionMode });
     return;
   }
 
-  if (callRow?.billingRecordedAt || callRow?.usageInvoiceId) {
+  if (callRow?.billingRecordedAt || callRow?.usageInvoiceId || callRow?.pricingState === "PRICED" || callRow?.pricingState === "INVOICED") {
     if (!callRow.recordingUrl) {
       const message =
         typeof webhookBody.message === "object" && webhookBody.message !== null
@@ -322,14 +417,61 @@ export async function recordVapiCallUsage({
     durationMs: message.durationMs ?? vapiCall?.durationMs
   });
 
-  const smsCount = countSmsFromWebhook(message);
-  const pricingServices = await loadActivePricingServices();
-  const lineItems = calculateUsageLineItems(pricingServices, {
-    durationMinutes,
-    smsCount,
-    callCount: durationMinutes > 0 ? 1 : 0
+  const smsCount = await countBillableCustomerSms(callId, callRow?.conversationId ?? null);
+
+  const calendarUsed = callRow?.conversationId
+    ? (await prisma.appointment.count({ where: { conversationId: callRow.conversationId } })) > 0
+    : false;
+
+  // Pipeline-aware service selection: only the services this execution's
+  // deployed pipeline actually used may bill. The pipeline snapshot was frozen
+  // on InstalledAgent.configJson at deploy; assistants deployed before
+  // pipelines were recorded fall back to the env-derived default pipeline.
+  const voicePipeline = parseStoredVoicePipeline(agentConfig) ?? resolveDefaultLiveVoicePipeline();
+  const resolution = resolveApplicableUsageServiceCodes({
+    execution: { calendarUsed },
+    installedAgent: installedAgent ? { id: installedAgent.id } : null,
+    voicePipeline,
+    providerMetadata: { telephonyProvider: "twilio" }
   });
-  const totals = sumLineItems(lineItems);
+
+  // The ONE pricing decision (pure, canonical rates): PRICED with immutable
+  // snapshot lines, or UNPRICED when the pipeline maps to an unknown service
+  // or a genuinely-used component has no active rate. Never guess, never
+  // invoice zero.
+  const pricingServices = await loadActiveUsageServicePricing();
+  const pricingResult =
+    resolution.state === "UNKNOWN"
+      ? ({ state: "UNPRICED", code: UNKNOWN_USAGE_SERVICE_MAPPING } as const)
+      : priceExecutionUsage(
+          pricingServices,
+          { durationMinutes, smsCount, callCount: durationMinutes > 0 ? 1 : 0 },
+          {
+            applicableServiceCodes: new Set(resolution.codes),
+            requiredServiceCodes: requiredServiceCodesForUsage(resolution.codes, {
+              durationMinutes,
+              smsCount,
+              calendarUsed
+            })
+          }
+        );
+  const lineItems = pricingResult.state === "PRICED" ? pricingResult.lineItems : [];
+  const totals =
+    pricingResult.state === "PRICED"
+      ? pricingResult.totals
+      : { actualCostMicroUsd: 0, billedCostMicroUsd: 0 };
+
+  const pricingSnapshot = buildUsagePricingSnapshot({
+    pipeline: voicePipeline,
+    telephonyProvider: "twilio",
+    calendarUsed,
+    resolution,
+    unpricedReason: pricingResult.state === "UNPRICED" ? pricingResult.code : null,
+    missingServiceCodes:
+      pricingResult.state === "UNPRICED" && "missingServiceCodes" in pricingResult
+        ? pricingResult.missingServiceCodes
+        : undefined
+  });
 
   const vapiCostUsd = vapiCall?.costUsd ?? Number(message.cost);
   const vapiCostMicroUsd =
@@ -341,6 +483,52 @@ export async function recordVapiCallUsage({
 
   const recordingUrl = extractRecordingUrl(message) ?? vapiCall?.recordingUrl ?? null;
   if (!recordingUrl) scheduleRecordingRefetch(callId);
+
+  if (pricingResult.state === "UNPRICED") {
+    console.error(`[usage-billing] ${pricingResult.code}: execution preserved UNPRICED for administrator reconciliation`, {
+      businessId,
+      callId,
+      durationMinutes,
+      reason: pricingResult.code,
+      unknownHops: resolution.state === "UNKNOWN" ? resolution.unknownHops : undefined,
+      missingServiceCodes:
+        "missingServiceCodes" in pricingResult ? pricingResult.missingServiceCodes : undefined
+    });
+    await prisma.vapiCall.upsert({
+      where: { callId },
+      update: {
+        installedAgentId: installedAgentId ?? undefined,
+        recordingUrl: recordingUrl ?? undefined,
+        durationSeconds: durationMinutes > 0 ? Math.round(durationMinutes * 60) : undefined,
+        durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
+        smsCount,
+        vapiCostMicroUsd: vapiCostMicroUsd ?? undefined,
+        vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+        pricingSnapshotJson: pricingSnapshot as never,
+        pricingState: "UNPRICED",
+        endedAt
+      },
+      create: {
+        businessId,
+        installedAgentId: installedAgentId ?? undefined,
+        callId,
+        customerPhone: customerPhone || "unknown",
+        executionMode: "LIVE",
+        status: "end-of-call-report",
+        recordingUrl,
+        durationSeconds: durationMinutes > 0 ? Math.round(durationMinutes * 60) : undefined,
+        durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
+        smsCount,
+        vapiCostMicroUsd: vapiCostMicroUsd ?? undefined,
+        vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+        pricingSnapshotJson: pricingSnapshot as never,
+        pricingState: "UNPRICED",
+        endedAt,
+        metadataJson: webhookBody as never
+      }
+    });
+    return;
+  }
 
   await prisma.vapiCall.upsert({
     where: { callId },
@@ -360,6 +548,8 @@ export async function recordVapiCallUsage({
       billedCostMicroUsd: totals.billedCostMicroUsd,
       usageLineItemsJson: lineItems as never,
       vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+      pricingSnapshotJson: pricingSnapshot as never,
+      pricingState: "PRICED",
       billingMonth,
       billingRecordedAt: endedAt,
       endedAt
@@ -381,6 +571,8 @@ export async function recordVapiCallUsage({
       billedCostMicroUsd: totals.billedCostMicroUsd,
       usageLineItemsJson: lineItems as never,
       vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+      pricingSnapshotJson: pricingSnapshot as never,
+      pricingState: "PRICED",
       billingMonth,
       billingRecordedAt: endedAt,
       endedAt,

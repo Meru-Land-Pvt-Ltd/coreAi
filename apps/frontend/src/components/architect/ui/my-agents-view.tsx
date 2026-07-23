@@ -2142,7 +2142,10 @@ export function MyAgentsView() {
             <TrendFooter direction={executionsTrendDirection} testId="my-agents-stats-executions-trend">
               {executionsTrendText}
             </TrendFooter>
-            <p className="mt-1 text-xs font-semibold text-slate-400" data-testid="my-agents-stats-lifetime-executions">
+            <p className="mt-1 text-xs font-semibold text-slate-400" data-testid="my-agents-stats-period-executions">
+              Period: {stats.periodExecutionCount ?? stats.executionsThisMonth}
+            </p>
+            <p className="mt-0.5 text-xs font-semibold text-slate-400" data-testid="my-agents-stats-lifetime-executions">
               Lifetime: {stats.lifetimeExecutionCount ?? stats.totalExecutions}
               {typeof stats.excludedPausedInstallationCount === "number" && stats.excludedPausedInstallationCount > 0
                 ? ` · ${stats.excludedPausedInstallationCount} paused install${stats.excludedPausedInstallationCount === 1 ? "" : "s"} excluded`

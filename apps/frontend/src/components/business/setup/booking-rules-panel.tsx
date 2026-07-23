@@ -16,10 +16,8 @@ export type BookingRulesValidation = {
 const RULE_BOUNDS: Record<ApptNumberField, { min: number; max: number; label: string }> = {
   defaultDurationMinutes: { min: 5, max: 480, label: "Duration" },
   bufferMinutes: { min: 0, max: 120, label: "Buffer" },
-  slotIntervalMinutes: { min: 5, max: 240, label: "Interval" },
   minNoticeMinutes: { min: 0, max: 10080, label: "Notice" },
-  maxAdvanceDays: { min: 1, max: 365, label: "Booking window" },
-  maxSpokenSuggestions: { min: 2, max: 10, label: "Suggestions" }
+  maxAdvanceDays: { min: 1, max: 365, label: "Booking window" }
 };
 
 export function validateBookingRules(values: BookingRulesValues): BookingRulesValidation {
@@ -33,17 +31,7 @@ export function validateBookingRules(values: BookingRulesValues): BookingRulesVa
     }
   }
 
-  let intervalConflict: BookingRulesValidation["intervalConflict"] = null;
-  if (!errors.defaultDurationMinutes && !errors.bufferMinutes && !errors.slotIntervalMinutes) {
-    const occupiedMinutes = values.defaultDurationMinutes + values.bufferMinutes;
-    if (values.slotIntervalMinutes < occupiedMinutes) {
-      const recommendedMinutes = Math.ceil(occupiedMinutes / 5) * 5;
-      intervalConflict = { occupiedMinutes, recommendedMinutes };
-      errors.slotIntervalMinutes = `Start-time interval is shorter than the ${occupiedMinutes}-minute appointment and buffer. Use at least ${occupiedMinutes} minutes; ${recommendedMinutes} minutes is recommended.`;
-    }
-  }
-
-  return { errors, valid: Object.keys(errors).length === 0, intervalConflict };
+  return { errors, valid: Object.keys(errors).length === 0, intervalConflict: null };
 }
 
 /** "9:00" + minutes → "9:35" (display-only, 24h clock keeps it simple). */
@@ -70,11 +58,6 @@ const RULE_FIELDS: {
     unit: "mins"
   },
   {
-    key: "slotIntervalMinutes",
-    label: "Slot Interval",
-    unit: "mins"
-  },
-  {
     key: "minNoticeMinutes",
     label: "Min Notice",
     unit: "mins"
@@ -83,18 +66,13 @@ const RULE_FIELDS: {
     key: "maxAdvanceDays",
     label: "Max Advance",
     unit: "days"
-  },
-  {
-    key: "maxSpokenSuggestions",
-    label: "Slots Offered / Call",
-    unit: "max"
   }
 ];
 
-const PRESETS: { label: string; duration: number; interval: number }[] = [
-  { label: "30 min", duration: 30, interval: 30 },
-  { label: "45 min", duration: 45, interval: 45 },
-  { label: "60 min", duration: 60, interval: 60 }
+const PRESETS: { label: string; duration: number }[] = [
+  { label: "30 min", duration: 30 },
+  { label: "45 min", duration: 45 },
+  { label: "60 min", duration: 60 }
 ];
 
 export function BookingRulesPanel({
@@ -111,25 +89,19 @@ export function BookingRulesPanel({
   onConfirmed: (value: boolean) => void;
 }) {
   const baseId = useId();
-  const { errors, intervalConflict } = validation;
-
-  // Example schedule preview from a 9:00 start.
-  const previewApptEnd = addMinutesLabel(9, 0, values.defaultDurationMinutes || 0);
-  const previewBufferEnd = addMinutesLabel(9, 0, (values.defaultDurationMinutes || 0) + (values.bufferMinutes || 0));
-  const previewNextStart = addMinutesLabel(9, 0, Math.max(values.slotIntervalMinutes || 0, 0));
+  const { errors } = validation;
 
   function applyPreset(preset: (typeof PRESETS)[number]) {
     onField("defaultDurationMinutes", preset.duration);
-    onField("slotIntervalMinutes", Math.max(preset.interval, preset.duration + (values.bufferMinutes || 0)));
   }
 
   return (
     <div className="mt-3 rounded-xl border border-gray-100 bg-white p-4" data-testid="business-setup-booking-rules">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Booking rules</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-800">Booking rules</p>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-4">
         {RULE_FIELDS.map(({ key, label, unit }) => {
           const fieldError = errors[key];
           const inputId = `appt-${key}`;
@@ -161,7 +133,7 @@ export function BookingRulesPanel({
                 />
                 <span className="shrink-0 text-xs font-medium text-slate-500">{unit}</span>
               </div>
-              {fieldError && key !== "slotIntervalMinutes" ? (
+              {fieldError ? (
                 <p id={errorId} role="alert" className="mt-1 text-[11px] font-semibold text-rose-600">
                   {fieldError}
                 </p>
@@ -170,37 +142,6 @@ export function BookingRulesPanel({
           );
         })}
       </div>
-
-      {intervalConflict ? (
-        <div
-          role="alert"
-          id={`${baseId}-slotIntervalMinutes-error`}
-          className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3.5 py-2.5"
-          data-testid="business-setup-booking-interval-warning"
-        >
-          <p className="text-xs font-semibold text-rose-700">
-            Start-time interval is shorter than the {intervalConflict.occupiedMinutes}-minute appointment and
-            buffer. Use at least {intervalConflict.occupiedMinutes} minutes;{" "}
-            {intervalConflict.recommendedMinutes} minutes is recommended.
-          </p>
-          <button
-            type="button"
-            data-testid="business-setup-booking-interval-fix"
-            onClick={() => onField("slotIntervalMinutes", intervalConflict.recommendedMinutes)}
-            className="mt-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
-          >
-            Use {intervalConflict.recommendedMinutes} minutes
-          </button>
-        </div>
-      ) : errors.slotIntervalMinutes ? (
-        <p
-          role="alert"
-          id={`${baseId}-slotIntervalMinutes-error`}
-          className="mt-3 text-xs font-semibold text-rose-600"
-        >
-          {errors.slotIntervalMinutes}
-        </p>
-      ) : null}
     </div>
   );
 }

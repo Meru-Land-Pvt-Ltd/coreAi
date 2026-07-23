@@ -75,6 +75,7 @@ import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import {
   buildArchitectExecutionMetrics,
+  countUnattributedLiveExecutions,
   executionTotalsByInstalledAgent
 } from "../business/execution-ledger";
 import { loadArchitectDashboardActivity } from "./dashboard-activity";
@@ -621,6 +622,10 @@ architectRoutes.get("/agents/stats", async (c) => {
     // missed-call leads, no join/pagination duplication, paused installs
     // excluded from the active metric. Legacy fields stay for compatibility.
     const ledgerMetrics = await buildArchitectExecutionMetrics({ architectUserId: authUser.id, now });
+    // Report-only: legacy LIVE calls without a provable installedAgentId are
+    // never guessed into any architect metric; the platform-wide count is
+    // surfaced for reconciliation visibility.
+    const unattributedExecutionCount = await countUnattributedLiveExecutions();
 
     return successResponse(c, {
       totalAgents,
@@ -636,6 +641,7 @@ architectRoutes.get("/agents/stats", async (c) => {
       periodExecutionCount: ledgerMetrics.periodExecutionCount,
       lifetimeExecutionCount: ledgerMetrics.lifetimeExecutionCount,
       excludedPausedInstallationCount: ledgerMetrics.excludedPausedInstallationCount,
+      unattributedExecutionCount,
       totalEarningsCents,
       revenue30dCents,
       revenuePrev30dCents,

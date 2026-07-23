@@ -252,10 +252,16 @@ describe("evaluateAfterHoursToolGate — the §5 matrix", () => {
     expect(gateLiveAfterHoursAction({ active: false }, "book_appointment").allowed).toBe(true);
   });
 
-  it("production requires the distributed store; dev/test may use memory", () => {
-    expect(isAfterHoursStoreSafeForLive({ distributed: false, production: true })).toBe(false);
-    expect(isAfterHoursStoreSafeForLive({ distributed: true, production: true })).toBe(true);
-    expect(isAfterHoursStoreSafeForLive({ distributed: false, production: false })).toBe(true);
+  it("production requires a genuinely READY distributed store; dev/test may use memory", () => {
+    // Redis missing in production → fail closed.
+    expect(isAfterHoursStoreSafeForLive({ distributed: false, production: true, ready: false })).toBe(false);
+    // Redis configured but UNREACHABLE in production → fail closed.
+    // Boolean(REDIS_URL) is configuration, not a health check.
+    expect(isAfterHoursStoreSafeForLive({ distributed: true, production: true, ready: false })).toBe(false);
+    // Redis genuinely READY → distributed state permitted.
+    expect(isAfterHoursStoreSafeForLive({ distributed: true, production: true, ready: true })).toBe(true);
+    // Memory fallback exists only outside production.
+    expect(isAfterHoursStoreSafeForLive({ distributed: false, production: false, ready: false })).toBe(true);
   });
 });
 
