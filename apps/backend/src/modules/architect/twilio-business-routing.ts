@@ -3093,7 +3093,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       return await sendAppointmentConfirmationSms({
         appointmentId,
         businessId: ctx.business.businessId,
-        installedAgentId: ctx.business.installedAgentId ?? null,
+        installedAgentId: ctx.business.installedAgentId ?? ctx.installedAgentId ?? null,
         vapiCallId: ctx.callId ?? null,
         customerName: patientName,
         customerPhone: patientPhone,
@@ -4013,7 +4013,7 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
 
   const outcome = await recordVerbalSmsConsent({
     businessId: ctx.business.businessId,
-    installedAgentId: ctx.business.installedAgentId ?? null,
+    installedAgentId: ctx.business.installedAgentId ?? ctx.installedAgentId ?? null,
     phoneNumber: phone,
     businessName: ctx.business.businessName,
     vapiCallId: ctx.callId ?? null,
@@ -4035,11 +4035,6 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     callId: ctx.callId ?? null
   });
 
-  // A booking earlier in this call had its confirmation SUPPRESSED (no
-  // consent yet). Now that the caller opted in, send it to the SAME canonical
-  // recipient the booking stored — a previous SUPPRESSED row never blocks
-  // this (it holds no dedupe key), while the deterministic
-  // appointment-confirmation:{appointmentId} key makes retries send-once.
   let confirmationSmsSent = false;
   let confirmationAttempted = false;
   if (outcome.consent.status === "OPTED_IN") {
@@ -4064,7 +4059,7 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
         const smsOutcome = await sendAppointmentConfirmationSms({
           appointmentId: target.id,
           businessId: ctx.business.businessId,
-          installedAgentId: ctx.business.installedAgentId ?? null,
+          installedAgentId: ctx.business.installedAgentId ?? ctx.installedAgentId ?? null,
           vapiCallId: ctx.callId ?? null,
           customerName: target.customerName ?? "",
           customerPhone: target.customerPhone,
@@ -4072,9 +4067,6 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
           appointmentDate: target.startAt,
           timeZone: target.timeZone || ctx.timeZone
         });
-        // "Sent" is claimed ONLY on provider acceptance: a live send with a
-        // stored messageSid (or simulated test credentials), or a dedupe hit
-        // whose existing row carries a messageSid.
         confirmationSmsSent =
           (smsOutcome.sent && (Boolean(smsOutcome.messageSid) || smsOutcome.simulated)) ||
           (smsOutcome.alreadySent && Boolean(smsOutcome.messageSid));

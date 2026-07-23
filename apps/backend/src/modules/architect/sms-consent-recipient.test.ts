@@ -110,7 +110,7 @@ async function postTool(
   callId: string,
   toolName: string,
   args: Record<string, unknown>,
-  options?: { withDisclosure?: boolean }
+  options?: { withDisclosure?: boolean; businessTest?: boolean }
 ): Promise<Record<string, unknown>> {
   const app = new Hono();
   app.post("/architect/connectors/vapi/webhook", handleVapiWebhook);
@@ -133,9 +133,9 @@ async function postTool(
             }
           : {}),
         // No customer.number — web/browser call, no caller ID.
-        call: { id: callId }
+        call: { id: callId, ...(options?.businessTest ? { type: "webCall" } : {}) }
       },
-      metadata: { businessId: fixture.businessId }
+      metadata: { businessId: fixture.businessId, installedAgentId: fixture.agentId }
     })
   });
   expect(response.status).toBe(200);
@@ -291,7 +291,13 @@ describe("post-booking SMS consent recipient consistency", () => {
     const fixture = await makeFixture({ executionMode: "BUSINESS_TEST" });
     const callId = `call_${RUN}_bt`;
 
-    const consent = await postTool(fixture, callId, "record_sms_consent", { affirmative: true }, { withDisclosure: true });
+    const consent = await postTool(
+      fixture,
+      callId,
+      "record_sms_consent",
+      { affirmative: true },
+      { withDisclosure: true, businessTest: true }
+    );
     expect(consent.success).toBe(true);
     expect(consent.consent_recorded).toBe(false);
     expect(await prisma.smsConsent.count({ where: { businessId: fixture.businessId } })).toBe(0);
