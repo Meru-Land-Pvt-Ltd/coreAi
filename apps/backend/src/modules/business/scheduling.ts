@@ -465,7 +465,7 @@ export async function loadTrivenBusyIntervals(input: {
 import { classifyCalendarError } from "../architect/calendar-errors";
 import { listCalendarBusyIntervals } from "../architect/google-calendar-connector";
 
-export type CalendarStatus = "connected" | "not_connected" | "needs_reconnect" | "error";
+export type CalendarStatus = "connected" | "not_connected" | "needs_reconnect" | "error" | "restricted";
 
 /** Resolve the schedule for a business's testable/live agent (agent-scoped). */
 export async function resolveScheduleForBusiness(input: {
@@ -526,12 +526,17 @@ async function loadAllBusyIntervals(input: {
   ownerUserId: string | null;
   schedule: AppointmentSchedule;
   date: string;
+  excludeExternalCalendar?: boolean;
 }): Promise<{ busy: BusyInterval[]; calendarStatus: CalendarStatus }> {
   const trivenBusy = await loadTrivenBusyIntervals({
     businessId: input.businessId,
     date: input.date,
     timeZone: input.schedule.timeZone
   });
+
+  if (input.excludeExternalCalendar) {
+    return { busy: trivenBusy, calendarStatus: "restricted" };
+  }
 
   if (!input.ownerUserId) {
     return { busy: trivenBusy, calendarStatus: "not_connected" };
@@ -571,13 +576,15 @@ export async function computeBusinessAvailability(input: {
   date: string;
   serviceName?: string | null;
   now?: Date;
+  excludeExternalCalendar?: boolean;
 }): Promise<BusinessDayAvailability> {
   const { schedule, ownerUserId } = await resolveScheduleForBusiness(input);
   const { busy, calendarStatus } = await loadAllBusyIntervals({
     businessId: input.businessId,
     ownerUserId,
     schedule,
-    date: input.date
+    date: input.date,
+    excludeExternalCalendar: input.excludeExternalCalendar
   });
 
   const day = computeDayAvailability({
@@ -610,13 +617,15 @@ export async function checkBusinessExactTime(input: {
   minute: number;
   serviceName?: string | null;
   now?: Date;
+  excludeExternalCalendar?: boolean;
 }): Promise<BusinessExactTimeResult> {
   const { schedule, ownerUserId } = await resolveScheduleForBusiness(input);
   const { busy, calendarStatus } = await loadAllBusyIntervals({
     businessId: input.businessId,
     ownerUserId,
     schedule,
-    date: input.date
+    date: input.date,
+    excludeExternalCalendar: input.excludeExternalCalendar
   });
 
   const result = checkExactTime({

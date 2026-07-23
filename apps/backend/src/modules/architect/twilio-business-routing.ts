@@ -2620,18 +2620,12 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     };
   }
 
-  if (ctx.executionMode !== "ARCHITECT_DRY_RUN" && !isWorkspaceDerivedAllowedForLiveVoice(undefined, ctx.voicePipeline)) {
-    console.warn("[vapi-tool] check_availability blocked by workspace guard", {
+  const workspaceRestricted =
+    ctx.executionMode !== "ARCHITECT_DRY_RUN" && !isWorkspaceDerivedAllowedForLiveVoice(undefined, ctx.voicePipeline);
+  if (workspaceRestricted) {
+    console.warn("[vapi-tool] check_availability excluding external calendar (workspace guard)", {
       reason: liveVoicePipelineBlockReason(undefined, ctx.voicePipeline)
     });
-    return {
-      available_slots: [],
-      date,
-      service,
-      calendar_status: "restricted",
-      message:
-        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
-    };
   }
 
   const requestedTime = parseClockTime(argStr(args, ["time", "requested_time", "appointment_time"]));
@@ -2644,7 +2638,8 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
       date,
       hour: requestedTime.hour,
       minute: requestedTime.minute,
-      serviceName: service
+      serviceName: service,
+      excludeExternalCalendar: workspaceRestricted
     });
 
     const openNote = check.closeLabel ? `The business is open until ${check.closeLabel} that day.` : "";
@@ -2677,8 +2672,8 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     }
 
     const scheduleOnlyNote =
-      check.calendarStatus === "not_connected"
-        ? " (Times are based on the business's appointment hours and existing bookings — no external calendar is connected, so frame the booking as one the team will confirm.)"
+      check.calendarStatus === "not_connected" || check.calendarStatus === "restricted"
+        ? " (Times are based on the business's appointment hours and existing bookings — the external calendar was not consulted, so frame the booking as one the team will confirm.)"
         : "";
 
     console.log("[vapi-tool] check_availability exact-time", { date, time: requestedTime, verdict: check.verdict });
@@ -2701,7 +2696,8 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
       businessId,
       installedAgentId: ctx.installedAgentId ?? null,
       date,
-      serviceName: service
+      serviceName: service,
+      excludeExternalCalendar: workspaceRestricted
     }),
     8000,
     "availability computation"
@@ -2770,15 +2766,18 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     duration: `${availability.durationMinutes} minutes`,
     open_from: availability.openLabel,
     open_until: availability.closeLabel,
-    source: availability.calendarStatus === "not_connected" ? "business_schedule" : "calendar",
+    source:
+      availability.calendarStatus === "not_connected" || availability.calendarStatus === "restricted"
+        ? "business_schedule"
+        : "calendar",
     calendar_status: availability.calendarStatus,
     message: `${
       availability.totalFreeSlots > availability.spokenSlots.length
         ? `These are ${availability.spokenSlots.length} of ${availability.totalFreeSlots} free times across the day. If the caller asks about a specific time not listed, call check_availability again with the time parameter — NEVER assume unlisted times are booked.`
         : "These are all the free times for that day."
     }${
-      availability.calendarStatus === "not_connected"
-        ? " (Times are based on the business's appointment hours and existing bookings — no external calendar is connected, so frame the booking as one the team will confirm.)"
+      availability.calendarStatus === "not_connected" || availability.calendarStatus === "restricted"
+        ? " (Times are based on the business's appointment hours and existing bookings — the external calendar was not consulted, so frame the booking as one the team will confirm.)"
         : ""
     }`
   };

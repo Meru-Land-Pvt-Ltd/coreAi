@@ -105,11 +105,24 @@ describe("toAiSafeAvailabilityResult", () => {
     expect(Object.keys(result).sort()).toEqual(["availableTimes", "date", "message", "success"]);
   });
 
-  it("reports failure for unavailable/restricted/closed calendars", () => {
-    expect(toAiSafeAvailabilityResult({ calendar_status: "restricted", message: "x" }).success).toBe(false);
+  it("reports failure for unreadable/closed calendars", () => {
+    expect(toAiSafeAvailabilityResult({ calendar_status: "needs_reconnect", message: "x" }).success).toBe(false);
     expect(toAiSafeAvailabilityResult({ calendar_status: "error", message: "x" }).success).toBe(false);
     expect(toAiSafeAvailabilityResult({ closed: true, calendar_status: "connected", message: "closed" }).success).toBe(false);
     expect(toAiSafeAvailabilityResult({ verdict: "calendar_unavailable", requested_time: "17:00", message: "x" }).success).toBe(false);
+  });
+
+  it("restricted and not_connected results carry schedule-based times as SUCCESS", () => {
+    // The Limited Use guard excludes the external calendar; hours + platform
+    // bookings still answer. Same for a business with no calendar connected.
+    const restricted = toAiSafeAvailabilityResult({
+      calendar_status: "restricted",
+      available_slots: ["9:00 AM", "11:00 AM"],
+      message: "x"
+    });
+    expect(restricted.success).toBe(true);
+    expect(restricted.availableTimes).toEqual(["9:00 AM", "11:00 AM"]);
+    expect(toAiSafeAvailabilityResult({ calendar_status: "not_connected", message: "x" }).success).toBe(true);
   });
 });
 

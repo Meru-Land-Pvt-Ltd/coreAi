@@ -59,7 +59,7 @@ export function toAiSafeAvailabilityResult(internal: InternalCalendarResult): Ai
   const failed =
     internal.closed === true ||
     verdict === "calendar_unavailable" ||
-    ["error", "needs_reconnect", "restricted"].includes(str(internal.calendar_status) ?? "");
+    ["error", "needs_reconnect"].includes(str(internal.calendar_status) ?? "");
 
   return {
     success: !failed,
