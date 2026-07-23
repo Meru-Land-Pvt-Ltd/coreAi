@@ -26,9 +26,16 @@ const ALWAYS_OPEN = [
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
 ].map((day) => ({ day, closed: false, open: "00:00", close: "23:59" }));
 
-const ALWAYS_CLOSED = [
-  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-].map((day) => ({ day, closed: true }));
+const CLOSED_NOW = (() => {
+  const laHour = Number(
+    new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hour12: false })
+  );
+  const openHour = (laHour + 3) % 24;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+  ].map((day) => ({ day, closed: false, open: `${pad(openHour)}:00`, close: `${pad(openHour)}:59` }));
+})();
 
 type Fixture = { userId: string; businessId: string; workflowId: string; agentId: string };
 const fixtures: Fixture[] = [];
@@ -138,7 +145,7 @@ describe("after-hours gate during a distributed-store outage (production)", () =
 
   it("CLOSED business fails closed: gate active with storeUnavailable", async () => {
     if (!dbAvailable) return;
-    const fixture = await makeBusiness({ hoursJson: ALWAYS_CLOSED, explicitPolicy: false });
+    const fixture = await makeBusiness({ hoursJson: CLOSED_NOW, explicitPolicy: false });
     simulateProductionOutage();
 
     const gate = await resolveLiveAfterHoursGateContext(gateParams(fixture.businessId, fixture.agentId));
@@ -158,7 +165,7 @@ describe("after-hours gate during a distributed-store outage (production)", () =
 
   it("outside the outage, the CLOSED default-policy flow still derives full state", async () => {
     if (!dbAvailable) return;
-    const fixture = await makeBusiness({ hoursJson: ALWAYS_CLOSED, explicitPolicy: false });
+    const fixture = await makeBusiness({ hoursJson: CLOSED_NOW, explicitPolicy: false });
     // Non-production: memory store fallback is allowed — no outage.
     setAfterHoursProductionModeForTests(false);
 
