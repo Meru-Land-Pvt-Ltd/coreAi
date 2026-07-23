@@ -1171,13 +1171,7 @@ export default function BusinessBillingUsagePage() {
                         {usage?.updatedAt ? `Updated ${formatDate(usage.updatedAt)}` : "No usage recorded for this month"}
                     </p>
 
-                    <ExecutionPricingSummary
-                        pricing={executionPricing}
-                        loading={executionPricingLoading}
-                        unavailable={executionPricingError}
-                        variant="full"
-                        className="mt-4 border-t border-gray-100 pt-4 text-xs text-slate-400"
-                    />
+                    
                 </section>
 
            
