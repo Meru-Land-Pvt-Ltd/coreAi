@@ -29,6 +29,10 @@ import { getStripeClient, isStripeConfigured } from "./stripe";
 import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-finalize";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import {
+  buyerExecutionPricingView,
+  loadActiveUsageServicePricing
+} from "../admin/usage-pricing-service";
 import { resolvePrimaryBusinessId } from "../business/primary-business";
 import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
@@ -808,18 +812,19 @@ paymentRoutes.get("/my-agents", async (c) => {
     ? await buildInstalledAgentRunStats(business.id, installedAgents, { start: currentMonthStart() })
     : new Map<string, { runs: number; costMicroUsd: number }>();
 
-  const activeUsageServices = await prisma.platformUsageService.findMany({
-    where: { isActive: true },
-    select: { unit: true, updatedCostMicroUsd: true }
-  });
-  const perMinuteRateMicroUsd = activeUsageServices
-    .filter((service) => service.unit === "PER_MINUTE")
-    .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);
+  // Execution pricing through the canonical pricing service (same layer as
+  // the Admin Pricing screen) — buyer-safe projection only: billing rates,
+  // never vendor actual costs. Null rate = "usage pricing unavailable" in the
+  // UI, never zero and never free.
+  const buyerPricing = buyerExecutionPricingView(await loadActiveUsageServicePricing());
   const executionPricing = {
     billingType: "USAGE_BASED" as const,
     unit: "PER_MINUTE" as const,
-    ratePerMinuteUsd: perMinuteRateMicroUsd > 0 ? perMinuteRateMicroUsd / 1_000_000 : null,
-    currency: "USD" as const
+    ratePerMinuteUsd: buyerPricing.voice.billingRatePerMinuteUsd,
+    currency: buyerPricing.currency,
+    voice: buyerPricing.voice,
+    sms: buyerPricing.sms,
+    phoneNumber: buyerPricing.phoneNumber
   };
   const installedByListingId = new Map(
     installedAgents
@@ -1076,11 +1081,14 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     (anyPayment && !activePayment) ||
     isTrialing;
 
-  const usageServices = await prisma.platformUsageService.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { code: true, name: true, unit: true, updatedCostMicroUsd: true }
-  });
+  // Canonical pricing service, buyer-safe fields only (billing rates).
+  const usagePricingRecords = await loadActiveUsageServicePricing();
+  const usageServices = usagePricingRecords.map((record) => ({
+    code: record.serviceId,
+    name: record.name,
+    unit: record.unit,
+    updatedCostMicroUsd: record.billingCostMicroUsd
+  }));
   const perMinuteMicroUsd = usageServices
     .filter((service) => service.unit === "PER_MINUTE")
     .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);

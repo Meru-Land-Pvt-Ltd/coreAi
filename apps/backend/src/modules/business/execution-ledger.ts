@@ -111,3 +111,20 @@ export async function buildArchitectExecutionMetrics(params: {
     excludedPausedInstallationCount: pausedCount
   };
 }
+
+export async function countUnattributedLiveExecutions(range?: ExecutionRange): Promise<number> {
+  return prisma.vapiCall.count({
+    where: {
+      executionMode: "LIVE",
+      installedAgentId: null,
+      ...(range?.start || range?.end
+        ? {
+            createdAt: {
+              ...(range?.start ? { gte: range.start } : {}),
+              ...(range?.end ? { lt: range.end } : {})
+            }
+          }
+        : {})
+    }
+  });
+}

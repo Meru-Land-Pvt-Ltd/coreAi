@@ -14,6 +14,13 @@ function storeKey(businessId: string, callId: string): string {
 
 let redis: Redis | null | undefined;
 
+export class AfterHoursStateStoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AfterHoursStateStoreUnavailableError";
+  }
+}
+
 function redisClient(): Redis | null {
   if (redis !== undefined) return redis;
 
@@ -30,6 +37,11 @@ function redisClient(): Redis | null {
   redis.on("error", (error) => {
     console.error("[after-hours-call-state] redis error", error instanceof Error ? error.message : error);
   });
+  // Pre-warm so readiness reflects a REAL connection, not just a configured
+  // URL — Boolean(REDIS_URL) is configuration, `status === "ready"` is health.
+  redis.connect().catch((error) => {
+    console.error("[after-hours-call-state] redis connect failed", error instanceof Error ? error.message : error);
+  });
   return redis;
 }
 
@@ -37,14 +49,31 @@ export function afterHoursCallStateStoreIsDistributed(): boolean {
   return Boolean(env.REDIS_URL);
 }
 
-export function isAfterHoursStoreSafeForLive(params: { distributed: boolean; production: boolean }): boolean {
-  return params.distributed || !params.production;
+/** True only when the Redis connection is genuinely READY right now. */
+export function afterHoursStateStoreReady(): boolean {
+  const client = redisClient();
+  return Boolean(client && client.status === "ready");
+}
+
+/**
+ * Pure availability rule (exported for tests): production requires a
+ * configured AND genuinely ready distributed store; development/test may use
+ * the in-process memory fallback.
+ */
+export function isAfterHoursStoreSafeForLive(params: {
+  distributed: boolean;
+  production: boolean;
+  ready: boolean;
+}): boolean {
+  if (!params.production) return true;
+  return params.distributed && params.ready;
 }
 
 export function afterHoursStateStoreAvailableForLive(): boolean {
   return isAfterHoursStoreSafeForLive({
     distributed: afterHoursCallStateStoreIsDistributed(),
-    production: isProduction
+    production: isProduction,
+    ready: afterHoursStateStoreReady()
   });
 }
 
@@ -78,8 +107,17 @@ export async function readAfterHoursCallState(
     try {
       return parseState(await client.get(key));
     } catch (error) {
-      console.error("[after-hours-call-state] redis get failed — using memory fallback", error);
+      // PRODUCTION never degrades to per-process memory — that would let two
+      // backend instances hold divergent safety state. Fail closed instead.
+      if (isProduction) {
+        throw new AfterHoursStateStoreUnavailableError(
+          `redis get failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      console.error("[after-hours-call-state] redis get failed — using memory fallback (non-production)", error);
     }
+  } else if (isProduction) {
+    throw new AfterHoursStateStoreUnavailableError("redis not configured in production");
   }
 
   pruneMemoryStore();
@@ -100,8 +138,15 @@ export async function writeAfterHoursCallState(
       await client.set(key, JSON.stringify(state), "EX", CALL_STATE_TTL_SECONDS);
       return;
     } catch (error) {
-      console.error("[after-hours-call-state] redis set failed — using memory fallback", error);
+      if (isProduction) {
+        throw new AfterHoursStateStoreUnavailableError(
+          `redis set failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      console.error("[after-hours-call-state] redis set failed — using memory fallback (non-production)", error);
     }
+  } else if (isProduction) {
+    throw new AfterHoursStateStoreUnavailableError("redis not configured in production");
   }
 
   pruneMemoryStore();

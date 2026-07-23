@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { microUsdToUsd, usdToMicroUsd } from "../../lib/usage-pricing";
+import { listUsageServicePricing } from "./usage-pricing-service";
 
 export const adminPricingRoutes = new Hono();
 
@@ -74,12 +75,22 @@ export function serializeUsageService(service: {
 adminPricingRoutes.get("/services", async (c) => {
   const includeInactive = c.req.query("includeInactive") === "true";
 
-  const services = await prisma.platformUsageService.findMany({
-    where: includeInactive ? undefined : { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
-  });
-
-  const serialized = services.map(serializeUsageService);
+  const records = await listUsageServicePricing({ includeInactive });
+  const serialized = records.map((record) =>
+    serializeUsageService({
+      id: record.pricingRecordId,
+      code: record.serviceId,
+      name: record.name,
+      role: record.description,
+      unit: record.unit,
+      actualCostMicroUsd: record.actualCostMicroUsd,
+      updatedCostMicroUsd: record.billingCostMicroUsd,
+      isActive: record.active,
+      sortOrder: record.sortOrder,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt
+    })
+  );
   const perMinuteActualUsd = serialized
     .filter((service) => service.unit === "PER_MINUTE" && service.isActive)
     .reduce((sum, service) => sum + service.actualCostUsd, 0);

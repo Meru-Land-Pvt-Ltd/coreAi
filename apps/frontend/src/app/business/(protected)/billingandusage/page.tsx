@@ -513,7 +513,13 @@ export default function BusinessBillingUsagePage() {
         (invoice) => invoice.status.toUpperCase() === "FAILED" || invoice.status.toUpperCase() === "CANCELED"
     );
     const paidUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "PAID");
-    const currentUsageStatement: UsageInvoice | null = usage && usage.totalCalls > 0
+    // Current-month dedup: the synthetic accrued row exists ONLY when no real
+    // invoice (any status) covers the same billingMonth — the same month must
+    // never display or total twice.
+    const hasRealInvoiceForCurrentMonth = Boolean(
+        usage && usageInvoices.some((invoice) => invoice.billingMonth === usage.month)
+    );
+    const currentUsageStatement: UsageInvoice | null = usage && usage.totalCalls > 0 && !hasRealInvoiceForCurrentMonth
         ? {
             id: `accrued-${usage.month}`,
             invoiceNumber: `ACCRUED-${usage.month.replace("-", "")}`,

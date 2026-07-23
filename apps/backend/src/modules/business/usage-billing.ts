@@ -3,12 +3,15 @@ import { prisma } from "../../lib/prisma";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
-  calculateUsageLineItems,
   microUsdToUsd,
-  sumLineItems,
+  priceExecutionUsage,
   type UsageLineItem
 } from "../../lib/usage-pricing";
 import { fetchVapiCallById } from "../architect/vapi-connector";
+import {
+  loadActiveUsageServicePricing,
+  USAGE_RATE_NOT_CONFIGURED
+} from "../admin/usage-pricing-service";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 
@@ -73,40 +76,38 @@ function parseDurationMinutes(payload: Record<string, unknown>): number {
   return 0;
 }
 
-function countSmsFromWebhook(message: Record<string, unknown>): number {
-  const artifact =
-    typeof message.artifact === "object" && message.artifact !== null
-      ? (message.artifact as Record<string, unknown>)
-      : {};
-  const candidates = [artifact.messages, message.messages].find(Array.isArray) as unknown[] | undefined;
-  if (!candidates) return 0;
+const BILLABLE_SMS_STATUSES = ["QUEUED", "ACCEPTED", "SENDING", "SENT", "DELIVERED", "UNDELIVERED"] as const;
 
-  let count = 0;
-  for (const entry of candidates) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const record = entry as Record<string, unknown>;
-    const role = typeof record.role === "string" ? record.role.toLowerCase() : "";
-    const content = `${record.message ?? ""} ${record.content ?? ""} ${record.result ?? ""}`.toLowerCase();
-    if (/^tool/.test(role) && /"customer_sms_sent":\s*true|"patient_sms_sent":\s*true/.test(content)) {
-      count += 1;
+async function countBillableCustomerSms(callId: string, conversationId: string | null): Promise<number> {
+  const directRows = await prisma.smsExecution.findMany({
+    where: {
+      dedupeKey: { startsWith: `send_notification:${callId}:` },
+      status: { in: [...BILLABLE_SMS_STATUSES] }
+    },
+    select: { dedupeKey: true, messageType: true }
+  });
+  const direct = directRows.filter(
+    (row) => row.messageType !== "TEAM_NOTIFICATION" && !row.dedupeKey?.endsWith(":team")
+  ).length;
+
+  let confirmations = 0;
+  if (conversationId) {
+    const appointments = await prisma.appointment.findMany({
+      where: { conversationId },
+      select: { id: true }
+    });
+    if (appointments.length > 0) {
+      confirmations = await prisma.smsExecution.count({
+        where: {
+          appointmentId: { in: appointments.map((appointment) => appointment.id) },
+          messageType: "APPOINTMENT_CONFIRMATION",
+          status: { in: [...BILLABLE_SMS_STATUSES] }
+        }
+      });
     }
   }
 
-  return count;
-}
-
-async function loadActivePricingServices() {
-  return prisma.platformUsageService.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: {
-      code: true,
-      name: true,
-      unit: true,
-      actualCostMicroUsd: true,
-      updatedCostMicroUsd: true
-    }
-  });
+  return direct + confirmations;
 }
 
 export function extractRecordingUrl(message: Record<string, unknown>): string | null {
@@ -189,14 +190,21 @@ export async function recordVapiCallUsage({
 
   const callRow = await prisma.vapiCall.findUnique({
     where: { callId },
-    select: { executionMode: true, billingRecordedAt: true, usageInvoiceId: true, recordingUrl: true }
+    select: {
+      executionMode: true,
+      billingRecordedAt: true,
+      usageInvoiceId: true,
+      recordingUrl: true,
+      pricingState: true,
+      conversationId: true
+    }
   });
   if (callRow && callRow.executionMode !== "LIVE") {
     console.log("[usage-billing] skipped: non-live call", { businessId, callId, executionMode: callRow.executionMode });
     return;
   }
 
-  if (callRow?.billingRecordedAt || callRow?.usageInvoiceId) {
+  if (callRow?.billingRecordedAt || callRow?.usageInvoiceId || callRow?.pricingState === "PRICED" || callRow?.pricingState === "INVOICED") {
     if (!callRow.recordingUrl) {
       const message =
         typeof webhookBody.message === "object" && webhookBody.message !== null
@@ -313,14 +321,21 @@ export async function recordVapiCallUsage({
     durationMs: message.durationMs ?? vapiCall?.durationMs
   });
 
-  const smsCount = countSmsFromWebhook(message);
-  const pricingServices = await loadActivePricingServices();
-  const lineItems = calculateUsageLineItems(pricingServices, {
+  const smsCount = await countBillableCustomerSms(callId, callRow?.conversationId ?? null);
+
+  // The ONE pricing decision (pure, canonical rates): PRICED with immutable
+  // snapshot lines, or UNPRICED when a required active rate is missing.
+  const pricingServices = await loadActiveUsageServicePricing();
+  const pricingResult = priceExecutionUsage(pricingServices, {
     durationMinutes,
     smsCount,
     callCount: durationMinutes > 0 ? 1 : 0
   });
-  const totals = sumLineItems(lineItems);
+  const lineItems = pricingResult.state === "PRICED" ? pricingResult.lineItems : [];
+  const totals =
+    pricingResult.state === "PRICED"
+      ? pricingResult.totals
+      : { actualCostMicroUsd: 0, billedCostMicroUsd: 0 };
 
   const vapiCostUsd = vapiCall?.costUsd ?? Number(message.cost);
   const vapiCostMicroUsd =
@@ -332,6 +347,46 @@ export async function recordVapiCallUsage({
 
   const recordingUrl = extractRecordingUrl(message) ?? vapiCall?.recordingUrl ?? null;
   if (!recordingUrl) scheduleRecordingRefetch(callId);
+
+  if (pricingResult.state === "UNPRICED") {
+    console.error(`[usage-billing] ${USAGE_RATE_NOT_CONFIGURED}: no active PER_MINUTE pricing records — execution preserved UNPRICED`, {
+      businessId,
+      callId,
+      durationMinutes
+    });
+    await prisma.vapiCall.upsert({
+      where: { callId },
+      update: {
+        installedAgentId: installedAgentId ?? undefined,
+        recordingUrl: recordingUrl ?? undefined,
+        durationSeconds: durationMinutes > 0 ? Math.round(durationMinutes * 60) : undefined,
+        durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
+        smsCount,
+        vapiCostMicroUsd: vapiCostMicroUsd ?? undefined,
+        vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+        pricingState: "UNPRICED",
+        endedAt
+      },
+      create: {
+        businessId,
+        installedAgentId: installedAgentId ?? undefined,
+        callId,
+        customerPhone: customerPhone || "unknown",
+        executionMode: "LIVE",
+        status: "end-of-call-report",
+        recordingUrl,
+        durationSeconds: durationMinutes > 0 ? Math.round(durationMinutes * 60) : undefined,
+        durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
+        smsCount,
+        vapiCostMicroUsd: vapiCostMicroUsd ?? undefined,
+        vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+        pricingState: "UNPRICED",
+        endedAt,
+        metadataJson: webhookBody as never
+      }
+    });
+    return;
+  }
 
   await prisma.vapiCall.upsert({
     where: { callId },
@@ -351,6 +406,7 @@ export async function recordVapiCallUsage({
       billedCostMicroUsd: totals.billedCostMicroUsd,
       usageLineItemsJson: lineItems as never,
       vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+      pricingState: "PRICED",
       billingMonth,
       billingRecordedAt: endedAt,
       endedAt
@@ -372,6 +428,7 @@ export async function recordVapiCallUsage({
       billedCostMicroUsd: totals.billedCostMicroUsd,
       usageLineItemsJson: lineItems as never,
       vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+      pricingState: "PRICED",
       billingMonth,
       billingRecordedAt: endedAt,
       endedAt,

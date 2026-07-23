@@ -2,21 +2,34 @@ import type { UsageServiceUnit } from "@prisma/client";
 
 export const MICRO_USD = 1_000_000;
 
-export type PricingServiceRow = {
-  code: string;
+export const USAGE_PRICING_LINE_CURRENCY = "USD" as const;
+
+export type PricingServiceRecordInput = {
+  serviceId: string;
   name: string;
+  invoiceLabel?: string;
   unit: UsageServiceUnit;
   actualCostMicroUsd: number;
-  updatedCostMicroUsd: number;
+  billingCostMicroUsd: number;
+  pricingRecordId?: string;
+  pricingVersion?: string;
 };
 
 export type UsageLineItem = {
   serviceCode: string;
   serviceName: string;
+  invoiceLabel?: string;
   unit: UsageServiceUnit;
   quantity: number;
+  /** Per-unit rate snapshots (micro-USD). */
+  actualRateMicroUsd?: number;
+  billingRateMicroUsd?: number;
+  /** Line totals (micro-USD). */
   actualCostMicroUsd: number;
   billedCostMicroUsd: number;
+  pricingRecordId?: string;
+  pricingVersion?: string;
+  currency?: typeof USAGE_PRICING_LINE_CURRENCY;
 };
 
 export function microUsdToUsd(microUsd: number): number {
@@ -28,7 +41,7 @@ export function usdToMicroUsd(usd: number): number {
 }
 
 export function calculateUsageLineItems(
-  services: PricingServiceRow[],
+  services: PricingServiceRecordInput[],
   quantities: {
     durationMinutes: number;
     smsCount?: number;
@@ -39,7 +52,9 @@ export function calculateUsageLineItems(
   const smsCount = Math.max(0, quantities.smsCount ?? 0);
   const callCount = Math.max(0, quantities.callCount ?? 0);
 
-  return services.map((service) => {
+  const lines: UsageLineItem[] = [];
+
+  for (const service of services) {
     let quantity = 0;
 
     switch (service.unit) {
@@ -59,18 +74,25 @@ export function calculateUsageLineItems(
         quantity = 0;
     }
 
-    const actualCostMicroUsd = Math.round(service.actualCostMicroUsd * quantity);
-    const billedCostMicroUsd = Math.round(service.updatedCostMicroUsd * quantity);
+    if (quantity <= 0) continue;
 
-    return {
-      serviceCode: service.code,
+    lines.push({
+      serviceCode: service.serviceId,
       serviceName: service.name,
+      ...(service.invoiceLabel ? { invoiceLabel: service.invoiceLabel } : {}),
       unit: service.unit,
       quantity,
-      actualCostMicroUsd,
-      billedCostMicroUsd
-    };
-  });
+      actualRateMicroUsd: service.actualCostMicroUsd,
+      billingRateMicroUsd: service.billingCostMicroUsd,
+      actualCostMicroUsd: Math.round(service.actualCostMicroUsd * quantity),
+      billedCostMicroUsd: Math.round(service.billingCostMicroUsd * quantity),
+      ...(service.pricingRecordId ? { pricingRecordId: service.pricingRecordId } : {}),
+      ...(service.pricingVersion ? { pricingVersion: service.pricingVersion } : {}),
+      currency: USAGE_PRICING_LINE_CURRENCY
+    });
+  }
+
+  return lines;
 }
 
 export function sumLineItems(lineItems: UsageLineItem[]) {
@@ -81,4 +103,30 @@ export function sumLineItems(lineItems: UsageLineItem[]) {
     }),
     { actualCostMicroUsd: 0, billedCostMicroUsd: 0 }
   );
+}
+
+export const USAGE_RATE_NOT_CONFIGURED_CODE = "USAGE_RATE_NOT_CONFIGURED";
+
+export type ExecutionPricingResult =
+  | { state: "PRICED"; lineItems: UsageLineItem[]; totals: { actualCostMicroUsd: number; billedCostMicroUsd: number } }
+  | { state: "UNPRICED"; code: typeof USAGE_RATE_NOT_CONFIGURED_CODE };
+
+/**
+ * The one pricing decision for an execution. A voice execution with real
+ * minutes REQUIRES at least one active PER_MINUTE record — a missing record is
+ * a configuration error (UNPRICED / USAGE_RATE_NOT_CONFIGURED), never silent
+ * zero. An ACTIVE record configured at a zero RATE is valid and prices at
+ * zero.
+ */
+export function priceExecutionUsage(
+  services: PricingServiceRecordInput[],
+  quantities: { durationMinutes: number; smsCount?: number; callCount?: number }
+): ExecutionPricingResult {
+  const hasPerMinute = services.some((service) => service.unit === "PER_MINUTE");
+  if (Math.max(0, quantities.durationMinutes) > 0 && !hasPerMinute) {
+    return { state: "UNPRICED", code: USAGE_RATE_NOT_CONFIGURED_CODE };
+  }
+
+  const lineItems = calculateUsageLineItems(services, quantities);
+  return { state: "PRICED", lineItems, totals: sumLineItems(lineItems) };
 }

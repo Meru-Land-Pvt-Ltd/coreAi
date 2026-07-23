@@ -1807,9 +1807,8 @@ export async function handleTwilioInboundSms(c: Context) {
     replyBody =
       status.state === "unknown"
         ? `${agent.business.businessName}: our operating hours haven't been confirmed yet — we'll have the team follow up with exact times. Anything else we can help with?`
-        : `${agent.business.businessName}: ${describeOpenStatus(status)}${
-            agent.business.bookingUrl ? ` Book anytime: ${agent.business.bookingUrl}` : ""
-          }`;
+        : `${agent.business.businessName}: ${describeOpenStatus(status)}${agent.business.bookingUrl ? ` Book anytime: ${agent.business.bookingUrl}` : ""
+        }`;
   } else {
     replyBody = buildInboundSmsReply(agent, incomingBody, history);
   }
@@ -4013,24 +4012,24 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
         const sms = afterHoursUrgent
           ? redFlagRoute
             ? buildRedFlagStaffAlert({
-                businessName: ctx.business.businessName,
-                callerName: customerName || null,
-                callbackNumber: customerPhone || null,
-                callId: ctx.callId ?? null,
-                includeCallback
-              })
+              businessName: ctx.business.businessName,
+              callerName: customerName || null,
+              callbackNumber: customerPhone || null,
+              callId: ctx.callId ?? null,
+              includeCallback
+            })
             : buildUrgentStaffAlert({
-                businessName: ctx.business.businessName,
-                callerName: customerName || null,
-                callbackNumber: customerPhone || null,
-                callId: ctx.callId ?? null,
-                includeCallback
-              })
+              businessName: ctx.business.businessName,
+              callerName: customerName || null,
+              callbackNumber: customerPhone || null,
+              callId: ctx.callId ?? null,
+              includeCallback
+            })
           : applyBracketTemplate(
-              ctx.dental?.dentistTemplate ??
-                "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
-              values
-            );
+            ctx.dental?.dentistTemplate ??
+            "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
+            values
+          );
 
         if (afterHoursUrgent && ctx.business.businessId && ctx.callId) {
           await updateAfterHoursStaffNotificationStatus(ctx.business.businessId, ctx.callId, "PENDING").catch(() => null);
@@ -4301,7 +4300,12 @@ function authorizeVapiWebhook(
     return { authorized: true, reason: "architect test session (sandbox check pending)", requiresArchitectSandbox: true };
   }
 
-  if (!secret) return { authorized: true, reason: "no VAPI_WEBHOOK_SECRET configured (legacy allow)" };
+  if (!secret) {
+    console.error(
+      "[vapi-webhook] VAPI_WEBHOOK_SECRET is not configured in production — rejecting unauthenticated webhook; no usage will be settled"
+    );
+    return { authorized: false, reason: "VAPI_WEBHOOK_SECRET missing in production" };
+  }
 
   return { authorized: false, reason: "missing or invalid webhook secret" };
 }
@@ -4461,50 +4465,64 @@ export async function handleVapiWebhook(c: Context) {
       }
     }
 
-    if (toolCalls.length === 0) {
-      if (
-        businessContext?.businessId &&
-        callId &&
-        executionMode === "LIVE" &&
-        /end-of-call-report|end|ended|report/i.test(messageType ?? "")
-      ) {
+    const isEndOfCallEvent = /end-of-call-report|end|ended|report/i.test(messageType ?? "");
+    const settleLiveEndOfCall = async () => {
+      if (!businessContext?.businessId || !callId || executionMode !== "LIVE" || !isEndOfCallEvent) return;
+
+      try {
         const installedAgent = metadataInstalledAgentId
           ? await prisma.installedAgent.findFirst({
             where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
             select: { id: true, workflowId: true }
           })
           : await latestActiveInstalledAgent(businessContext.businessId);
-        recordVapiCallUsage({
+
+        await recordVapiCallUsage({
           businessId: businessContext.businessId,
           installedAgentId: installedAgent?.id,
           callId,
           customerPhone,
           webhookBody: body
-        }).catch((error) => console.error("[vapi-webhook] usage billing failed (non-fatal)", error));
+        });
 
         if (installedAgent?.workflowId) {
-          try {
-            await prisma.workflowRun.upsert({
-              where: { callProvider_externalCallId: { callProvider: "VAPI", externalCallId: callId } },
-              update: { status: "COMPLETED", finishedAt: new Date() },
-              create: {
-                workflowId: installedAgent.workflowId,
-                installedAgentId: installedAgent.id,
-                businessId: businessContext.businessId,
-                mode: "LIVE",
-                status: "COMPLETED",
-                callProvider: "VAPI",
-                externalCallId: callId,
-                finishedAt: new Date(),
-                inputJson: { source: "vapi_end_of_call", callId }
-              }
-            });
-          } catch (error) {
-            console.error("[vapi-webhook] workflowRun upsert failed (non-fatal)", error);
-          }
+          await prisma.workflowRun.upsert({
+            where: { callProvider_externalCallId: { callProvider: "VAPI", externalCallId: callId } },
+            update: { status: "COMPLETED", finishedAt: new Date() },
+            create: {
+              workflowId: installedAgent.workflowId,
+              installedAgentId: installedAgent.id,
+              businessId: businessContext.businessId,
+              mode: "LIVE",
+              status: "COMPLETED",
+              callProvider: "VAPI",
+              externalCallId: callId,
+              finishedAt: new Date(),
+              inputJson: { source: "vapi_end_of_call", callId }
+            }
+          });
         }
+      } catch (error) {
+        console.error("[vapi-webhook] USAGE SETTLEMENT FAILED — needs reconciliation", {
+          callId,
+          businessId: businessContext.businessId,
+          error: error instanceof Error ? error.message : error
+        });
       }
+    };
 
+    // Call ended — clear the distributed after-hours routing state. In the
+    // mixed tool/end-of-call path this runs AFTER tool dispatch so the gate
+    // does not re-write state for a call that just ended.
+    const clearAfterHoursOnCallEnd = async () => {
+      if (executionMode === "LIVE" && isEndOfCallEvent) {
+        await endLiveAfterHoursCall(businessContext?.businessId, callId);
+      }
+    };
+
+    if (toolCalls.length === 0) {
+      await settleLiveEndOfCall();
+      await clearAfterHoursOnCallEnd();
 
       if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
         enqueueEmail(
@@ -4533,16 +4551,17 @@ export async function handleVapiWebhook(c: Context) {
           .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
       }
 
-      // Call ended — clear the distributed after-hours routing state.
-      if (executionMode === "LIVE" && /end-of-call-report|end|ended|report/i.test(messageType ?? "")) {
-        await endLiveAfterHoursCall(businessContext?.businessId, callId);
-      }
-
       console.log("[vapi-webhook] response status", 200, agentPaused ? "(non-tool event, paused settle)" : "(non-tool event)");
       return c.json(agentPaused ? { ok: true, paused: true } : { ok: true });
     }
 
+    // MIXED payload (end-of-call report carrying tool calls): settle usage +
+    // clear after-hours state BEFORE tool dispatch, then process tools
+    // independently — tool outcomes never gate settlement.
+    await settleLiveEndOfCall();
+
     if (agentPaused) {
+      await clearAfterHoursOnCallEnd();
       console.log("[vapi-webhook] response status", 200, "(agent paused — tools blocked)");
       return c.json({
         results: toolCalls.map((toolCall) => ({
@@ -4625,31 +4644,31 @@ export async function handleVapiWebhook(c: Context) {
           callerPhone: customerPhone || null
         });
       } else
-      try {
-        if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
-        else if (isLookup) payload = await runLookupKnowledgeTool(toolCall.parameters, ctx);
-        else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
-        else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
-        else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
-        else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
-        else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
-        else payload = { ok: true };
-      } catch (error) {
-        console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
-        payload = isLookup
-          ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
-          : isCheck
-            ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
-            : isBook
-              ? { success: false, message: "Could not complete the booking right now. Please try again." }
-              : isConsent
-                ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
-                : isCancel
-                  ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
-                  : isReschedule
-                    ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
-                    : { success: false };
-      }
+        try {
+          if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
+          else if (isLookup) payload = await runLookupKnowledgeTool(toolCall.parameters, ctx);
+          else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
+          else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
+          else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
+          else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
+          else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
+          else payload = { ok: true };
+        } catch (error) {
+          console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
+          payload = isLookup
+            ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
+            : isCheck
+              ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
+              : isBook
+                ? { success: false, message: "Could not complete the booking right now. Please try again." }
+                : isConsent
+                  ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
+                  : isCancel
+                    ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
+                    : isReschedule
+                      ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
+                      : { success: false };
+        }
 
       if (payload && typeof payload === "object" && !afterHoursBlocked) {
         if (isCheck) payload = toAiSafeAvailabilityResult(payload as Record<string, unknown>);
@@ -4665,6 +4684,9 @@ export async function handleVapiWebhook(c: Context) {
         result: typeof payload === "string" ? payload : JSON.stringify(payload)
       });
     }
+
+    // Mixed end-of-call payload: state clears after tools were processed.
+    await clearAfterHoursOnCallEnd();
 
     console.log("[vapi-webhook] response status", 200, `results=${results.length}`);
     if (!isProduction) {

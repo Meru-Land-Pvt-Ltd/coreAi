@@ -573,6 +573,7 @@ model VapiCall {
   billedCostMicroUsd    Int?
   usageLineItemsJson    Json?
   vapiCostBreakdownJson Json?
+  pricingState          String                @default("PENDING")
   billingMonth          String?
   billingRecordedAt     DateTime?
   usageInvoiceId        String?
@@ -590,6 +591,7 @@ model VapiCall {
   @@index([usageInvoiceId])
   @@index([customerPhone])
   @@index([status])
+  @@index([pricingState])
 }
 
 model PlatformPhoneNumber {

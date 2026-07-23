@@ -181,7 +181,8 @@ async function createInvoiceForBusiness(businessId: string, billingMonth: string
 
     await tx.vapiCall.updateMany({
       where: { id: { in: calls.map((call) => call.id) }, usageInvoiceId: null },
-      data: { usageInvoiceId: invoice.id }
+      // INVOICED freezes the execution: no reprice path may ever touch it.
+      data: { usageInvoiceId: invoice.id, pricingState: "INVOICED" }
     });
     return invoice;
   });
