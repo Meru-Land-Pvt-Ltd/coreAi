@@ -1,10 +1,14 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
+  AFTER_HOURS_CONTACT_METHODS,
+  AFTER_HOURS_EMERGENCY_CATEGORIES,
   isBuyerAnswerEmpty,
+  normalizeAfterHoursPolicy,
   normalizeBuyerSetupFields,
   normalizeTimeZone,
   requiredConnectorsForWorkflow,
+  resolveSimulatedHoursState,
   validateBuyerSetupAnswers,
   workflowUsesVoice,
   getWorkflowTriggerKind,
@@ -77,6 +81,7 @@ import {
   SetupPreviewCallError,
   startInstalledAgentPreviewCall
 } from "./deploy";
+import { buildAfterHoursSnapshotForBusiness } from "./after-hours-state";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
 import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
@@ -839,6 +844,25 @@ const businessSetupSchema = z.object({
     })
     .optional(),
 
+  // Reusable business-level after-hours routing policy (greeting, emergency
+  // screening, urgent booking/callback behavior). Optional — omitting it on a
+  // save preserves the stored policy (configJson MERGE).
+  afterHoursPolicy: z
+    .object({
+      enabled: z.boolean(),
+      timezone: z.string().trim().max(80).optional().or(z.literal("")),
+      greeting: z.string().trim().max(600).optional().or(z.literal("")),
+      emergencyScreeningEnabled: z.boolean().optional(),
+      emergencyCategory: z.enum(AFTER_HOURS_EMERGENCY_CATEGORIES).optional(),
+      emergencyContactMethod: z.enum(AFTER_HOURS_CONTACT_METHODS).optional(),
+      emergencyContact: z.string().trim().max(200).optional().or(z.literal("")),
+      offerAppointmentBooking: z.boolean().optional(),
+      useEmergencySlots: z.boolean().optional(),
+      allowUrgentCallbackRequest: z.boolean().optional(),
+      lifeThreateningInstruction: z.string().trim().max(600).optional().or(z.literal(""))
+    })
+    .optional(),
+
   // Architect-defined buyer setup answers (the listing's requiredBuyerSetup
   // fields) — business-specific facts injected into the live system prompt.
   // Values may be text, a multiselect list, a yes/no toggle, or a number.
@@ -1526,7 +1550,10 @@ const chatTestSchema = z.object({
   message: z.string().min(1).max(2000),
   history: z.array(chatTestMessageSchema).max(30).optional(),
   /** Groups this test run's records (calendar events, appointments). */
-  testSessionId: z.string().trim().max(64).optional()
+  testSessionId: z.string().trim().max(64).optional(),
+  /** After-hours test override: evaluate real hours ("current"/omitted) or
+   * simulate open/closed. Test conversations only — never live calls. */
+  simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional()
 });
 
 // Chat simulation for the setup wizard's Test step — runs the buyer's real
@@ -1561,6 +1588,20 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
     return errorResponse(c, "Save your setup with an installed agent before testing.", 422, "TEST_NOT_AVAILABLE");
   }
 
+  // After-hours simulation for the Test step: evaluate the real configured
+  // hours by default, or force open/closed. The override is BUSINESS_TEST-only
+  // (resolveSimulatedHoursState refuses LIVE) and never sends anything real.
+  const simulateHours = resolveSimulatedHoursState(
+    "BUSINESS_TEST",
+    parsed.data.simulateBusinessHoursState === "current" ? null : parsed.data.simulateBusinessHoursState
+  );
+  const afterHoursContext = chatSetup.afterHoursPolicy?.enabled
+    ? {
+        policy: chatSetup.afterHoursPolicy,
+        snapshot: await buildAfterHoursSnapshotForBusiness(business.id, { simulate: simulateHours })
+      }
+    : undefined;
+
   try {
     const result = await runArchitectConversationTest({
       userId: authUser.id,
@@ -1568,7 +1609,7 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
       workflowJson: chatSetup.workflowJson,
       message: parsed.data.message,
       history: parsed.data.history,
-      testContext: chatSetup.context,
+      testContext: { ...chatSetup.context, ...(afterHoursContext ? { afterHours: afterHoursContext } : {}) },
       executionMode: "BUSINESS_TEST",
       testSessionId: parsed.data.testSessionId,
       businessIdentity: {
@@ -1652,7 +1693,18 @@ businessRoutes.post("/setup/preview-call", async (c) => {
   }
 
   try {
-    const session = await startInstalledAgentPreviewCall(business.id);
+    // Optional after-hours simulation for the browser preview (BUSINESS_TEST
+    // only): {"simulateBusinessHoursState": "open" | "closed" | "current"}.
+    const previewBody = await c.req.json().catch(() => null);
+    const previewOptions = z
+      .object({ simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional() })
+      .safeParse(previewBody ?? {});
+    const simulateBusinessHoursState =
+      previewOptions.success && previewOptions.data.simulateBusinessHoursState !== "current"
+        ? previewOptions.data.simulateBusinessHoursState ?? null
+        : null;
+
+    const session = await startInstalledAgentPreviewCall(business.id, { simulateBusinessHoursState });
     return successResponse(c, { session }, "Preview call ready");
   } catch (error) {
     if (error instanceof SetupPreviewCallError) {
@@ -2204,6 +2256,8 @@ function serializeSetup(
     buyerSetupSchema: normalizeBuyerSetupFields(config?.buyerSetupSchema),
     // Buyer-owned Send Email recipients; null until the buyer saves them.
     emailRecipients: extractBuyerEmailRecipients(config),
+    // After-hours routing policy; null until the buyer (or template) sets one.
+    afterHoursPolicy: normalizeAfterHoursPolicy(config?.afterHoursPolicy),
     triggerKind: (installedAgent as any)?.workflow?.workflowJson
       ? getWorkflowTriggerKind((installedAgent as any).workflow.workflowJson)
       : null,
@@ -2631,6 +2685,11 @@ businessRoutes.post("/setup", async (c) => {
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
       ...(input.appointmentSchedule ? { appointmentSchedule: input.appointmentSchedule } : {}),
+      // Conditional spread: omitting afterHoursPolicy on a save preserves the
+      // stored policy (same MERGE contract as scheduling/emailRecipients).
+      ...(input.afterHoursPolicy
+        ? { afterHoursPolicy: normalizeAfterHoursPolicy(input.afterHoursPolicy) }
+        : {}),
       ...(input.customFields.length > 0 || buyerSetupFields.length > 0
         ? { customFields: input.customFields.filter((field) => !isBuyerAnswerEmpty(field.value)) }
         : {}),

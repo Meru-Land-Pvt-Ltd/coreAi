@@ -751,7 +751,9 @@ const vapiBrowserTestSchema = z.object({
       /** Create real [TRIVEN ARCHITECT TEST] events in the architect's own calendar. */
       useTestCalendar: z.boolean().optional(),
       /** Groups this browser test's records (test calendar events). */
-      testSessionId: z.string().trim().max(64).optional()
+      testSessionId: z.string().trim().max(64).optional(),
+      /** After-hours simulation for this browser voice test session. */
+      simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional()
     })
     .default({})
 });
@@ -763,6 +765,8 @@ const architectConversationTestSchema = z.object({
   testSessionId: z.string().trim().max(64).optional(),
   /** Create real events in the architect's OWN connected test calendar. */
   useTestCalendar: z.boolean().optional(),
+  /** After-hours simulation: evaluate as open/closed ("current" = no override). */
+  simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional(),
   testContext: z
     .object({
       businessName: z.string().trim().optional(),
@@ -1849,6 +1853,9 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       history: input.history,
       testContext: input.testContext,
       executionMode: "ARCHITECT_DRY_RUN",
+      ...(input.simulateBusinessHoursState === "open" || input.simulateBusinessHoursState === "closed"
+        ? { simulateBusinessHoursState: input.simulateBusinessHoursState }
+        : {}),
       testSessionId: input.testSessionId,
       useTestCalendar: input.useTestCalendar
     });

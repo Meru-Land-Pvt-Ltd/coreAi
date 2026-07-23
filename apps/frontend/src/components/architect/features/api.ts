@@ -647,6 +647,8 @@ export function runArchitectConversationTest(
     testSessionId?: string;
     /** Create real events in the architect's OWN connected test calendar. */
     useTestCalendar?: boolean;
+    /** After-hours simulation: evaluate as open/closed ("current" = no override). */
+    simulateBusinessHoursState?: "current" | "open" | "closed";
     testContext?: {
       businessName?: string;
       businessType?: string;
@@ -801,6 +803,8 @@ export function startArchitectVapiBrowserTest(
       useTestCalendar?: boolean;
       /** Groups this browser test's records (test calendar events). */
       testSessionId?: string;
+      /** After-hours simulation for this voice test session. */
+      simulateBusinessHoursState?: "current" | "open" | "closed";
     };
   } = {}
 ) {

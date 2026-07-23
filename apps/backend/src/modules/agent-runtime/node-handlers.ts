@@ -60,6 +60,18 @@ export function resolveTemplate(template: string, context: AgentRuntimeContext):
   return resolved;
 }
 
+export function afterHoursBlocksActions(context: AgentRuntimeContext): boolean {
+  const state = context.afterHoursState;
+  if (!state) return false;
+
+  return (
+    state.route === "RED_FLAG_DETECTED" ||
+    state.route === "HUMAN_REVIEW" ||
+    state.needsClarification ||
+    (state.route === "POSSIBLE_EMERGENCY" && !state.redFlagQuestionAsked)
+  );
+}
+
 export function seedConversationVariables(context: AgentRuntimeContext): void {
   const { conversation } = context;
 
@@ -126,6 +138,12 @@ const handleAiConversation: NodeHandler = async (node, context) => {
 
 const handleCalendarAvailability: NodeHandler = async (node, context, providers) => {
   const { conversation, turn } = context;
+
+  // Emergency screening outranks scheduling this turn.
+  if (afterHoursBlocksActions(context)) {
+    log(context, node, "skipped", "Skipped — after-hours emergency screening takes priority this turn.");
+    return { status: "skipped" };
+  }
 
   // Runs only when the caller is actively scheduling this turn.
   if (!conversation.schedulingIntent || !conversation.currentContributes || conversation.ending) {
@@ -213,6 +231,11 @@ const handleCalendarAvailability: NodeHandler = async (node, context, providers)
 
 const handleBookAppointment: NodeHandler = async (node, context, providers) => {
   const { conversation, turn } = context;
+
+  if (afterHoursBlocksActions(context)) {
+    log(context, node, "skipped", "Skipped — after-hours emergency screening takes priority this turn.");
+    return { status: "skipped" };
+  }
 
   if (!conversation.schedulingIntent || !conversation.currentContributes || conversation.ending) {
     return { status: "skipped" };
@@ -308,6 +331,11 @@ const handleBookAppointment: NodeHandler = async (node, context, providers) => {
 
 const handleSendSms: NodeHandler = async (node, context, providers) => {
   const { conversation, turn } = context;
+
+  if (afterHoursBlocksActions(context)) {
+    log(context, node, "skipped", "Skipped — after-hours emergency screening takes priority this turn.");
+    return { status: "skipped" };
+  }
 
   const required = nodeRequiredVariables(node);
   const missing = required.filter((key) => !hasVariable(context, key));

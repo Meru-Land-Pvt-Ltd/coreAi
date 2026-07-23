@@ -128,6 +128,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [appointmentService, setAppointmentService] = useState("");
   const [testDate, setTestDate] = useState("");
   const [testTime, setTestTime] = useState("");
+  // After-hours simulation for chat + browser voice tests ("current" = no override).
+  const [testAfterHoursState, setTestAfterHoursState] = useState<"current" | "open" | "closed">("current");
   const [useTestCalendar, setUseTestCalendar] = useState(false);
   const [conversationCalendarEvent, setConversationCalendarEvent] = useState<ArchitectTestCalendarEvent | null>(null);
   const [conversationConfigError, setConversationConfigError] = useState<{ code: string; message: string; remediation: string } | null>(null);
@@ -950,7 +952,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         appointmentService: appointmentService.trim() || "Consultation",
         // Voice-call bookings honor the same test-calendar toggle as the chat test.
         useTestCalendar,
-        testSessionId: testSessionIdRef.current
+        testSessionId: testSessionIdRef.current,
+        // After-hours simulation ("current" = no override, real behavior).
+        simulateBusinessHoursState: testAfterHoursState
       }
     });
 
@@ -1005,6 +1009,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       history: previousMessages,
       testSessionId: testSessionIdRef.current,
       useTestCalendar,
+      // After-hours simulation ("current" = no override, real behavior).
+      simulateBusinessHoursState: testAfterHoursState,
       testContext: {
         businessName: businessName.trim() || "Sample Business",
         businessType: businessType.trim() || "Service Business",
@@ -1439,6 +1445,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             appointmentService={appointmentService}
             testDate={testDate}
             testTime={testTime}
+            testAfterHoursState={testAfterHoursState}
             useTestCalendar={useTestCalendar}
             conversationCalendarEvent={conversationCalendarEvent}
             conversationConfigError={conversationConfigError}
@@ -1473,6 +1480,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onAppointmentServiceChange={setAppointmentService}
             onTestDateChange={setTestDate}
             onTestTimeChange={setTestTime}
+            onTestAfterHoursStateChange={setTestAfterHoursState}
             onUseTestCalendarChange={setUseTestCalendar}
             onDeleteTestEvent={(id) => void deleteTestEvent(id)}
             onTestEmailChange={setTestEmail}

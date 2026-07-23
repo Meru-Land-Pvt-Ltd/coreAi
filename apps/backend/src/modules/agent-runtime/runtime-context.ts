@@ -1,10 +1,10 @@
-/**
- * Shared agent runtime context. One runtime powers the Architect browser call
- * test, the Business browser test, and the live Vapi/Twilio call flow —
- * only the provider adapters differ per mode.
- */
-
-import { dateOnlyInZone, isValidTimeZone } from "@coreai/shared";
+import {
+  dateOnlyInZone,
+  isValidTimeZone,
+  type AfterHoursConversationState,
+  type AfterHoursPolicy,
+  type AfterHoursSnapshot
+} from "@coreai/shared";
 
 export type AgentRuntimeMode = "architect_test" | "business_test" | "live";
 
@@ -25,18 +25,17 @@ export type AgentBusinessContext = {
   appointmentService: string;
   services: string[];
   faqs: string[];
-  /** Business knowledge entries (manual + document-derived, shared format). */
   knowledge?: string[];
-  /** Confirmed structured address (one line) — foundational, never invented. */
   address?: string;
-  /** Verified business facts lines for the prompt (address, phone, website…). */
   factsLines?: string[];
-  /** Structured Business Hours block (or the never-guess instruction). */
   businessHours?: string;
+  afterHours?: {
+    policy: AfterHoursPolicy;
+    snapshot: AfterHoursSnapshot;
+  };
 };
 
 export type AgentCallerContext = {
-  /** Identity on file (contact match / test context). Placeholders are not confirmed. */
   name: string;
   phone: string;
 };
@@ -103,12 +102,12 @@ export type AgentRuntimeContext = {
   currentNodeId: string;
   userMessage: string;
   history: AgentMessage[];
-  /** Source of truth for data flowing between nodes. */
   variables: Record<string, unknown>;
   business: AgentBusinessContext;
   caller: AgentCallerContext;
   conversation: AgentConversationState;
   turn: AgentTurnState;
+  afterHoursState?: AfterHoursConversationState;
   executedNodes: AgentRuntimeLog[];
   toolCalls: AgentToolCall[];
 };

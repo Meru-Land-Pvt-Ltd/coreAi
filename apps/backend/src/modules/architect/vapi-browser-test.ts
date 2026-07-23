@@ -1,4 +1,13 @@
-import { VOICE_NODE_TYPES, extractPromptVariables, normalizeTimeZone } from "@coreai/shared";
+import {
+  VOICE_NODE_TYPES,
+  buildAfterHoursPromptSection,
+  buildAfterHoursSnapshot,
+  extractPromptVariables,
+  normalizeAfterHoursPolicy,
+  normalizeTimeZone,
+  resolveAfterHoursGreeting,
+  resolveSimulatedHoursState
+} from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { workflowCapabilities } from "../agent-runtime/graph-runner";
@@ -38,6 +47,8 @@ export type VapiBrowserTestInput = {
   useTestCalendar?: boolean;
   /** Groups this browser test's records (test calendar events). */
   testSessionId?: string;
+  /** After-hours simulation for this test session ("current" = no override). */
+  simulateBusinessHoursState?: "current" | "open" | "closed";
 };
 
 export type VapiBrowserTestSession = {
@@ -287,6 +298,38 @@ const currentDate = dateInZone(now, timeZone);
   });
   const nodeInstructions = stripLeftoverTokens(nodeInstructionsResolved);
 
+  // After-hours simulation: the architect's node-level policy activates when
+  // the test explicitly simulates open/closed hours (the sandbox business has
+  // no real configured hours to evaluate). ARCHITECT_DRY_RUN only.
+  const afterHoursPolicy = normalizeAfterHoursPolicy(ai.afterHoursPolicy);
+  const simulateHours = resolveSimulatedHoursState(
+    "ARCHITECT_DRY_RUN",
+    input.simulateBusinessHoursState === "current" ? null : input.simulateBusinessHoursState
+  );
+  const afterHoursSnapshot =
+    afterHoursPolicy?.enabled && simulateHours
+      ? buildAfterHoursSnapshot({ weekly: null, timeZone, simulate: simulateHours })
+      : null;
+  const afterHoursSection =
+    afterHoursPolicy?.enabled && afterHoursSnapshot
+      ? buildAfterHoursPromptSection({
+          policy: afterHoursPolicy,
+          businessName,
+          bookingLabel: "appointment",
+          capabilities: {
+            canCheckAvailability: capabilities.canCheckAvailability,
+            canBook: capabilities.canBook,
+            canNotifyStaff: capabilities.canText || capabilities.canEmail === true
+          },
+          render: {
+            kind: "literal",
+            state: afterHoursSnapshot.state,
+            statusLine: afterHoursSnapshot.statusLine,
+            nextOpenText: afterHoursSnapshot.nextOpenText
+          }
+        })
+      : "";
+
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
     businessName,
@@ -305,6 +348,7 @@ const currentDate = dateInZone(now, timeZone);
     },
     nodeInstructions,
     extraSections: [
+      ...(afterHoursSection ? [afterHoursSection] : []),
       `
 Live call handling:
 - If the caller wants to book, ask for their preferred date and time first.
@@ -321,11 +365,16 @@ Live call handling:
   });
   const customFirstMessage = stripLeftoverTokens(customFirstMessageResolved);
 
-  const firstMessage = buildAgentFirstMessage({
-    assistantName,
-    businessName,
-    customFirstMessage
-  });
+  // Simulated closed hours greet with the after-hours opening, exactly like a
+  // live closed-hours call would.
+  const firstMessage =
+    afterHoursPolicy?.enabled && afterHoursSnapshot?.state === "CLOSED"
+      ? resolveAfterHoursGreeting({ policy: afterHoursPolicy, businessName })
+      : buildAgentFirstMessage({
+          assistantName,
+          businessName,
+          customFirstMessage
+        });
 
   const unresolvedVariables = Array.from(
     new Set([

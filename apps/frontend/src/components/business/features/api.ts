@@ -673,8 +673,11 @@ export type BusinessPreviewCallSession = {
 };
 
 /** Start a browser preview call against the buyer's configured agent. */
-export function startBusinessSetupPreviewCall() {
-  return apiPost<{ session: BusinessPreviewCallSession }>("/business/setup/preview-call", {});
+export function startBusinessSetupPreviewCall(options?: {
+  /** After-hours simulation for the preview ("current" = real configured hours). */
+  simulateBusinessHoursState?: "current" | "open" | "closed";
+}) {
+  return apiPost<{ session: BusinessPreviewCallSession }>("/business/setup/preview-call", options ?? {});
 }
 
 /* ---- Chat simulation (setup Test step) ---- */
@@ -739,6 +742,8 @@ export function runBusinessSetupChatTest(body: {
   message: string;
   history?: BusinessChatTestMessage[];
   testSessionId?: string;
+  /** After-hours simulation: real configured hours ("current") or forced open/closed. */
+  simulateBusinessHoursState?: "current" | "open" | "closed";
 }) {
   return apiPost<BusinessChatTestResult>("/business/setup/test-conversation", body);
 }

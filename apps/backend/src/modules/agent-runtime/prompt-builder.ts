@@ -340,22 +340,12 @@ export const LIVE_VAPI_RUNTIME_VARIABLES = [
   "calendarId",
   "timeZone",
   "callReason",
-  "smsConsentStatus"
+  "smsConsentStatus",
+  "businessOpenState",
+  "businessHoursStatusLine",
+  "businessNextOpenTime"
 ] as const;
 
-/**
- * Fill architect-written `{{variable}}` tokens in prompt/first-message text.
- *
- * Vapi treats leftover {{…}} as Liquid templates: unknown variables render
- * EMPTY (a custom first message silently vanishes) and malformed ones can
- * error the call. So:
- * - `values` fills tokens with build-time values (canonical matching).
- * - `runtimeVariables` rewrites matching tokens to their EXACT runtime
- *   spelling ({{customer.name}} → {{customerName}}) — Vapi only substitutes
- *   exact names at call time.
- * - `stripUnresolved` removes anything still unresolved so broken Liquid can
- *   never reach Vapi.
- */
 export function fillPromptTemplateTokens(
   text: string,
   values: Record<string, string>,

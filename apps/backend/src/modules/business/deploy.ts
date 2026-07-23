@@ -2,8 +2,13 @@ import {
   DEFAULT_CALENDAR_BOOKING_RULES,
   RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
   VOICE_NODE_TYPES,
+  buildAfterHoursPromptSection,
   buildSilencePolicy,
-  formatBuyerAnswerValue
+  formatBuyerAnswerValue,
+  resolveAfterHoursGreeting,
+  resolveSimulatedHoursState,
+  type AfterHoursPolicy,
+  type AfterHoursSnapshot
 } from "@coreai/shared";
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
@@ -22,6 +27,11 @@ import { workflowCapabilities } from "../agent-runtime/graph-runner";
 import { loadBusinessAgentKnowledge } from "./agent-knowledge";
 import { loadBusinessFacts } from "./business-facts";
 import { buildHoursPromptLines, loadBusinessHoursState } from "./business-hours-state";
+import {
+  buildAfterHoursSnapshotForBusiness,
+  logAfterHoursRouting,
+  resolveAfterHoursPolicy
+} from "./after-hours-state";
 import { deployVapiAssistant, isVapiConfigured } from "../architect/vapi-connector";
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
@@ -288,11 +298,20 @@ type InstalledAgentAssistantPlan = {
   assistantName: string;
   /** Capabilities of the workflow graph — the only source of tool gating. */
   capabilities: ReturnType<typeof workflowCapabilities>;
+  /** Effective after-hours policy (buyer configJson → architect node default). */
+  afterHoursPolicy: AfterHoursPolicy | null;
 };
 
 async function buildInstalledAgentAssistantPlan(
   businessId: string,
-  options?: { extraSections?: string[]; installedAgentId?: string }
+  options?: {
+    extraSections?: string[];
+    installedAgentId?: string;
+    /** How the after-hours prompt section is rendered: "liquid" (live calls —
+     * {{businessOpenState}} substituted per call) or a literal snapshot
+     * (browser preview calls, where no per-call variables exist). */
+    afterHoursRender?: { kind: "liquid" } | { kind: "literal"; snapshot: AfterHoursSnapshot };
+  }
 ): Promise<InstalledAgentAssistantPlan | null> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -371,6 +390,33 @@ async function buildInstalledAgentAssistantPlan(
   const customFields = readCustomFields(installedAgent.configJson);
   const bookingLabel = readBookingLabel(installedAgent.configJson);
 
+  // After-hours policy: buyer configJson first, architect node default second.
+  const afterHoursPolicy = resolveAfterHoursPolicy({
+    configJson: installedAgent.configJson,
+    workflowJson: installedAgent.workflow.workflowJson
+  });
+  const afterHoursSection = afterHoursPolicy?.enabled
+    ? buildAfterHoursPromptSection({
+        policy: afterHoursPolicy,
+        businessName,
+        bookingLabel,
+        capabilities: {
+          canCheckAvailability: capabilities.canCheckAvailability,
+          canBook: capabilities.canBook,
+          canNotifyStaff: capabilities.canText || capabilities.canEmail === true
+        },
+        render:
+          options?.afterHoursRender?.kind === "literal"
+            ? {
+                kind: "literal",
+                state: options.afterHoursRender.snapshot.state,
+                statusLine: options.afterHoursRender.snapshot.statusLine,
+                nextOpenText: options.afterHoursRender.snapshot.nextOpenText
+              }
+            : { kind: "liquid" }
+      })
+    : "";
+
   // Architect-written {{variables}} (any spelling — {{business.name}},
   // {{Business Name}}, {{business_name}}…): fill what is known at deploy
   // time, rewrite live runtime variables to Vapi's exact names, and strip the
@@ -430,7 +476,11 @@ async function buildInstalledAgentAssistantPlan(
       : undefined,
     bookingLabel,
     customFields,
-    extraSections: [...(factsSection ? [factsSection] : []), ...(options?.extraSections ?? [LIVE_TOOL_NOTES])]
+    extraSections: [
+      ...(factsSection ? [factsSection] : []),
+      ...(afterHoursSection ? [afterHoursSection] : []),
+      ...(options?.extraSections ?? [LIVE_TOOL_NOTES])
+    ]
   });
 
   const firstMessage = buildAgentFirstMessage({
@@ -467,7 +517,8 @@ async function buildInstalledAgentAssistantPlan(
     override: readVoiceOverride(installedAgent.configJson),
     businessName,
     assistantName,
-    capabilities
+    capabilities,
+    afterHoursPolicy
   };
 }
 
@@ -553,6 +604,8 @@ export type InstalledAgentChatTestSetup = {
     businessHours?: string;
   };
   workflowJson: unknown;
+  /** Effective after-hours policy for this install (null when not configured). */
+  afterHoursPolicy: AfterHoursPolicy | null;
 };
 
 export async function buildInstalledAgentChatTestSetup(
@@ -593,6 +646,10 @@ export async function buildInstalledAgentChatTestSetup(
     workflowId: installedAgent.workflowId,
     installedAgentId: installedAgent.id,
     workflowJson: installedAgent.workflow.workflowJson,
+    afterHoursPolicy: resolveAfterHoursPolicy({
+      configJson: installedAgent.configJson,
+      workflowJson: installedAgent.workflow.workflowJson
+    }),
     context: {
       businessName: resolveBusinessName(buyer.businessName, business.name),
       businessType: firstString(buyer.businessType, business.type) ?? "business",
@@ -697,16 +754,30 @@ export async function refreshLiveAssistantKnowledge(businessId: string): Promise
   }
 }
 
-export async function startInstalledAgentPreviewCall(businessId: string): Promise<SetupPreviewCallSession> {
+export async function startInstalledAgentPreviewCall(
+  businessId: string,
+  options?: {
+    /** Buyer test override: force the preview to behave as open/closed.
+     * Applies to BUSINESS_TEST previews only — never to live calls. */
+    simulateBusinessHoursState?: "open" | "closed" | null;
+  }
+): Promise<SetupPreviewCallSession> {
   if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
     throw new SetupPreviewCallError("Voice preview is not configured on this server.", 503, "PREVIEW_NOT_CONFIGURED");
   }
 
   const previewAgent = await findLatestTestableInstalledAgent(businessId);
 
+  // Browser web calls get no per-call variables, so the preview assistant
+  // bakes a literal hours snapshot (real configured hours, or the buyer's
+  // simulate-open/closed override) into the prompt at session start.
+  const simulateHours = resolveSimulatedHoursState("BUSINESS_TEST", options?.simulateBusinessHoursState);
+  const previewSnapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: simulateHours });
+
   const plan = await buildInstalledAgentAssistantPlan(businessId, {
     ...(previewAgent ? { installedAgentId: previewAgent.id } : {}),
-    extraSections: [PREVIEW_TOOL_NOTES]
+    extraSections: [PREVIEW_TOOL_NOTES],
+    afterHoursRender: { kind: "literal", snapshot: previewSnapshot }
   });
 
   if (!plan) {
@@ -715,6 +786,25 @@ export async function startInstalledAgentPreviewCall(businessId: string): Promis
       422,
       "PREVIEW_NOT_AVAILABLE"
     );
+  }
+
+  // Closed (real or simulated) → the preview greets with the after-hours
+  // opening, exactly like a live closed-hours call would.
+  const previewFirstMessage =
+    plan.afterHoursPolicy?.enabled && previewSnapshot.state === "CLOSED"
+      ? resolveAfterHoursGreeting({ policy: plan.afterHoursPolicy, businessName: plan.businessName })
+      : plan.firstMessage;
+
+  if (plan.afterHoursPolicy?.enabled) {
+    logAfterHoursRouting({
+      event: "preview_call_hours_decision",
+      businessId,
+      installedAgentId: plan.installedAgentId,
+      timeZone: previewSnapshot.timeZone,
+      hoursState: previewSnapshot.state,
+      executionMode: "BUSINESS_TEST",
+      ...(previewSnapshot.simulated ? { outcome: `simulated_${previewSnapshot.simulated}` } : {})
+    });
   }
 
   const config = recordOf(plan.configJson);
@@ -729,7 +819,7 @@ export async function startInstalledAgentPreviewCall(businessId: string): Promis
 
   const assistant = await deployVapiAssistant({
     name: `Setup Preview — ${plan.businessName}`,
-    firstMessage: plan.firstMessage,
+    firstMessage: previewFirstMessage,
     systemPrompt: plan.systemPrompt,
     model: cleanString(plan.voiceNode.model) || "gpt-4o-mini",
     voice: plan.override.voice || "triven-default",

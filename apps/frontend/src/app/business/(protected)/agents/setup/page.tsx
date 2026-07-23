@@ -2996,6 +2996,8 @@ function PreviewCallSection({
   const [micMuted, setMicMuted] = useState(false);
   const [transcript, setTranscript] = useState<PreviewTranscriptEntry[]>([]);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
+  // After-hours simulation for the preview ("current" = real configured hours).
+  const [afterHoursSimulation, setAfterHoursSimulation] = useState<"current" | "open" | "closed">("current");
 
   const clientRef = useRef<PreviewVapiClient | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
@@ -3086,7 +3088,7 @@ function PreviewCallSection({
     setState("starting");
 
     try {
-      const res = await startBusinessSetupPreviewCall();
+      const res = await startBusinessSetupPreviewCall({ simulateBusinessHoursState: afterHoursSimulation });
 
       if (!res.success || !res.data?.session) {
         setState("idle");
@@ -3403,6 +3405,26 @@ function PreviewCallSection({
               />
             )}
           </div>
+
+          {/* After-hours simulation for the next preview call (test only). */}
+          {state === "idle" || state === "ended" ? (
+            <label
+              className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-400"
+              data-testid="business-setup-preview-after-hours-label"
+            >
+              <span className="font-semibold text-slate-300">Business-hours state:</span>
+              <select
+                data-testid="business-setup-preview-after-hours-select"
+                value={afterHoursSimulation}
+                onChange={(event) => setAfterHoursSimulation(event.target.value as "current" | "open" | "closed")}
+                className="rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-amber-400/60"
+              >
+                <option value="current">Use current configured time</option>
+                <option value="open">Simulate open</option>
+                <option value="closed">Simulate closed (after hours)</option>
+              </select>
+            </label>
+          ) : null}
         </div>
 
         {/* Right Stage Column: Real-Time Voice Transcript Stream (Positioned on the Right Side of Mic) */}
@@ -4209,6 +4231,8 @@ function BusinessCalendarTestSection({
   const [toolCalls, setToolCalls] = useState<BusinessChatTestToolCall[]>([]);
   const [executedNodes, setExecutedNodes] = useState<BusinessTestExecutedNode[]>([]);
   const [deletingEvent, setDeletingEvent] = useState(false);
+  // After-hours simulation ("current" = evaluate the real configured hours).
+  const [afterHoursSimulation, setAfterHoursSimulation] = useState<"current" | "open" | "closed">("current");
   const testSessionIdRef = useRef<string>(`bts_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
 
   const send = async () => {
@@ -4224,7 +4248,8 @@ function BusinessCalendarTestSection({
     const res = await runBusinessSetupChatTest({
       message,
       history: messages,
-      testSessionId: testSessionIdRef.current
+      testSessionId: testSessionIdRef.current,
+      simulateBusinessHoursState: afterHoursSimulation
     });
 
     setSending(false);
@@ -4286,6 +4311,21 @@ function BusinessCalendarTestSection({
         Business timezone: <span className="font-semibold text-slate-700">{timeZone || "not set"}</span>
         {calendarConnected ? " · Google Calendar connected" : " · Google Calendar not connected — bookings will fail safely"}
       </p>
+
+      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500" data-testid="business-test-after-hours-label">
+        <span className="font-semibold text-slate-700">Business-hours state:</span>
+        <select
+          data-testid="business-test-after-hours-select"
+          value={afterHoursSimulation}
+          onChange={(event) => setAfterHoursSimulation(event.target.value as "current" | "open" | "closed")}
+          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+        >
+          <option value="current">Use current configured time</option>
+          <option value="open">Simulate open</option>
+          <option value="closed">Simulate closed (after hours)</option>
+        </select>
+        <span className="text-[11px] text-slate-400">Test only — live calls always use your real hours.</span>
+      </label>
 
       <div className="mt-4 rounded-xl border border-gray-200 bg-white">
         <div className="max-h-64 space-y-2 overflow-y-auto p-4" data-testid="business-setup-calendar-test-transcript">

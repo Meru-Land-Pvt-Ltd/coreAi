@@ -37,11 +37,17 @@ import {
 import { detectFactIntents, loadBusinessFacts, lookupStructuredFacts } from "../business/business-facts";
 import { businessOpenStatusNow, specialEntriesFromRows } from "../business/business-hours-state";
 import {
+  buildAfterHoursSnapshotForBusiness,
+  logAfterHoursRouting,
+  resolveAfterHoursPolicyForBusiness
+} from "../business/after-hours-state";
+import {
   addDaysToDate,
   businessOpenStatus,
   dateInTimeZone,
   describeOpenStatus,
   normalizeWeeklyHours,
+  resolveAfterHoursGreeting,
   type SpecialHoursEntry
 } from "@coreai/shared";
 import { escapeXml, normalizePhoneE164, validateSmsRecipientE164 } from "./twilio-connector";
@@ -840,9 +846,32 @@ async function maybeStartVapiAfterMissedCall({
 }) {
   if (existingCallId || !agent.business) return existingCallId ?? null;
 
+  // Same deterministic server-side hours decision as inbound answering, so the
+  // outbound AI callback's prompt sees the correct open/closed state (falls
+  // back to the safe "unknown" default if the lookup fails).
+  let outboundHours: { state: "open" | "closed" | "unknown"; statusLine: string; nextOpenText: string } | null =
+    null;
+  try {
+    const businessId = agent.business.businessId;
+    const policy = businessId
+      ? await resolveAfterHoursPolicyForBusiness(businessId, agent.business.installedAgentId)
+      : null;
+    if (businessId && policy?.enabled) {
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      outboundHours = {
+        state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
+        statusLine: snapshot.statusLine,
+        nextOpenText: snapshot.nextOpenText
+      };
+    }
+  } catch (error) {
+    console.error("[after-hours] outbound hours decision failed (non-fatal)", error);
+  }
+
   const call = await startVapiOutboundCall({
     customerPhone: callerNumber,
     customerName: callerName,
+    businessHours: outboundHours,
     business: {
       businessId: agent.business.businessId,
       businessName: agent.business.businessName,
@@ -1005,10 +1034,52 @@ async function buildVapiAnswerTwiml({
   const business = agent.business;
   if (!business || !callerNumber) return null;
 
+  let hoursVariables: { state: "open" | "closed" | "unknown"; statusLine: string; nextOpenText: string } | null =
+    null;
+  let firstMessageOverride: string | null = null;
+
+  try {
+    const businessId = business.businessId;
+    const policy = businessId
+      ? await resolveAfterHoursPolicyForBusiness(businessId, business.installedAgentId)
+      : null;
+    if (businessId && policy?.enabled) {
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      hoursVariables = {
+        state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
+        statusLine: snapshot.statusLine,
+        nextOpenText: snapshot.nextOpenText
+      };
+
+      if (snapshot.state === "CLOSED") {
+        firstMessageOverride = resolveAfterHoursGreeting({ policy, businessName: business.businessName });
+      }
+
+      logAfterHoursRouting({
+        event: "live_call_hours_decision",
+        businessId: business.businessId,
+        installedAgentId: business.installedAgentId ?? null,
+        timeZone: snapshot.timeZone,
+        hoursState: snapshot.state,
+        executionMode: "LIVE",
+        callerPhone: callerNumber,
+        ...(snapshot.state === "UNKNOWN"
+          ? { warning: "business hours not configured/confirmed — neutral wording used, no closed claim" }
+          : {})
+      });
+    }
+  } catch (error) {
+    // The hours decision must never break call answering — fall back to the
+    // neutral "unknown" behavior baked into the prompt.
+    console.error("[after-hours] live hours decision failed (non-fatal)", error);
+  }
+
   return createVapiInboundTwiml({
     callerNumber,
     callerName,
     reason,
+    businessHours: hoursVariables,
+    firstMessageOverride,
     business: {
       businessId: business.businessId,
       businessName: business.businessName,
@@ -3770,6 +3841,12 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     ctx.business?.businessName ||
     "";
 
+  // After-hours urgency marks the INTERNAL team notification only — it never
+  // creates a customer send, and never bypasses the customer consent gate.
+  const urgencyRaw = (argStr(args, ["urgency"]) || "").toLowerCase();
+  const urgency = urgencyRaw === "urgent" || urgencyRaw === "emergency" ? urgencyRaw : null;
+  const urgencyReason = (argStr(args, ["reason"]) || "").slice(0, 200);
+
   // Architect and buyer browser tests: preview the SMS, never call Twilio.
   if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
@@ -3822,7 +3899,14 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           select: { id: true, service: true, startAt: true, timeZone: true, customerName: true }
         });
 
-        if (recentAppointment) {
+        if (urgency && !recentAppointment) {
+          // Urgent/emergency team alert with no booking: nothing to confirm to
+          // the customer — urgency alone never generates a customer text.
+          console.log("[vapi-webhook] send_notification: customer SMS skipped for urgency-only notification", {
+            urgency,
+            callId: ctx.callId ?? null
+          });
+        } else if (recentAppointment) {
           const outcome = await sendAppointmentConfirmationSms({
             appointmentId: recentAppointment.id,
             businessId: ctx.business.businessId,
@@ -3872,10 +3956,11 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     const teamPhone = ctx.dental?.dentistPhone;
     if ((ctx.dental?.sendToDentist ?? true) && teamPhone) {
       try {
-        const sms = applyBracketTemplate(
-          ctx.dental?.dentistTemplate ?? "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]",
-          values
-        );
+        const baseSms = urgency
+          ? `${urgency === "emergency" ? "EMERGENCY" : "URGENT"} after-hours call: [Customer Name] [Customer Phone].${urgencyReason ? ` ${urgencyReason}.` : ""} Please follow up as soon as possible.`
+          : ctx.dental?.dentistTemplate ??
+            "New booking: [Customer Name], [Date] [Time], [Service]. Phone: [Customer Phone]";
+        const sms = applyBracketTemplate(baseSms, values);
         const outcome = await sendTrackedSms({
           to: teamPhone,
           // Message to the business's own staff — TEAM_NOTIFICATION is exempt
@@ -3887,6 +3972,18 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           dedupeKey: ctx.callId ? `send_notification:${ctx.callId}:team` : null
         });
         teamSmsSent = outcome.sent || outcome.alreadySent;
+        if (urgency) {
+          logAfterHoursRouting({
+            event: "staff_notification",
+            businessId: ctx.business.businessId,
+            installedAgentId: ctx.business.installedAgentId ?? null,
+            callId: ctx.callId ?? null,
+            executionMode: ctx.executionMode ?? null,
+            staffNotificationAttempted: true,
+            outcome: urgency,
+            callerPhone: customerPhone || null
+          });
+        }
       } catch (error) {
         console.error("[vapi-webhook] team SMS failed (non-fatal)", error);
       }
