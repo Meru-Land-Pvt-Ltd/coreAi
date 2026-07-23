@@ -108,20 +108,13 @@ export async function resolveLiveAfterHoursGateContext(params: {
   }
   if (!policy?.enabled) return INACTIVE_AFTER_HOURS_GATE;
 
-  if (!afterHoursStateStoreAvailableForLive()) {
-    logAfterHoursRouting({
-      event: "live_state_store_unavailable",
-      businessId,
-      installedAgentId: params.installedAgentId ?? null,
-      callId,
-      executionMode: "LIVE",
-      warning: "distributed after-hours state store unavailable in production — gated tools fail safely"
-    });
-    return { active: true, storeUnavailable: true, policy };
-  }
+  const storeAvailable = afterHoursStateStoreAvailableForLive();
 
   try {
-    const prior = await readAfterHoursCallState(businessId, callId);
+    let prior: AfterHoursLiveCallState | null = null;
+    if (storeAvailable) {
+      prior = await readAfterHoursCallState(businessId, callId);
+    }
 
     let businessHoursState: BusinessHoursStateKind;
     if (prior) {
@@ -135,6 +128,19 @@ export async function resolveLiveAfterHoursGateContext(params: {
 
     if (businessHoursState !== "CLOSED" && isPlatformDefaultAfterHoursPolicy(policy)) {
       return INACTIVE_AFTER_HOURS_GATE;
+    }
+
+    if (!storeAvailable) {
+      logAfterHoursRouting({
+        event: "live_state_store_unavailable",
+        businessId,
+        installedAgentId: params.installedAgentId ?? null,
+        callId,
+        hoursState: businessHoursState,
+        executionMode: "LIVE",
+        warning: "distributed after-hours state store unavailable in production — gated tools fail safely"
+      });
+      return { active: true, storeUnavailable: true, policy };
     }
 
     const turns = extractStructuredCallTurns(params.body);
