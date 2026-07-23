@@ -59,7 +59,7 @@ export function toAiSafeAvailabilityResult(internal: InternalCalendarResult): Ai
   const failed =
     internal.closed === true ||
     verdict === "calendar_unavailable" ||
-    ["error", "not_connected", "needs_reconnect", "restricted"].includes(str(internal.calendar_status) ?? "");
+    ["error", "needs_reconnect", "restricted"].includes(str(internal.calendar_status) ?? "");
 
   return {
     success: !failed,
@@ -94,10 +94,6 @@ export function toAiSafeBookingResult(internal: InternalCalendarResult): AiSafeB
     }
   }
 
-  // Date and time are taken ONLY from explicit business-local fields the tool
-  // set (the caller's requested wall-clock values). NEVER derive them from
-  // ISO/UTC timestamps like startAt — "2026-07-25T09:30:00Z" is 3:00 PM in
-  // Asia/Kolkata, and a UTC extraction would speak the wrong time.
   const date = str(internal.date);
   const time = str(internal.time);
 

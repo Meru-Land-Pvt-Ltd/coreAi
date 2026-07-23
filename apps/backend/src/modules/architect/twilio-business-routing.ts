@@ -2455,16 +2455,6 @@ type VapiToolContext = {
 const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
 const callContactCache = new Map<string, { name?: string; phone?: string; at: number }>();
 
-/**
- * A2P requirement: OPTED_IN is possible only after the disclosure was OFFERED
- * (state machine NOT_OFFERED → OFFERED → OPTED_IN/DECLINED). The model's own
- * claim is never trusted — proof is an ASSISTANT-authored transcript segment
- * containing the COMPLETE disclosure (with the identified business's name)
- * followed by the caller's answer (notifications/sms-disclosure.ts). The
- * OFFERED marker lives in the distributed consent-offer store (Redis when
- * configured) keyed by businessId + callId + disclosureVersion, so webhook
- * retries and horizontally scaled instances agree on the state.
- */
 function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
   if (!ctx.callId || !ctx.business?.businessId) return null;
   return {
@@ -2662,7 +2652,7 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     const messages: Record<string, string> = {
       available: `${openNote} The requested time is FREE on the calendar — confirm it with the caller and book it.`,
       occupied: `${openNote} That exact time is already taken on the calendar. Offer the alternatives instead — do NOT say the rest of the day is booked.`,
-      outside_hours: `${openNote} The requested time is outside appointment hours.`,
+      outside_hours: `${openNote} The requested time is outside appointment hours. Offer the alternatives.`,
       closed_day: "The business is closed that day. Offer another day.",
       insufficient_time_before_closing: `${openNote} This ${check.durationMinutes}-minute service cannot finish before closing if it starts then. Offer the alternatives.`,
       past: "That time is in the past. Ask for a future time.",
@@ -2670,8 +2660,10 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
       beyond_advance_limit: "That date is beyond the booking window. Offer an earlier date.",
       invalid: "The time could not be understood. Ask the caller to repeat it."
     };
-
-    if (ctx.executionMode !== "ARCHITECT_DRY_RUN" && check.calendarStatus !== "connected") {
+    if (
+      ctx.executionMode !== "ARCHITECT_DRY_RUN" &&
+      (check.calendarStatus === "needs_reconnect" || check.calendarStatus === "error")
+    ) {
       return {
         date,
         service,
@@ -2684,6 +2676,11 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
       };
     }
 
+    const scheduleOnlyNote =
+      check.calendarStatus === "not_connected"
+        ? " (Times are based on the business's appointment hours and existing bookings — no external calendar is connected, so frame the booking as one the team will confirm.)"
+        : "";
+
     console.log("[vapi-tool] check_availability exact-time", { date, time: requestedTime, verdict: check.verdict });
     return {
       date,
@@ -2693,7 +2690,7 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
       open_until: check.closeLabel,
       alternatives,
       calendar_status: check.calendarStatus,
-      message: messages[check.verdict] ?? "Checked."
+      message: `${messages[check.verdict] ?? "Checked."}${scheduleOnlyNote}`
     };
   }
 
@@ -2734,7 +2731,10 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     };
   }
 
-  if (availability.calendarStatus !== "connected" && ctx.executionMode !== "ARCHITECT_DRY_RUN") {
+  if (
+    ctx.executionMode !== "ARCHITECT_DRY_RUN" &&
+    (availability.calendarStatus === "needs_reconnect" || availability.calendarStatus === "error")
+  ) {
     return {
       available_slots: [],
       date,
@@ -2770,12 +2770,17 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     duration: `${availability.durationMinutes} minutes`,
     open_from: availability.openLabel,
     open_until: availability.closeLabel,
-    source: "calendar",
+    source: availability.calendarStatus === "not_connected" ? "business_schedule" : "calendar",
     calendar_status: availability.calendarStatus,
-    message:
+    message: `${
       availability.totalFreeSlots > availability.spokenSlots.length
         ? `These are ${availability.spokenSlots.length} of ${availability.totalFreeSlots} free times across the day. If the caller asks about a specific time not listed, call check_availability again with the time parameter — NEVER assume unlisted times are booked.`
         : "These are all the free times for that day."
+    }${
+      availability.calendarStatus === "not_connected"
+        ? " (Times are based on the business's appointment hours and existing bookings — no external calendar is connected, so frame the booking as one the team will confirm.)"
+        : ""
+    }`
   };
 }
 
@@ -3912,8 +3917,6 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     return { success: false, error: outcome.error, consent_recorded: false };
   }
 
-  // Terminal transition (OFFERED → OPTED_IN/DECLINED): the offer marker is
-  // spent. A retry of this same tool call re-verifies from the transcript.
   const offerKey = consentOfferKey(ctx);
   if (offerKey) await clearConsentOffer(offerKey);
 
