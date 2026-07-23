@@ -2187,13 +2187,6 @@ function OrderSummary({
                                 </p>
                             </div>
                         ) : null}
-                        <ExecutionPricingSummary
-                            pricing={executionPricing}
-                            loading={executionPricingLoading}
-                            unavailable={executionPricingUnavailable}
-                            variant="full"
-                            className="text-xs text-slate-400"
-                        />
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
