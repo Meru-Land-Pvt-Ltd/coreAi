@@ -54,9 +54,7 @@ export function ConfigureSectionCard({
 
   return (
     <section
-      className={`rounded-2xl border bg-white transition-colors ${
-        warningCount > 0 ? "border-rose-200" : "border-gray-200/80"
-      }`}
+      className={`transition-colors border-b border-gray-200/80 pb-4 last:border-b-0`}
       data-testid={`business-configure-section-${id}`}
     >
       <button
@@ -65,7 +63,7 @@ export function ConfigureSectionCard({
         aria-expanded={open}
         aria-controls={regionId}
         data-testid={`business-configure-section-${id}-toggle`}
-        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left transition-colors hover:bg-slate-50/60 sm:px-5"
+        className="flex w-full items-center justify-between gap-3 px-0 py-3.5 text-left transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3 min-w-0">
           {icon ? (
@@ -137,7 +135,7 @@ export function ConfigureSectionCard({
         </div>
       </button>
 
-      <div id={regionId} hidden={!open} className="border-t border-gray-100 px-4 py-5 sm:px-5">
+      <div id={regionId} hidden={!open} className="px-0 py-4">
         {children}
       </div>
     </section>

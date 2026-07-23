@@ -37,6 +37,7 @@ import {
 import { businessSetupPath } from "@/lib/routes";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
+import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import { GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
 import {
   checkMailAliasAvailability,
@@ -1749,14 +1750,6 @@ function SetupWizard() {
           {/* Right side: Estimated Setup Time */}
           <div className="flex items-center justify-end min-w-0 pl-2 sm:pl-4">
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-              {(anyUnsaved || tzEdited) ? (
-                <span
-                  data-testid="business-setup-unsaved"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200/60"
-                >
-                  Unsaved changes
-                </span>
-              ) : null}
               <span className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 {setupTimeEstimate ? (
@@ -2176,6 +2169,12 @@ function SetupWizard() {
           {statusMsg}
         </div>
       ) : null}
+
+      <GoogleDisclosureModal
+        open={calendarDisclosureOpen}
+        onAgree={handleCalendarDisclosureAgreed}
+        onCancel={() => setCalendarDisclosureOpen(false)}
+      />
     </div>
   );
 }
@@ -2284,7 +2283,7 @@ function StepConnect({
       </div>
 
       {showPhone && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-number-card">
+        <div className="py-2" data-testid="business-setup-number-card">
           {assignedNumber ? (
             <div className="flex items-start justify-between gap-3.5">
               <div className="flex items-start gap-3.5">
@@ -2293,7 +2292,10 @@ function StepConnect({
                 </svg>
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-500">Your Triven AI number</p>
+                    <p className="text-sm font-semibold text-slate-500 inline-flex items-center">
+                      Your Triven AI number
+                      <InfoTooltip content="Included with your Triven AI setup. To replace this number, contact Triven support." />
+                    </p>
                     <span
                       className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-green-700"
                       data-testid="business-setup-assigned-number-status"
@@ -2302,9 +2304,6 @@ function StepConnect({
                     </span>
                   </div>
                   <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Included with your Triven AI setup. To replace this number, contact Triven support.
-                  </p>
                 </div>
               </div>
             </div>
@@ -2321,9 +2320,8 @@ function StepConnect({
         </div>
       )}
 
-      {/* SECTION 2 — Call routing. Appears once a Triven AI number exists. */}
       {showPhone && showCallForwarding && assignedNumber ? (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6" data-testid="business-setup-routing-card">
+        <div className="border-t border-gray-200/60 pt-6" data-testid="business-setup-routing-card">
           <span className="block text-sm font-semibold text-slate-700">How should customers reach your AI agent?</span>
 
           {showAnsweringMode ? (
@@ -2341,9 +2339,9 @@ function StepConnect({
                   {answeringMode === "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-bold text-slate-900">Use my Triven AI number directly</span>
-                  <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                    Give {assignedNumber} to customers. Calls go directly to your AI agent.
+                  <span className="block text-sm font-bold text-slate-900 inline-flex items-center">
+                    Use my Triven AI number directly
+                    <InfoTooltip content={`Give ${assignedNumber} to customers. Calls go directly to your AI agent.`} />
                   </span>
                 </span>
               </button>
@@ -2361,16 +2359,16 @@ function StepConnect({
                   {answeringMode !== "AI_FIRST" ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> : null}
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-bold text-slate-900">Keep using my existing business number</span>
-                  <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                    Forward calls from your existing number to {assignedNumber}.
+                  <span className="block text-sm font-bold text-slate-900 inline-flex items-center">
+                    Keep using my existing business number
+                    <InfoTooltip content={`Forward calls from your existing number to ${assignedNumber}.`} />
                   </span>
                 </span>
               </button>
             </div>
           ) : (
             /* Missed-call workflow: always uses forwarding, no mode selector needed */
-            <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-sm text-slate-600">
+            <div className="mt-4 text-sm text-slate-650">
               <span className="font-semibold text-slate-800">Forwarding is automatic.</span> Your provider sends missed-call notifications to your Triven AI number and the AI handles the rest.
             </div>
           )}
@@ -2394,9 +2392,12 @@ function StepConnect({
                 </button>
               </div>
 
-              <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2">Existing business phone number</label>
+              <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-2 inline-flex items-center">
+                Existing business phone number
+                <InfoTooltip content="Used only as the forwarding target — no verification needed." />
+              </label>
 
-              <div className={`phone-wrap flex items-stretch border rounded-xl overflow-hidden bg-white relative ${phoneValid ? "is-valid" : "border-gray-200"}`}>
+              <div className={`phone-wrap flex items-stretch border rounded-xl bg-white relative ${phoneValid ? "is-valid" : "border-gray-200"}`}>
                 {/* Country code */}
                 <div className="relative">
                   <button
@@ -2404,7 +2405,7 @@ function StepConnect({
                     onClick={() => setCountryMenuOpen(!countryMenuOpen)}
                     aria-haspopup="listbox"
                     aria-expanded={countryMenuOpen}
-                    className="h-full flex items-center gap-1.5 bg-gray-50 border-r border-gray-200 px-4 py-4 text-base font-medium text-slate-700 hover:bg-gray-100 transition-colors"
+                    className="h-full flex items-center gap-1.5 bg-gray-50 border-r border-gray-200 px-4 py-4 text-base font-medium text-slate-700 hover:bg-gray-100 transition-colors rounded-l-xl"
                   >
                     <span className="text-lg leading-none">{countryFlag}</span>
                     <span className="text-slate-700">{countryCode}</span>
@@ -2439,7 +2440,7 @@ function StepConnect({
                     onForward(formatted);
                   }}
                   data-testid="business-setup-existing-phone"
-                  className="field flex-1 px-5 py-4 text-lg font-mono placeholder:text-slate-300 outline-none border-0"
+                  className="field flex-1 px-5 py-4 text-lg font-mono placeholder:text-slate-300 outline-none border-0 rounded-r-xl"
                   placeholder="(555) 123-4567"
                 />
 
@@ -2450,17 +2451,14 @@ function StepConnect({
                   </svg>
                 </span>
               </div>
-
-              <p className="text-xs text-slate-400 mt-2 font-semibold">
-                Used only as the forwarding target — no verification needed.
-              </p>
             </div>
           ) : null}
 
           {showAnsweringMode && routingMode === "forward" ? (
             <div className="mt-6 border-t border-slate-200/80 pt-5">
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="answering-mode">
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700 inline-flex items-center" htmlFor="answering-mode">
                 Answering mode
+                <InfoTooltip content={`Choose when the AI receptionist should answer calls forwarded from ${existingPhoneNumber || "your business number"}.`} />
               </label>
               <select
                 id="answering-mode"
@@ -2474,9 +2472,6 @@ function StepConnect({
                   </option>
                 ))}
               </select>
-              <p className="mt-2 text-xs text-slate-400 font-semibold">
-                Choose when the AI receptionist should answer calls forwarded from {existingPhoneNumber || "your business number"}.
-              </p>
             </div>
           ) : null}
         </div>
@@ -2487,10 +2482,7 @@ function StepConnect({
         <div className="mt-6 border-t border-gray-100 pt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Calendar</h3>
 
-          <div className={`flex items-center justify-between gap-4 rounded-2xl border p-5 ${calendar.connected
-            ? "border-green-100 bg-green-50/30"
-            : "border-gray-100 bg-slate-50"
-            }`}>
+          <div className="flex items-center justify-between gap-4 py-3">
             <div className="flex items-center gap-3">
               {/* Google Calendar Icon */}
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -2500,13 +2492,9 @@ function StepConnect({
               </div>
 
               <div>
-                <p className="text-sm font-semibold text-slate-800">
+                <p className="text-sm font-semibold text-slate-800 inline-flex items-center">
                   {calendar.connected ? "Google Calendar connected" : "Google Calendar"}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {calendar.connected
-                    ? `Connected as ${calendar.email || "your account"}`
-                    : "Not connected. Connect so the agent can book appointments."}
+                  <InfoTooltip content={calendar.connected ? `Connected as ${calendar.email || "your account"}` : "Not connected. Connect so the agent can book appointments."} />
                 </p>
               </div>
             </div>
@@ -2540,7 +2528,7 @@ function StepConnect({
           bookings, and call times all use this value. */}
       <div className="mt-6 border-t border-gray-100 pt-6">
         <h3 className="text-sm font-bold text-slate-900 mb-3">Timezone</h3>
-        <div className="rounded-2xl border border-gray-100 bg-slate-50 p-5">
+        <div className="py-2">
           <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="business-timezone">
             Business timezone
           </label>
@@ -2815,7 +2803,10 @@ function MailSetupSection({
   return (
     <div className="mt-8 border-t border-gray-100 pt-8" data-testid="business-setup-mail">
       <div className="flex items-center justify-between mb-1.5">
-        <h3 className="text-sm font-bold text-slate-900">Mail Setup</h3>
+        <h3 className="text-sm font-bold text-slate-900 inline-flex items-center">
+          Mail Setup
+          <InfoTooltip content="Configure the sender name, email alias, and routing preferences for customer notifications and call summaries." />
+        </h3>
         {savedAlias && (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-50 text-green-700">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
@@ -2823,11 +2814,8 @@ function MailSetupSection({
           </span>
         )}
       </div>
-      <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-        Configure the sender name, email alias, and routing preferences for customer notifications and call summaries.
-      </p>
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 space-y-6">
+      <div className="space-y-6">
         {/* Core Settings Grid */}
         <div className="grid gap-5 sm:grid-cols-2">
           {/* Sender Name */}
@@ -2919,11 +2907,7 @@ function MailSetupSection({
         <div className="grid gap-4 sm:grid-cols-2 pt-2">
           {/* Email Customers */}
           <label
-            className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-all ${
-              customerEmailsEnabled
-                ? "border-amber-200 bg-amber-50/10 shadow-xs"
-                : "border-gray-200 bg-white hover:border-gray-300"
-            }`}
+            className="flex items-start gap-3 py-2 cursor-pointer transition-all"
             htmlFor="mail-toggle-customer"
           >
             <input
@@ -2935,18 +2919,16 @@ function MailSetupSection({
               className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 focus:ring-offset-0"
             />
             <div className="space-y-0.5">
-              <span className="block text-sm font-semibold text-slate-800">Email customers</span>
-              <span className="block text-xs text-slate-500">Send confirmations and follow-ups after calls.</span>
+              <span className="block text-sm font-semibold text-slate-800 inline-flex items-center">
+                Email customers
+                <InfoTooltip content="Send confirmations and follow-ups after calls." />
+              </span>
             </div>
           </label>
 
           {/* Email Team */}
           <label
-            className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-all ${
-              summaryEmailsEnabled
-                ? "border-amber-200 bg-amber-50/10 shadow-xs"
-                : "border-gray-200 bg-white hover:border-gray-300"
-            }`}
+            className="flex items-start gap-3 py-2 cursor-pointer transition-all"
             htmlFor="mail-toggle-summary"
           >
             <input
@@ -2958,15 +2940,17 @@ function MailSetupSection({
               className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 focus:ring-offset-0"
             />
             <div className="space-y-0.5">
-              <span className="block text-sm font-semibold text-slate-800">Email team summaries</span>
-              <span className="block text-xs text-slate-500">Send summaries and details to your forward address.</span>
+              <span className="block text-sm font-semibold text-slate-800 inline-flex items-center">
+                Email team summaries
+                <InfoTooltip content="Send summaries and details to your forward address." />
+              </span>
             </div>
           </label>
         </div>
 
         {/* Sender Preview Card */}
         <div
-          className="rounded-xl border border-slate-100 bg-slate-55/30 p-4"
+          className="rounded-xl border border-slate-100 p-4"
           data-testid="business-setup-mail-preview"
         >
           <div className="flex items-center gap-2 mb-2.5">
@@ -3961,7 +3945,7 @@ function StepTest({
       )}
 
       {/* Workflow stepper card */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6" data-testid="business-setup-test-flow">
+      <div className="py-5 sm:py-6" data-testid="business-setup-test-flow">
         {/* Card header */}
         <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-100">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Live agent feed</p>
@@ -4728,7 +4712,7 @@ function StepGoLive({
       </div>
 
       {/* Readiness checklist — every failed requirement links to its fix. */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-golive-checklist">
+      <div className="py-5" data-testid="business-setup-golive-checklist">
         {readyToDeploy ? (
           <div
             className="rounded-xl bg-green-50 border border-green-100 px-4 py-3 text-sm font-semibold text-green-800"
@@ -4825,7 +4809,7 @@ function StepGoLive({
 
       {/* Final summary — the exact configuration the live agent will use.
           Read-only on purpose: the Edit link returns to Configure. */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5" data-testid="business-setup-golive-review">
+      <div className="py-5" data-testid="business-setup-golive-review">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Configuration review</p>
           {onEditConfigure ? (
@@ -4841,7 +4825,7 @@ function StepGoLive({
         </div>
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-phone">
+          <div className="border-b border-gray-150 py-4 last:border-b-0" data-testid="business-setup-golive-card-phone">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Phone &amp; routing</p>
             <dl className="mt-2 space-y-1.5">
               <div className={summaryRow}>
@@ -4869,7 +4853,7 @@ function StepGoLive({
             </dl>
           </div>
 
-          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-identity">
+          <div className="border-b border-gray-150 py-4 last:border-b-0" data-testid="business-setup-golive-card-identity">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Agent identity</p>
             <dl className="mt-2 space-y-1.5">
               <div className={summaryRow}>
@@ -4887,7 +4871,7 @@ function StepGoLive({
             </dl>
           </div>
 
-          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-business">
+          <div className="border-b border-gray-150 py-4 last:border-b-0" data-testid="business-setup-golive-card-business">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Business &amp; timezone</p>
             <dl className="mt-2 space-y-1.5">
               <div className={summaryRow}>
@@ -4913,7 +4897,7 @@ function StepGoLive({
             </dl>
           </div>
 
-          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-hours">
+          <div className="border-b border-gray-150 py-4 last:border-b-0" data-testid="business-setup-golive-card-hours">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Hours &amp; booking rules</p>
             <div className="mt-2">
               <BusinessHoursSummary testIdPrefix="business-setup-golive-hours" />
@@ -4941,7 +4925,7 @@ function StepGoLive({
             </dl>
           </div>
 
-          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-calendar">
+          <div className="border-b border-gray-150 py-4 last:border-b-0" data-testid="business-setup-golive-card-calendar">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Calendar</p>
             <dl className="mt-2 space-y-1.5">
               <div className={summaryRow} data-testid="business-setup-golive-calendar">
@@ -4953,7 +4937,7 @@ function StepGoLive({
             </dl>
           </div>
 
-          <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-setup-golive-card-knowledge">
+          <div className="border-b border-gray-150 py-4 last:border-b-0" data-testid="business-setup-golive-card-knowledge">
             <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Knowledge</p>
             <dl className="mt-2 space-y-1.5">
               <div className={summaryRow} data-testid="business-setup-golive-knowledge">
