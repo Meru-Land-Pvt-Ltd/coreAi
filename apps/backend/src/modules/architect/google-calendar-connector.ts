@@ -11,12 +11,44 @@ export type CalendarAppointmentInput = {
   customerName?: string | null;
   customerPhone: string;
   service?: string | null;
+  providerName?: string | null;
   startAt: string | Date;
   endAt?: string | Date | null;
   description?: string | null;
   /** Exact event title (test events use mode-prefixed titles); default is "{service} - {name}". */
   summaryOverride?: string | null;
 };
+
+export function buildAppointmentEventContent(input: {
+  businessName: string;
+  customerName?: string | null;
+  customerPhone: string;
+  service?: string | null;
+  providerName?: string | null;
+  description?: string | null;
+  summaryOverride?: string | null;
+}): { summary: string; description: string } {
+  const appointmentService = input.service?.trim() || "Appointment";
+  const titleName = input.customerName?.trim() || input.customerPhone;
+  const providerName = input.providerName?.trim() || null;
+  const summary =
+    input.summaryOverride?.trim() ||
+    `${appointmentService} - ${titleName}${providerName ? ` with ${providerName}` : ""}`;
+
+  const description =
+    input.description ??
+    [
+      `Booked by Triven AI Receptionist for ${input.businessName}.`,
+      input.customerName?.trim() ? `Customer: ${input.customerName.trim()}` : undefined,
+      `Customer phone: ${input.customerPhone}`,
+      providerName ? `With: ${providerName}` : undefined,
+      input.service ? `Service: ${input.service}` : undefined
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+  return { summary, description };
+}
 
 function asDate(value: string | Date) {
   return value instanceof Date ? value : new Date(value);
@@ -163,6 +195,7 @@ export async function createGoogleCalendarAppointment({
   customerName,
   customerPhone,
   service,
+  providerName,
   startAt,
   endAt,
   description,
@@ -174,23 +207,22 @@ export async function createGoogleCalendarAppointment({
   const endDate = endAt ? asDate(endAt) : addMinutes(startDate, 30);
   const safeCalendarId = calendarId?.trim() || env.GOOGLE_CALENDAR_ID || "primary";
   const safeTimeZone = timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
-  const appointmentService = service?.trim() || "Appointment";
-  const titleName = customerName?.trim() || customerPhone;
-  const summary = summaryOverride?.trim() || `${appointmentService} - ${titleName}`;
+  const content = buildAppointmentEventContent({
+    businessName,
+    customerName,
+    customerPhone,
+    service,
+    providerName,
+    description,
+    summaryOverride
+  });
+  const summary = content.summary;
 
   const response = await calendar.events.insert({
     calendarId: safeCalendarId,
     requestBody: {
       summary,
-      description:
-        description ??
-        [
-          `Booked by Triven AI Receptionist for ${businessName}.`,
-          `Customer phone: ${customerPhone}`,
-          service ? `Service: ${service}` : undefined
-        ]
-          .filter(Boolean)
-          .join("\n"),
+      description: content.description,
       start: {
         dateTime: startDate.toISOString(),
         timeZone: safeTimeZone

@@ -508,6 +508,7 @@ model Appointment {
   customerPhone      String
   customerName       String?
   service            String?
+  providerName       String?
   startAt            DateTime
   endAt              DateTime
   timeZone           String?
