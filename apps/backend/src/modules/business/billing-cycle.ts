@@ -265,7 +265,7 @@ async function completedTrialLineItems(trial: {
     : null;
   return buildAgentPurchaseLineItems({
     agentLabel: trial.listing.name,
-    agentPriceCents: trial.amountCents,
+    agentPriceCents: trial.listing.priceCents,
     phoneFee: unbilledPhoneFee?.fee ?? null
   });
 }

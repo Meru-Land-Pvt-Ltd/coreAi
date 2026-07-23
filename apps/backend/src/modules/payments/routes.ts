@@ -467,6 +467,7 @@ paymentRoutes.get("/billing", async (c) => {
           select: {
             id: true,
             name: true,
+            priceCents: true,
             pricingModel: true,
             trialDays: true,
             iconUrl: true,
@@ -566,9 +567,11 @@ paymentRoutes.get("/billing", async (c) => {
       (agent) => agent.listingId === payment.listing?.id
     );
     const status = installedAgentMap.get(payment.listing.id);
-    const planPriceCents =
+    const recordedPlanPriceCents =
       parsePaymentLineItems(payment.lineItemsJson)?.[0]?.amountCents ??
       payment.amountCents;
+    const planPriceCents =
+      recordedPlanPriceCents > 0 ? recordedPlanPriceCents : payment.listing.priceCents;
 
     agentMap.set(payment.listing.id, {
       id: payment.listing.id,
@@ -610,10 +613,14 @@ paymentRoutes.get("/billing", async (c) => {
       const latestPayment = payments.find(
         (payment) => payment.listingId === installed.listingId
       );
-      const planPriceCents = latestPayment
+      const recordedPlanPriceCents = latestPayment
         ? parsePaymentLineItems(latestPayment.lineItemsJson)?.[0]?.amountCents ??
           latestPayment.amountCents
         : installed.listing.priceCents;
+      const planPriceCents =
+        recordedPlanPriceCents > 0
+          ? recordedPlanPriceCents
+          : installed.listing.priceCents;
 
       agentMap.set(installed.listing.id, {
         id: installed.listing.id,
