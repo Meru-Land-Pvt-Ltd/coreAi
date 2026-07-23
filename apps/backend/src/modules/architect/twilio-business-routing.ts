@@ -49,7 +49,7 @@ import {
   type LiveAfterHoursGateContext
 } from "./after-hours-live-gate";
 import { updateAfterHoursStaffNotificationStatus } from "../business/after-hours-call-state";
-import { buildRedFlagStaffAlert, buildUrgentStaffAlert } from "@coreai/shared";
+import { buildRedFlagStaffAlert, buildUrgentStaffAlert, verbalSmsConsentDisclosure } from "@coreai/shared";
 import {
   addDaysToDate,
   businessOpenStatus,
@@ -70,6 +70,7 @@ import {
   applySmsOptOut,
   applySmsReOptIn,
   classifyInboundSmsKeyword,
+  getSmsConsentStatusLabel,
   maskPhone,
   recordVerbalSmsConsent,
   smsHelpReplyText
@@ -3114,8 +3115,23 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     // text — the assistant must not tell the caller a text was sent.
     blocked_reason: outcome?.suppressed ? outcome.errorCode : null,
     messageSid: outcome?.messageSid ?? null,
-    status: outcome?.status ?? null
+    status: outcome?.status ?? null,
+    // Provider ACCEPTANCE (a messageSid, or simulated test credentials) —
+    // the only basis for "your confirmation text has been submitted".
+    provider_accepted: Boolean(outcome && (outcome.messageSid || outcome.simulated)),
+    delivery_error_code: outcome?.errorCode ?? null
   });
+
+  const bookingConsentStatus = ctx.business?.businessId
+    ? await getSmsConsentStatusLabel(ctx.business.businessId, patientPhone)
+    : "none";
+  const consentExtras = {
+    consent_status: bookingConsentStatus,
+    canonical_recipient_ending: patientPhone.slice(-4),
+    ...(bookingConsentStatus === "none" && ctx.business?.businessName
+      ? { required_disclosure: verbalSmsConsentDisclosure(ctx.business.businessName) }
+      : {})
+  };
 
   const localFallback = async (calendarStatus: string) => {
     let localAppointment: { id: string } | null = null;
@@ -3147,6 +3163,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     return {
       success: true,
       appointmentCreated: Boolean(localAppointment),
+      ...(localAppointment ? { appointment_ref: appointmentAiRef(localAppointment.id) } : {}),
+      ...consentExtras,
       event_id: null,
       event_link: null,
       calendar_id: ctx.business?.calendarId ?? "primary",
@@ -3227,6 +3245,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       return {
         success: true,
         appointmentCreated: true,
+        appointment_ref: appointmentAiRef(appointment.id),
+        ...consentExtras,
         event_id: calendarEvent.id,
         event_link: calendarEvent.htmlLink ?? null,
         calendar_id: calendarEvent.calendarId,
@@ -3923,8 +3943,11 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
       error: "DISCLOSURE_NOT_PRESENTED",
       consent_recorded: false,
       sms_allowed: false,
+      required_disclosure: ctx.business?.businessName
+        ? verbalSmsConsentDisclosure(ctx.business.businessName)
+        : undefined,
       message:
-        "The SMS consent disclosure has not been read on this call. Read the disclosure to the caller WORD-FOR-WORD, wait for their answer, then call record_sms_consent again."
+        "Consent was NOT saved — the full SMS consent disclosure has not been read on this call. NEVER tell the caller consent was saved or that any text was or will be sent. Read the disclosure in required_disclosure to the caller WORD-FOR-WORD (never paraphrase, shorten, or summarize it), wait for their answer, then call record_sms_consent again."
     };
   }
 
@@ -4086,9 +4109,9 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     message:
       outcome.consent.status === "OPTED_IN"
         ? confirmationSmsSent
-          ? `SMS consent recorded for the number ending ${recipientEnding}. Tell the caller: "Your appointment confirmation text has been sent."`
+          ? `SMS consent recorded for the number ending ${recipientEnding}. Tell the caller EXACTLY: "Your confirmation text has been submitted." Never claim it was delivered.`
           : confirmationAttempted
-            ? `SMS consent recorded for the number ending ${recipientEnding}, but the confirmation text could NOT be sent. Tell the caller: "Your appointment is still booked, but I couldn't send the confirmation text." Never claim a text was sent.`
+            ? `SMS consent recorded for the number ending ${recipientEnding}, but the confirmation text could NOT be sent. Tell the caller EXACTLY: "Your appointment is still booked, but I couldn't send the confirmation text." Never claim a text was sent.`
             : `SMS consent recorded for the number ending ${recipientEnding}. Transactional texts may now be sent.`
         : "Declined recorded. Do not send texts. Continue the booking normally — it is not affected."
   };

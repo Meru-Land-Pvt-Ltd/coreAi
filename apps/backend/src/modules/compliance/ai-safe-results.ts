@@ -16,6 +16,19 @@ export type AiSafeBookingResult = {
   date?: string;
   time?: string;
   service?: string;
+  /** Opaque reference for follow-up tools — never a raw database id. */
+  appointmentRef?: string;
+  /** Consent state of the canonical SMS recipient: granted | declined | none. */
+  consentStatus?: string;
+  /** Last digits of the canonical recipient (never the full number). */
+  recipientEnding?: string;
+  smsAttempted?: boolean;
+  smsStatus?: string;
+  deliveryErrorCode?: string;
+  /** The EXACT sentence the assistant may speak about the text. */
+  customerSafeMessage?: string;
+  /** Canonical consent disclosure to read WORD-FOR-WORD when consentStatus is none. */
+  requiredDisclosure?: string;
   message: string;
 };
 
@@ -85,16 +98,29 @@ export function toAiSafeBookingResult(internal: InternalCalendarResult): AiSafeB
   if (!success && openUntil) parts.push(`Open until ${openUntil} that day.`);
 
   const sms = internal.sms;
-  if (sms && typeof sms === "object") {
-    const smsRecord = sms as Record<string, unknown>;
-    if (smsRecord.sent === true) {
-      parts.push("A confirmation text was sent to the caller.");
-    } else if (smsRecord.blocked_reason === "SMS_CONSENT_REQUIRED") {
+  let customerSafeMessage: string | undefined;
+  const smsRecord = sms && typeof sms === "object" ? (sms as Record<string, unknown>) : null;
+  if (smsRecord) {
+    const providerAccepted =
+      smsRecord.sent === true &&
+      (smsRecord.provider_accepted === true || Boolean(str(smsRecord.messageSid)));
+    if (providerAccepted) {
+      // Acceptance, not delivery — Twilio has the message; it may still fail.
+      customerSafeMessage = "Your confirmation text has been submitted.";
+      parts.push(`The provider accepted the confirmation text. Tell the caller EXACTLY: "${customerSafeMessage}" Never claim it was delivered.`);
+    } else if (smsRecord.blocked_reason === "SMS_OPTED_OUT") {
+      customerSafeMessage = "Your appointment is booked, but I couldn't send the confirmation text.";
       parts.push(
-        "No text was sent — the caller has NOT consented to SMS yet. Read the SMS consent disclosure to them WORD-FOR-WORD now, wait for their yes or no, and call record_sms_consent; after a yes the confirmation text is sent automatically."
+        `The caller previously DECLINED texts. Do NOT ask for SMS consent again on this call and never send or promise a text. If asked, say: "${customerSafeMessage}"`
+      );
+    } else if (smsRecord.blocked_reason === "SMS_CONSENT_REQUIRED") {
+      customerSafeMessage = "Your appointment is booked, but I couldn't send the confirmation text.";
+      parts.push(
+        "No text was sent — the caller has NOT consented to SMS yet. Read the SMS consent disclosure in requiredDisclosure to them WORD-FOR-WORD (never paraphrase, shorten, or summarize it), wait for their yes or no, then call record_sms_consent."
       );
     } else if (smsRecord.attempted === true || smsRecord.blocked_reason) {
-      parts.push("No confirmation text was sent — do not tell the caller a text was sent.");
+      customerSafeMessage = "Your appointment is booked, but I couldn't send the confirmation text.";
+      parts.push(`No confirmation text was sent. Tell the caller EXACTLY: "${customerSafeMessage}" Never claim a text was sent.`);
     }
   }
 
@@ -109,6 +135,18 @@ export function toAiSafeBookingResult(internal: InternalCalendarResult): AiSafeB
     ...(str(internal.service_type) ?? str(internal.service)
       ? { service: str(internal.service_type) ?? str(internal.service) }
       : {}),
+    ...(str(internal.appointment_ref) ? { appointmentRef: str(internal.appointment_ref) } : {}),
+    ...(str(internal.consent_status) ? { consentStatus: str(internal.consent_status) } : {}),
+    ...(str(internal.canonical_recipient_ending)
+      ? { recipientEnding: str(internal.canonical_recipient_ending) }
+      : {}),
+    ...(smsRecord ? { smsAttempted: smsRecord.attempted === true } : {}),
+    ...(smsRecord && str(smsRecord.status) ? { smsStatus: str(smsRecord.status) } : {}),
+    ...(smsRecord && str(smsRecord.delivery_error_code)
+      ? { deliveryErrorCode: str(smsRecord.delivery_error_code) }
+      : {}),
+    ...(customerSafeMessage ? { customerSafeMessage } : {}),
+    ...(str(internal.required_disclosure) ? { requiredDisclosure: str(internal.required_disclosure) } : {}),
     message: parts.join(" ") || (success ? "The booking is confirmed." : "The booking could not be completed.")
   };
 }

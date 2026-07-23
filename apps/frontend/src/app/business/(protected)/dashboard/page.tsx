@@ -49,6 +49,7 @@ type DashboardBooking = {
     status: string;
     onCalendar: boolean;
     calendarEventLink?: string | null;
+    confirmationSms?: { status: string; errorCode?: string | null } | null;
     createdAt: string;
 };
 
@@ -1261,6 +1262,15 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${bookingStatusTone(booking.status)}`} data-testid="dashboard-booking-status">
                     {booking.status}
                 </span>
+                {booking.confirmationSms && (booking.confirmationSms.status === "UNDELIVERED" || booking.confirmationSms.status === "FAILED") ? (
+                    <span
+                        className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"
+                        title={booking.confirmationSms.errorCode ? `Twilio error ${booking.confirmationSms.errorCode}` : undefined}
+                        data-testid="dashboard-booking-sms-undelivered"
+                    >
+                        Text not delivered
+                    </span>
+                ) : null}
                 {booking.onCalendar ? (
                     <a
                         href={calendarUrl}

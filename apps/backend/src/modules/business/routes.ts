@@ -631,6 +631,21 @@ businessRoutes.get("/dashboard", async (c) => {
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, 30);
 
+  const confirmationSmsRows = monthBookings.length
+    ? await prisma.smsExecution.findMany({
+        where: {
+          dedupeKey: { in: monthBookings.map((booking) => `appointment-confirmation:${booking.id}`) }
+        },
+        select: { dedupeKey: true, status: true, errorCode: true }
+      })
+    : [];
+  const confirmationSmsByAppointmentId = new Map(
+    confirmationSmsRows.map((row) => [
+      String(row.dedupeKey).replace("appointment-confirmation:", ""),
+      { status: row.status, errorCode: row.errorCode }
+    ])
+  );
+
   return successResponse(c, {
     business: { id: business.id, name: business.name, type: business.type },
     installedAgent: installedAgent
@@ -660,19 +675,28 @@ businessRoutes.get("/dashboard", async (c) => {
       upcoming: monthBookings.filter((booking) => booking.startAt > now).length,
       agentName: installedAgent?.name ?? null,
       calendarConnected: calendar.connected,
-      items: monthBookings.map((booking) => ({
-        id: booking.id,
-        customerName: booking.customerName,
-        customerPhone: booking.customerPhone,
-        service: booking.service,
-        startAt: booking.startAt.toISOString(),
-        endAt: booking.endAt.toISOString(),
-        timeZone: booking.timeZone,
-        status: booking.status,
-        onCalendar: Boolean(booking.calendarEventId),
-        calendarEventLink: booking.calendarEventLink,
-        createdAt: booking.createdAt.toISOString()
-      }))
+      items: monthBookings.map((booking) => {
+        const confirmationSms = confirmationSmsByAppointmentId.get(booking.id) ?? null;
+        return {
+          id: booking.id,
+          customerName: booking.customerName,
+          customerPhone: booking.customerPhone,
+          service: booking.service,
+          startAt: booking.startAt.toISOString(),
+          endAt: booking.endAt.toISOString(),
+          timeZone: booking.timeZone,
+          status: booking.status,
+          onCalendar: Boolean(booking.calendarEventId),
+          calendarEventLink: booking.calendarEventLink,
+          // Terminal SMS delivery state for the confirmation text (e.g.
+          // UNDELIVERED with Twilio error 30007) — surfaced so the business
+          // knows a customer never got their confirmation.
+          confirmationSms: confirmationSms
+            ? { status: confirmationSms.status, errorCode: confirmationSms.errorCode }
+            : null,
+          createdAt: booking.createdAt.toISOString()
+        };
+      })
     },
     activityChart: {
       days: buildActivityChartDays({

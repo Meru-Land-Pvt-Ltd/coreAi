@@ -129,7 +129,18 @@ describe("toAiSafeAvailabilityResult", () => {
 describe("toAiSafeBookingResult", () => {
   it("emits ONLY success, status, date, time, service, message", () => {
     const result = toAiSafeBookingResult(LEAKY_BOOKING_INTERNAL);
-    expect(Object.keys(result).sort()).toEqual(["date", "message", "service", "status", "success", "time"]);
+    // Safe additive fields only — never raw ids, phones, sids, or emails.
+    expect(Object.keys(result).sort()).toEqual([
+      "customerSafeMessage",
+      "date",
+      "message",
+      "service",
+      "smsAttempted",
+      "smsStatus",
+      "status",
+      "success",
+      "time"
+    ]);
     expect(result).toMatchObject({
       success: true,
       status: "confirmed",
@@ -183,7 +194,9 @@ describe("toAiSafeBookingResult", () => {
 
   it("folds SMS outcome into the message without provider metadata", () => {
     const sent = toAiSafeBookingResult(LEAKY_BOOKING_INTERNAL);
-    expect(sent.message).toContain("confirmation text was sent");
+    // Provider ACCEPTANCE wording only — never a delivery claim.
+    expect(sent.message).toContain("has been submitted");
+    expect(sent.customerSafeMessage).toBe("Your confirmation text has been submitted.");
 
     // Consent-blocked → actionable: the model is told to read the disclosure
     // now so the caller is proactively OFFERED texts, not left without them.
@@ -195,10 +208,18 @@ describe("toAiSafeBookingResult", () => {
     expect(consentBlocked.message).toContain("SMS consent disclosure");
     expect(consentBlocked.message).toContain("record_sms_consent");
 
+    // OPTED_OUT gets its own never-ask-again wording.
+    const optedOut = toAiSafeBookingResult({
+      ...LEAKY_BOOKING_INTERNAL,
+      sms: { attempted: false, sent: false, blocked_reason: "SMS_OPTED_OUT", messageSid: null, status: null }
+    });
+    expect(optedOut.message).toContain("Do NOT ask for SMS consent again");
+    expect(optedOut.customerSafeMessage).toContain("couldn't send");
+
     // Any other block keeps the generic never-claim-a-text-was-sent line.
     const otherBlocked = toAiSafeBookingResult({
       ...LEAKY_BOOKING_INTERNAL,
-      sms: { attempted: true, sent: false, blocked_reason: "SMS_OPTED_OUT", messageSid: null, status: null }
+      sms: { attempted: true, sent: false, blocked_reason: "SMS_INVALID_RECIPIENT", messageSid: null, status: null }
     });
     expect(otherBlocked.message).toContain("No confirmation text was sent");
   });

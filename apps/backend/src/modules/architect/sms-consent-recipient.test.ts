@@ -221,7 +221,7 @@ describe("post-booking SMS consent recipient consistency", () => {
     expect(consent.sms_allowed).toBe(true);
     expect(consent.confirmation_sms_sent).toBe(true);
     expect(consent.recipient_ending).toBe(INDIA_PHONE.slice(-4));
-    expect(String(consent.message)).toContain("has been sent");
+    expect(String(consent.message)).toContain("has been submitted");
 
     // Canonical recipient identity across all three records.
     const consentRow = await prisma.smsConsent.findFirst({ where: { businessId: fixture.businessId } });

@@ -447,10 +447,15 @@ const STATUS_RANK: Record<SmsExecutionStatus, number> = {
   DELIVERED: 4,
   UNDELIVERED: 4,
   FAILED: 4,
-  // Terminal: a suppressed message never reached Twilio, so no status
-  // callback should ever try to move it (rank keeps it frozen if one does).
   SUPPRESSED: 5
 };
+
+const TERMINAL_SMS_STATUSES: ReadonlySet<SmsExecutionStatus> = new Set([
+  "DELIVERED",
+  "UNDELIVERED",
+  "FAILED",
+  "SUPPRESSED"
+]);
 
 /** micro-USD from a Twilio price string (prices arrive negative, e.g. "-0.0079"). */
 function priceToMicroUsd(price: string | undefined): number | null {
@@ -473,17 +478,20 @@ export async function applyTwilioMessageStatus(
   }
 
   const nextStatus = smsExecutionStatusFromTwilio(rawStatus);
-  const moveForward = STATUS_RANK[nextStatus] >= STATUS_RANK[execution.status];
+  const moveForward =
+    !TERMINAL_SMS_STATUSES.has(execution.status) &&
+    STATUS_RANK[nextStatus] >= STATUS_RANK[execution.status];
   const now = new Date();
   const isFailure = nextStatus === "FAILED" || nextStatus === "UNDELIVERED";
+  const enrichFailure = isFailure && (moveForward || nextStatus === execution.status);
 
   const data: Prisma.SmsExecutionUpdateInput = {
     ...(moveForward ? { status: nextStatus } : {}),
-    ...(nextStatus === "SENT" && !execution.sentAt ? { sentAt: now } : {}),
-    ...(nextStatus === "DELIVERED"
+    ...(moveForward && nextStatus === "SENT" && !execution.sentAt ? { sentAt: now } : {}),
+    ...(moveForward && nextStatus === "DELIVERED"
       ? { ...(execution.sentAt ? {} : { sentAt: now }), ...(execution.deliveredAt ? {} : { deliveredAt: now }) }
       : {}),
-    ...(isFailure
+    ...(enrichFailure
       ? {
           ...(execution.failedAt ? {} : { failedAt: now }),
           errorCode: params.ErrorCode?.trim() || execution.errorCode,
