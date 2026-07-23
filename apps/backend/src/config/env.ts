@@ -42,12 +42,6 @@ const envSchema = z.object({
   TWILIO_SHARED_SMS_NUMBER: z.string().optional(),
   /** Public URL Twilio posts message delivery-status callbacks to. */
   TWILIO_SMS_STATUS_CALLBACK_URL: z.string().url().optional(),
-  /**
-   * Explicit SMS sending mode. SIMULATED = no provider request at all;
-   * TWILIO_TEST_CREDENTIALS = Twilio test account + magic numbers (never
-   * delivered, never production credentials); LIVE = shared Messaging Service.
-   * Defaults to LIVE (or SIMULATED when the deprecated TWILIO_TEST_MODE=true).
-   */
   TWILIO_SMS_MODE: z.enum(["SIMULATED", "TWILIO_TEST_CREDENTIALS", "LIVE"]).optional(),
   /** Twilio TEST credentials — used ONLY in TWILIO_TEST_CREDENTIALS mode. */
   TWILIO_TEST_ACCOUNT_SID: z.string().optional(),
@@ -55,13 +49,8 @@ const envSchema = z.object({
   /** @deprecated Use TWILIO_SMS_MODE. true maps to SIMULATED (no provider request). */
   TWILIO_TEST_MODE: booleanFromEnv.default(false),
   TWILIO_VALIDATE_SIGNATURE: booleanFromEnv.default(false),
-  /**
-   * App-level auto-replies to inbound STOP/HELP keywords. Keep false when the
-   * Twilio Messaging Service has (Advanced) Opt-Out enabled — Twilio replies
-   * itself and a second app reply would be a duplicate. Consent-database
-   * syncing happens regardless of this flag.
-   */
   SMS_KEYWORD_APP_REPLIES: booleanFromEnv.default(false),
+  SMS_UNRELIABLE_COUNTRY_PREFIXES: z.string().default("91"),
 
   // Only SES is supported; the literal guards against configuring a removed provider.
   MAIL_PROVIDER: z.enum(["ses"]).default("ses"),
