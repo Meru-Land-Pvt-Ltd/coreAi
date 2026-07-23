@@ -11,6 +11,13 @@ export type PaymentWithListing = {
   description: string | null;
   createdAt: Date;
   updatedAt: Date;
+  invoiceKind?: string | null;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
+  dueAt?: Date | null;
+  graceEndsAt?: Date | null;
+  paidAt?: Date | null;
+  suspendedAt?: Date | null;
   billingName?: string | null;
   billingEmail?: string | null;
   billingAddress?: string | null;
@@ -50,22 +57,41 @@ const INVOICE_HISTORY_STATUSES: PaymentStatus[] = [
   PaymentStatus.TRIALING,
   PaymentStatus.SUCCEEDED,
   PaymentStatus.PENDING,
+  PaymentStatus.COMPLETED,
+  PaymentStatus.OVERDUE,
   PaymentStatus.FAILED,
+  PaymentStatus.CANCELED,
   PaymentStatus.REFUNDED
 ];
 
-export function invoiceDisplayAmountCents(payment: { status: string; amountCents: number }) {
+export function invoiceDisplayAmountCents(payment: {
+  status: string;
+  amountCents: number;
+  invoiceKind?: string | null;
+}) {
   const status = payment.status.toUpperCase();
-  if (status === "TRIALING") return 0;
-  if (status === "SUCCEEDED" || status === "PAID") return payment.amountCents;
+  if (
+    payment.invoiceKind === "TRIAL" ||
+    (!payment.invoiceKind && (status === "TRIALING" || status === "COMPLETED"))
+  ) {
+    return 0;
+  }
+  if (
+    status === "SUCCEEDED" ||
+    status === "PAID" ||
+    status === "PENDING" ||
+    status === "OVERDUE"
+  ) {
+    return payment.amountCents;
+  }
   return 0;
 }
 
 export function invoiceDateForPayment(
-  payment: Pick<PaymentWithListing, "status" | "createdAt" | "updatedAt">
+  payment: Pick<PaymentWithListing, "status" | "createdAt" | "updatedAt" | "paidAt">
 ) {
   if (payment.status === PaymentStatus.SUCCEEDED) {
-    return payment.updatedAt;
+    return payment.paidAt ?? payment.updatedAt;
   }
 
   return payment.createdAt;
@@ -80,51 +106,55 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
     displayAmountCents: number;
     currency: string;
     status: string;
+    lifecycleStatus: string;
+    tabStatus: "PAID" | "PENDING" | "OVERDUE";
+    invoiceKind: string;
     listingId: string | null;
     listingName: string | null;
     billingName: string | null;
     billingEmail: string | null;
     billingAddress: string | null;
     lineItems: PaymentLineItem[] | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+    dueAt: string | null;
+    graceEndsAt: string | null;
+    paidAt: string | null;
+    suspendedAt: string | null;
   }> = [];
-
-  const listingsWithTrialInvoice = new Set<string>();
 
   for (const payment of payments) {
     if (!payment.listingId) continue;
-
-    if (payment.status === PaymentStatus.CANCELED) {
-      const description = (payment.description ?? "").toLowerCase();
-      if (!description.includes("trial")) continue;
-      if (listingsWithTrialInvoice.has(payment.listingId)) continue;
-
-      listingsWithTrialInvoice.add(payment.listingId);
-      const agentName = payment.listing?.name ?? "Agent";
-      const trialDays = payment.listing?.trialDays ?? 7;
-
-      invoices.push({
-        id: payment.id,
-        createdAt: payment.createdAt.toISOString(),
-        description: payment.description ?? `${trialDays}-day trial for ${agentName}`,
-        amountCents: payment.amountCents,
-        displayAmountCents: 0,
-        currency: payment.currency,
-        status: PaymentStatus.TRIALING,
-        listingId: payment.listingId,
-        listingName: payment.listing?.name ?? null,
-        billingName: payment.billingName ?? null,
-        billingEmail: payment.billingEmail ?? null,
-        billingAddress: payment.billingAddress ?? null,
-        lineItems: null
-      });
-      continue;
-    }
-
     if (!INVOICE_HISTORY_STATUSES.includes(payment.status)) continue;
 
-    if (payment.status === PaymentStatus.TRIALING) {
-      listingsWithTrialInvoice.add(payment.listingId);
-    }
+    const isTrial =
+      payment.invoiceKind === "TRIAL" ||
+      (!payment.invoiceKind &&
+        (payment.status === PaymentStatus.TRIALING ||
+          (payment.description ?? "").toLowerCase().includes("trial")));
+    if (payment.status === PaymentStatus.CANCELED && !isTrial) continue;
+
+    const lifecycleStatus = isTrial
+      ? payment.status === PaymentStatus.TRIALING
+        ? "TRIALING"
+        : "COMPLETED"
+      : payment.status;
+    const status =
+      isTrial
+        ? lifecycleStatus
+        : payment.status === PaymentStatus.SUCCEEDED
+          ? "PAID"
+          : payment.status === PaymentStatus.OVERDUE
+            ? "OVERDUE"
+            : payment.status === PaymentStatus.PENDING
+              ? "PENDING"
+              : payment.status;
+    const tabStatus: "PAID" | "PENDING" | "OVERDUE" =
+      status === "OVERDUE"
+        ? "OVERDUE"
+        : status === "PENDING"
+          ? "PENDING"
+          : "PAID";
 
     invoices.push({
       id: payment.id,
@@ -133,45 +163,23 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
       amountCents: payment.amountCents,
       displayAmountCents: invoiceDisplayAmountCents(payment),
       currency: payment.currency,
-      status: payment.status,
+      status,
+      lifecycleStatus,
+      tabStatus,
+      invoiceKind: isTrial ? "TRIAL" : payment.invoiceKind ?? "PURCHASE",
       listingId: payment.listingId,
       listingName: payment.listing?.name ?? null,
       billingName: payment.billingName ?? null,
       billingEmail: payment.billingEmail ?? null,
       billingAddress: payment.billingAddress ?? null,
-      lineItems: parsePaymentLineItems(payment.lineItemsJson)
+      lineItems: parsePaymentLineItems(payment.lineItemsJson),
+      periodStart: payment.periodStart?.toISOString() ?? null,
+      periodEnd: payment.periodEnd?.toISOString() ?? null,
+      dueAt: payment.dueAt?.toISOString() ?? null,
+      graceEndsAt: payment.graceEndsAt?.toISOString() ?? null,
+      paidAt: payment.paidAt?.toISOString() ?? null,
+      suspendedAt: payment.suspendedAt?.toISOString() ?? null
     });
-  }
-
-  for (const payment of payments) {
-    if (payment.status !== PaymentStatus.SUCCEEDED || !payment.listingId) continue;
-    if (listingsWithTrialInvoice.has(payment.listingId)) continue;
-
-    const convertedInPlace =
-      payment.updatedAt.getTime() - payment.createdAt.getTime() > 60 * 60 * 1000;
-
-    if (!convertedInPlace) continue;
-
-    const agentName = payment.listing?.name ?? "Agent";
-    const trialDays = payment.listing?.trialDays ?? 7;
-
-    invoices.push({
-      id: `${payment.id}-trial`,
-      createdAt: payment.createdAt.toISOString(),
-      description: `${trialDays}-day trial for ${agentName}`,
-      amountCents: payment.amountCents,
-      displayAmountCents: 0,
-      currency: payment.currency,
-      status: PaymentStatus.TRIALING,
-      listingId: payment.listingId,
-      listingName: payment.listing?.name ?? null,
-      billingName: payment.billingName ?? null,
-      billingEmail: payment.billingEmail ?? null,
-      billingAddress: payment.billingAddress ?? null,
-      lineItems: null
-    });
-
-    listingsWithTrialInvoice.add(payment.listingId);
   }
 
   return invoices.sort(
@@ -181,7 +189,11 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
 
 export function sumInvoiceTotalCents(payments: PaymentWithListing[]) {
   return buildBillingInvoices(payments).reduce(
-    (sum, invoice) => sum + invoice.displayAmountCents,
+    (sum, invoice) =>
+      sum +
+      (invoice.tabStatus === "PAID" && invoice.invoiceKind !== "TRIAL"
+        ? invoice.displayAmountCents
+        : 0),
     0
   );
 }

@@ -9,14 +9,19 @@ export const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
 
 export const TRIAL_ACCESS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function resolveActivePayment<T extends { status: PaymentStatus; createdAt: Date }>(
+export function resolveActivePayment<
+  T extends { status: PaymentStatus; createdAt: Date; periodEnd?: Date | null }
+>(
   payments: T[]
 ): T | null {
   const trialCutoff = Date.now() - TRIAL_ACCESS_WINDOW_MS;
   const owned = payments.filter(
     (payment) =>
       OWNED_PAYMENT_STATUSES.includes(payment.status) &&
-      (payment.status !== PaymentStatus.TRIALING || payment.createdAt.getTime() > trialCutoff)
+      (payment.status !== PaymentStatus.TRIALING ||
+        (payment.periodEnd
+          ? payment.periodEnd.getTime() > Date.now()
+          : payment.createdAt.getTime() > trialCutoff))
   );
 
   return (

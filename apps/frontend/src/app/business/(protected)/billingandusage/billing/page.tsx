@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { loadStripe } from "@stripe/stripe-js";
 import { apiGet, apiPost } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
@@ -30,15 +31,22 @@ type BillingInvoice = {
     billingEmail?: string | null;
     billingAddress?: string | null;
     lineItems?: Array<{ label: string; amountCents: number }> | null;
+    invoiceKind?: string | null;
+    invoiceType?: string | null;
 };
 
 function invoiceDisplayAmount(invoice: BillingInvoice) {
     if (typeof invoice.displayAmountCents === "number") {
         return invoice.displayAmountCents;
     }
-    if (invoice.status.toUpperCase() === "TRIALING") return 0;
-    if (invoice.status.toUpperCase() === "SUCCEEDED") return invoice.amountCents;
-    return 0;
+    const invoiceKind = (invoice.invoiceKind ?? invoice.invoiceType)?.toUpperCase();
+    if (invoiceKind === "TRIAL" || invoice.status.toUpperCase() === "TRIALING") return 0;
+    return invoice.amountCents;
+}
+
+function isDirectlyPayableAgentInvoice(invoice: BillingInvoice) {
+    const invoiceKind = (invoice.invoiceKind ?? invoice.invoiceType)?.toUpperCase();
+    return invoiceKind === "POST_TRIAL" || invoiceKind === "SUBSCRIPTION_RENEWAL";
 }
 
 type Billing = {
@@ -52,8 +60,10 @@ type Billing = {
 type BillingResponse = { billing: Billing };
 type AgentUsageBreakdown = {
     agentId: string | null;
+    installedAgentId?: string | null;
     agentName: string;
     callCount: number;
+    executionCount?: number;
     durationMinutes: number;
     billedCostUsd: number;
     amountCents: number;
@@ -70,16 +80,33 @@ type UsageInvoice = {
     id: string;
     invoiceNumber: string;
     billingMonth: string;
-    status: "OPEN" | "OVERDUE" | "PAID" | "VOID";
+    status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
     amountCents: number;
     issuedAt: string;
     dueAt: string;
     paidAt: string | null;
     callCount: number;
+    executionCount?: number;
     agentBreakdown: AgentUsageBreakdown[];
+    lineItems?: Array<{
+        serviceCode: string;
+        serviceName: string;
+        unit: string;
+        quantity: number;
+        amountUsd?: number;
+        amountCents: number;
+    }>;
     isAccruing?: boolean;
 };
 type UsageInvoicesResponse = { invoices: UsageInvoice[] };
+type InvoicePaymentResult = {
+    status?: string;
+    invoiceIds?: string[];
+    carriedForward?: boolean;
+    requiresAction?: boolean;
+    clientSecret?: string | null;
+};
+type StripeConfigResponse = { publishableKey?: string | null };
 type UsageBill = {
     month: string;
     totalCalls: number;
@@ -88,6 +115,10 @@ type UsageBill = {
     updatedAt: string | null;
     agentRollup: AgentUsageBreakdown[];
 };
+
+function usageAgentId(agent: AgentUsageBreakdown) {
+    return agent.installedAgentId ?? agent.agentId;
+}
 
 const INVOICE_STYLES = `
 .invoice-root { font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
@@ -171,7 +202,7 @@ function formatFullDate(value: string) {
 
 function usageDueAt(month: string) {
     const [year, monthNumber] = month.split("-").map(Number);
-    return new Date(Date.UTC(year, monthNumber, 8)).toISOString();
+    return new Date(Date.UTC(year, monthNumber, 1)).toISOString();
 }
 
 type StatusView = {
@@ -186,11 +217,17 @@ function statusView(status: string): StatusView {
     if (value === "SUCCEEDED" || value === "PAID") {
         return { label: "PAID", badgeClass: "bg-green-100 text-green-700", balanceColor: "text-green-600", isPaid: true };
     }
+    if (value === "COMPLETED") {
+        return { label: "COMPLETED", badgeClass: "bg-blue-100 text-blue-700", balanceColor: "text-green-600", isPaid: true };
+    }
     if (value === "TRIALING") {
         return { label: "TRIAL", badgeClass: "bg-amber-100 text-amber-700", balanceColor: "text-amber-600", isPaid: false };
     }
-    if (value === "PENDING") {
+    if (value === "PENDING" || value === "OPEN") {
         return { label: "PENDING", badgeClass: "bg-blue-100 text-blue-700", balanceColor: "text-amber-600", isPaid: false };
+    }
+    if (value === "OVERDUE") {
+        return { label: "OVERDUE", badgeClass: "bg-red-100 text-red-700", balanceColor: "text-red-600", isPaid: false };
     }
     if (value === "FAILED") {
         return { label: "FAILED", badgeClass: "bg-red-100 text-red-700", balanceColor: "text-red-600", isPaid: false };
@@ -311,13 +348,53 @@ export default function BusinessInvoiceDetailPage() {
     async function payUsageInvoice(invoice: UsageInvoice) {
         setPayingInvoiceId(invoice.id);
         try {
-            const response = await apiPost(`/business/billing/usage-invoices/${invoice.id}/pay`, {});
+            let response = await apiPost<InvoicePaymentResult>(
+                `/business/billing/usage-invoices/${invoice.id}/pay`,
+                {}
+            );
             if (!response.success) {
                 showToast(response.error ?? "Could not pay invoice");
                 return;
             }
+
+            if (response.data?.carriedForward) {
+                showToast("Balance carried forward until it reaches the $0.50 card minimum");
+                return;
+            }
+
+            if (response.data?.requiresAction && response.data.clientSecret) {
+                const config = await apiGet<StripeConfigResponse>("/payments/config");
+                const publishableKey = config.data?.publishableKey;
+                const stripe = publishableKey ? await loadStripe(publishableKey) : null;
+                if (!config.success || !stripe) {
+                    showToast("Card authentication could not be started");
+                    return;
+                }
+                const action = await stripe.handleNextAction({
+                    clientSecret: response.data.clientSecret
+                });
+                if (action.error) {
+                    showToast(action.error.message ?? "Card authentication was not completed");
+                    return;
+                }
+                response = await apiPost<InvoicePaymentResult>(
+                    `/business/billing/usage-invoices/${invoice.id}/pay`,
+                    {}
+                );
+                if (!response.success) {
+                    showToast(response.error ?? "Could not finish paying invoice");
+                    return;
+                }
+            }
+
+            if (response.data?.status?.toUpperCase() !== "PAID") {
+                showToast("Payment is still pending");
+                return;
+            }
+            const settledIds = new Set(response.data.invoiceIds ?? [invoice.id]);
+            const paidAt = new Date().toISOString();
             setUsageInvoices((current) => current.map((item) =>
-                item.id === invoice.id ? { ...item, status: "PAID" } : item
+                settledIds.has(item.id) ? { ...item, status: "PAID", paidAt } : item
             ));
             showToast("Invoice paid and services restored");
         } catch (error) {
@@ -327,12 +404,44 @@ export default function BusinessInvoiceDetailPage() {
         }
     }
 
-    const currentUsageStatement: UsageInvoice | null = usage && usage.totalCalls > 0
+    async function payAgentInvoice(invoice: BillingInvoice) {
+        if (payingInvoiceId) return;
+        setPayingInvoiceId(invoice.id);
+        try {
+            const response = await apiPost(`/payments/invoices/${invoice.id}/pay`, {});
+            if (!response.success) {
+                showToast(response.error ?? "Could not pay invoice");
+                return;
+            }
+            setBilling((current) => current
+                ? {
+                    ...current,
+                    invoices: current.invoices.map((item) =>
+                        item.id === invoice.id ? { ...item, status: "PAID" } : item
+                    )
+                }
+                : current
+            );
+            showToast("Invoice paid and eligible services restored");
+        } catch (error) {
+            showToast(error instanceof Error ? error.message : "Could not pay invoice");
+        } finally {
+            setPayingInvoiceId(null);
+        }
+    }
+
+    const hasPersistedCurrentStatement = usage
+        ? usageInvoices.some((item) => item.billingMonth === usage.month && (item.status === "PENDING" || item.status === "OPEN"))
+        : false;
+    const currentUsageStatement: UsageInvoice | null = usage
+        && usage.totalCalls > 0
+        && usage.totalBilledUsd > 0
+        && !hasPersistedCurrentStatement
         ? {
             id: `accrued-${usage.month}`,
             invoiceNumber: `ACCRUED-${usage.month.replace("-", "")}`,
             billingMonth: usage.month,
-            status: "OPEN",
+            status: "PENDING",
             amountCents: Math.round(usage.totalBilledUsd * 100),
             issuedAt: usage.updatedAt ?? new Date().toISOString(),
             dueAt: usageDueAt(usage.month),
@@ -344,11 +453,11 @@ export default function BusinessInvoiceDetailPage() {
         : null;
     const allUsageInvoices = [...usageInvoices, ...(currentUsageStatement ? [currentUsageStatement] : [])];
     const scopedUsageInvoices = agentId
-        ? allUsageInvoices.filter((item) => item.agentBreakdown.some((agent) => agent.agentId === agentId))
+        ? allUsageInvoices.filter((item) => item.agentBreakdown.some((agent) => usageAgentId(agent) === agentId))
         : allUsageInvoices;
     const selectedUsageInvoice = allUsageInvoices.find((item) => item.id === invoiceId) ?? null;
     const selectedAgentName = agentId
-        ? scopedUsageInvoices.flatMap((item) => item.agentBreakdown).find((agent) => agent.agentId === agentId)?.agentName ?? "Agent"
+        ? scopedUsageInvoices.flatMap((item) => item.agentBreakdown).find((agent) => usageAgentId(agent) === agentId)?.agentName ?? "Agent"
         : null;
     const showAgentHistory = Boolean(agentId || selectedUsageInvoice);
 
@@ -444,6 +553,8 @@ export default function BusinessInvoiceDetailPage() {
                     <InvoiceCard
                         invoice={invoice}
                         billing={billing}
+                        paying={payingInvoiceId === invoice.id}
+                        onPay={payAgentInvoice}
                         businessName={
                             invoice.billingName ??
                             billing?.businessName ??
@@ -491,7 +602,7 @@ function UsageInvoiceCard({
     onPay: (invoice: UsageInvoice) => Promise<void>;
 }) {
     const allocation = agentId
-        ? invoice.agentBreakdown.find((agent) => agent.agentId === agentId) ?? null
+        ? invoice.agentBreakdown.find((agent) => usageAgentId(agent) === agentId) ?? null
         : null;
     const displayedAgents = allocation ? [allocation] : invoice.agentBreakdown;
     const amountCents = allocation?.amountCents ?? invoice.amountCents;
@@ -506,8 +617,48 @@ function UsageInvoiceCard({
         }
     }
     const services = [...serviceMap.values()];
+    if (services.length === 0) {
+        if (allocation) {
+            services.push({
+                serviceCode: "agent_execution",
+                serviceName: `${allocation.agentName} executions`,
+                unit: "PER_UNIT",
+                quantity: allocation.executionCount ?? allocation.callCount,
+                billedCostUsd: amountCents / 100,
+                amountCents
+            });
+        } else if (invoice.lineItems?.length) {
+            services.push(...invoice.lineItems.map((item) => ({
+                serviceCode: item.serviceCode,
+                serviceName: item.serviceName,
+                unit: item.unit,
+                quantity: item.quantity,
+                billedCostUsd: item.amountUsd ?? item.amountCents / 100,
+                amountCents: item.amountCents
+            })));
+        } else {
+            services.push({
+                serviceCode: "agent_execution",
+                serviceName: "Agent executions",
+                unit: "PER_UNIT",
+                quantity: displayedAgents.reduce(
+                    (sum, agent) => sum + (agent.executionCount ?? agent.callCount),
+                    0
+                ),
+                billedCostUsd: amountCents / 100,
+                amountCents
+            });
+        }
+    }
     const isPaid = invoice.status === "PAID";
-    const statusLabel = invoice.isAccruing ? "ACCRUING" : isPaid ? "PAID" : invoice.status;
+    const isSyntheticAccrual = invoice.id.startsWith("accrued-");
+    const isPending = invoice.status === "PENDING" || invoice.status === "OPEN";
+    const statusLabel = isPaid ? "PAID" : isPending ? "PENDING" : invoice.status;
+    const statusClass = isPaid
+        ? "bg-green-100 text-green-700"
+        : isPending
+            ? "bg-amber-100 text-amber-700"
+            : "bg-red-100 text-red-700";
 
     return (
         <article id="invoice-card" className="relative mx-auto max-w-[800px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
@@ -523,7 +674,7 @@ function UsageInvoiceCard({
                         <p className="text-2xl font-extrabold uppercase tracking-wide text-slate-400">Invoice</p>
                         <p className="invoice-mono mt-2 text-sm text-slate-700">#{invoice.invoiceNumber}</p>
                         <p className="mt-2 text-sm text-slate-500">{invoice.isAccruing ? "Last updated" : "Date issued"}: <span className="font-medium text-slate-700">{formatFullDate(invoice.issuedAt)}</span></p>
-                        <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${invoice.isAccruing ? "bg-amber-100 text-amber-700" : isPaid ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{statusLabel}</span>
+                        <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${statusClass}`}>{statusLabel}</span>
                     </div>
                 </div>
 
@@ -537,7 +688,9 @@ function UsageInvoiceCard({
                     <div className="sm:text-right">
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Agent</p>
                         <p className="text-sm font-semibold text-slate-900">{allocation?.agentName ?? displayedAgents.map((agent) => agent.agentName).join(", ")}</p>
-                        <p className="text-sm text-slate-500">{displayedAgents.reduce((sum, agent) => sum + agent.callCount, 0)} calls · {displayedAgents.reduce((sum, agent) => sum + agent.durationMinutes, 0).toFixed(1)} minutes</p>
+                        <p className="text-sm text-slate-500">
+                            {displayedAgents.reduce((sum, agent) => sum + (agent.executionCount ?? agent.callCount), 0)} executions
+                        </p>
                     </div>
                 </div>
 
@@ -546,7 +699,7 @@ function UsageInvoiceCard({
                         <thead><tr className="bg-slate-50 text-slate-600"><th className="px-3 py-2.5 text-left">#</th><th className="px-3 py-2.5 text-left">Service</th><th className="px-3 py-2.5 text-right">Usage</th><th className="px-3 py-2.5 text-right">Amount</th></tr></thead>
                         <tbody>
                             {services.map((service, index) => (
-                                <tr key={service.serviceCode} className="border-b border-slate-100">
+                                <tr key={service.serviceCode} data-testid="usage-invoice-line-item" className="border-b border-slate-100">
                                     <td className="px-3 py-3 text-slate-400">{index + 1}</td>
                                     <td className="px-3 py-3 font-medium text-slate-700">{service.serviceName}</td>
                                     <td className="px-3 py-3 text-right text-slate-500">
@@ -569,10 +722,10 @@ function UsageInvoiceCard({
                 </div>
 
                 <div className="mt-8 border-t border-slate-100 pt-6">
-                    {invoice.isAccruing ? (
-                        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">This statement updates with new usage. The final invoice is generated on the 1st of next month and is due by the 7th.</p>
+                    {isSyntheticAccrual ? (
+                        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">This live usage statement updates as your agents run. The persisted invoice can be paid from Billing &amp; Usage.</p>
                     ) : !isPaid ? (
-                        <button type="button" disabled={paying} onClick={() => void onPay(invoice)} className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Paying…" : `Pay ${formatCurrencyCents(invoice.amountCents)}`}</button>
+                        <button type="button" disabled={paying} onClick={() => void onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Paying…" : `Pay ${formatCurrencyCents(invoice.amountCents)}`}</button>
                     ) : (
                         <p className="text-sm font-medium text-green-600">✓ Paid successfully{invoice.paidAt ? ` on ${formatFullDate(invoice.paidAt)}` : ""}</p>
                     )}
@@ -613,25 +766,29 @@ function AgentInvoiceList({
                 <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     {invoices.map((invoice) => {
                         const allocation = agentId
-                            ? invoice.agentBreakdown.find((agent) => agent.agentId === agentId)
+                            ? invoice.agentBreakdown.find((agent) => usageAgentId(agent) === agentId)
                             : null;
                         const amountCents = allocation?.amountCents ?? invoice.amountCents;
-                        const calls = allocation?.callCount ?? invoice.callCount;
-                        const minutes = allocation?.durationMinutes ?? invoice.agentBreakdown.reduce((sum, item) => sum + item.durationMinutes, 0);
+                        const executions = allocation?.executionCount
+                            ?? allocation?.callCount
+                            ?? invoice.executionCount
+                            ?? invoice.callCount;
                         const isPaid = invoice.status === "PAID";
+                        const isPending = invoice.status === "PENDING" || invoice.status === "OPEN";
+                        const isSyntheticAccrual = invoice.id.startsWith("accrued-");
 
                         return (
                             <article key={invoice.id} className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <p className="font-mono text-xs font-semibold text-slate-500">{invoice.invoiceNumber}</p>
-                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${isPaid ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-                                            {isPaid ? "Paid" : invoice.status === "OVERDUE" ? "Overdue" : "Payment due"}
+                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${isPaid ? "bg-green-50 text-green-700" : isPending ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>
+                                            {isPaid ? "Paid" : invoice.status === "OVERDUE" ? "Overdue" : "Pending"}
                                         </span>
                                     </div>
                                     <p className="mt-2 font-semibold text-slate-900">Usage for {invoice.billingMonth}</p>
                                     <p className="mt-1 text-sm text-slate-500">
-                                        {calls} calls · {minutes.toFixed(1)} minutes · {isPaid && invoice.paidAt ? `Paid ${formatFullDate(invoice.paidAt)}` : `Due ${formatFullDate(invoice.dueAt)}`}
+                                        {executions} executions · {isPaid && invoice.paidAt ? `Paid ${formatFullDate(invoice.paidAt)}` : `Due ${formatFullDate(invoice.dueAt)}`}
                                     </p>
                                     {allocation && invoice.agentBreakdown.length > 1 ? (
                                         <p className="mt-1 text-xs text-slate-400">Agent allocation from full business invoice {formatCurrencyCents(invoice.amountCents)}</p>
@@ -639,11 +796,12 @@ function AgentInvoiceList({
                                 </div>
                                 <div className="flex shrink-0 items-center gap-4">
                                     <span className="font-mono text-lg font-bold text-slate-900">{formatCurrencyCents(amountCents)}</span>
-                                    {!isPaid ? (
+                                    {!isPaid && !isSyntheticAccrual ? (
                                         <button
                                             type="button"
                                             disabled={payingInvoiceId === invoice.id}
                                             onClick={() => void onPay(invoice)}
+                                            data-testid="usage-invoice-list-pay"
                                             className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
                                         >
                                             {payingInvoiceId === invoice.id ? "Paying…" : "Pay invoice"}
@@ -662,12 +820,16 @@ function AgentInvoiceList({
 function InvoiceCard({
     invoice,
     billing,
+    paying,
+    onPay,
     businessName,
     businessEmail,
     billingAddress
 }: {
     invoice: BillingInvoice;
     billing: Billing | null;
+    paying: boolean;
+    onPay: (invoice: BillingInvoice) => Promise<void>;
     businessName: string;
     businessEmail: string;
     billingAddress: string | null;
@@ -675,7 +837,7 @@ function InvoiceCard({
     const status = statusView(invoice.status);
     const displayCents = invoiceDisplayAmount(invoice);
     const amount = formatCurrencyCents(displayCents);
-    const amountPaid = status.isPaid ? formatCurrencyCents(invoice.amountCents) : amount;
+    const amountPaid = status.isPaid ? formatCurrencyCents(displayCents) : "$0.00";
     const balanceDue = status.isPaid ? "$0.00" : amount;
 
     // Itemized rows when the payment carries a fee breakdown (agent price +
@@ -836,9 +998,22 @@ function InvoiceCard({
                             </p>
                         </div>
                     ) : (
-                        <p className="text-sm text-slate-500" data-testid="invoice-payment-unpaid">
-                            Awaiting payment. No transaction has been recorded for this invoice yet.
-                        </p>
+                        <div className="space-y-3">
+                            <p className="text-sm text-slate-500" data-testid="invoice-payment-unpaid">
+                                Awaiting payment. No transaction has been recorded for this invoice yet.
+                            </p>
+                            {isDirectlyPayableAgentInvoice(invoice) ? (
+                                <button
+                                    type="button"
+                                    disabled={paying}
+                                    onClick={() => void onPay(invoice)}
+                                    data-testid="invoice-pay-now"
+                                    className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50"
+                                >
+                                    {paying ? "Paying…" : `Pay ${amount}`}
+                                </button>
+                            ) : null}
+                        </div>
                     )}
                 </div>
 

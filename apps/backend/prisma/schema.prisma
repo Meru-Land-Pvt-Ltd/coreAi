@@ -246,10 +246,14 @@ model Business {
   subscriptionPriceId  String?
   currentPeriodEnd     DateTime?
 
-  billingName       String?
-  billingEmail      String?
-  billingAddress    String?
-  billingPostalCode String?
+  billingName                    String?
+  billingEmail                   String?
+  billingAddress                 String?
+  billingPostalCode              String?
+  spendingAlertEnabled           Boolean   @default(false)
+  spendingAlertThresholdCents    Int       @default(5000)
+  spendingAlertLastNotifiedMonth String?
+  spendingAlertLastNotifiedAt    DateTime?
 
   appointments    Appointment[]
   owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -269,6 +273,7 @@ model Business {
   smsExecutions   SmsExecution[]
   smsConsents     SmsConsent[]
   specialHours    BusinessSpecialHours[]
+  executionUsages AgentUsageExecution[]
 
   @@index([ownerId])
   @@index([type])
@@ -361,22 +366,30 @@ model BusinessPhoneNumber {
 }
 
 model InstalledAgent {
-  id             String                  @id @default(cuid())
-  businessId     String
-  workflowId     String
-  listingId      String?
-  name           String
-  status         String                  @default("ACTIVE")
-  installSource  InstallSource           @default(MARKETPLACE_PURCHASE)
-  configJson     Json?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  phoneNumbers   BusinessPhoneNumber[]
-  knowledgeFiles BusinessKnowledgeFile[]
-  business       Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  listing        AgentListing?           @relation(fields: [listingId], references: [id])
-  workflow       WorkflowDefinition      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  workflowRuns   WorkflowRun[]
+  id                        String                  @id @default(cuid())
+  businessId                String
+  workflowId                String
+  listingId                 String?
+  name                      String
+  status                    String                  @default("ACTIVE")
+  installSource             InstallSource           @default(MARKETPLACE_PURCHASE)
+  /// Snapshotted from the listing at acquisition so later marketplace price
+  /// edits never change an existing buyer's per-run terms.
+  executionFeeCents         Int                     @default(0)
+  trialExecutionLimit       Int                     @default(50)
+  trialExecutionsUsed       Int                     @default(0)
+  executionBillingStartedAt DateTime                @default(now())
+  configJson                Json?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  phoneNumbers              BusinessPhoneNumber[]
+  knowledgeFiles            BusinessKnowledgeFile[]
+  business                  Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  listing                   AgentListing?           @relation(fields: [listingId], references: [id])
+  workflow                  WorkflowDefinition      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowRuns              WorkflowRun[]
+  executionUsages           AgentUsageExecution[]
+  usageInvoices             BusinessUsageInvoice[]
 
   @@unique([businessId, listingId])
   @@index([businessId])
@@ -674,11 +687,23 @@ model Payment {
   billingAddress String?
 
   description   String?
+  invoiceKind   PaymentInvoiceKind @default(PURCHASE)
+  /// Stable scheduler/idempotency key, for example
+  /// "post-trial:<trialPaymentId>" or "subscription:<user>:<listing>:2026-07".
+  invoiceKey    String?            @unique
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  dueAt         DateTime?
+  graceEndsAt   DateTime?
+  paidAt        DateTime?
+  suspendedAt   DateTime?
+  paymentAttemptCount Int @default(0)
+  paymentPendingAt DateTime?
   /// Buyer-facing fee breakdown: [{ label, amountCents }] — agent price plus
   /// the "AI Receptionist No." number fee when one was provisioned.
   lineItemsJson Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   business Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
@@ -1167,9 +1192,18 @@ enum PaymentStatus {
   PENDING
   TRIALING
   SUCCEEDED
+  COMPLETED
+  OVERDUE
   FAILED
   CANCELED
   REFUNDED
+}
+
+enum PaymentInvoiceKind {
+  PURCHASE
+  TRIAL
+  POST_TRIAL
+  SUBSCRIPTION_RENEWAL
 }
 
 enum ArchitectEarningStatus {
@@ -1214,31 +1248,32 @@ enum ContextLinkStatus {
 }
 
 model WorkflowRun {
-  id                String             @id @default(cuid())
+  id                String               @id @default(cuid())
   workflowId        String
   installedAgentId  String?
   businessId        String?
   triggeredByUserId String?
-  mode              WorkflowRunMode    @default(TEST)
-  status            WorkflowRunStatus  @default(RUNNING)
+  mode              WorkflowRunMode      @default(TEST)
+  status            WorkflowRunStatus    @default(RUNNING)
   threadId          String?
   inputJson         Json?
   outputJson        Json?
   errorMessage      String?
-  startedAt         DateTime           @default(now())
+  startedAt         DateTime             @default(now())
   finishedAt        DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  workflow          WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  installedAgent    InstalledAgent?    @relation(fields: [installedAgentId], references: [id])
-  business          Business?          @relation(fields: [businessId], references: [id])
-  triggeredBy       User?              @relation(fields: [triggeredByUserId], references: [id])
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  workflow          WorkflowDefinition   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  installedAgent    InstalledAgent?      @relation(fields: [installedAgentId], references: [id])
+  business          Business?            @relation(fields: [businessId], references: [id])
+  triggeredBy       User?                @relation(fields: [triggeredByUserId], references: [id])
   nodeRuns          NodeRun[]
   contextLinks      ContextLink[]
+  usageExecution    AgentUsageExecution?
   durationMs        Int? /// Total run duration in milliseconds
-  totalTokenInput   Int?               @default(0)
-  totalTokenOutput  Int?               @default(0)
-  totalCostCents    Int?               @default(0)
+  totalTokenInput   Int?                 @default(0)
+  totalTokenOutput  Int?                 @default(0)
+  totalCostCents    Int?                 @default(0)
   currentNodeId     String? /// Last node that executed in this run
   metadataJson      Json? /// Extra workflow-level metadata
   callProvider      String?
@@ -1460,6 +1495,7 @@ model PlatformUsageService {
 
 enum UsageInvoiceStatus {
   OPEN
+  PENDING
   OVERDUE
   PAID
   VOID
@@ -1468,29 +1504,39 @@ enum UsageInvoiceStatus {
 model BusinessUsageInvoice {
   id                    String             @id @default(cuid())
   businessId            String
+  installedAgentId      String?
   billingMonth          String
+  sequence              Int                @default(1)
   invoiceNumber         String             @unique
-  status                UsageInvoiceStatus @default(OPEN)
+  status                UsageInvoiceStatus @default(PENDING)
   currency              String             @default("usd")
   periodStart           DateTime
   periodEnd             DateTime
   issuedAt              DateTime
   dueAt                 DateTime
+  graceEndsAt           DateTime?
   subtotalMicroUsd      Int
   totalMicroUsd         Int
+  closedAt              DateTime?
   paidAt                DateTime?
   stripePaymentIntentId String?
+  paymentAttemptCount   Int                @default(0)
+  paymentPendingAt      DateTime?
   reminderCount         Int                @default(0)
   lastReminderAt        DateTime?
   suspendedAt           DateTime?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
-  business  Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  lineItems BusinessUsageInvoiceLineItem[]
-  calls     VapiCall[]
+  business       Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent?                @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  lineItems      BusinessUsageInvoiceLineItem[]
+  calls          VapiCall[]
+  executions     AgentUsageExecution[]
 
-  @@unique([businessId, billingMonth])
+  @@unique([installedAgentId, billingMonth, sequence])
+  @@index([businessId, billingMonth])
+  @@index([installedAgentId, status])
   @@index([businessId, status])
   @@index([status, dueAt])
 }
@@ -1510,6 +1556,48 @@ model BusinessUsageInvoiceLineItem {
 
   @@unique([invoiceId, serviceCode])
   @@index([invoiceId])
+}
+
+enum AgentUsageSource {
+  WORKFLOW
+  VAPI
+}
+
+/// Canonical, idempotent record of one completed LIVE agent interaction.
+/// Voice calls and their linked WorkflowRun share a dedupeKey, so one customer
+/// interaction can never be charged twice.
+model AgentUsageExecution {
+  id                       String           @id @default(cuid())
+  businessId               String
+  installedAgentId         String
+  workflowRunId            String?          @unique
+  usageInvoiceId           String?
+  dedupeKey                String           @unique
+  source                   AgentUsageSource
+  sourceId                 String
+  billingMonth             String
+  occurredAt               DateTime
+  executionNumber          Int
+  trialExecution           Boolean          @default(false)
+  billable                 Boolean          @default(true)
+  freeReason               String?
+  unitPriceMicroUsd        Int
+  amountMicroUsd           Int
+  actualCostMicroUsd       Int              @default(0)
+  legacyBilledCostMicroUsd Int              @default(0)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent        @relation(fields: [installedAgentId], references: [id], onDelete: Restrict)
+  workflowRun    WorkflowRun?          @relation(fields: [workflowRunId], references: [id], onDelete: SetNull)
+  usageInvoice   BusinessUsageInvoice? @relation(fields: [usageInvoiceId], references: [id], onDelete: SetNull)
+
+  @@unique([installedAgentId, executionNumber])
+  @@index([businessId, billingMonth])
+  @@index([installedAgentId, billingMonth])
+  @@index([usageInvoiceId])
+  @@index([occurredAt])
 }
 
 enum SmsProvider {
