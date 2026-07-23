@@ -383,6 +383,7 @@ model InstalledAgent {
   trialExecutionsUsed       Int                     @default(0)
   executionBillingStartedAt DateTime                @default(now())
   configJson                Json?
+  pausedAt                  DateTime?
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
   phoneNumbers              BusinessPhoneNumber[]

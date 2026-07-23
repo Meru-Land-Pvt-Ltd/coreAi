@@ -22,7 +22,13 @@ export type PaymentWithListing = {
   billingEmail?: string | null;
   billingAddress?: string | null;
   lineItemsJson?: unknown;
-  listing?: { id: string; name: string; trialDays?: number | null; pricingModel?: string | null } | null;
+  listing?: {
+    id: string;
+    name: string;
+    priceCents?: number;
+    trialDays?: number | null;
+    pricingModel?: string | null;
+  } | null;
 };
 
 /**
@@ -68,13 +74,24 @@ export function invoiceDisplayAmountCents(payment: {
   status: string;
   amountCents: number;
   invoiceKind?: string | null;
+  lineItemsJson?: unknown;
+  listing?: { priceCents?: number } | null;
 }) {
   const status = payment.status.toUpperCase();
-  if (
+  const isTrial =
     payment.invoiceKind === "TRIAL" ||
-    (!payment.invoiceKind && (status === "TRIALING" || status === "COMPLETED"))
-  ) {
+    (!payment.invoiceKind && (status === "TRIALING" || status === "COMPLETED"));
+
+  if (isTrial && status === "TRIALING") {
     return 0;
+  }
+  if (isTrial && status === "COMPLETED") {
+    const recordedAmount =
+      parsePaymentLineItems(payment.lineItemsJson)?.[0]?.amountCents ??
+      payment.amountCents;
+    return recordedAmount > 0
+      ? recordedAmount
+      : payment.listing?.priceCents ?? 0;
   }
   if (
     status === "SUCCEEDED" ||

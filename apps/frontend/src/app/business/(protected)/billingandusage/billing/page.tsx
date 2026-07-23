@@ -42,7 +42,10 @@ function invoiceDisplayAmount(invoice: BillingInvoice) {
         return invoice.displayAmountCents;
     }
     const invoiceKind = (invoice.invoiceKind ?? invoice.invoiceType)?.toUpperCase();
-    if (invoiceKind === "TRIAL" || invoice.status.toUpperCase() === "TRIALING") return 0;
+    if (
+        invoice.status.toUpperCase() === "TRIALING" ||
+        (invoiceKind === "TRIAL" && invoice.status.toUpperCase() !== "COMPLETED")
+    ) return 0;
     return invoice.amountCents;
 }
 

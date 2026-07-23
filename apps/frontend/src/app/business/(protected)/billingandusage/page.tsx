@@ -45,7 +45,6 @@ function invoiceDisplayAmount(invoice: BillingInvoice) {
     if (typeof invoice.displayAmountCents === "number") {
         return invoice.displayAmountCents;
     }
-    if (isTrialPurchaseInvoice(invoice)) return 0;
     if (["SUCCEEDED", "PAID", "COMPLETED"].includes(invoice.status.toUpperCase())) {
         return invoice.amountCents;
     }
@@ -307,8 +306,9 @@ function isDirectlyPayableAgentInvoice(invoice: BillingInvoice) {
     return invoiceKind === "POST_TRIAL" || invoiceKind === "SUBSCRIPTION_RENEWAL";
 }
 
-function statusBadgeClass(status: string) {
+function statusBadgeClass(status: string, invoice?: BillingInvoice) {
     const value = status.toUpperCase();
+    if (invoice && isTrialPurchaseInvoice(invoice)) return "bg-blue-50 text-blue-700";
     if (value === "SUCCEEDED" || value === "PAID" || value === "COMPLETED") return "bg-green-50 text-green-700";
     if (value === "TRIALING") return "bg-blue-50 text-blue-700";
     if (["PENDING", "PROCESSING", "OPEN"].includes(value)) return "bg-amber-50 text-amber-700";
@@ -1006,7 +1006,10 @@ export default function BusinessBillingUsagePage() {
                                 <p className="py-3 text-sm text-slate-400">No purchased agents yet.</p>
                             ) : agents.map((agent, index) => {
                                 const pricingModel = agent.pricingModel?.toUpperCase();
-                                const listingPriceCents = agent.monthlyCostCents ?? agent.priceCents;
+                                const listingPriceCents =
+                                    pricingModel === "SUBSCRIPTION"
+                                        ? agent.monthlyCostCents ?? agent.priceCents
+                                        : agent.priceCents;
                                 const priceSuffix = pricingModel === "SUBSCRIPTION"
                                     ? "/month"
                                     : pricingModel === "ONE_TIME"
@@ -1235,7 +1238,7 @@ export default function BusinessBillingUsagePage() {
                                             <td className="px-6 py-4 text-sm text-slate-700">{invoice.description || NA}</td>
                                             <td className="px-6 py-4 font-mono text-sm font-semibold tabular-nums text-slate-800">{formatCurrencyCents(invoiceDisplayAmount(invoice))}</td>
                                             <td className="px-6 py-4">
-                                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(invoice.status)}`}>
+                                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(invoice.status, invoice)}`}>
                                                     {statusLabel(invoice.status, invoice)}
                                                 </span>
                                             </td>
@@ -1457,7 +1460,7 @@ export default function BusinessBillingUsagePage() {
                 <section className="mb-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" aria-label="Spending alerts" data-testid="billing-spending-alerts">
                     <h2 className="text-base font-bold">Spending Alerts</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                        Get an email{billing?.billingEmail ? ` at ${billing.billingEmail}` : ""} when monthly execution costs reach your threshold.
+                        Get notified when your monthly execution costs exceed a threshold.
                     </p>
 
                     <div className="mt-4 flex flex-wrap items-center gap-4">
