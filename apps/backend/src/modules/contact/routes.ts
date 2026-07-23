@@ -8,7 +8,10 @@ export const contactRoutes = new Hono();
 const contactSubmissionSchema = z.object({
   name: z.string().trim().min(1, "Please enter your full name.").max(200),
   email: z.string().trim().email("Please enter a valid email address."),
-  subject: z.enum(["general", "business-support", "architect-support", "partnership", "bug-report"]),
+  subject: z.union([
+    z.enum(["general", "business-support", "architect-support", "partnership", "bug-report"]),
+    z.literal("Chatbot Contact Request")
+  ]),
   message: z.string().trim().min(1, "Please enter a message.").max(5000)
 });
 

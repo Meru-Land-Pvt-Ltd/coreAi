@@ -5,7 +5,8 @@ export type ContactSubject =
   | "business-support"
   | "architect-support"
   | "partnership"
-  | "bug-report";
+  | "bug-report"
+  | "Chatbot Contact Request";
 
 export function submitContactSubmission(body: {
   name: string;
