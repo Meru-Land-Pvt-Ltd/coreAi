@@ -89,7 +89,7 @@ function PaymentSuccessFallback() {
 
 function resolvePaymentMode(searchParams: URLSearchParams, amount: number | null) {
     const mode = searchParams.get("mode");
-    if (mode === "trial" || mode === "purchase" || mode === "free") return mode;
+    if (mode === "trial" || mode === "purchase" || mode === "free" || mode === "invoice") return mode;
     if (amount !== null && amount > 0) return "purchase";
     return "trial";
 }
@@ -109,6 +109,7 @@ function BusinessPaymentSuccessContent() {
     const paymentMode = resolvePaymentMode(searchParams, amount);
     const isTrial = paymentMode === "trial";
     const isFree = paymentMode === "free";
+    const isInvoice = paymentMode === "invoice";
     const displayAmount = amount ?? 0;
 
     // Real transaction reference when the checkout passed one; the random
@@ -248,14 +249,16 @@ function BusinessPaymentSuccessContent() {
 
                     <div role="alert">
                         <h1 id="success-title" className="rise mt-6 text-3xl font-bold tracking-tight sm:text-4xl" style={{ animationDelay: ".15s" }} data-testid="payment-success-title">
-                            {isFree ? "Agent installed!" : isTrial ? "Trial started!" : "Payment successful!"}
+                            {isFree ? "Agent installed!" : isTrial ? "Trial started!" : isInvoice ? "Invoice paid!" : "Payment successful!"}
                         </h1>
                         <p className="rise mx-auto mt-2 max-w-md text-base text-slate-600 sm:text-lg" style={{ animationDelay: ".28s" }} data-testid="payment-success-subtitle">
                             {isFree
                                 ? "Thank you. Your free agent is ready to be set up."
                                 : isTrial
                                     ? `Thank you. Your ${trialDays}-day free trial has started and your agent is ready to be set up.`
-                                    : `Thank you. Your payment of $${displayAmount.toFixed(2)} was processed and your agent is ready to be set up.`}
+                                    : isInvoice
+                                        ? `Your payment of $${displayAmount.toFixed(2)} succeeded and the invoice is now paid.`
+                                        : `Thank you. Your payment of $${displayAmount.toFixed(2)} was processed and your agent is ready to be set up.`}
                         </p>
                     </div>
 
@@ -327,7 +330,9 @@ function BusinessPaymentSuccessContent() {
                                 <div className="flex items-center justify-between gap-4">
                                     <dt className="text-slate-500">Plan</dt>
                                     <dd className="font-medium text-slate-900">
-                                        {pricingModel === "ONE_TIME"
+                                        {isInvoice
+                                            ? "Invoice payment"
+                                            : pricingModel === "ONE_TIME"
                                             ? "Professional — One-time"
                                             : pricingModel === "FREE"
                                             ? "Free"
@@ -407,7 +412,7 @@ function BusinessPaymentSuccessContent() {
                     </div>
                 </section>
 
-                <section className="mt-9" aria-label="What happens next">
+                {!isInvoice ? <section className="mt-9" aria-label="What happens next">
                     <h2 className="rise text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ animationDelay: ".7s" }}>
                         What happens next
                     </h2>
@@ -457,17 +462,23 @@ function BusinessPaymentSuccessContent() {
                             </div>
                         </li>
                     </ol>
-                </section>
+                </section> : null}
 
                 <section className="mt-9">
                     <div className="rise" style={{ animationDelay: "1s" }}>
                         <button
                             type="button"
-                            onClick={() => router.push(businessSetupPath(listingId ?? undefined))}
+                            onClick={() =>
+                                router.push(
+                                    isInvoice
+                                        ? ("/business/billingandusage" as Route)
+                                        : businessSetupPath(listingId ?? undefined)
+                                )
+                            }
                             data-testid="payment-success-setup-agent"
                             className="cta cta-pulse btn-glow group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-4 text-base font-semibold text-slate-900 transition-colors hover:bg-amber-600"
                         >
-                            Set up your agent
+                            {isInvoice ? "Return to billing" : "Set up your agent"}
                             <svg className="cta-arrow h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <path d="M5 12h14m0 0-5-5m5 5-5 5" />
                             </svg>
@@ -480,7 +491,7 @@ function BusinessPaymentSuccessContent() {
                             data-testid="payment-success-skip"
                             className="rounded text-sm text-slate-500 underline decoration-slate-300 underline-offset-2 transition-colors hover:text-slate-700 hover:decoration-slate-500"
                         >
-                            Skip for now — set up later from your dashboard
+                            {isInvoice ? "Go to dashboard" : "Skip for now — set up later from your dashboard"}
                         </button>
                     </div>
                 </section>

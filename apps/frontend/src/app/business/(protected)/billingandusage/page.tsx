@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { loadStripe } from "@stripe/stripe-js";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
-import { businessCheckoutPath } from "@/lib/routes";
+import { businessCheckoutPath, businessInvoiceCheckoutPath } from "@/lib/routes";
 import { shouldShowSyntheticAccrual } from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
+import {
+    outstandingExecutionCents,
+    outstandingSubscriptionCents
+} from "@/components/business/outstanding-billing";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -84,9 +87,6 @@ type Billing = {
         totalAgentFeesPaidCents: number;
         currentMonthExecutionCostCents: number | null;
         nextChargeCents: number;
-        upcomingAgentChargeCents?: number | null;
-        monthlySubscriptionCostCents?: number | null;
-        projectedExecutionCostCents?: number | null;
     };
     usage: {
         billingMonth?: string;
@@ -128,6 +128,16 @@ type UsageBill = {
         serviceCosts: Array<{
             serviceCode: string;
             serviceName: string;
+            invoiceLabel?: string;
+            unit: string;
+            quantity: number;
+            billedCostUsd: number;
+            amountCents: number;
+        }>;
+        invoiceServiceCosts?: Array<{
+            serviceCode: string;
+            serviceName: string;
+            invoiceLabel?: string;
             unit: string;
             quantity: number;
             billedCostUsd: number;
@@ -137,6 +147,8 @@ type UsageBill = {
     serviceRollup: Array<{
         serviceCode: string;
         serviceName: string;
+        invoiceLabel?: string;
+        unit: string;
         quantity: number;
         billedCostUsd: number;
     }>;
@@ -185,6 +197,7 @@ type UsageInvoice = {
         serviceCosts: Array<{
             serviceCode: string;
             serviceName: string;
+            invoiceLabel?: string;
             unit: string;
             quantity: number;
             billedCostUsd: number;
@@ -195,17 +208,6 @@ type UsageInvoice = {
 
 type UsageInvoicesResponse = { invoices: UsageInvoice[] };
 
-type InvoicePaymentResult = {
-    status?: string;
-    invoiceIds?: string[];
-    carriedForward?: boolean;
-    requiresAction?: boolean;
-    clientSecret?: string | null;
-};
-
-type StripeConfigResponse = {
-    publishableKey?: string | null;
-};
 type InvoiceTab = "paid" | "pending" | "overdue";
 
 const NA = "—";
@@ -666,64 +668,20 @@ export default function BusinessBillingUsagePage() {
         }
     }
 
-    async function payUsageInvoice(invoice: UsageInvoice) {
+    function payUsageInvoice(invoice: UsageInvoice) {
         if (payingInvoiceId) return;
         setPayingInvoiceId(invoice.id);
-        try {
-            let response = await apiPost<InvoicePaymentResult>(
-                `/business/billing/usage-invoices/${invoice.id}/pay`,
-                {}
-            );
-            if (!response.success) {
-                showToast(response.error ?? "Could not pay invoice");
-                return;
-            }
-
-            if (response.data?.carriedForward) {
-                showToast("Balance carried forward until it reaches the $0.50 card minimum");
-                return;
-            }
-
-            if (response.data?.requiresAction && response.data.clientSecret) {
-                const config = await apiGet<StripeConfigResponse>("/payments/config");
-                const publishableKey = config.data?.publishableKey;
-                const stripe = publishableKey ? await loadStripe(publishableKey) : null;
-                if (!config.success || !stripe) {
-                    showToast("Card authentication could not be started");
-                    return;
-                }
-                const action = await stripe.handleNextAction({
-                    clientSecret: response.data.clientSecret
-                });
-                if (action.error) {
-                    showToast(action.error.message ?? "Card authentication was not completed");
-                    return;
-                }
-                response = await apiPost<InvoicePaymentResult>(
-                    `/business/billing/usage-invoices/${invoice.id}/pay`,
-                    {}
-                );
-                if (!response.success) {
-                    showToast(response.error ?? "Could not finish paying invoice");
-                    return;
-                }
-            }
-
-            if (response.data?.status?.toUpperCase() !== "PAID") {
-                showToast("Payment is still pending");
-                return;
-            }
-            const settledIds = new Set(response.data.invoiceIds ?? [invoice.id]);
-            const paidAt = new Date().toISOString();
-            setUsageInvoices((current) => current.map((item) =>
-                settledIds.has(item.id) ? { ...item, status: "PAID", paidAt } : item
-            ));
-            showToast("Invoice paid and services restored");
-        } catch (error) {
-            showToast(error instanceof Error ? error.message : "Could not pay invoice");
-        } finally {
-            setPayingInvoiceId(null);
-        }
+        const agentId =
+            invoice.agentBreakdown[0]?.installedAgentId ??
+            invoice.agentBreakdown[0]?.agentId ??
+            null;
+        router.push(
+            businessInvoiceCheckoutPath({
+                invoiceId: invoice.id,
+                invoiceType: "usage",
+                agentId
+            })
+        );
     }
 
     async function cancelAgentSubscription(agentId: string) {
@@ -741,22 +699,16 @@ export default function BusinessBillingUsagePage() {
         }
     }
 
-    async function payAgentInvoice(invoice: BillingInvoice) {
+    function payAgentInvoice(invoice: BillingInvoice) {
         if (payingInvoiceId) return;
         setPayingInvoiceId(invoice.id);
-        try {
-            const response = await apiPost(`/payments/invoices/${invoice.id}/pay`, {});
-            if (!response.success) {
-                showToast(response.error ?? "Could not pay invoice");
-                return;
-            }
-            await loadBilling(false);
-            showToast("Invoice paid and eligible services restored");
-        } catch (error) {
-            showToast(error instanceof Error ? error.message : "Could not pay invoice");
-        } finally {
-            setPayingInvoiceId(null);
-        }
+        router.push(
+            businessInvoiceCheckoutPath({
+                invoiceId: invoice.id,
+                invoiceType: "agent",
+                listingId: invoice.listingId
+            })
+        );
     }
 
     async function saveSpendingAlert(enabled: boolean, thresholdCents: number) {
@@ -880,17 +832,6 @@ export default function BusinessBillingUsagePage() {
         ?? (currentUsage
             ? Math.round((currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd) * 100)
             : billing?.summary.currentMonthExecutionCostCents ?? 0);
-    const monthlySubscriptionCostCents = billing?.summary.upcomingAgentChargeCents
-        ?? billing?.summary.monthlySubscriptionCostCents
-        ?? agents
-            .filter((agent) => agent.pricingModel?.toUpperCase() === "SUBSCRIPTION")
-            .reduce((sum, agent) => sum + (agent.monthlyCostCents ?? agent.priceCents), 0);
-    const today = new Date();
-    const daysInCurrentMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).getUTCDate();
-    const projectedExecutionCostCents = billing?.summary.projectedExecutionCostCents
-        ?? (currentMonthCostCents > 0
-            ? Math.round((currentMonthCostCents / Math.max(1, today.getUTCDate())) * daysInCurrentMonth)
-            : 0);
     const totalAgentFees = formatCurrencyCents(billing?.summary.totalAgentFeesPaidCents);
 
     const paidPurchaseInvoices = invoices.filter((invoice) => purchaseInvoiceTab(invoice) === "paid");
@@ -916,7 +857,10 @@ export default function BusinessBillingUsagePage() {
             dueAt: usageDueAt(currentUsage.month),
             paidAt: null,
             callCount: currentUsage.totalExecutions ?? currentUsage.totalCalls,
-            agentBreakdown: currentUsage.agentRollup,
+            agentBreakdown: currentUsage.agentRollup.map((agent) => ({
+                ...agent,
+                serviceCosts: agent.invoiceServiceCosts ?? []
+            })),
             isAccruing: true
         }
         : null;
@@ -925,6 +869,11 @@ export default function BusinessBillingUsagePage() {
         ...(currentUsageStatement ? [currentUsageStatement] : [])
     ];
     const overdueUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "OVERDUE");
+    const outstandingSubscriptionAmountCents = outstandingSubscriptionCents(invoices);
+    const outstandingExecutionAmountCents = outstandingExecutionCents([
+        ...usageInvoices,
+        ...(currentUsageStatement ? [currentUsageStatement] : [])
+    ]);
     const parsedSpendingAlertDollars = Number.parseFloat(spendingAlertThreshold || "0");
     const spendingAlertCents = Number.isFinite(parsedSpendingAlertDollars) && parsedSpendingAlertDollars > 0
         ? Math.round(parsedSpendingAlertDollars * 100)
@@ -998,7 +947,7 @@ export default function BusinessBillingUsagePage() {
                         </div>
                         <h2 className="mt-2 text-2xl font-bold">{billing?.plan.name ?? NA}</h2>
                         <p className="mt-1 text-sm text-slate-500">
-                            No platform subscription. Pay the listed agent fee, plus the per-execution price shown below.
+                            No platform subscription. Pay the listed agent fee, plus each agent&apos;s recorded execution cost shown below.
                         </p>
                         <div className="my-5 h-px bg-gray-100" />
                         <div className="space-y-3">
@@ -1015,6 +964,14 @@ export default function BusinessBillingUsagePage() {
                                     : pricingModel === "ONE_TIME"
                                         ? " one-time"
                                         : "";
+                                const agentExecutionUsage = currentUsage?.agentRollup.find((rollup) => {
+                                    const rollupInstalledId = rollup.installedAgentId ?? rollup.agentId;
+                                    if (agent.installedAgentId && rollupInstalledId === agent.installedAgentId) return true;
+                                    const listingId = agent.listingId ?? agent.id;
+                                    if (rollup.listingId && rollup.listingId === listingId) return true;
+                                    return rollup.agentName.trim().toLowerCase() === agent.name.trim().toLowerCase();
+                                });
+                                const agentExecutionCostUsd = agentExecutionUsage?.billedCostUsd ?? 0;
                                 const trialLimit = agent.trialExecutionLimit ?? 50;
                                 const trialUsed = agent.trialExecutionsUsed
                                     ?? (agent.trialExecutionsRemaining === null || agent.trialExecutionsRemaining === undefined
@@ -1038,7 +995,7 @@ export default function BusinessBillingUsagePage() {
                                         <span className="font-mono text-sm tabular-nums text-slate-600">
                                             {pricingModel === "FREE" ? "$0.00" : formatCurrencyCents(listingPriceCents)}
                                             <span className="text-slate-400">{priceSuffix}</span>
-                                            <span className="text-slate-400"> + {formatCurrencyCents(agent.executionFeeCents ?? 0)}/run</span>
+                                            <span className="text-slate-400"> + {formatCurrencyUsd(agentExecutionCostUsd)}</span>
                                         </span>
                                         {pricingModel === "SUBSCRIPTION" ? (
                                             <button
@@ -1076,19 +1033,33 @@ export default function BusinessBillingUsagePage() {
 
                     <div className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50 p-6" data-testid="billing-next-charge">
                         <span className="text-sm font-semibold text-amber-700">Next Charge</span>
-                        <div className="mt-2 font-mono text-3xl font-black tabular-nums text-slate-900">{formatCurrencyCents(monthlySubscriptionCostCents)}</div>
+                        <div
+                            className="mt-2 font-mono text-3xl font-black tabular-nums text-slate-900"
+                            data-testid="billing-next-charge-amount"
+                        >
+                            {formatCurrencyCents(outstandingSubscriptionAmountCents)}
+                        </div>
                         <p className="mt-1 text-sm text-slate-600">
-                            {monthlySubscriptionCostCents > 0 ? "Upcoming monthly agent subscriptions" : "No upcoming agent purchases"}
+                            {outstandingSubscriptionAmountCents > 0
+                                ? "Pending and overdue agent subscriptions"
+                                : "No pending or overdue subscriptions"}
                         </p>
 
                         <div className="my-4 h-px bg-amber-200/60" />
 
                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Execution fees</span>
-                        <p className="mt-1 text-sm text-slate-600">Billed monthly on the 1st</p>
                         <p className="mt-1 text-sm font-semibold text-slate-800">
-                            Next execution bill: <span className="font-mono">{projectedExecutionCostCents > 0 ? "~" : ""}{formatCurrencyCents(projectedExecutionCostCents)}</span>
+                            Next execution bill:{" "}
+                            <span
+                                className="font-mono"
+                                data-testid="billing-next-execution-bill"
+                            >
+                                {formatCurrencyCents(outstandingExecutionAmountCents)}
+                            </span>
                         </p>
-                        <p className="mt-0.5 text-xs text-slate-400">Based on current usage trend</p>
+                        <p className="mt-0.5 text-xs text-slate-400">
+                            Pending and overdue execution charges
+                        </p>
                     </div>
                 </section>
 
@@ -1278,15 +1249,19 @@ export default function BusinessBillingUsagePage() {
                                                     onClick={(event) => {
                                                         event.stopPropagation();
                                                         if (isDirectlyPayableAgentInvoice(invoice)) {
-                                                            void payAgentInvoice(invoice);
+                                                            payAgentInvoice(invoice);
                                                         } else {
-                                                            router.push(businessCheckoutPath(invoice.listingId ?? undefined));
+                                                            router.push(
+                                                                businessCheckoutPath(
+                                                                    invoice.listingId ?? undefined
+                                                                )
+                                                            );
                                                         }
                                                     }}
                                                     data-testid="billing-pending-purchase-pay"
                                                     className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50"
                                                 >
-                                                    {payingInvoiceId === invoice.id ? "Paying…" : "Pay now"}
+                                                    {payingInvoiceId === invoice.id ? "Redirecting…" : "Pay now"}
                                                 </button>
                                             </td>
                                         </tr>
@@ -1307,22 +1282,18 @@ export default function BusinessBillingUsagePage() {
                                             <td className="px-6 py-4 font-mono text-sm font-semibold">{formatCurrencyCents(invoice.amountCents)}</td>
                                             <td className="px-6 py-4"><span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">{invoice.isAccruing ? "Accruing" : "Pending"}</span></td>
                                             <td className="px-6 py-4 text-right">
-                                                {invoice.id.startsWith("accrued-") ? (
-                                                    <span className="text-xs font-semibold text-amber-700">View usage</span>
-                                                ) : (
-                                                    <button
-                                                        type="button"
-                                                        disabled={payingInvoiceId === invoice.id}
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            void payUsageInvoice(invoice);
-                                                        }}
-                                                        data-testid="billing-pending-usage-pay"
-                                                        className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50"
-                                                    >
-                                                        {payingInvoiceId === invoice.id ? "Paying…" : "Pay now"}
-                                                    </button>
-                                                )}
+                                                <button
+                                                    type="button"
+                                                    disabled={payingInvoiceId === invoice.id}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        payUsageInvoice(invoice);
+                                                    }}
+                                                    data-testid="billing-pending-usage-pay"
+                                                    className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50"
+                                                >
+                                                    {payingInvoiceId === invoice.id ? "Redirecting…" : "Pay now"}
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
@@ -1336,8 +1307,8 @@ export default function BusinessBillingUsagePage() {
                                                 {invoice.isAccruing ? (
                                                     <span className="text-xs font-semibold text-amber-700">View invoice</span>
                                                 ) : (
-                                                    <button type="button" disabled={payingInvoiceId === invoice.id} onClick={(event) => { event.stopPropagation(); void payUsageInvoice(invoice); }} data-testid="billing-overdue-usage-pay" className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50">
-                                                        {payingInvoiceId === invoice.id ? "Paying…" : "Pay now"}
+                                                    <button type="button" disabled={payingInvoiceId === invoice.id} onClick={(event) => { event.stopPropagation(); payUsageInvoice(invoice); }} data-testid="billing-overdue-usage-pay" className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50">
+                                                        {payingInvoiceId === invoice.id ? "Redirecting…" : "Pay now"}
                                                     </button>
                                                 )}
                                             </td>
@@ -1373,15 +1344,19 @@ export default function BusinessBillingUsagePage() {
                                                     onClick={(event) => {
                                                         event.stopPropagation();
                                                         if (isDirectlyPayableAgentInvoice(invoice)) {
-                                                            void payAgentInvoice(invoice);
+                                                            payAgentInvoice(invoice);
                                                         } else {
-                                                            router.push(businessCheckoutPath(invoice.listingId ?? undefined));
+                                                            router.push(
+                                                                businessCheckoutPath(
+                                                                    invoice.listingId ?? undefined
+                                                                )
+                                                            );
                                                         }
                                                     }}
                                                     data-testid="billing-overdue-purchase-pay"
                                                     className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50"
                                                 >
-                                                    {payingInvoiceId === invoice.id ? "Paying…" : "Pay now"}
+                                                    {payingInvoiceId === invoice.id ? "Redirecting…" : "Pay now"}
                                                 </button>
                                             </td>
                                         </tr>

@@ -2,6 +2,10 @@ import type { AgentUsageSource, Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
+import {
+  sumLineItems,
+  type UsageLineItem
+} from "../../lib/usage-pricing";
 
 export const DEFAULT_TRIAL_EXECUTION_LIMIT = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -125,6 +129,7 @@ type RecordAgentExecutionInput = {
   occurredAt?: Date;
   actualCostMicroUsd?: number | null;
   legacyBilledCostMicroUsd?: number | null;
+  usageLineItems?: UsageLineItem[];
   historicalReconciliation?: boolean;
 };
 
@@ -225,6 +230,18 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
   const billingMonth = billingMonthFor(occurredAt);
   const dedupeKey = canonicalExecutionKey(input);
   const actualCostMicroUsd = Math.max(0, Math.round(input.actualCostMicroUsd ?? 0));
+  const pricedUsageLineItems = input.usageLineItems?.filter(
+    (item) =>
+      item.serviceCode.trim().length > 0 &&
+      Number.isFinite(item.quantity) &&
+      item.quantity > 0 &&
+      Number.isFinite(item.billedCostMicroUsd) &&
+      item.billedCostMicroUsd >= 0
+  );
+  const pricedUsageMicroUsd =
+    pricedUsageLineItems === undefined
+      ? null
+      : sumLineItems(pricedUsageLineItems).billedCostMicroUsd;
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-execution:${input.installedAgentId}`}))`;
@@ -351,7 +368,11 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
       select: { executionNumber: true }
     });
     const executionNumber = (latestExecution?.executionNumber ?? 0) + 1;
-    const unitPriceMicroUsd = Math.max(0, agent.executionFeeCents) * MICRO_USD_PER_CENT;
+    // Metered calls are billed from their immutable Admin Pricing snapshots.
+    // Non-metered workflow executions retain the listing's per-run fee.
+    const unitPriceMicroUsd =
+      pricedUsageMicroUsd ??
+      Math.max(0, agent.executionFeeCents) * MICRO_USD_PER_CENT;
     const billable =
       !beforeBillingCutover &&
       !activityBlocked &&
@@ -418,27 +439,60 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
           totalMicroUsd: { increment: amountMicroUsd }
         }
       });
-      await tx.businessUsageInvoiceLineItem.upsert({
-        where: {
-          invoiceId_serviceCode: {
-            invoiceId: invoice.id,
-            serviceCode: "agent_execution"
-          }
-        },
-        update: {
-          quantity: { increment: 1 },
-          amountMicroUsd: { increment: amountMicroUsd }
-        },
-        create: {
-          invoiceId: invoice.id,
-          serviceCode: "agent_execution",
-          serviceName: `${agent.name} executions`,
-          unit: "PER_UNIT",
-          quantity: 1,
-          unitPriceMicroUsd,
-          amountMicroUsd
+      if (pricedUsageLineItems !== undefined) {
+        for (const item of pricedUsageLineItems) {
+          const amount = Math.max(0, Math.round(item.billedCostMicroUsd));
+          await tx.businessUsageInvoiceLineItem.upsert({
+            where: {
+              invoiceId_serviceCode: {
+                invoiceId: invoice.id,
+                serviceCode: item.serviceCode
+              }
+            },
+            update: {
+              quantity: { increment: item.quantity },
+              amountMicroUsd: { increment: amount }
+            },
+            create: {
+              invoiceId: invoice.id,
+              serviceCode: item.serviceCode,
+              // Persist the customer-facing Admin Invoice label, never the
+              // internal provider/service name.
+              serviceName:
+                item.invoiceLabel?.trim() || "Usage service",
+              unit: item.unit,
+              quantity: item.quantity,
+              unitPriceMicroUsd: Math.max(
+                0,
+                Math.round(item.billingRateMicroUsd ?? 0)
+              ),
+              amountMicroUsd: amount
+            }
+          });
         }
-      });
+      } else {
+        await tx.businessUsageInvoiceLineItem.upsert({
+          where: {
+            invoiceId_serviceCode: {
+              invoiceId: invoice.id,
+              serviceCode: "agent_execution"
+            }
+          },
+          update: {
+            quantity: { increment: 1 },
+            amountMicroUsd: { increment: amountMicroUsd }
+          },
+          create: {
+            invoiceId: invoice.id,
+            serviceCode: "agent_execution",
+            serviceName: "Usage service",
+            unit: "PER_UNIT",
+            quantity: 1,
+            unitPriceMicroUsd,
+            amountMicroUsd
+          }
+        });
+      }
     }
 
     const execution = await tx.agentUsageExecution.create({
@@ -504,6 +558,11 @@ export async function recordWorkflowRunUsage(workflowRunId: string) {
 
   const source: AgentUsageSource =
     run.callProvider?.toUpperCase() === "VAPI" ? "VAPI" : "WORKFLOW";
+  // A Vapi run is not billable until its end-of-call pricing snapshot has
+  // settled. Recording it here would create the old generic per-run charge
+  // before duration/SMS/service usage is known.
+  if (source === "VAPI") return null;
+
   return recordAgentExecutionUsage({
     installedAgentId: run.installedAgentId,
     source,
@@ -521,6 +580,7 @@ export async function recordVapiExecutionUsage(input: {
   callId: string;
   occurredAt: Date;
   actualCostMicroUsd?: number | null;
+  usageLineItems?: UsageLineItem[];
 }) {
   return recordAgentExecutionUsage({
     installedAgentId: input.installedAgentId,
@@ -529,7 +589,8 @@ export async function recordVapiExecutionUsage(input: {
     callProvider: "VAPI",
     externalCallId: input.callId,
     occurredAt: input.occurredAt,
-    actualCostMicroUsd: input.actualCostMicroUsd
+    actualCostMicroUsd: input.actualCostMicroUsd,
+    usageLineItems: input.usageLineItems
   });
 }
 
@@ -597,8 +658,9 @@ export async function reconcileBusinessExecutionUsage(
         createdAt: true,
         endedAt: true,
         billingRecordedAt: true,
-        actualCostMicroUsd: true
-        ,billedCostMicroUsd: true
+        actualCostMicroUsd: true,
+        billedCostMicroUsd: true,
+        usageLineItemsJson: true
       }
     })
   ]);
@@ -618,6 +680,9 @@ export async function reconcileBusinessExecutionUsage(
       occurredAt,
       actualCostMicroUsd: call.actualCostMicroUsd,
       legacyBilledCostMicroUsd: call.billedCostMicroUsd,
+      usageLineItems: Array.isArray(call.usageLineItemsJson)
+        ? (call.usageLineItemsJson as unknown as UsageLineItem[])
+        : undefined,
       historicalReconciliation: true
     };
     candidates.set(canonicalExecutionKey(candidate), candidate);

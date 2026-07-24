@@ -18,3 +18,20 @@ export function getStripeClient(): Stripe | null {
 
   return stripeClient;
 }
+
+export async function attachOrReusePaymentMethod(
+  stripe: NonNullable<ReturnType<typeof getStripeClient>>,
+  paymentMethodId: string,
+  customerId: string
+) {
+  const method = await stripe.paymentMethods.retrieve(paymentMethodId);
+  const attachedCustomerId =
+    typeof method.customer === "string" ? method.customer : method.customer?.id ?? null;
+
+  if (attachedCustomerId === customerId) return method;
+  if (attachedCustomerId) {
+    throw new Error("Payment method belongs to a different customer");
+  }
+
+  return stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+}
