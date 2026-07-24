@@ -105,7 +105,7 @@ export function RichDescriptionEditor({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-100 bg-gray-50/40 transition focus-within:border-amber-300 focus-within:ring-2 focus-within:ring-amber-400/40">
+    <div className="overflow-hidden rounded-xl border border-gray-100 bg-gray-50/40 transition focus-within:border-amber-400 focus-within:shadow-[0_0_0_3px_rgba(245,158,11,.3)]">
       <div className="flex items-center gap-1 border-b border-gray-100 bg-white/60 px-2.5 py-2">
         {TOOLBAR.map((tool, index) => (
           <span key={tool.command} className="flex items-center">

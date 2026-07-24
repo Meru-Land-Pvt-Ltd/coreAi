@@ -122,7 +122,7 @@ export function PublishPanel({
                   <img src={coverUrl} alt="Listing cover" className="absolute inset-0 h-full w-full object-cover" />
                 ) : (
                   <div
-                    className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500"
+                    className="absolute inset-0 bg-gradient-to-br from-slate-50 to-slate-100"
                     data-testid="publish-panel-default-cover"
                   />
                 )}

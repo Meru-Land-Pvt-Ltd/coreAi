@@ -55,10 +55,58 @@ export function WorkflowBuilderStyles() {
       .slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 9999px; background: #fff; border: 2px solid #f59e0b; box-shadow: 0 1px 4px rgba(0,0,0,.22); cursor: pointer; }
       .slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 9999px; background: #fff; border: 2px solid #f59e0b; cursor: pointer; }
 
-      .toggle { width: 40px; height: 22px; border-radius: 9999px; background: #e2e8f0; position: relative; cursor: pointer; transition: background .2s ease; flex: none; }
-      .toggle.on { background: #f59e0b; }
-      .toggle .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 9999px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: left .2s ease; }
-      .toggle.on .knob { left: 20px; }
+      .toggle { width: 46px; height: 26px; border-radius: 9999px; background: #e2e8f0; position: relative; cursor: pointer; transition: background .25s cubic-bezier(.16,1,.3,1); flex: none; }
+      .toggle.on, .toggle[aria-checked="true"] { background: #f59e0b; box-shadow: 0 4px 12px -2px rgba(245,158,11,.5); }
+      .toggle .knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 9999px; background: #fff; box-shadow: 0 1px 3px rgba(16,24,40,.25); transition: left .25s cubic-bezier(.16,1,.3,1); }
+      .toggle.on .knob, .toggle[aria-checked="true"] .knob { left: 23px; }
+
+      .shadow-soft { box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06); }
+      .shadow-amber { box-shadow: 0 10px 25px -6px rgba(245,158,11,.45); }
+      .shadow-amber-sm { box-shadow: 0 4px 12px -2px rgba(245,158,11,.35); }
+      .shadow-lift { box-shadow: 0 18px 40px -12px rgba(16,24,40,.16), 0 4px 10px -4px rgba(16,24,40,.08); }
+
+      .fld { transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; }
+      .fld:hover:not(:focus) { border-color: #e2e8f0; }
+      .fld:focus-visible, input.fld:focus-visible, textarea.fld:focus-visible, select.fld:focus-visible {
+        box-shadow: 0 0 0 3px rgba(245,158,11,.40);
+        border-color: #fbbf24 !important;
+        outline: none;
+      }
+
+      .btn-primary { transition: all .2s cubic-bezier(.16,1,.3,1); }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 30px -8px rgba(245,158,11,.55); }
+      .btn-primary:active { transform: translateY(0); }
+      .btn-ghost { transition: all .18s ease; }
+      .btn-ghost:hover { background: #f8fafc; border-color: #e2e8f0; }
+
+      .seg-btn { transition: all .2s ease; }
+      .seg-btn[aria-pressed="true"] { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(16,24,40,.12); font-weight: 600; }
+
+      .pill { transition: all .18s cubic-bezier(.16,1,.3,1); }
+      .pill[aria-pressed="true"] { background: #fffbeb; border-color: #f59e0b; color: #b45309; box-shadow: 0 2px 8px -2px rgba(245,158,11,.4); }
+      .pill[aria-pressed="true"] .pill-dot { background: #f59e0b; transform: scale(1); }
+      .pill-dot { transform: scale(0); transition: transform .2s cubic-bezier(.34,1.56,.64,1); }
+
+      .ck { transition: all .18s ease; }
+      .ck[aria-checked="true"] { background: #f59e0b; border-color: #f59e0b; }
+      .ck[aria-checked="true"] svg { opacity: 1; transform: scale(1); }
+      .ck svg { opacity: 0; transform: scale(.5); transition: all .2s cubic-bezier(.34,1.56,.64,1); }
+
+      .price-card { transition: all .22s cubic-bezier(.16,1,.3,1); }
+      .price-card[aria-pressed="true"] { border-color: #f59e0b; box-shadow: 0 12px 30px -10px rgba(245,158,11,.45); }
+      .price-card[aria-pressed="true"] .price-check { opacity: 1; transform: scale(1); }
+      .price-check { opacity: 0; transform: scale(.6); transition: all .25s cubic-bezier(.34,1.56,.64,1); }
+
+      .dropzone { transition: all .22s cubic-bezier(.16,1,.3,1); }
+      .dropzone:hover { border-color: #cbd5e1; background: #fafafa; }
+      .dropzone.dragover { border-color: #f59e0b !important; background: #fffbeb; transform: scale(1.01); }
+      .dropzone.filled { border-style: solid; border-color: #f59e0b; background: #fffbeb; }
+
+      .lift-card { transition: box-shadow .25s ease, transform .25s ease, border-color .25s ease; }
+      .lift-card:hover { box-shadow: 0 18px 40px -12px rgba(16,24,40,.16), 0 4px 10px -4px rgba(16,24,40,.08); transform: translateY(-2px); }
+
+      .configure-step-enter { animation: configureStepIn .42s cubic-bezier(.16,1,.3,1) both; }
+      @keyframes configureStepIn { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: translateX(0); } }
 
       .phone-shell { box-shadow: 0 40px 80px -20px rgba(15,23,42,.45), 0 0 0 1px rgba(15,23,42,.06); }
       .workflow-modal-card { animation: modalIn .3s cubic-bezier(.2,.85,.25,1) both; }

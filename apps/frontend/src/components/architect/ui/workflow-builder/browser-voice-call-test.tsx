@@ -195,19 +195,6 @@ function friendlyVapiError(message: string): string {
 type CallState = "idle" | "starting" | "listening" | "thinking" | "speaking" | "ended";
 type CallMode = "vapi" | "fallback" | null;
 
-function shortTime(value?: string): string {
-    if (!value) return "";
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) return "";
-
-    return date.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
-    });
-}
-
 function cleanTranscript(value: string): string {
     return value.replace(/\s+/g, " ").trim();
 }
@@ -231,12 +218,12 @@ function callStateBadgeClass(state: CallState): string {
 }
 
 export function BrowserVoiceCallTest({
-    conversationMessages,
+    conversationMessages: _conversationMessages,
     chatting,
     businessName,
     businessType,
-    callerName,
-    appointmentService,
+    callerName: _callerName,
+    appointmentService: _appointmentService,
     onStartVapiCall,
     onSendConversationMessage,
     onResetConversationTest,
@@ -258,9 +245,9 @@ export function BrowserVoiceCallTest({
     const [callState, setCallState] = useState<CallState>("idle");
     const [mode, setMode] = useState<CallMode>(null);
     const [vapiSession, setVapiSession] = useState<ArchitectVapiBrowserTestSession | null>(null);
-    const [vapiTranscript, setVapiTranscript] = useState<ArchitectConversationMessage[]>([]);
+    const [, setVapiTranscript] = useState<ArchitectConversationMessage[]>([]);
     const [fallbackReason, setFallbackReason] = useState("");
-    const [partialTranscript, setPartialTranscript] = useState("");
+    const [, setPartialTranscript] = useState("");
     const [typedFallback, setTypedFallback] = useState("");
     const [error, setError] = useState("");
     const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -713,14 +700,12 @@ export function BrowserVoiceCallTest({
     const canSpeak = callActive && callState !== "starting" && callState !== "thinking" && callState !== "speaking";
     const isVapiMode = mode === "vapi";
     const isFallbackMode = mode === "fallback";
-    const transcriptMessages = isVapiMode ? vapiTranscript : conversationMessages;
-    const hasMessages = transcriptMessages.length > 0;
     return (
         <div
-            className="mt-6 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm"
+            className="shadow-soft mt-5 overflow-hidden rounded-2xl border border-gray-100 bg-white"
             data-testid="builder-browser-voice-call-test"
         >
-            <div className="border-b border-gray-100 bg-gradient-to-br from-slate-50/50 via-white to-amber-50/10 p-5">
+            <div className="border-b border-gray-100 bg-gradient-to-br from-slate-50/50 via-white to-amber-50/10 p-5 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-2">
@@ -815,7 +800,7 @@ export function BrowserVoiceCallTest({
                                 onClick={() => void startBrowserCall()}
                                 disabled={chatting}
                                 data-testid="builder-browser-call-start"
-                                className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-50"
+                                className="btn-primary shadow-amber rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-2.5 text-[14px] font-bold text-white transition disabled:opacity-50"
                             >
                                 Start call
                             </button>
@@ -833,9 +818,9 @@ export function BrowserVoiceCallTest({
                         <button
                             type="button"
                             onClick={resetCall}
-                            disabled={chatting && !hasMessages}
+                            disabled={chatting}
                             data-testid="builder-browser-call-reset"
-                            className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-gray-50 disabled:opacity-50"
+                            className="btn-ghost rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-[14px] font-semibold text-slate-600 transition disabled:opacity-50"
                         >
                             Reset
                         </button>
@@ -876,15 +861,6 @@ export function BrowserVoiceCallTest({
                         : "Start the call to test the agent by voice."}
                 </p>
 
-                {partialTranscript ? (
-                    <p
-                        className="mx-auto mt-3 max-w-xl rounded-2xl bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 ring-1 ring-gray-200"
-                        data-testid="builder-browser-call-partial"
-                    >
-                        {partialTranscript}
-                    </p>
-                ) : null}
-
                 {error ? (
                     <div
                         className="mx-auto mt-3 max-w-xl rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"
@@ -923,55 +899,6 @@ export function BrowserVoiceCallTest({
                         </div>
                     </div>
                 ) : null}
-            </div>
-
-            <div className="min-h-[360px] bg-slate-50 p-5">
-                <div className="mb-3 flex items-center justify-between">
-                    <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                        Live transcript
-                    </p>
-                    <p className="text-xs font-semibold text-slate-400">
-                        Caller: {callerName || "Test caller"} • Service: {appointmentService || "Consultation"}
-                    </p>
-                </div>
-
-                {hasMessages ? (
-                    <div className="space-y-3" data-testid="builder-browser-call-transcript">
-                        {transcriptMessages.map((message, index) => (
-                            <div
-                                key={`${message.role}-${index}-${message.createdAt ?? ""}`}
-                                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                                data-testid={`builder-browser-call-message-${message.role}`}
-                            >
-                                <div
-                                    className={`max-w-[84%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${message.role === "user"
-                                            ? "rounded-br-md bg-amber-500 text-white"
-                                            : "rounded-bl-md bg-white text-slate-800 ring-1 ring-gray-100"
-                                        }`}
-                                >
-                                    <div>{message.content}</div>
-                                    {message.createdAt ? (
-                                        <div className={`mt-1 text-[10px] ${message.role === "user" ? "text-amber-100" : "text-slate-400"}`}>
-                                            {shortTime(message.createdAt)}
-                                        </div>
-                                    ) : null}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="grid h-[300px] place-items-center text-center">
-                        <div>
-                            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-500">
-                                <BuilderIcon name="sparkles" className="h-6 w-6" />
-                            </div>
-                            <p className="mt-3 text-sm font-black text-slate-700">No conversation yet</p>
-                            <p className="mt-1 text-xs text-slate-400">
-                                Click Start call, then speak into your mic.
-                            </p>
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );

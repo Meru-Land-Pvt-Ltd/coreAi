@@ -917,18 +917,18 @@ export function ConfigurePanel({
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
-      <div className="mx-auto w-full max-w-4xl px-6 py-8">
+      <div className="mx-auto w-full max-w-4xl px-5 py-8 sm:px-8 sm:py-10">
         {/* Intro + draft controls */}
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2
-              className="text-[26px] font-extrabold leading-tight tracking-tight text-slate-900 sm:text-[30px]"
+              className="text-[28px] font-extrabold leading-[1.1] tracking-tight text-slate-900 sm:text-[34px]"
               data-testid="architect-ui-workflow-builder-configure-panel-configure-agent-heading"
             >
               Submit <span className="text-amber-500">{displayName}</span> to the Marketplace
             </h2>
             <p
-              className="mt-2 max-w-2xl text-sm font-normal leading-relaxed text-slate-500"
+              className="mt-2.5 max-w-2xl text-[15px] text-slate-600"
               data-testid="architect-ui-workflow-builder-configure-panel-these-details-shape-how-your-agent-appears-text"
             >
               Five quick steps and your agent is ready for review. Most architects finish in under 10 minutes. We've pre-filled everything we could from your build.
@@ -936,7 +936,7 @@ export function ConfigurePanel({
           </div>
           <div className="flex flex-none items-center gap-2.5">
             <span
-              className="inline-flex items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700"
+              className="hidden items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50 px-3 py-1.5 text-[12px] font-semibold text-amber-700 sm:inline-flex"
               data-testid="configure-draft-badge"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -951,7 +951,7 @@ export function ConfigurePanel({
               type="button"
               disabled={savingDraft || saving || isLocked}
               onClick={() => void persistDraft({ toast: true })}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-[13.5px] font-semibold text-slate-700 transition hover:bg-gray-50 disabled:opacity-60"
+              className="btn-ghost inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-[13.5px] font-semibold text-slate-700 disabled:opacity-60"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
@@ -984,7 +984,7 @@ export function ConfigurePanel({
 
         {/* ============ STEP 1: DETAILS ============ */}
         {step === 1 ? (
-          <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-1">
+          <div className="configure-step-enter shadow-soft overflow-hidden rounded-2xl border border-gray-100 bg-white" data-testid="configure-step-1">
             <StepHeader index={1} kicker="Details" title="Basics" subtitle="The essentials that show up first in search and on your listing." />
             <div className="space-y-7 px-6 py-7 sm:px-8">
               <div>
@@ -992,7 +992,7 @@ export function ConfigurePanel({
                   <label htmlFor="configure-agent-name" className="text-[13.5px] font-semibold text-slate-700">
                     Agent name <span className="text-amber-500">*</span>
                   </label>
-                  <span className="text-xs font-medium text-slate-400">{configure.basics.agentName.length} / 50</span>
+                  <span className="text-[12px] font-medium text-slate-400">{configure.basics.agentName.length} / 50</span>
                 </div>
                 <input
                   id="configure-agent-name"
@@ -1013,7 +1013,7 @@ export function ConfigurePanel({
                   <label htmlFor="configure-tagline" className="text-[13.5px] font-semibold text-slate-700">
                     Tagline <span className="text-amber-500">*</span>
                   </label>
-                  <span className="text-xs font-medium text-slate-400">{configure.basics.tagline.length} / 100</span>
+                  <span className="text-[12px] font-medium text-slate-400">{configure.basics.tagline.length} / 100</span>
                 </div>
                 <input
                   id="configure-tagline"
@@ -1041,7 +1041,7 @@ export function ConfigurePanel({
                       value={configure.basics.category}
                       disabled={isLocked}
                       onChange={(event) => updateBasics({ category: event.target.value })}
-                      className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                      className="fld w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 disabled:opacity-60"
                     >
                       <option value="" disabled>
                         Select a category
@@ -1063,7 +1063,7 @@ export function ConfigurePanel({
                   <span className="mb-2 block text-[13.5px] font-semibold text-slate-700">Visibility</span>
                   <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3" data-testid="configure-visibility">
                     <BuilderIcon name="eye" className="h-[18px] w-[18px] text-amber-500" />
-                    <span className="text-sm font-medium text-slate-700">Public · Triven Marketplace</span>
+                    <span className="text-[14px] font-medium text-slate-700">Public · Triven Marketplace</span>
                   </div>
                 </div>
               </div>
@@ -1099,7 +1099,7 @@ export function ConfigurePanel({
                     onError={(message) => pushToast(message, "error")}
                   />
                   <div className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/70 px-5 py-4">
-                    <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-500 shadow-sm">
+                    <div className="shadow-amber-sm flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-500">
                       <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 18h6M10 22h4" />
                         <path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z" />
@@ -1125,7 +1125,7 @@ export function ConfigurePanel({
                   maxLength={200}
                   placeholder="Brief summary shown on your marketplace listing card"
                   onChange={(event) => updateBasics({ shortDescription: event.target.value })}
-                  className="h-[74px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                  className="fld h-[74px] w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-[14.5px] text-slate-800 placeholder:text-slate-400 disabled:opacity-60"
                 />
               </div>
             </div>
@@ -1134,7 +1134,7 @@ export function ConfigurePanel({
 
         {/* ============ STEP 2: DESCRIPTION & MEDIA ============ */}
         {step === 2 ? (
-          <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-2">
+          <div className="configure-step-enter shadow-soft overflow-hidden rounded-2xl border border-gray-100 bg-white" data-testid="configure-step-2">
             <StepHeader index={2} kicker="Description" title="Show it off" subtitle="A clear description and a few screenshots turn browsers into buyers." />
             <div className="space-y-8 px-6 py-7 sm:px-8">
               <div>
@@ -1207,7 +1207,7 @@ export function ConfigurePanel({
                           nextFeatures[index] = event.target.value;
                           updateMedia({ includedFeatures: nextFeatures });
                         }}
-                        className="w-full rounded-xl border border-gray-100 bg-gray-50/40 py-2.5 pl-10 pr-4 text-[13.5px] outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 py-2.5 pl-10 pr-4 text-[13.5px] placeholder:text-slate-400 disabled:opacity-60"
                       />
                     </div>
                   ))}
@@ -1241,7 +1241,7 @@ export function ConfigurePanel({
                     disabled={isLocked}
                     placeholder="Paste a YouTube or Loom link"
                     onChange={(event) => updateMedia({ demoVideoUrl: event.target.value })}
-                    className="w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-4 text-[14.5px] outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                    className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-4 text-[14.5px] placeholder:text-slate-400 disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -1262,14 +1262,14 @@ export function ConfigurePanel({
 
         {/* ============ STEP 3: PRICING ============ */}
         {step === 3 ? (
-          <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-3">
+          <div className="configure-step-enter shadow-soft overflow-hidden rounded-2xl border border-gray-100 bg-white" data-testid="configure-step-3">
             <StepHeader
               index={3}
               kicker="Pricing"
               title="Set your price"
               subtitle="Pick a model, name a number, and watch what you'd earn."
             />
-            <div className="px-6 py-7 sm:px-8">
+            <div className="space-y-8 px-6 py-7 sm:px-8">
               <PricingSelector pricing={configure.pricing} disabled={isLocked} onChange={updatePricing} />
               <FieldError message={fieldErrors.price} testId="configure-error-price" />
             </div>
@@ -1278,7 +1278,7 @@ export function ConfigurePanel({
 
         {/* ============ STEP 4: REQUIREMENTS & COMPLIANCE ============ */}
         {step === 4 ? (
-          <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-4">
+          <div className="configure-step-enter shadow-soft overflow-hidden rounded-2xl border border-gray-100 bg-white" data-testid="configure-step-4">
             <StepHeader
               index={4}
               kicker="Requirements"
@@ -1288,13 +1288,13 @@ export function ConfigurePanel({
             <div className="space-y-8 px-6 py-7 sm:px-8">
               {/* 1 · Template gallery */}
               <div
-                className="overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/40 via-white to-white"
+                className="overflow-hidden rounded-2xl border border-gray-100 bg-gray-50/40"
                 data-testid="configure-template-gallery-card"
               >
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-amber-100/80 px-5 py-4 sm:px-6">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 bg-white px-5 py-4 sm:px-6">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-gray-100 bg-white text-amber-500 shadow-soft">
                         <BuilderIcon name="layout-template" className="h-4 w-4" />
                       </span>
                       <h4 className="text-[15px] font-bold text-slate-900">Template gallery</h4>
@@ -1355,7 +1355,7 @@ export function ConfigurePanel({
                         value={configure.template.setupTimeEstimate}
                         disabled={isLocked}
                         onChange={(event) => updateTemplate({ setupTimeEstimate: event.target.value })}
-                        className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                        className="fld w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-10 text-[15px] font-medium text-slate-800 disabled:opacity-60"
                       >
                         {SETUP_TIME_OPTIONS.map((option) => (
                           <option key={option}>{option}</option>
@@ -1369,26 +1369,6 @@ export function ConfigurePanel({
                 </div>
               </div>
 
-              {/* Supported industries mirror Step 1's Industry tags — summary only, no second grid. */}
-              <div
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3"
-                data-testid="configure-supported-industries-summary"
-              >
-                <p className="min-w-0 text-[13px] text-slate-600">
-                  <span className="font-semibold text-slate-700">Supported industries: </span>
-                  {configure.basics.industryTags.length > 0
-                    ? configure.basics.industryTags.join(", ")
-                    : "none selected yet"}
-                </p>
-                <button
-                  type="button"
-                  data-testid="configure-supported-industries-edit"
-                  onClick={() => goToStep(1)}
-                  className="flex-none text-[12.5px] font-bold text-amber-600 transition hover:text-amber-700"
-                >
-                  Edit in Step 1
-                </button>
-              </div>
 
               {/* 2 · Required integrations */}
               <div className="border-t border-gray-100 pt-7">
@@ -1828,7 +1808,7 @@ export function ConfigurePanel({
 
         {/* ============ STEP 5: REVIEW & SUBMIT (read-only, reference layout) ============ */}
         {step === 5 ? (
-          <div className="fade-enter overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" data-testid="configure-step-5">
+          <div className="configure-step-enter shadow-soft overflow-hidden rounded-2xl border border-gray-100 bg-white" data-testid="configure-step-5">
             <StepHeader
               index={5}
               kicker="Review"
@@ -1836,9 +1816,9 @@ export function ConfigurePanel({
               subtitle="One last look. Edit anything, then continue to Publish to submit for review."
             />
             <div className="px-6 py-7 sm:px-8">
-              <div className="grid gap-7 lg:grid-cols-[1fr,300px]">
-                {/* Summary */}
-                <div className="space-y-4" data-testid="configure-review-summary">
+              <div className="flex flex-col items-stretch gap-7 md:flex-row md:items-start">
+                {/* Summary — left */}
+                <div className="min-w-0 flex-1 space-y-4" data-testid="configure-review-summary">
                   <ReviewSection
                     title="Basics"
                     editTestId="configure-review-edit-basics"
@@ -1915,10 +1895,10 @@ export function ConfigurePanel({
                   />
                 </div>
 
-                {/* Preview + submit info */}
-                <div className="space-y-5">
+                {/* Marketplace preview — right */}
+                <aside className="w-full shrink-0 space-y-5 md:w-[300px]">
                   <div>
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">How buyers will see it</p>
+                    <p className="mb-3 text-[12px] font-semibold uppercase tracking-wider text-slate-400">How buyers will see it</p>
                     <MarketplacePreviewCard configure={configure} architectName={architectName} />
                   </div>
                   <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-5">
@@ -1939,7 +1919,7 @@ export function ConfigurePanel({
                       ))}
                     </ul>
                   </div>
-                </div>
+                </aside>
               </div>
 
               {/* Compliance gate notice */}
@@ -1974,21 +1954,20 @@ export function ConfigurePanel({
             data-testid="configure-back"
             onClick={handleBack}
             disabled={step === 1}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-gray-50 disabled:pointer-events-none disabled:opacity-0"
+            className="btn-ghost inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-3 text-[14px] font-semibold text-slate-700 disabled:pointer-events-none disabled:opacity-0"
           >
             <BuilderIcon name="chevron" className="h-4 w-4 rotate-90" />
             Back
           </button>
 
           <div className="flex items-center gap-3">
-            {/* Save status lives on the "Save draft" button + builder header only — no duplicate text here. */}
             {step < STEP_LABELS.length ? (
               <button
                 type="button"
                 data-testid="configure-continue"
                 onClick={() => void handleContinue()}
                 disabled={step === 4 && !complianceComplete}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0"
+                className="btn-primary shadow-amber inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-3 text-[14px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0"
               >
                 Continue
                 <BuilderIcon name="chevron" className="h-4 w-4 -rotate-90" />
@@ -1999,9 +1978,9 @@ export function ConfigurePanel({
                 data-testid="configure-submit-review"
                 onClick={() => void (onGoPublish ? handleGoPublish() : handleSubmit())}
                 disabled={submitting || isLocked || !complianceComplete}
-                className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-7 py-3 text-[14.5px] font-bold text-white shadow-md transition hover:-translate-y-px hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0"
+                className="btn-primary shadow-amber inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-7 py-3 text-[14.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0"
               >
-                <BuilderIcon name="send" className="h-4 w-4" />
+                <BuilderIcon name="send" className="h-5 w-5" />
                 {submitting
                   ? "Saving..."
                   : isLocked && !submitted
@@ -2395,12 +2374,12 @@ function StepHeader({
 }) {
   return (
     <div className="border-b border-gray-50 px-6 pb-5 pt-7 sm:px-8">
-      <div className="mb-1.5 flex items-center gap-2.5 text-xs font-bold uppercase tracking-wider text-amber-600">
+      <div className="mb-1.5 flex items-center gap-2.5 text-[12px] font-bold uppercase tracking-wider text-amber-600">
         <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-500">{index}</span>
         {kicker}
       </div>
       <h3 className="text-[22px] font-extrabold tracking-tight text-slate-900">{title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+      <p className="mt-1 text-[14px] text-slate-500">{subtitle}</p>
     </div>
   );
 }
@@ -2434,7 +2413,7 @@ function ReviewSection({
           type="button"
           data-testid={editTestId}
           onClick={onEdit}
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-semibold text-amber-600 transition hover:text-amber-700"
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 20h9" />
@@ -2459,6 +2438,6 @@ function ReviewSection({
 
 function fieldClass(hasError: boolean): string {
   return hasError
-    ? "w-full rounded-xl border border-red-300 bg-red-50/30 px-4 py-3 text-[15px] font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-red-400 focus:ring-2 focus:ring-red-300/50 disabled:opacity-60"
-    : "w-full rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-[15px] font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60";
+    ? "fld w-full rounded-xl border border-red-300 bg-red-50/30 px-4 py-3 text-[15px] font-medium text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60"
+    : "fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 text-[15px] font-medium text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60";
 }
