@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
   ARCHITECT_SHARE,
+  architectShareCents,
   effectiveEarningStatus,
   loadArchitectEarnings,
   serializeArchitectSale,
@@ -114,11 +115,9 @@ async function loadAdminPayoutSales(options?: {
 
     if (!active?.listing || !active.listingId) continue;
 
-    // Agent price only — the payment total may include the platform's
-    // phone-number fee, which never feeds architect earnings.
     const agentGrossCents = paymentAgentGrossCents(active);
     const grossCents = agentGrossCents > 0 ? agentGrossCents : active.listing.priceCents;
-    const earningsCents = Math.round(grossCents * ARCHITECT_SHARE);
+    const earningsCents = active.status === "SUCCEEDED" ? architectShareCents(grossCents) : 0;
     const businessName =
       active.user.businesses[0]?.name ?? active.user.fullName ?? active.user.email;
     const architect = active.listing.architect;
@@ -271,8 +270,6 @@ adminPayoutRoutes.patch("/sales/:paymentId/status", async (c) => {
       }
     });
 
-    // Keep the settlement ledger in step with the review decision: approval
-    // releases the earning once its hold expires; rejection retires it.
     try {
       if (input.status === "APPROVED") {
         await releaseEligibleEarnings(payment.listing.architectUserId);

@@ -333,7 +333,7 @@ export function MiniProgress({ value, label }: { value: number; label?: string }
 export function formatMoney(cents: number | null | undefined) {
   if (cents === null || cents === undefined) return "Not set";
   if (cents === 0) return "Free";
-  return `₹${Math.round(cents / 100).toLocaleString("en-IN")}`;
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function formatDate(value: string) {

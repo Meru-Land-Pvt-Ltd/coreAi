@@ -105,7 +105,7 @@ describe("registered business account deduplication", () => {
         updatedAt: new Date("2026-07-21T00:00:00.000Z"),
         profile: { teamPhone: "+15550100" },
         phoneNumbers: [],
-        _count: { workflowRuns: 14 },
+        _count: { vapiCalls: 14, leads: 0 },
         installedAgents: [{ id: "installed-1", listingId: "listing-1", status: "ACTIVE" }]
       }
     ]);
@@ -142,7 +142,12 @@ describe("registered business account deduplication", () => {
     expect(businessFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         select: expect.objectContaining({
-          _count: { select: { workflowRuns: { where: { mode: "LIVE" } } } }
+          _count: {
+            select: {
+              vapiCalls: { where: { executionMode: "LIVE" } },
+              leads: { where: { source: { contains: "MISSED_CALL" } } }
+            }
+          }
         })
       })
     );
@@ -303,7 +308,7 @@ describe("registered business account deduplication", () => {
         updatedAt: new Date("2026-07-01T00:00:00.000Z"),
         profile: null,
         phoneNumbers: [],
-        _count: { workflowRuns: 0 },
+        _count: { vapiCalls: 0, leads: 0 },
         installedAgents: []
       }
     ]);

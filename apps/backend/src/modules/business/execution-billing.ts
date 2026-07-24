@@ -340,9 +340,7 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
       (!trialClosedAt || occurredAt < trialClosedAt);
 
     const beforeBillingCutover = occurredAt < agent.executionBillingStartedAt;
-    const activityBlocked =
-      !input.historicalReconciliation &&
-      ["PAUSED", "SUSPENDED_BILLING"].includes(agent.status.toUpperCase());
+    const activityBlocked = ["PAUSED", "SUSPENDED_BILLING"].includes(agent.status.toUpperCase());
     let freeTrialExecution = false;
     if (
       insideTrial &&
@@ -350,8 +348,6 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
       !activityBlocked &&
       agent.trialExecutionLimit > 0
     ) {
-      // Conditional atomic increment is the concurrency guard for the exact
-      // first N free executions. The advisory lock also keeps ordinals stable.
       const claimed = await tx.installedAgent.updateMany({
         where: {
           id: agent.id,

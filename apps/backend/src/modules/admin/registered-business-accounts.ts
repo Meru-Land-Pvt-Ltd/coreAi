@@ -222,7 +222,12 @@ export async function listRegisteredBusinessAccounts(
           select: { phoneNumber: true }
         },
         _count: {
-          select: { workflowRuns: { where: { mode: "LIVE" } } }
+          // Canonical run definition: LIVE AI calls + missed-call captures.
+          // (WorkflowRun alone was a third, disagreeing definition.)
+          select: {
+            vapiCalls: { where: { executionMode: "LIVE" } },
+            leads: { where: { source: { contains: "MISSED_CALL" } } }
+          }
         },
         installedAgents: {
           where: { listingId: { not: null } },
@@ -259,10 +264,10 @@ export async function listRegisteredBusinessAccounts(
         subscriptionStatus: business.subscriptionStatus,
         phone: business.profile?.teamPhone ?? business.phoneNumbers[0]?.phoneNumber ?? null,
         updatedAt: business.updatedAt,
-        totalExecutions: business._count.workflowRuns
+        totalExecutions: business._count.vapiCalls + business._count.leads
       });
     } else {
-      existingBusinessData.totalExecutions += business._count.workflowRuns;
+      existingBusinessData.totalExecutions += business._count.vapiCalls + business._count.leads;
       if (business.updatedAt > existingBusinessData.updatedAt) {
         existingBusinessData.name = business.name;
         existingBusinessData.subscriptionStatus = business.subscriptionStatus;
