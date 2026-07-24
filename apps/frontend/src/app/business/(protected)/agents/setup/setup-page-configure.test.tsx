@@ -188,6 +188,8 @@ function setupData(overrides: Record<string, unknown> = {}) {
       triggerKind: "voice",
       installedAgentId: "agent-1",
       setupTimeEstimate: "3 min",
+      assistantName: "AI Assistant",
+      voiceSelection: { name: "triven-default", voiceId: "" },
       ...overrides
     }
   };

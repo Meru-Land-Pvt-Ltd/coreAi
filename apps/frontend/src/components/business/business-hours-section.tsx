@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COMMON_TIMEZONES } from "@coreai/shared";
 import { CompactWeeklyPreview } from "@/components/business/setup/weekly-preview";
+import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import {
   getBusinessHours,
   putBusinessHours,
@@ -535,17 +536,13 @@ export function BusinessHoursSection({
       data-testid="business-hours-section"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3
-            className={`${embedded ? "text-sm" : "text-lg tracking-tight"} font-bold text-slate-900`}
-            data-testid="business-hours-title"
-          >
-            {title}
-          </h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Set your standard operating schedule.
-          </p>
-        </div>
+        <h3
+          className={`${embedded ? "text-xs font-semibold uppercase tracking-wider text-slate-400 inline-flex items-center" : "text-lg font-bold text-slate-900 tracking-tight flex items-center gap-1.5"}`}
+          data-testid="business-hours-title"
+        >
+          {title}
+          <InfoTooltip content={`Set your standard operating schedule. Times are displayed in your agent's local timezone: ${effectiveTimeZone} (changeable in the Connect step).`} />
+        </h3>
         {/* Hidden accessibility container for test compatibility */}
         <span
           data-testid="business-hours-confirmation-status"
@@ -593,48 +590,42 @@ export function BusinessHoursSection({
         </div>
       ) : null}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {!timeZoneOverride ? (
-          <>
-            <label className="text-xs font-semibold text-slate-600" htmlFor="business-hours-timezone">
-              Timezone
-            </label>
-            <select
-              id="business-hours-timezone"
-              data-testid="business-hours-timezone-select"
-              value={timeZone}
-              onChange={(event) => {
-                setTimeZone(event.target.value);
-                setDirty(true);
-              }}
-              className="field rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-slate-700"
-            >
-              {[
-                ...(COMMON_TIMEZONES.some((option) => option.value === timeZone)
-                  ? []
-                  : [{ value: timeZone, label: timeZone }]),
-                ...COMMON_TIMEZONES
-              ].map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : (
-          <p className="text-xs text-slate-400" data-testid="business-hours-timezone-note">
-            Times shown in <span className="font-medium text-slate-600">{effectiveTimeZone}</span> · Change in Connect
-          </p>
-        )}
-      </div>
+      {!timeZoneOverride ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="text-xs font-semibold text-slate-600" htmlFor="business-hours-timezone">
+            Timezone
+          </label>
+          <select
+            id="business-hours-timezone"
+            data-testid="business-hours-timezone-select"
+            value={timeZone}
+            onChange={(event) => {
+              setTimeZone(event.target.value);
+              setDirty(true);
+            }}
+            className="field rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-slate-700"
+          >
+            {[
+              ...(COMMON_TIMEZONES.some((option) => option.value === timeZone)
+                ? []
+                : [{ value: timeZone, label: timeZone }]),
+              ...COMMON_TIMEZONES
+            ].map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       {/* Reference Design Main Card */}
-      <div className="mt-3 rounded-2xl border border-amber-200/80 bg-amber-50/30 p-4 sm:p-5 shadow-sm">
+      <div className="mt-3 rounded-none border-0 bg-transparent p-0">
         {/* Start / End Time & Active Days Block */}
           {/* Start and End Time inputs with Checkbox directly next to End time */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Start</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Start</label>
               <input
                 type="time"
                 value={displayOpen}
@@ -644,7 +635,7 @@ export function BusinessHoursSection({
             </div>
             <span className="mt-5 text-slate-400 font-bold" aria-hidden="true">→</span>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">End</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">End</label>
               <input
                 type="time"
                 value={displayClose}
@@ -655,7 +646,7 @@ export function BusinessHoursSection({
 
             {/* Small checkbox next to End time */}
             <div className="mt-5 flex items-center">
-              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={sameHoursForAll}
@@ -664,17 +655,28 @@ export function BusinessHoursSection({
                 />
                 Apply same for all selected days
               </label>
+            </div>
           </div>
 
           {/* Active Days Pills */}
-          <div>
+          <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-500">Active days</label>
-              {!sameHoursForAll && (
-                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
-                  Editing: <span className="capitalize">{selectedDay}</span> ({week.find(d => d.day === selectedDay)?.closed ? "Closed" : "Open"})
-                </span>
-              )}
+              <label className="block text-xs font-medium text-slate-500">Active days</label>
+              <div className="flex items-center gap-2.5 text-xs">
+                <span className="text-slate-400">({week.filter(d => !d.closed).length} active)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="font-semibold text-amber-600 hover:text-amber-700 transition"
+                >
+                  {showPreview ? "Hide Preview" : "Show Preview"}
+                </button>
+                {!sameHoursForAll && (
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
+                    Editing: <span className="capitalize">{selectedDay}</span> ({week.find(d => d.day === selectedDay)?.closed ? "Closed" : "Open"})
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {WEEK_DAYS.map((dayKey) => {
@@ -723,53 +725,26 @@ export function BusinessHoursSection({
               })}
             </div>
           </div>
-        </div>
 
-        {/* Sleek Compact Weekly Schedule Preview Toggle / Content */}
-        <div className="mt-4 pt-3.5 border-t border-amber-200/50">
-          {showPreview ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Weekly Schedule Preview</span>
-                <button
-                  type="button"
-                  onClick={() => setShowPreview(false)}
-                  className="text-xs font-bold text-amber-700 hover:text-amber-800 transition"
-                >
-                  Hide Preview
-                </button>
-              </div>
-              <CompactWeeklyPreview summary={summarizeWeek(week)} />
-            </div>
-          ) : (
-            <div className="flex items-center justify-between text-xs text-slate-600">
-              <span className="font-medium">
-                Weekly schedule: <span className="font-semibold text-slate-700">{week.filter(d => !d.closed).length} days active</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowPreview(true)}
-                className="font-bold text-amber-700 hover:text-amber-800 transition bg-amber-100/50 hover:bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-200/50"
-              >
-                Show Preview
-              </button>
-            </div>
-          )}
-        </div>
+        {showPreview && (
+          <div className="mt-3.5">
+            <CompactWeeklyPreview summary={summarizeWeek(week)} />
+          </div>
+        )}
 
         {/* Aesthetic & Minimalist Holidays & Special Dates Section */}
         {!compact ? (
-          <div className="mt-4 pt-4 border-t border-amber-200/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Holidays &amp; Special Dates</h4>
-                <p className="mt-0.5 text-xs text-slate-400">Add single-date overrides or temporary closures.</p>
-              </div>
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 inline-flex items-center">
+                Holidays &amp; Special Dates
+                <InfoTooltip content="Add single-date overrides or temporary closures." />
+              </h4>
               <button
                 type="button"
                 data-testid="business-hours-add-special"
                 onClick={addSpecialDate}
-                className="btn rounded-xl border border-amber-200 bg-amber-100/50 hover:bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800 transition"
+                className="text-xs font-medium text-amber-600 hover:text-amber-700 transition"
               >
                 + Add date
               </button>

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CUSTOM_INSTRUCTION_SUGGESTIONS, DEFAULT_SILENCE } from "@coreai/shared";
 import type { BuyerCustomFieldValue, BuyerSetupFieldDef } from "@/components/business/features/api";
 import { BuyerSetupFieldControl } from "./buyer-setup-field";
-import { FIELD, LABEL } from "./ui";
+import { FIELD, LABEL, SECTION_TITLE } from "./ui";
 import { InfoTooltip } from "./InfoTooltip";
 
 /**
@@ -47,7 +47,7 @@ export function AgentBehaviorSection({
   onGoodbye: (v: string) => void;
   onCustomField: (key: string, label: string, value: string | string[] | boolean) => void;
 }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+
 
   return (
     <div>
@@ -55,7 +55,7 @@ export function AgentBehaviorSection({
           are the details this template requires from the buyer. */}
       {setupFields.length > 0 ? (
         <div className="mb-7 border-b border-gray-100 pb-6" data-testid="business-setup-custom-fields">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 inline-flex items-center">
+          <h3 className={`${SECTION_TITLE} inline-flex items-center`}>
             Agent setup details
             <InfoTooltip content="Details this agent needs to answer callers accurately." />
           </h3>
@@ -117,48 +117,26 @@ export function AgentBehaviorSection({
       {/* Advanced behavior — goodbye message. */}
       {showVoice ? (
         <div className="mt-7 border-t border-gray-100 pt-6">
-          <button
-            type="button"
-            onClick={() => setAdvancedOpen((current) => !current)}
-            aria-expanded={advancedOpen}
-            data-testid="business-setup-advanced-toggle"
-            className="flex w-full items-center justify-between gap-3 text-left cursor-pointer"
-          >
-            <span className="inline-flex items-center">
-              <span className="block text-xs font-bold uppercase tracking-wider text-slate-800">Advanced call behavior</span>
-              <InfoTooltip content="Goodbye message when ending calls." />
-            </span>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
+          <h4 className={`${SECTION_TITLE} inline-flex items-center mb-3`}>
+            Advanced call behavior
+            <InfoTooltip content="Goodbye message when ending calls." />
+          </h4>
 
-          {advancedOpen ? (
-            <div className="mt-4" data-testid="business-setup-silence">
-              <div>
-                <label className={LABEL} htmlFor="goodbye">
-                  Goodbye message
-                </label>
-                <input
-                  data-testid="business-setup-input-goodbye"
-                  id="goodbye"
-                  value={goodbyeMessage}
-                  onChange={(e) => onGoodbye(e.target.value)}
-                  placeholder={DEFAULT_SILENCE.goodbye}
-                  className={FIELD}
-                />
-              </div>
+          <div data-testid="business-setup-silence">
+            <div>
+              <label className={LABEL} htmlFor="goodbye">
+                Goodbye message
+              </label>
+              <input
+                data-testid="business-setup-input-goodbye"
+                id="goodbye"
+                value={goodbyeMessage}
+                onChange={(e) => onGoodbye(e.target.value)}
+                placeholder={DEFAULT_SILENCE.goodbye}
+                className={FIELD}
+              />
             </div>
-          ) : null}
+          </div>
         </div>
       ) : null}
     </div>

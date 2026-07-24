@@ -41,6 +41,7 @@ import { readProfilePhotoFile } from "@/lib/profile-photo";
 import { BUSINESS_BILLING_PATH } from "@/lib/routes";
 import { requestSignedDpa } from "@/lib/dpa";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
+import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 
 function VisaIcon() {
     return (
@@ -719,7 +720,7 @@ type BusinessAddressDraft = typeof EMPTY_ADDRESS_DRAFT;
 
 const ADDRESS_FIELD_CLASS =
   "w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100";
-const ADDRESS_LABEL_CLASS = "mb-1.5 block text-sm font-medium text-slate-700";
+const ADDRESS_LABEL_CLASS = "mb-1.5 block text-xs font-medium text-slate-500";
 
 function addressDraftFromFacts(facts: BusinessFactsData | null): BusinessAddressDraft {
   const address = facts?.address;
@@ -925,12 +926,12 @@ export function BusinessAddressSection({
 
   return (
     <div data-testid="business-address-section">
-      <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-sm font-bold text-slate-900">Business address</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 inline-flex items-center">
+          Business address
+          <InfoTooltip content="Your agent shares this address with callers who ask where you are." />
+        </h3>
       </div>
-      <p className="mt-1 text-sm text-slate-500">
-        Your agent shares this address with callers who ask where you are.
-      </p>
 
       {!embedded && showSuggestion && suggestion ? (
         <div

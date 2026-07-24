@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { BusinessAddressSection } from "@/components/business/business-settings-view";
 import type { BusinessFaq } from "@/components/business/features/api";
 import { DocumentUploadSection, FaqSection } from "./knowledge-section";
-import { FIELD } from "./ui";
+import { FIELD, LABEL, SECTION_TITLE } from "./ui";
 import { InfoTooltip } from "./InfoTooltip";
 
 const SERVICE_MAP: Record<string, string[]> = {
@@ -114,11 +114,11 @@ export function BusinessProfileSection({
 
       {/* 2. MIDDLE: Compact Business Details Form */}
       <div className="border-t border-gray-100 pt-4 space-y-4">
-        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Business Details</h4>
+        <h4 className={SECTION_TITLE}>Business Details</h4>
 
         <div className="grid sm:grid-cols-3 gap-3">
           <div>
-            <label htmlFor="biz-contact-name" className="block text-xs font-semibold text-slate-700 mb-1">
+            <label htmlFor="biz-contact-name" className={LABEL}>
               Your name <span className="text-slate-400 font-normal">(optional)</span>
             </label>
             <input
@@ -132,7 +132,7 @@ export function BusinessProfileSection({
             />
           </div>
           <div>
-            <label htmlFor="biz-name" className="block text-xs font-semibold text-slate-700 mb-1">
+            <label htmlFor="biz-name" className={LABEL}>
               Business name
             </label>
             <div className="relative">
@@ -155,7 +155,7 @@ export function BusinessProfileSection({
             </div>
           </div>
           <div>
-            <label htmlFor="biz-type" className="block text-xs font-semibold text-slate-700 mb-1">Business type</label>
+            <label htmlFor="biz-type" className={LABEL}>Business type</label>
             <select
               id="biz-type"
               data-testid="business-setup-input-type"
@@ -172,7 +172,7 @@ export function BusinessProfileSection({
         </div>
 
         <div className="border-t border-gray-100 pt-3.5">
-          <h4 className="mb-2 text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center">
+          <h4 className={`${SECTION_TITLE} mb-2 inline-flex items-center`}>
             Services
             <InfoTooltip content="Select what applies, or add your own." />
           </h4>

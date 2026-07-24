@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { AppointmentDayHours, AppointmentWeekday } from "@/components/business/features/api";
 import { CompactWeeklyPreview } from "./weekly-preview";
 import { BookingRulesPanel, type BookingRulesValidation } from "./booking-rules-panel";
+import { InfoTooltip } from "./InfoTooltip";
+import { LABEL, SECTION_TITLE } from "./ui";
 
 export const APPT_WEEKDAYS: { key: AppointmentWeekday; label: string; pill: string }[] = [
   { key: "monday", label: "Monday", pill: "M" },
@@ -14,6 +16,24 @@ export const APPT_WEEKDAYS: { key: AppointmentWeekday; label: string; pill: stri
   { key: "saturday", label: "Saturday", pill: "S" },
   { key: "sunday", label: "Sunday", pill: "S" }
 ];
+
+function to12h(hhmm: string): string {
+  const match = hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return hhmm;
+  const hour = Number(match[1]);
+  const meridiem = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return match[2] === "00" ? `${hour12} ${meridiem}` : `${hour12}:${match[2]} ${meridiem}`;
+}
+
+function summarizeApptWeek(days: Record<AppointmentWeekday, AppointmentDayHours>): string[] {
+  return Object.keys(days).map((dayKey) => {
+    const d = days[dayKey as AppointmentWeekday];
+    const capitalizedDay = dayKey.charAt(0).toUpperCase() + dayKey.slice(1);
+    if (d.closed) return `${capitalizedDay}: Closed`;
+    return `${capitalizedDay}: ${to12h(d.open)}-${to12h(d.close)}`;
+  });
+}
 
 export type ApptNumberField =
   | "defaultDurationMinutes"
@@ -50,6 +70,7 @@ export function AppointmentHoursEditor({
 }) {
   const [sameHoursForAll, setSameHoursForAll] = useState(true);
   const [selectedDay, setSelectedDay] = useState<AppointmentWeekday>("monday");
+  const [showPreview, setShowPreview] = useState(false);
 
   const firstOpenDayKey = APPT_WEEKDAYS.find(({ key }) => !days[key]?.closed)?.key ?? "monday";
   const unifiedOpen = days[firstOpenDayKey]?.open ?? "08:00";
@@ -113,17 +134,15 @@ export function AppointmentHoursEditor({
 
   return (
     <div data-testid="business-setup-appt-schedule">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Appointment Availability</h4>
-          <p className="mt-0.5 text-xs text-slate-500">
-            When callers can book appointments.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h4 className={`${SECTION_TITLE} inline-flex items-center`}>
+          Appointment Availability
+          <InfoTooltip content="Set when callers can book appointments with your agent." />
+        </h4>
       </div>
 
       {/* Radio Button Options */}
-      <div className="mt-3 space-y-3" role="radiogroup" aria-label="Appointment hours source">
+      <div className="mt-3 space-y-2" role="radiogroup" aria-label="Appointment hours source">
         <button
           type="button"
           role="radio"
@@ -142,8 +161,8 @@ export function AppointmentHoursEditor({
             {useBusinessHours ? <span className="radio-fill h-2.5 w-2.5 rounded-full bg-amber-500" /> : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="font-semibold text-slate-800 block">Follow Business Hours</span>
-            <span className="text-sm text-slate-500 block mt-0.5">Bookings follow your business hours automatically.</span>
+            <span className="text-sm font-semibold text-slate-800 block">Follow Business Hours</span>
+            <span className="text-xs text-slate-500 block mt-0.5">Bookings follow your business hours automatically.</span>
           </span>
         </button>
 
@@ -165,18 +184,18 @@ export function AppointmentHoursEditor({
             {!useBusinessHours ? <span className="radio-fill h-2.5 w-2.5 rounded-full bg-amber-500" /> : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="font-semibold text-slate-800 block">Use custom Appointment Hours</span>
-            <span className="text-sm text-slate-500 block mt-0.5">Set specific days and times for caller bookings.</span>
+            <span className="text-sm font-semibold text-slate-800 block">Use custom Appointment Hours</span>
+            <span className="text-xs text-slate-500 block mt-0.5">Set specific days and times for caller bookings.</span>
           </span>
         </button>
       </div>
 
       {/* Selection Content */}
       {!useBusinessHours ? 
-        <div className="mt-3 rounded-2xl border border-amber-200/80 bg-amber-50/30 p-4 sm:p-5 shadow-sm" data-testid="business-setup-appt-editor">
+        <div className="mt-3 rounded-none border-0 bg-transparent p-0" data-testid="business-setup-appt-editor">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Start</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Start</label>
               <input
                 type="time"
                 value={displayOpen}
@@ -186,7 +205,7 @@ export function AppointmentHoursEditor({
             </div>
             <span className="mt-5 text-slate-400 font-bold" aria-hidden="true">→</span>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">End</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">End</label>
               <input
                 type="time"
                 value={displayClose}
@@ -196,7 +215,7 @@ export function AppointmentHoursEditor({
             </div>
 
             <div className="mt-5 flex items-center">
-              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={sameHoursForAll}
@@ -210,12 +229,22 @@ export function AppointmentHoursEditor({
 
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-500">Active days</label>
-              {!sameHoursForAll && (
-                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
-                  Editing: <span className="capitalize">{selectedDay}</span> ({days[selectedDay]?.closed ? "Closed" : "Open"})
-                </span>
-              )}
+              <label className="block text-xs font-medium text-slate-500">Active days</label>
+              <div className="flex items-center gap-2.5 text-xs">
+                <span className="text-slate-400">({Object.values(days).filter(d => !d.closed).length} active)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="font-semibold text-amber-600 hover:text-amber-700 transition"
+                >
+                  {showPreview ? "Hide Preview" : "Show Preview"}
+                </button>
+                {!sameHoursForAll && (
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
+                    Editing: <span className="capitalize">{selectedDay}</span> ({days[selectedDay]?.closed ? "Closed" : "Open"})
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {APPT_WEEKDAYS.map(({ key, pill }) => {
@@ -239,6 +268,12 @@ export function AppointmentHoursEditor({
               })}
             </div>
           </div>
+
+          {showPreview && (
+            <div className="mt-3.5">
+              <CompactWeeklyPreview summary={summarizeApptWeek(days)} />
+            </div>
+          )}
 
           {/* Hidden accessibility container for test compatibility */}
           <div className="hidden" aria-hidden="true">

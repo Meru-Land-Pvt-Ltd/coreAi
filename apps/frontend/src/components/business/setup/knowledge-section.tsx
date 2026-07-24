@@ -15,6 +15,7 @@ import {
   type BusinessFactsData
 } from "@/components/business/features/api";
 import { InfoTooltip } from "./InfoTooltip";
+import { SECTION_TITLE } from "./ui";
 
 
 const KNOWLEDGE_MAX_FILE_BYTES = 10 * 1024 * 1024; // matches backend MAX_FILE_BYTES
@@ -231,7 +232,7 @@ export function DocumentUploadSection({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center">
+        <h4 className={`${SECTION_TITLE} inline-flex items-center`}>
           Documents & Knowledge Base
           <InfoTooltip content="Brochures, price lists, policies, or service catalogs." />
         </h4>
@@ -433,21 +434,17 @@ export function DocumentUploadSection({
             ) : null}
 
             {hoursSuggestionReady ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0" data-testid="business-setup-knowledge-hours-hint">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Opening Hours</span>
-                  <p className="text-xs text-slate-700 font-medium mt-0.5">
-                    Opening hours detected in document
-                  </p>
-                </div>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2.5">
+                <p className="text-xs text-slate-600">
+                  Business hours were detected in your document.
+                </p>
                 {onReviewHours ? (
                   <button
                     type="button"
-                    data-testid="business-setup-knowledge-hours-hint-review"
                     onClick={onReviewHours}
-                    className="shrink-0 text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                    className="shrink-0 text-xs font-semibold text-amber-700 hover:text-amber-800 transition-colors cursor-pointer"
                   >
-                     Review Timings
+                    Review Business Hours
                   </button>
                 ) : null}
               </div>

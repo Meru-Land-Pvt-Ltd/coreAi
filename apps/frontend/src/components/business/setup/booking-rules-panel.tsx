@@ -2,6 +2,15 @@
 
 import { useId } from "react";
 import type { ApptNumberField } from "./appointment-hours-editor";
+import { LABEL, SECTION_TITLE } from "./ui";
+import { InfoTooltip } from "./InfoTooltip";
+
+const RULE_DESCRIPTIONS: Record<ApptNumberField, string> = {
+  defaultDurationMinutes: "The duration of each booked appointment session.",
+  bufferMinutes: "The required gap or breathing room between consecutive appointments.",
+  minNoticeMinutes: "The minimum lead time required before a booking can take place.",
+  maxAdvanceDays: "How far into the future a slot can be booked."
+};
 
 export type BookingRulesValues = Record<ApptNumberField, number>;
 
@@ -96,9 +105,12 @@ export function BookingRulesPanel({
   }
 
   return (
-    <div className="mt-3 rounded-xl border border-gray-100 bg-white p-4" data-testid="business-setup-booking-rules">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-800">Booking rules</p>
+    <div className="mt-6 pt-5 border-t border-gray-100" data-testid="business-setup-booking-rules">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h4 className={`${SECTION_TITLE} inline-flex items-center`}>
+          Booking rules
+          <InfoTooltip content="Configure booking limits, buffer times, minimum notices, and maximum advance booking periods." />
+        </h4>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-4">
@@ -109,8 +121,9 @@ export function BookingRulesPanel({
 
           return (
             <div key={key} className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5">
-              <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-slate-700">
+              <label htmlFor={inputId} className={`${LABEL} inline-flex items-center gap-1`}>
                 {label}
+                <InfoTooltip content={RULE_DESCRIPTIONS[key]} />
               </label>
               <div className="flex items-center gap-2">
                 <input
