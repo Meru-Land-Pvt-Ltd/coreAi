@@ -78,14 +78,17 @@ export async function repriceUnpricedExecutions(
     throw new Error(`Invalid billingMonth "${input.billingMonth}" — expected YYYY-MM`);
   }
 
+  // Sweep BOTH UNPRICED and terminal-but-PENDING calls. A LIVE call that lost
+  // its end-of-call webhook never left PENDING and would otherwise be
+  // permanently unbillable; requiring endedAt excludes calls still in progress.
   const scopeWhere = {
-    pricingState: "UNPRICED",
+    pricingState: { in: ["UNPRICED", "PENDING"] },
     executionMode: "LIVE",
+    endedAt: bounds ? { gte: bounds.start, lt: bounds.end } : { not: null },
     ...(input.executionIds?.length
       ? { OR: [{ id: { in: input.executionIds } }, { callId: { in: input.executionIds } }] }
-      : {}),
-    ...(bounds ? { endedAt: { gte: bounds.start, lt: bounds.end } } : {})
-  } as const;
+      : {})
+  };
 
   const calls = await prisma.vapiCall.findMany({
     where: scopeWhere,
@@ -211,7 +214,11 @@ export async function repriceUnpricedExecutions(
       });
 
       const updated = await prisma.vapiCall.updateMany({
-        where: { id: call.id, pricingState: "UNPRICED", billingRecordedAt: null },
+        where: {
+          id: call.id,
+          pricingState: { in: ["UNPRICED", "PENDING"] },
+          billingRecordedAt: null
+        },
         data: {
           actualCostMicroUsd: pricingResult.totals.actualCostMicroUsd,
           billedCostMicroUsd: pricingResult.totals.billedCostMicroUsd,

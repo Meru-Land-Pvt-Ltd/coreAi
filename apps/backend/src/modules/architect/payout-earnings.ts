@@ -1,8 +1,14 @@
 import type { ArchitectEarningStatus, Payment, PaymentStatus } from "@prisma/client";
 import { paymentAgentGrossCents } from "../../lib/billing-invoices";
 import { prisma } from "../../lib/prisma";
+import { calculateMarketplaceSettlement } from "../payouts/settlement-calculator";
 
 export const ARCHITECT_SHARE = 0.7;
+
+export function architectShareCents(grossCents: number) {
+  if (!Number.isSafeInteger(grossCents) || grossCents <= 0) return 0;
+  return calculateMarketplaceSettlement({ grossAmountMinor: grossCents, currency: "usd" }).architectNetMinor;
+}
 
 const OWNED_PAYMENT_STATUSES: PaymentStatus[] = ["TRIALING", "SUCCEEDED", "PENDING"];
 
@@ -129,11 +135,11 @@ export async function loadArchitectEarnings(
     const active = resolveActivePayment(bucket);
     if (!active?.listing || !active.listingId) continue;
 
-    // Architect earnings are computed on the agent price only — the payment
-    // total may include the platform's phone-number fee.
     const agentGrossCents = paymentAgentGrossCents(active);
     const grossCents = agentGrossCents > 0 ? agentGrossCents : active.listing.priceCents;
     const installKey = `${active.listingId}:${active.userId}`;
+
+    const earningsCents = active.status === "SUCCEEDED" ? architectShareCents(grossCents) : 0;
 
     sales.push({
       id: active.id,
@@ -145,7 +151,7 @@ export async function loadArchitectEarnings(
       listingName: active.listing.name,
       businessName: buyerDisplayName(active),
       grossCents,
-      earningsCents: Math.round(grossCents * ARCHITECT_SHARE),
+      earningsCents,
       purchaseStatus: active.status,
       architectEarningStatus: active.architectEarningStatus,
       reviewedAt: active.architectEarningReviewedAt

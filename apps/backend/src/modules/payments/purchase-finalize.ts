@@ -292,9 +292,6 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
     };
   }
 
-  // Advisory-locked create: the response path and the webhook backstop can
-  // race on the same PaymentIntent, and stripeSessionId has no unique index —
-  // the xact lock serializes them so only one Payment row is recorded.
   const createResult = await prisma.$transaction(async (tx) => {
     if (params.paymentIntentId) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-intent:${params.paymentIntentId}`}))`;
@@ -305,6 +302,17 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
       if (existing) return { payment: existing, alreadyRecorded: true as const };
     }
 
+    const purchasePeriodStart = new Date();
+    const purchasePeriodEnd = new Date(
+      Date.UTC(
+        purchasePeriodStart.getUTCFullYear(),
+        purchasePeriodStart.getUTCMonth() + 1,
+        purchasePeriodStart.getUTCDate(),
+        purchasePeriodStart.getUTCHours(),
+        purchasePeriodStart.getUTCMinutes(),
+        purchasePeriodStart.getUTCSeconds()
+      )
+    );
     const created = await tx.payment.create({
       data: {
         userId: authUser.id,
@@ -315,6 +323,8 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
         status: "SUCCEEDED",
         invoiceKind: "PURCHASE",
         paidAt: new Date(),
+        periodStart: purchasePeriodStart,
+        periodEnd: purchasePeriodEnd,
         stripeCustomerId: params.customerId,
         stripePaymentId: params.paymentMethodId,
         // PaymentIntent id — the dedupe key between response path and webhook.
