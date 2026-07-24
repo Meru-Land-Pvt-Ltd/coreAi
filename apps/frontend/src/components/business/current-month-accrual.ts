@@ -21,8 +21,77 @@ export type AccrualCheckInvoice = {
   isAccruing?: boolean | null;
 };
 
+export type AgentAccrualIdentity = {
+  agentId?: string | null;
+  installedAgentId?: string | null;
+  listingId?: string | null;
+};
+
+export type AgentAccrualUsage = AgentAccrualIdentity & {
+  agentName: string;
+  callCount: number;
+  executionCount?: number;
+  billedCostUsd: number;
+};
+
+export type AgentScopedAccrualInvoice = AccrualCheckInvoice & {
+  installedAgentId?: string | null;
+  agentBreakdown?: readonly AgentAccrualIdentity[];
+};
+
 export function isSyntheticAccrualId(id: string | null | undefined): boolean {
   return typeof id === "string" && id.startsWith(SYNTHETIC_ACCRUAL_ID_PREFIX);
+}
+
+export function agentAccrualKey(
+  agent: AgentAccrualIdentity
+): string | null {
+  return agent.installedAgentId ?? agent.agentId ?? agent.listingId ?? null;
+}
+
+function invoiceAgentKeys(invoice: AgentScopedAccrualInvoice) {
+  const keys = new Set<string>();
+  if (invoice.installedAgentId) keys.add(invoice.installedAgentId);
+  for (const agent of invoice.agentBreakdown ?? []) {
+    const key = agentAccrualKey(agent);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * One synthetic statement per agent with chargeable execution usage. A real
+ * current-month invoice suppresses only its own agent, never other agents.
+ */
+export function syntheticAgentAccruals<T extends AgentAccrualUsage>(params: {
+  invoices: readonly AgentScopedAccrualInvoice[];
+  currentMonth: string;
+  agents: readonly T[];
+}) {
+  const persistedAgentKeys = new Set<string>();
+  for (const invoice of params.invoices) {
+    if (invoice.billingMonth !== params.currentMonth) continue;
+    if (isSyntheticAccrualId(invoice.id)) continue;
+    if ((invoice.status ?? "").toUpperCase() === "VOID") continue;
+    for (const key of invoiceAgentKeys(invoice)) persistedAgentKeys.add(key);
+  }
+
+  return params.agents.flatMap((agent) => {
+    const key = agentAccrualKey(agent);
+    const executionCount = agent.executionCount ?? agent.callCount;
+    if (!key || executionCount <= 0 || agent.billedCostUsd <= 0) return [];
+    if (persistedAgentKeys.has(key)) return [];
+
+    const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "");
+    return [{
+      id: `${SYNTHETIC_ACCRUAL_ID_PREFIX}${params.currentMonth}-${safeKey}`,
+      invoiceNumber: `ACCRUED-${params.currentMonth.replace("-", "")}-${safeKey
+        .slice(-6)
+        .toUpperCase()}`,
+      agent,
+      executionCount
+    }];
+  });
 }
 
 /** The persisted invoice (if any) that makes a synthetic row redundant. */

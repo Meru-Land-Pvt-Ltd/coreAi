@@ -12,7 +12,7 @@ import {
     BUSINESS_LOGIN_PATH,
     businessInvoiceCheckoutPath
 } from "@/lib/routes";
-import { shouldShowSyntheticAccrual } from "@/components/business/current-month-accrual";
+import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -97,6 +97,7 @@ type AgentUsageBreakdown = {
 };
 type UsageInvoice = {
     id: string;
+    installedAgentId?: string | null;
     invoiceNumber: string;
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
@@ -404,33 +405,30 @@ export default function BusinessInvoiceDetailPage() {
         );
     }
 
-    const showSyntheticAccrual = usage
-        ? shouldShowSyntheticAccrual({
+    const currentUsageStatements: UsageInvoice[] = usage
+        ? syntheticAgentAccruals({
             invoices: usageInvoices,
             currentMonth: usage.month,
-            executionCount: usage.totalCalls,
-            costUsd: usage.totalBilledUsd
-        })
-        : false;
-    const currentUsageStatement: UsageInvoice | null = usage && showSyntheticAccrual
-        ? {
-            id: `accrued-${usage.month}`,
-            invoiceNumber: `ACCRUED-${usage.month.replace("-", "")}`,
+            agents: usage.agentRollup
+        }).map(({ id, invoiceNumber, agent, executionCount }) => ({
+            id,
+            installedAgentId: agent.installedAgentId ?? agent.agentId,
+            invoiceNumber,
             billingMonth: usage.month,
             status: "PENDING",
-            amountCents: Math.round(usage.totalBilledUsd * 100),
+            amountCents: Math.round(agent.billedCostUsd * 100),
             issuedAt: usage.updatedAt ?? new Date().toISOString(),
             dueAt: usageDueAt(usage.month),
             paidAt: null,
-            callCount: usage.totalCalls,
-            agentBreakdown: usage.agentRollup.map((agent) => ({
+            callCount: executionCount,
+            agentBreakdown: [{
                 ...agent,
                 serviceCosts: agent.invoiceServiceCosts ?? []
-            })),
+            }],
             isAccruing: true
-        }
-        : null;
-    const allUsageInvoices = [...usageInvoices, ...(currentUsageStatement ? [currentUsageStatement] : [])];
+        }))
+        : [];
+    const allUsageInvoices = [...usageInvoices, ...currentUsageStatements];
     const scopedUsageInvoices = agentId
         ? allUsageInvoices.filter((item) => item.agentBreakdown.some((agent) => usageAgentId(agent) === agentId))
         : allUsageInvoices;

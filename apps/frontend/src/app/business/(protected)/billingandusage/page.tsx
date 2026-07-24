@@ -7,7 +7,7 @@ import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { businessCheckoutPath, businessInvoiceCheckoutPath } from "@/lib/routes";
-import { shouldShowSyntheticAccrual } from "@/components/business/current-month-accrual";
+import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import {
     outstandingExecutionCents,
@@ -174,6 +174,7 @@ type UsageMonthOption = {
 
 type UsageInvoice = {
     id: string;
+    installedAgentId?: string | null;
     invoiceNumber: string;
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
@@ -838,41 +839,38 @@ export default function BusinessBillingUsagePage() {
     const pendingPurchaseInvoices = invoices.filter((invoice) => purchaseInvoiceTab(invoice) === "pending");
     const overduePurchaseInvoices = invoices.filter((invoice) => purchaseInvoiceTab(invoice) === "overdue");
     const paidUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "PAID");
-    const showSyntheticAccrual = currentUsage
-        ? shouldShowSyntheticAccrual({
+    const currentUsageStatements: UsageInvoice[] = currentUsage
+        ? syntheticAgentAccruals({
             invoices: usageInvoices,
             currentMonth: CURRENT_MONTH,
-            executionCount: currentUsage.totalExecutions ?? currentUsage.totalCalls,
-            costUsd: currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd
-        })
-        : false;
-    const currentUsageStatement: UsageInvoice | null = showSyntheticAccrual && currentUsage
-        ? {
-            id: `accrued-${currentUsage.month}`,
-            invoiceNumber: `ACCRUED-${currentUsage.month.replace("-", "")}`,
+            agents: currentUsage.agentRollup
+        }).map(({ id, invoiceNumber, agent, executionCount }) => ({
+            id,
+            installedAgentId: agent.installedAgentId ?? agent.agentId,
+            invoiceNumber,
             billingMonth: currentUsage.month,
             status: "PENDING",
-            amountCents: Math.round((currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd) * 100),
+            amountCents: Math.round(agent.billedCostUsd * 100),
             issuedAt: currentUsage.updatedAt ?? new Date().toISOString(),
             dueAt: usageDueAt(currentUsage.month),
             paidAt: null,
-            callCount: currentUsage.totalExecutions ?? currentUsage.totalCalls,
-            agentBreakdown: currentUsage.agentRollup.map((agent) => ({
+            callCount: executionCount,
+            agentBreakdown: [{
                 ...agent,
                 serviceCosts: agent.invoiceServiceCosts ?? []
-            })),
+            }],
             isAccruing: true
-        }
-        : null;
+        }))
+        : [];
     const pendingUsageInvoices = [
         ...usageInvoices.filter((invoice) => invoice.status === "PENDING" || invoice.status === "OPEN"),
-        ...(currentUsageStatement ? [currentUsageStatement] : [])
+        ...currentUsageStatements
     ];
     const overdueUsageInvoices = usageInvoices.filter((invoice) => invoice.status === "OVERDUE");
     const outstandingSubscriptionAmountCents = outstandingSubscriptionCents(invoices);
     const outstandingExecutionAmountCents = outstandingExecutionCents([
         ...usageInvoices,
-        ...(currentUsageStatement ? [currentUsageStatement] : [])
+        ...currentUsageStatements
     ]);
     const parsedSpendingAlertDollars = Number.parseFloat(spendingAlertThreshold || "0");
     const spendingAlertCents = Number.isFinite(parsedSpendingAlertDollars) && parsedSpendingAlertDollars > 0

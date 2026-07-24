@@ -3,7 +3,8 @@ import {
   SYNTHETIC_ACCRUAL_ID_PREFIX,
   findPersistedCurrentAccrual,
   isSyntheticAccrualId,
-  shouldShowSyntheticAccrual
+  shouldShowSyntheticAccrual,
+  syntheticAgentAccruals
 } from "@/components/business/current-month-accrual";
 
 /**
@@ -240,5 +241,67 @@ describe("isSyntheticAccrualId", () => {
     expect(isSyntheticAccrualId("inv-1")).toBe(false);
     expect(isSyntheticAccrualId(null)).toBe(false);
     expect(isSyntheticAccrualId(undefined)).toBe(false);
+  });
+});
+
+describe("per-agent synthetic accruals", () => {
+  const agents = [
+    {
+      agentId: "agent-used",
+      installedAgentId: "agent-used",
+      agentName: "Used agent",
+      callCount: 2,
+      executionCount: 2,
+      billedCostUsd: 18.74
+    },
+    {
+      agentId: "agent-idle",
+      installedAgentId: "agent-idle",
+      agentName: "Idle agent",
+      callCount: 0,
+      executionCount: 0,
+      billedCostUsd: 0
+    }
+  ];
+
+  it("creates one statement containing only the agent with usage", () => {
+    const rows = syntheticAgentAccruals({
+      invoices: [],
+      currentMonth: CURRENT_MONTH,
+      agents
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.agent.agentName).toBe("Used agent");
+    expect(rows[0]?.id).toContain("agent-used");
+  });
+
+  it("a persisted invoice suppresses only its matching agent", () => {
+    const rows = syntheticAgentAccruals({
+      invoices: [
+        {
+          id: "real-agent-used",
+          billingMonth: CURRENT_MONTH,
+          status: "PENDING",
+          installedAgentId: "agent-used"
+        }
+      ],
+      currentMonth: CURRENT_MONTH,
+      agents: [
+        ...agents,
+        {
+          agentId: "agent-second",
+          installedAgentId: "agent-second",
+          agentName: "Second used agent",
+          callCount: 1,
+          executionCount: 1,
+          billedCostUsd: 4
+        }
+      ]
+    });
+
+    expect(rows.map((row) => row.agent.agentName)).toEqual([
+      "Second used agent"
+    ]);
   });
 });
