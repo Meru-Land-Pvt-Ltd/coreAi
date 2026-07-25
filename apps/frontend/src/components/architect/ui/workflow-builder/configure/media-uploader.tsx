@@ -1,10 +1,9 @@
 import { useRef, useState, type DragEvent } from "react";
+import { apiUpload } from "@/lib/api";
 import { BuilderIcon } from "../icons";
 
-/* eslint-disable @next/next/no-img-element -- previews are local data URLs, which next/image does not support */
-
-const MAX_ICON_BYTES = 300 * 1024;
-const MAX_SCREENSHOT_BYTES = 600 * 1024;
+const MAX_ICON_BYTES = 1024 * 1024;
+const MAX_SCREENSHOT_BYTES = 3 * 1024 * 1024;
 const MAX_SCREENSHOTS = 4;
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -14,6 +13,21 @@ function readAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Could not read file"));
     reader.readAsDataURL(file);
   });
+}
+
+async function storeImage(file: File, kind: "icon" | "screenshot"): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("kind", kind);
+
+  const response = await apiUpload<{ url: string }>("/architect/media/upload", form);
+  if (response.success && response.data?.url) {
+    return response.data.url;
+  }
+  if (response.code === "STORAGE_NOT_CONFIGURED" || response.status === 503) {
+    return readAsDataUrl(file);
+  }
+  throw new Error(response.error || "Could not upload the image.");
 }
 
 export function IconUploader({
@@ -29,21 +43,25 @@ export function IconUploader({
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   async function handleFile(file: File | undefined) {
-    if (!file || disabled) return;
+    if (!file || disabled || uploading) return;
     if (!["image/png", "image/svg+xml", "image/jpeg", "image/webp"].includes(file.type)) {
       onError("Icon must be a PNG, SVG, JPG, or WEBP image.");
       return;
     }
     if (file.size > MAX_ICON_BYTES) {
-      onError("Icon must be under 300KB.");
+      onError("Icon must be under 1MB.");
       return;
     }
+    setUploading(true);
     try {
-      onIconChange(await readAsDataUrl(file));
-    } catch {
-      onError("Could not read the icon file.");
+      onIconChange(await storeImage(file, "icon"));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Could not upload the icon file.");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -59,9 +77,9 @@ export function IconUploader({
       tabIndex={0}
       aria-label="Upload agent icon"
       data-testid="configure-icon-dropzone"
-      onClick={() => !disabled && inputRef.current?.click()}
+      onClick={() => !disabled && !uploading && inputRef.current?.click()}
       onKeyDown={(event) => {
-        if ((event.key === "Enter" || event.key === " ") && !disabled) inputRef.current?.click();
+        if ((event.key === "Enter" || event.key === " ") && !disabled && !uploading) inputRef.current?.click();
       }}
       onDragOver={(event) => {
         event.preventDefault();
@@ -105,8 +123,8 @@ export function IconUploader({
               <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
             </svg>
           </div>
-          <p className="text-[13px] font-semibold text-slate-700">Drop or click to upload</p>
-          <p className="mt-1 text-[11.5px] text-slate-400">PNG or SVG · 512×512 · under 300KB</p>
+          <p className="text-[13px] font-semibold text-slate-700">{uploading ? "Uploading…" : "Drop or click to upload"}</p>
+          <p className="mt-1 text-[11.5px] text-slate-400">PNG or SVG · 512×512 · under 1MB</p>
         </div>
       )}
       <input
@@ -136,28 +154,34 @@ export function ScreenshotUploader({
   disabled?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   async function handleFiles(files: FileList | null) {
-    if (!files || disabled) return;
+    if (!files || disabled || uploading) return;
 
-    const next = [...screenshotUrls];
-    for (const file of Array.from(files)) {
-      if (next.length >= MAX_SCREENSHOTS) break;
-      if (!file.type.startsWith("image/")) {
-        onError("Screenshots must be images.");
-        continue;
+    setUploading(true);
+    try {
+      const next = [...screenshotUrls];
+      for (const file of Array.from(files)) {
+        if (next.length >= MAX_SCREENSHOTS) break;
+        if (!file.type.startsWith("image/")) {
+          onError("Screenshots must be images.");
+          continue;
+        }
+        if (file.size > MAX_SCREENSHOT_BYTES) {
+          onError(`"${file.name}" is over 3MB — please compress it first.`);
+          continue;
+        }
+        try {
+          next.push(await storeImage(file, "screenshot"));
+        } catch (error) {
+          onError(error instanceof Error ? error.message : `Could not upload "${file.name}".`);
+        }
       }
-      if (file.size > MAX_SCREENSHOT_BYTES) {
-        onError(`"${file.name}" is over 600KB — please compress it first.`);
-        continue;
-      }
-      try {
-        next.push(await readAsDataUrl(file));
-      } catch {
-        onError(`Could not read "${file.name}".`);
-      }
+      onChange(next.slice(0, MAX_SCREENSHOTS));
+    } finally {
+      setUploading(false);
     }
-    onChange(next.slice(0, MAX_SCREENSHOTS));
   }
 
   return (
@@ -191,14 +215,14 @@ export function ScreenshotUploader({
         <button
           type="button"
           data-testid="configure-screenshot-add"
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
+          disabled={disabled || uploading}
+          onClick={() => !uploading && inputRef.current?.click()}
           className="flex aspect-[4/3] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/40 text-slate-400 transition hover:border-gray-300 hover:text-slate-500 disabled:opacity-60"
         >
           <svg className="mb-1 h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          <span className="text-[11px] font-semibold">Add image</span>
+          <span className="text-[11px] font-semibold">{uploading ? "Uploading…" : "Add image"}</span>
         </button>
       ) : null}
       <input

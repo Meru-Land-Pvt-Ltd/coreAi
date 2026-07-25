@@ -62,12 +62,14 @@ const envSchema = z.object({
   SES_INBOUND_TOPIC_ARN: z.string().optional(),
   SES_EVENTS_TOPIC_ARN: z.string().optional(),
   SES_CONFIGURATION_SET: z.string().optional(),
-  // SNS signature verification — always enforced in production; this flag only
-  // allows unsigned test payloads in local development.
   SES_SNS_VERIFY: booleanFromEnv.default(true),
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_UPLOAD_BUCKET: z.string().optional(),
+  S3_UPLOAD_REGION: z.string().optional(),
+  S3_UPLOAD_PUBLIC_BASE_URL: z.string().url().optional(),
+  S3_UPLOAD_PREFIX: z.string().default("marketplace"),
   /** Force dry-run (store + log instead of calling SES) even when configured. */
   SES_DRY_RUN: booleanFromEnv.default(false),
 

@@ -899,9 +899,34 @@ function genericAssistantTools() {
         }
       ],
       function: {
+        name: VOICE_TOOL_NAMES.updateAppointmentContact,
+        description:
+          "Correct the phone number on the caller's CURRENT booking. Two steps: (1) call with the full corrected number including its country code (confirmed omitted or false) to validate it — you'll get back the masked number to read aloud; (2) ONLY after the caller clearly confirms that masked number, call again with the SAME phone and confirmed=true to commit. This moves the appointment's number and the text recipient together. The new number has NO SMS consent — after committing, read the SMS disclosure again before any text. Never pass a number you are not sure of; ask the caller to repeat it with the country code.",
+        parameters: {
+          type: "object",
+          properties: {
+            phone: {
+              type: "string",
+              description:
+                "The corrected full phone number in E.164 with country code (e.g. +16505551234). Ask the caller to say it with the country code; never guess."
+            },
+            confirmed: {
+              type: "boolean",
+              description:
+                "true ONLY after the caller clearly confirmed the masked number read back in step 1. false or omitted on the first (validation) call."
+            }
+          },
+          required: ["phone"]
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [],
+      function: {
         name: VOICE_TOOL_NAMES.recordSmsConsent,
         description:
-          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine'). Pass affirmative=false for no, silence, hesitation, an unclear answer, or an interruption. Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
+          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine'). Pass affirmative=false for no, silence, hesitation, an unclear answer, or an interruption. NEVER pass a phone number — the confirmation is sent to the number already on the booking (verified server-side). Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
         parameters: {
           type: "object",
           properties: {
@@ -910,10 +935,10 @@ function genericAssistantTools() {
               description:
                 "true ONLY for a clear yes to the SMS consent question; false for no, silence, uncertainty, or an ambiguous answer."
             },
-            customer_phone: {
+            appointment_id: {
               type: "string",
               description:
-                "Customer phone number in E.164 format. If unknown, leave blank and the caller's number will be used."
+                "Optional internal appointment id from the booking in THIS call. The recipient is resolved server-side from the booking and verified caller ID — do NOT pass a spoken phone number. If the caller wants a different number, use update_appointment_contact first."
             }
           },
           required: ["affirmative"]
@@ -1022,6 +1047,8 @@ export function shouldIncludeAssistantTool(
   // Cancellation + rescheduling ship with the booking capability.
   if (toolName === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
   if (toolName === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
+  // Phone-correction ships with booking (and only matters when SMS is on).
+  if (toolName === VOICE_TOOL_NAMES.updateAppointmentContact) return includeTools.bookAppointment !== false;
   if (toolName === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
   return true;
 }

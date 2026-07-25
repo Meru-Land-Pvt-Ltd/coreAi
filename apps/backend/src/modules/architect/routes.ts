@@ -6,6 +6,11 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
+  isImageUploadConfigured,
+  uploadListingImage,
+  type ImageUploadKind
+} from "../storage/image-upload";
+import {
   createGmailOAuthUrl,
   disconnectGmail,
   getGmailConnectionStatus,
@@ -163,13 +168,42 @@ architectRoutes.get("/connectors/vapi/webhook", (c) =>
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
+const MARKETPLACE_WORKFLOW_SELECT = {
+  select: { id: true, name: true, description: true, workflowJson: true }
+} as const;
+
+type MarketplaceWorkflowNode = { data?: { label?: string; title?: string } };
+
+function deriveWorkflowCapabilities(workflowJson: unknown): string[] {
+  const nodes = (workflowJson as { nodes?: MarketplaceWorkflowNode[] } | null | undefined)?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  const labels = nodes
+    .map((node) => (node?.data?.label || node?.data?.title || "").trim())
+    .filter(Boolean);
+  return [...new Set(labels)];
+}
+
+function toMarketplaceCard<
+  T extends { id: string; workflow?: { id: string; name: string; description: string | null; workflowJson?: unknown } | null }
+>(listing: T & { _count?: unknown }, installCount: number) {
+  const { _count, workflow, ...rest } = listing as T & { _count?: unknown };
+  return {
+    ...rest,
+    workflow: workflow
+      ? { id: workflow.id, name: workflow.name, description: workflow.description }
+      : null,
+    capabilities: deriveWorkflowCapabilities(workflow?.workflowJson),
+    installCount
+  };
+}
+
 async function listPublicMarketplaceListings(c: Context) {
   const allListings = await prisma.agentListing.findMany({
     where: {
       status: "APPROVED"
     },
     include: {
-      workflow: true,
+      workflow: MARKETPLACE_WORKFLOW_SELECT,
       architect: {
         select: {
           id: true,
@@ -201,11 +235,11 @@ async function listPublicMarketplaceListings(c: Context) {
     return true;
   });
   const installCountByListing = await countSalesByListingIds(filtered.map((listing) => listing.id));
-  const listings = filtered.map(({ _count, ...listing }) => ({
-    ...listing,
-    installCount: installCountByListing.get(listing.id) ?? 0
-  }));
+  const listings = filtered.map((listing) =>
+    toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
+  );
 
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
   return successResponse(c, { listings });
 }
 
@@ -267,7 +301,7 @@ async function listCompletedMarketplaceListings(c: Context) {
       }
     },
     include: {
-      workflow: true,
+      workflow: MARKETPLACE_WORKFLOW_SELECT,
       architect: {
         select: {
           id: true,
@@ -299,11 +333,11 @@ async function listCompletedMarketplaceListings(c: Context) {
     return true;
   });
   const installCountByListing = await countSalesByListingIds(filtered.map((listing) => listing.id));
-  const listings = filtered.map(({ _count, ...listing }) => ({
-    ...listing,
-    installCount: installCountByListing.get(listing.id) ?? 0
-  }));
+  const listings = filtered.map((listing) =>
+    toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
+  );
 
+  c.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
   return successResponse(c, { listings });
 }
 
@@ -430,6 +464,35 @@ architectRoutes.get("/ai/providers", async (c) => {
     models: adapter.models
   }));
   return successResponse(c, { providers });
+});
+
+architectRoutes.post("/media/upload", async (c) => {
+  if (!isImageUploadConfigured()) {
+    return errorResponse(c, "Image storage is not configured.", 503, "STORAGE_NOT_CONFIGURED");
+  }
+
+  const form = await c.req.parseBody().catch(() => null);
+  const file = form?.["file"];
+  const kindRaw = typeof form?.["kind"] === "string" ? (form["kind"] as string) : "icon";
+  const kind: ImageUploadKind = kindRaw === "screenshot" ? "screenshot" : "icon";
+
+  if (!(file instanceof File)) {
+    return errorResponse(c, "No file was provided.", 400, "FILE_REQUIRED");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const result = await uploadListingImage({
+    buffer,
+    contentType: file.type,
+    kind
+  });
+
+  if (!result.ok) {
+    const status = result.code === "NOT_CONFIGURED" ? 503 : result.code === "UPLOAD_FAILED" ? 500 : 422;
+    return errorResponse(c, result.message, status, result.code);
+  }
+
+  return successResponse(c, { url: result.url, kind });
 });
 
 architectRoutes.route("/payouts", architectPayoutRoutes);

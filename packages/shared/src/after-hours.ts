@@ -614,6 +614,19 @@ export function deriveAfterHoursState(params: {
 
   if (unclearAnswers > 0) state.clarificationAsked = true;
 
+  if (
+    (state.route === "NOT_STARTED" || state.route === "EMERGENCY_QUESTION_ASKED") &&
+    state.redFlags.length === 0 &&
+    turns.some((turn) => turn.role === "user" && mentionsSchedulingIntent(turn.content)) &&
+    !turns.some(
+      (turn) =>
+        turn.role === "user" &&
+        (detectUrgentSymptoms(turn.content) || detectRedFlags(turn.content).length > 0)
+    )
+  ) {
+    state.route = "STANDARD_BOOKING";
+  }
+
   state.outcome = outcomeForRoute(state.route);
   return state;
 }

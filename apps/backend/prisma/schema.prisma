@@ -158,6 +158,7 @@ model AgentListing {
   @@index([architectUserId])
   @@index([workflowId])
   @@index([status])
+  @@index([status, createdAt])
 }
 
 model Project {

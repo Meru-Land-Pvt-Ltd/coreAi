@@ -167,6 +167,95 @@ describe("deriveLiveAfterHoursCallState — live routes", () => {
   });
 });
 
+describe("routine-scheduling backstop (requirement A) — clear routine intent bypasses screening", () => {
+  const allowsBooking = (turns: AfterHoursCallTurn[]) => {
+    const state = derive(turns);
+    return {
+      route: state.route,
+      check: evaluateAfterHoursToolGate({
+        route: state.route,
+        emergencyInstructionStatus: state.emergencyInstructionStatus,
+        action: "check_availability"
+      })
+    };
+  };
+
+  it("J1: a clear routine cleaning request bypasses emergency screening", () => {
+    const { route, check } = allowsBooking([bot(GREETING), user("I'd like to book a cleaning appointment please")]);
+    expect(route).toBe("STANDARD_BOOKING");
+    expect(check.allowed).toBe(true);
+  });
+
+  it("J1: routine checkup / consultation / scheduling wording also bypasses", () => {
+    for (const message of [
+      "I want a routine dental checkup",
+      "just here to schedule a consultation",
+      "can I schedule the next available appointment",
+      "no emergency, I just need a cleaning"
+    ]) {
+      const { route, check } = allowsBooking([bot(GREETING), user(message)]);
+      expect(route, message).toBe("STANDARD_BOOKING");
+      expect(check.allowed, message).toBe(true);
+    }
+  });
+
+  it("J1: bypass survives the name/phone-collection turns that follow a routine request", () => {
+    const { route, check } = allowsBooking([
+      bot(GREETING),
+      user("I want to book a cleaning for the next available business hours"),
+      bot("Did you mean a dental cleaning appointment?"),
+      user("yes, a cleaning"),
+      bot("Great. May I have your full name?"),
+      user("Jim"),
+      bot("Thanks Jim. And your phone number?"),
+      user("plus one six five zero five five five one two three four"),
+      bot("Just to confirm, that's plus 1 650 555 1234, correct?"),
+      user("yeah")
+    ]);
+    expect(route).toBe("STANDARD_BOOKING");
+    expect(check.allowed).toBe(true);
+  });
+
+  it("J2: reported symptoms (bleeding/swelling) still require screening and block booking", () => {
+    const { route, check } = allowsBooking([bot(GREETING), user("my tooth is bleeding heavily and my face is swollen")]);
+    expect(route).not.toBe("STANDARD_BOOKING");
+    expect(check.allowed).toBe(false);
+  });
+
+  it("J2: an affirmed life-threatening warning sign blocks booking (emergency instruction required)", () => {
+    const { route, check } = allowsBooking([
+      bot(GREETING),
+      user("yes it might be an emergency"),
+      bot(RED_FLAG_QUESTION),
+      user("yes, I can't stop the bleeding")
+    ]);
+    expect(route).toBe("RED_FLAG_DETECTED");
+    expect(check.allowed).toBe(false);
+    expect((check as { code: string }).code).toBe(AFTER_HOURS_GATE_CODES.emergencyInstructionRequired);
+  });
+
+  it("J2: severe-pain urgent symptom during a booking request still routes to screening, not STANDARD_BOOKING", () => {
+    const { route } = allowsBooking([bot(GREETING), user("I need an appointment, I have severe unbearable tooth pain")]);
+    expect(route).not.toBe("STANDARD_BOOKING");
+  });
+
+  it("J2: a genuinely ambiguous answer is NOT auto-routed to booking", () => {
+    const { route, check } = allowsBooking([bot(GREETING), user("um, I'm not sure, maybe")]);
+    expect(route).not.toBe("STANDARD_BOOKING");
+    expect(check.allowed).toBe(false);
+  });
+
+  it("the backstop never fires once a symptom appeared, even if a later turn asks to book", () => {
+    const { route } = allowsBooking([
+      bot(GREETING),
+      user("I have some swelling in my jaw"),
+      bot(RED_FLAG_QUESTION),
+      user("actually can you just book me a cleaning")
+    ]);
+    expect(route).not.toBe("STANDARD_BOOKING");
+  });
+});
+
 describe("emergency-instruction verification (assistant-spoken only)", () => {
   const RED_FLAG_TURNS = [bot(GREETING), user("the bleeding will not stop")];
 

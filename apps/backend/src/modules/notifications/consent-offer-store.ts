@@ -1,22 +1,5 @@
-import { Redis } from "ioredis";
-import { env } from "../../config/env";
+import { getSharedRedis, sharedRedisConfigured } from "../../lib/redis";
 
-/**
- * Distributed SMS-consent disclosure state (NOT_OFFERED → OFFERED →
- * OPTED_IN/DECLINED), keyed by businessId + callId + disclosureVersion.
- *
- * - Redis-backed when REDIS_URL is configured: valid across horizontally
- *   scaled backend instances, automatic TTL, idempotent SETs under webhook
- *   retries, deleted on completion. No transcript text is ever stored — the
- *   value is a bare marker.
- * - When REDIS_URL is absent the store degrades to a per-process in-memory
- *   map with the same TTL semantics. That is fine for tests and single-node
- *   dev, but it is a PRODUCTION BLOCKER for multi-instance deployments:
- *   `consentOfferStoreIsDistributed()` reports which mode is active so the
- *   deployment checklist can assert Redis is present.
- */
-
-/** Longest a call can run (mirrors LIVE_MAX_CALL_DURATION_SECONDS = 12h). */
 const OFFER_TTL_SECONDS = 12 * 60 * 60;
 
 export type ConsentOfferKey = {
@@ -29,27 +12,12 @@ function storeKey(key: ConsentOfferKey): string {
   return `sms-consent-offer:${key.businessId}:${key.callId}:${key.disclosureVersion}`;
 }
 
-let redis: Redis | null | undefined;
-
-function redisClient(): Redis | null {
-  if (redis !== undefined) return redis;
-  if (!env.REDIS_URL) {
-    redis = null;
-    return redis;
-  }
-  redis = new Redis(env.REDIS_URL, {
-    maxRetriesPerRequest: 1,
-    lazyConnect: true,
-    enableOfflineQueue: false
-  });
-  redis.on("error", (error) => {
-    console.error("[consent-offer-store] redis error", { message: error.message });
-  });
-  return redis;
+function redisClient() {
+  return getSharedRedis();
 }
 
 export function consentOfferStoreIsDistributed(): boolean {
-  return Boolean(env.REDIS_URL);
+  return sharedRedisConfigured();
 }
 
 const memoryStore = new Map<string, number>();

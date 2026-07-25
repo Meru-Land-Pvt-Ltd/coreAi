@@ -6,4 +6,5 @@ export * from "./google-disclosure";
 export * from "./node-registry";
 export * from "./prompt-variables";
 export * from "./sms-consent";
+export * from "./spoken-date";
 export * from "./timezone";
