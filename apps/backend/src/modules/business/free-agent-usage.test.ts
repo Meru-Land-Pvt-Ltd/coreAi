@@ -175,7 +175,7 @@ describe("per-call contact memory — never re-ask name or number in the same ca
     rememberCallContact(callA, { name: "Alex Morgan" });
     rememberCallContact(callA, { phone: "+15550160001" });
 
-    expect(recallCallContact(callA)).toEqual({ name: "Alex Morgan", phone: "+15550160001" });
+    expect(recallCallContact(callA)).toMatchObject({ name: "Alex Morgan", phone: "+15550160001" });
     expect(recallCallContact(callB)).toEqual({});
     expect(recallCallContact(undefined)).toEqual({});
   });
@@ -185,6 +185,6 @@ describe("per-call contact memory — never re-ask name or number in the same ca
     rememberCallContact(callId, { name: "Jamie Fox", phone: "+15550160002" });
     rememberCallContact(callId, { name: "Jamie Fox" });
 
-    expect(recallCallContact(callId)).toEqual({ name: "Jamie Fox", phone: "+15550160002" });
+    expect(recallCallContact(callId)).toMatchObject({ name: "Jamie Fox", phone: "+15550160002" });
   });
 });

@@ -49,7 +49,7 @@ import {
   type LiveAfterHoursGateContext
 } from "./after-hours-live-gate";
 import { updateAfterHoursStaffNotificationStatus } from "../business/after-hours-call-state";
-import { buildRedFlagStaffAlert, buildUrgentStaffAlert, verbalSmsConsentDisclosure } from "@coreai/shared";
+import { buildRedFlagStaffAlert, buildUrgentStaffAlert, verbalSmsConsentDisclosure, spokenDateTimeInTimeZone } from "@coreai/shared";
 import {
   addDaysToDate,
   businessOpenStatus,
@@ -718,6 +718,22 @@ function formatAppointmentTime(iso: string, timeZone?: string | null): string {
   } catch {
     return new Date(iso).toLocaleString();
   }
+}
+
+/**
+ * Voice-facing appointment time: "Saturday, July twenty-fifth at 9:00 AM".
+ * TTS mangles abbreviated dates ("Sat, Jul 25" → "July 20 fifth"), so every
+ * spoken confirmation uses this fully-spelled ordinal form (#7).
+ */
+function formatSpokenAppointmentTime(iso: string, timeZone?: string | null): string {
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  let timeLabel = "";
+  try {
+    timeLabel = new Date(iso).toLocaleString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" });
+  } catch {
+    timeLabel = "";
+  }
+  return spokenDateTimeInTimeZone(iso, tz, timeLabel) || formatAppointmentTime(iso, timeZone);
 }
 
 export function resolveRequestedProvider(args: Record<string, unknown>): string | null {
@@ -2472,7 +2488,24 @@ type VapiToolContext = {
 };
 
 const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
-const callContactCache = new Map<string, { name?: string; phone?: string; appointmentId?: string; at: number }>();
+
+/** How the canonical number was established, in precedence order. */
+export type CallPhoneSource = "confirmed" | "caller_id" | "supplied";
+const PHONE_SOURCE_RANK: Record<CallPhoneSource, number> = { confirmed: 3, caller_id: 2, supplied: 1 };
+
+export type CallContactState = {
+  name?: string;
+  /** Back-compat alias of canonicalPhoneE164 (always full E.164, never last-4). */
+  phone?: string;
+  canonicalPhoneE164?: string;
+  phoneSource?: CallPhoneSource;
+  phoneConfirmedAt?: number;
+  appointmentId?: string;
+  smsRecipientE164?: string;
+  at: number;
+};
+
+const callContactCache = new Map<string, CallContactState>();
 
 function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
   if (!ctx.callId || !ctx.business?.businessId) return null;
@@ -2495,7 +2528,14 @@ async function smsDisclosureOffered(ctx: VapiToolContext): Promise<boolean> {
 
 export function rememberCallContact(
   callId: string | undefined,
-  contact: { name?: string; phone?: string; appointmentId?: string }
+  contact: {
+    name?: string;
+    phone?: string;
+    canonicalPhoneE164?: string;
+    phoneSource?: CallPhoneSource;
+    appointmentId?: string;
+    smsRecipientE164?: string;
+  }
 ) {
   if (!callId) return;
   const now = Date.now();
@@ -2503,21 +2543,48 @@ export function rememberCallContact(
     if (now - value.at > CALL_CONTACT_TTL_MS) callContactCache.delete(key);
   }
   const existing = callContactCache.get(callId);
+
+  const incomingPhone = contact.canonicalPhoneE164 || contact.phone;
+  const incomingSource: CallPhoneSource = contact.phoneSource ?? "supplied";
+  let canonicalPhoneE164 = existing?.canonicalPhoneE164 ?? existing?.phone;
+  let phoneSource = existing?.phoneSource;
+  let phoneConfirmedAt = existing?.phoneConfirmedAt;
+  if (incomingPhone) {
+    const existingRank = phoneSource ? PHONE_SOURCE_RANK[phoneSource] : 0;
+    const replace =
+      canonicalPhoneE164 !== incomingPhone
+        ? PHONE_SOURCE_RANK[incomingSource] >= existingRank
+        : true;
+    if (replace) {
+      canonicalPhoneE164 = incomingPhone;
+      phoneSource = incomingSource;
+      if (incomingSource === "confirmed") phoneConfirmedAt = now;
+    }
+  }
+
   callContactCache.set(callId, {
     name: contact.name || existing?.name,
-    phone: contact.phone || existing?.phone,
+    phone: canonicalPhoneE164,
+    canonicalPhoneE164,
+    phoneSource,
+    phoneConfirmedAt,
     appointmentId: contact.appointmentId || existing?.appointmentId,
+    smsRecipientE164: contact.smsRecipientE164 || canonicalPhoneE164 || existing?.smsRecipientE164,
     at: now
   });
 }
 
-export function recallCallContact(
-  callId: string | undefined
-): { name?: string; phone?: string; appointmentId?: string } {
+export function recallCallContact(callId: string | undefined): Omit<CallContactState, "at"> {
   if (!callId) return {};
   const entry = callContactCache.get(callId);
   if (!entry || Date.now() - entry.at > CALL_CONTACT_TTL_MS) return {};
-  return { name: entry.name, phone: entry.phone, appointmentId: entry.appointmentId };
+  const { at: _at, ...rest } = entry;
+  return rest;
+}
+
+/** Test hook: clear the per-call canonical contact cache. */
+export function resetCallContactCacheForTests(): void {
+  callContactCache.clear();
 }
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -2850,7 +2917,22 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
 
   const callerIdPhone = normalizePhoneE164(ctx.customerPhone);
   let patientPhone = "";
-  if (rawPhone && !hasExplicitCountryCode(rawPhone)) {
+  // #2 canonical precedence: once a number has been CONFIRMED for this call
+  // (e.g. a prior booking established it), it wins over any later, possibly
+  // mis-transcribed, model-supplied argument. Full E.164 identity only — we
+  // never treat two numbers as equal because their last four digits match.
+  const confirmedCanonical =
+    rememberedContact.phoneSource === "confirmed" ? rememberedContact.canonicalPhoneE164 ?? "" : "";
+  if (confirmedCanonical) {
+    patientPhone = confirmedCanonical;
+    const argFull = rawPhone && hasExplicitCountryCode(rawPhone) ? normalizePhoneE164(rawPhone) : "";
+    if (argFull && argFull !== confirmedCanonical) {
+      console.warn("[vapi-tool] book_appointment ignoring conflicting transcribed phone; using confirmed canonical", {
+        confirmed: maskPhone(confirmedCanonical),
+        supplied: maskPhone(argFull)
+      });
+    }
+  } else if (rawPhone && !hasExplicitCountryCode(rawPhone)) {
     const dictatedDigits = rawPhone.replace(/\D/g, "");
     if (callerIdPhone && dictatedDigits.length >= 7 && callerIdPhone.endsWith(dictatedDigits)) {
       // The caller dictated their OWN number without the code — the verified
@@ -2904,7 +2986,8 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   if (startAt.getTime() < Date.now() - 60_000) return INVALID_DATE_RESULT;
 
   const teamName = ctx.dental?.doctorName || ctx.business?.businessName || "our team";
-  const whenLabel = formatAppointmentTime(startAt.toISOString(), ctx.timeZone);
+  // Voice-facing confirmation uses the fully-spelled spoken date (#7).
+  const whenLabel = formatSpokenAppointmentTime(startAt.toISOString(), ctx.timeZone);
   const confirmation = ctx.dental?.confirmationMessage
     ? applyBracketTemplate(
       ctx.dental.confirmationMessage,
@@ -3102,9 +3185,18 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     };
   }
 
+  const bookingConsentStatus = ctx.business?.businessId
+    ? await getSmsConsentStatusLabel(ctx.business.businessId, patientPhone)
+    : "none";
+
   const sendBookingConfirmationSms = async (appointmentId: string, startAtIso: string) => {
     if (!ctx.business?.businessId || !patientPhone) return null;
     if (ctx.dental && ctx.dental.sendToPatient === false) return null;
+    // #4: NEVER attempt a customer confirmation SMS before consent. A pre-consent
+    // send only produces a SUPPRESSED SmsExecution and risks a false "text sent"
+    // claim. The confirmation is sent by record_sms_consent AFTER affirmative
+    // consent. Only a caller who ALREADY has standing consent gets it now.
+    if (bookingConsentStatus !== "granted") return null;
     try {
       return await sendAppointmentConfirmationSms({
         appointmentId,
@@ -3137,13 +3229,14 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     delivery_error_code: outcome?.errorCode ?? null
   });
 
-  const bookingConsentStatus = ctx.business?.businessId
-    ? await getSmsConsentStatusLabel(ctx.business.businessId, patientPhone)
-    : "none";
   const smsDeliveryUnreliable = isSmsDeliveryUnreliable(patientPhone);
   const consentExtras = {
     consent_status: bookingConsentStatus,
+    masked_recipient: `•••${patientPhone.slice(-4)}`,
     canonical_recipient_ending: patientPhone.slice(-4),
+    // #4: booking never attempts a customer SMS before consent — the send is
+    // owned by record_sms_consent. Standing-consent callers get it immediately.
+    smsAttempted: bookingConsentStatus === "granted",
     ...(bookingConsentStatus === "none" && ctx.business?.businessName
       ? { required_disclosure: verbalSmsConsentDisclosure(ctx.business.businessName) }
       : {}),
@@ -3174,7 +3267,12 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
           },
           select: { id: true }
         });
-        rememberCallContact(ctx.callId, { appointmentId: localAppointment?.id });
+        rememberCallContact(ctx.callId, {
+          appointmentId: localAppointment?.id,
+          canonicalPhoneE164: patientPhone,
+          phoneSource: "confirmed",
+          smsRecipientE164: patientPhone
+        });
       } catch (error) {
         console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
       }
@@ -3255,7 +3353,12 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       }
 
       const { calendarEvent, appointment } = reservation.booking;
-      rememberCallContact(ctx.callId, { appointmentId: appointment.id });
+      rememberCallContact(ctx.callId, {
+        appointmentId: appointment.id,
+        canonicalPhoneE164: patientPhone,
+        phoneSource: "confirmed",
+        smsRecipientE164: patientPhone
+      });
       await upsertConversation({
         businessId: ctx.business.businessId,
         customerPhone: patientPhone,
@@ -3940,6 +4043,110 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
   };
 }
 
+async function runUpdateAppointmentContactTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  if (!ctx.business?.businessId) {
+    return { success: false, error: "BUSINESS_NOT_RESOLVED", message: "I couldn't update the appointment right now." };
+  }
+
+  const rawPhone = argStr(args, PHONE_ARG_KEYS);
+  const confirmed = args.confirmed === true || String(args.confirmed ?? "").toLowerCase() === "true";
+
+  if (!rawPhone) {
+    return {
+      success: false,
+      error: "PHONE_REQUIRED",
+      message: "Ask the caller for the full corrected number including its country code, then call this again."
+    };
+  }
+  if (!hasExplicitCountryCode(rawPhone)) {
+    return { ...NEEDS_COUNTRY_CODE_RESULT };
+  }
+  const corrected = normalizePhoneE164(rawPhone);
+  if (!corrected || corrected.replace(/\D/g, "").length < 8) {
+    return {
+      success: false,
+      error: "INVALID_PHONE",
+      message: "That number isn't a valid full number. Ask for it again with the country code."
+    };
+  }
+  const maskedRecipient = `•••${corrected.slice(-4)}`;
+
+  // Step A — validate and read back for an explicit yes before changing anything.
+  if (!confirmed) {
+    return {
+      success: true,
+      needs_confirmation: true,
+      masked_recipient: maskedRecipient,
+      customerSpeechCode: "CONFIRM_CORRECTED_NUMBER" as const,
+      customerSafeMessage: `I have the number ending ${corrected.slice(-4)}. Should I update your appointment to use it?`,
+      message:
+        "Read the masked number back and get an explicit yes. Then call update_appointment_contact again with the SAME phone and confirmed=true."
+    };
+  }
+
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST" || ctx.executionMode === "ARCHITECT_DRY_RUN") {
+    return { success: true, dry_run: true, updated: false, masked_recipient: maskedRecipient };
+  }
+
+  const contact = recallCallContact(ctx.callId);
+  let appt = contact.appointmentId
+    ? await prisma.appointment.findUnique({
+        where: { id: contact.appointmentId },
+        select: { id: true, businessId: true, customerPhone: true }
+      })
+    : null;
+  if (!appt && ctx.callId) {
+    appt = await prisma.appointment.findFirst({
+      where: { businessId: ctx.business.businessId, bookingCallId: ctx.callId, status: "BOOKED" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, businessId: true, customerPhone: true }
+    });
+  }
+  if (!appt || appt.businessId !== ctx.business.businessId) {
+    return {
+      success: false,
+      error: "APPOINTMENT_NOT_FOUND",
+      message: "There's no booking on this call to update. Complete the booking first."
+    };
+  }
+
+  const previous = appt.customerPhone;
+
+  await prisma.$transaction([
+    prisma.appointment.update({ where: { id: appt.id }, data: { customerPhone: corrected } })
+  ]);
+  rememberCallContact(ctx.callId, {
+    canonicalPhoneE164: corrected,
+    phoneSource: "confirmed",
+    smsRecipientE164: corrected,
+    appointmentId: appt.id
+  });
+  const offerKey = consentOfferKey(ctx);
+  if (offerKey) await clearConsentOffer(offerKey);
+
+  console.log("[vapi-tool] update_appointment_contact committed", {
+    appointmentId: appt.id,
+    from: maskPhone(previous),
+    to: maskPhone(corrected),
+    callId: ctx.callId ?? null
+  });
+
+  const alreadyCorrect = previous === corrected;
+  return {
+    success: true,
+    updated: true,
+    unchanged: alreadyCorrect,
+    appointment_ref: appointmentAiRef(appt.id),
+    masked_recipient: maskedRecipient,
+    consent_status: "none",
+    required_disclosure: verbalSmsConsentDisclosure(ctx.business.businessName),
+    customerSpeechCode: "CONTACT_UPDATED" as const,
+    customerSafeMessage: `Done — your appointment now uses the number ending ${corrected.slice(-4)}.`,
+    message:
+      "Appointment recipient updated. The new number has NO SMS consent yet — do not promise a text. If the caller wants a confirmation text, read the disclosure in required_disclosure word-for-word, then call record_sms_consent with only appointment_id and affirmative."
+  };
+}
+
 async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { success: false, error: "business_not_resolved", consent_recorded: false };
@@ -3985,7 +4192,6 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     };
   }
 
-  const consentRawPhone = argStr(args, PHONE_ARG_KEYS);
   const consentContact = recallCallContact(ctx.callId);
 
   const appointmentSelect = {
@@ -4013,42 +4219,23 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     });
   }
 
-  let phone: string;
-  if (bookedAppointment) {
-    phone = bookedAppointment.customerPhone;
-    const argsNormalized = consentRawPhone ? normalizePhoneE164(consentRawPhone) : "";
-    if (
-      argsNormalized &&
-      argsNormalized !== phone &&
-      consentRawPhone &&
-      hasExplicitCountryCode(consentRawPhone)
-    ) {
-      // An explicitly DIFFERENT full number was given — never silently pick
-      // one. The assistant must confirm which number receives texts.
-      return {
-        success: false,
-        needs_clarification: true,
-        error: "RECIPIENT_MISMATCH",
-        consent_recorded: false,
-        sms_allowed: false,
-        message: `The booking is under the number ending ${phone.slice(-4)}, but a different number ending ${argsNormalized.slice(-4)} was just given. Confirm with the caller which number should receive texts, then call record_sms_consent again — omit the phone to use the booked number, or pass the full corrected number with its country code.`
-      };
-    }
-    // Args absent, equal, or ambiguous (no country code — transcription
-    // noise): the booked number is the confirmed canonical recipient.
-  } else {
-    if (
-      !normalizePhoneE164(ctx.customerPhone) &&
-      !consentContact.phone &&
-      consentRawPhone &&
-      !hasExplicitCountryCode(consentRawPhone)
-    ) {
-      return { ...NEEDS_COUNTRY_CODE_RESULT, consent_recorded: false };
-    }
-    phone = resolvePatientPhone(consentRawPhone, ctx.customerPhone) || consentContact.phone || "";
-    if (!phone) {
-      return { success: false, error: "customer_phone_unavailable", consent_recorded: false };
-    }
+  const phone =
+    bookedAppointment?.customerPhone ||
+    consentContact.smsRecipientE164 ||
+    consentContact.canonicalPhoneE164 ||
+    normalizePhoneE164(ctx.customerPhone) ||
+    "";
+  if (!phone) {
+    return {
+      success: false,
+      error: "RECIPIENT_UNRESOLVED",
+      consent_recorded: false,
+      sms_allowed: false,
+      customerSpeechCode: "CONSENT_NO_RECIPIENT" as const,
+      customerSafeMessage: "Your appointment is still booked, but I couldn't set up the confirmation text.",
+      message:
+        "No canonical recipient is available from the appointment, confirmed call contact, or verified caller ID. Do NOT accept a spoken phone number here. If the caller needs a different number, call update_appointment_contact to correct it first, then call record_sms_consent again with only appointment_id and affirmative."
+    };
   }
 
   // Architect browser test: acknowledge without persisting.
@@ -4062,6 +4249,9 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     phoneNumber: phone,
     businessName: ctx.business.businessName,
     vapiCallId: ctx.callId ?? null,
+    // #5: bind the consent row to the appointment + canonical recipient so
+    // Appointment, SmsConsent and SmsExecution all reference the same number.
+    appointmentId: bookedAppointment?.id ?? null,
     affirmative
   });
 
@@ -4082,6 +4272,8 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
 
   let confirmationSmsSent = false;
   let confirmationAttempted = false;
+  let smsProviderAccepted = false;
+  let smsMessageSidPresent = false;
   if (outcome.consent.status === "OPTED_IN") {
     try {
       const target =
@@ -4112,30 +4304,52 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
           appointmentDate: target.startAt,
           timeZone: target.timeZone || ctx.timeZone
         });
-        confirmationSmsSent =
-          (smsOutcome.sent && (Boolean(smsOutcome.messageSid) || smsOutcome.simulated)) ||
-          (smsOutcome.alreadySent && Boolean(smsOutcome.messageSid));
+        smsMessageSidPresent = Boolean(smsOutcome.messageSid);
+        smsProviderAccepted =
+          Boolean(smsOutcome.sent && smsOutcome.messageSid) ||
+          Boolean(smsOutcome.alreadySent && smsOutcome.messageSid);
+        confirmationSmsSent = smsProviderAccepted || Boolean(smsOutcome.sent && smsOutcome.simulated);
       }
     } catch (error) {
       console.error("[vapi-webhook] post-consent confirmation SMS failed (non-fatal)", error);
     }
   }
 
+  const declined = outcome.consent.status !== "OPTED_IN";
+  const speech = declined
+    ? {
+        customerSpeechCode: "CONSENT_DECLINED" as const,
+        customerSafeMessage: "No problem — I won't send any texts. Your appointment is all set."
+      }
+    : confirmationSmsSent
+      ? {
+          customerSpeechCode: "CONFIRMATION_SUBMITTED" as const,
+          customerSafeMessage: "Your confirmation text has been submitted."
+        }
+      : confirmationAttempted
+        ? {
+            customerSpeechCode: "CONFIRMATION_FAILED" as const,
+            customerSafeMessage: "Your appointment is still booked, but I couldn't send the confirmation text."
+          }
+        : {
+            customerSpeechCode: "CONSENT_RECORDED" as const,
+            customerSafeMessage: "You're all set to receive text updates."
+          };
+
   const recipientEnding = phone.slice(-4);
   return {
     success: true,
     consent_recorded: true,
-    sms_allowed: outcome.consent.status === "OPTED_IN",
+    sms_allowed: !declined,
     confirmation_sms_sent: confirmationSmsSent,
-    recipient_ending: recipientEnding,
-    message:
-      outcome.consent.status === "OPTED_IN"
-        ? confirmationSmsSent
-          ? `SMS consent recorded for the number ending ${recipientEnding}. Tell the caller EXACTLY: "Your confirmation text has been submitted." Never claim it was delivered.`
-          : confirmationAttempted
-            ? `SMS consent recorded for the number ending ${recipientEnding}, but the confirmation text could NOT be sent. Tell the caller EXACTLY: "Your appointment is still booked, but I couldn't send the confirmation text." Never claim a text was sent.`
-            : `SMS consent recorded for the number ending ${recipientEnding}. Transactional texts may now be sent.`
-        : "Declined recorded. Do not send texts. Continue the booking normally — it is not affected."
+    smsProviderAccepted,
+    smsMessageSidPresent,
+    masked_recipient: `•••${recipientEnding}`,
+    ...speech,
+    // The customerSafeMessage above is authoritative — say it verbatim.
+    message: declined
+      ? `Declined recorded. Do not send texts. Tell the caller EXACTLY: "${speech.customerSafeMessage}" The booking is not affected.`
+      : `SMS consent recorded for the number ending ${recipientEnding}. Tell the caller EXACTLY: "${speech.customerSafeMessage}"${confirmationSmsSent ? " Never claim it was delivered." : " Never claim a text was sent."}`
   };
 }
 
@@ -4785,9 +4999,6 @@ export async function handleVapiWebhook(c: Context) {
       }
     };
 
-    // Call ended — clear the distributed after-hours routing state. In the
-    // mixed tool/end-of-call path this runs AFTER tool dispatch so the gate
-    // does not re-write state for a call that just ended.
     const clearAfterHoursOnCallEnd = async () => {
       if (executionMode === "LIVE" && isEndOfCallEvent) {
         await endLiveAfterHoursCall(businessContext?.businessId, callId);
@@ -4829,9 +5040,6 @@ export async function handleVapiWebhook(c: Context) {
       return c.json(agentPaused ? { ok: true, paused: true } : { ok: true });
     }
 
-    // MIXED payload (end-of-call report carrying tool calls): settle usage +
-    // clear after-hours state BEFORE tool dispatch, then process tools
-    // independently — tool outcomes never gate settlement.
     await settleLiveEndOfCall();
 
     if (agentPaused) {
@@ -4885,7 +5093,9 @@ export async function handleVapiWebhook(c: Context) {
       const fnName = toolCall.name.toLowerCase().replace(/[^a-z]/g, "");
       const isConsent = fnName.includes("consent");
       const isLookup = !isConsent && (fnName.includes("knowledge") || fnName.startsWith("lookup"));
-      const isCancel = !isConsent && !isLookup && fnName.includes("cancel");
+      const isUpdateContact =
+        !isConsent && !isLookup && fnName.includes("update") && fnName.includes("contact");
+      const isCancel = !isConsent && !isLookup && !isUpdateContact && fnName.includes("cancel");
       const isReschedule = !isConsent && !isLookup && !isCancel && fnName.includes("resched");
       const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
       const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && fnName.startsWith("book");
