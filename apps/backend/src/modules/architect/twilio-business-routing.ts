@@ -3217,14 +3217,6 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
           },
           select: { id: true }
         });
-        rememberCallContact(ctx.callId, { appointmentId: localAppointment?.id });
-        if ((ctx.business.executionMode ?? "LIVE") === "LIVE") {
-          try {
-            await sendBusinessAppointmentBookedEmail(localAppointment.id);
-          } catch (error) {
-            console.error("[appointment-email] buyer notification failed (appointment kept)", error);
-          }
-        }
         await updateCallContact(ctx.business?.businessId, ctx.callId, {
           appointmentId: localAppointment?.id,
           canonicalPhoneE164: patientPhone,
