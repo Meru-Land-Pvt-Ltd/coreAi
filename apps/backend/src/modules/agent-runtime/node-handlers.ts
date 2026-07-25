@@ -1,3 +1,4 @@
+import { buildCompactMemoryString, type MemoryAttachment } from "../memory/memory-compression";
 import {
   asString,
   extractTimeLabel,
@@ -48,7 +49,9 @@ export function resolveTemplate(template: string, context: AgentRuntimeContext):
     "business.type": context.business.type,
     "business_type": context.business.type,
     "assistant_name": context.business.assistantName,
-    "assistantName": context.business.assistantName
+    "assistantName": context.business.assistantName,
+    memory: stringVariable(context, "memory"),
+    "memory.context": stringVariable(context, "memory")
   };
 
   let resolved = template;
@@ -400,6 +403,27 @@ const handleCondition: NodeHandler = async (node, context) => {
   return { status: "executed" };
 };
 
+const handleMemoryNode: NodeHandler = async (node, context) => {
+  const attachments = (Array.isArray(node.data?.attachments) ? node.data?.attachments : []) as MemoryAttachment[];
+  const customNotes =
+    asString(node.data?.customMemoryNotes) || asString(node.data?.notes) || asString(node.data?.customNotes);
+
+  const compactMemoryText = buildCompactMemoryString({
+    executedNodes: context.executedNodes,
+    variables: context.variables,
+    attachments,
+    customNotes
+  });
+
+  setVariables(context, { memory: compactMemoryText });
+
+  log(context, node, "success", "Aggregated previous node executions and manual attachments into compact memory string.", {
+    memory: compactMemoryText
+  });
+
+  return { status: "executed" };
+};
+
 const handleUnknown: NodeHandler = async (node, context) => {
   log(context, node, "waiting", "Not part of this conversation channel; skipped by the runtime.");
   return { status: "skipped" };
@@ -409,6 +433,7 @@ const HANDLERS: Record<string, NodeHandler> = {
   "trigger.phone_call": handlePhoneTrigger,
   "trigger.sms": handleSmsTrigger,
   "ai.conversation": handleAiConversation,
+  "ai.memory": handleMemoryNode,
   "calendar.check_availability": handleCalendarAvailability,
   "calendar.book_appointment": handleBookAppointment,
   "sms.send": handleSendSms,

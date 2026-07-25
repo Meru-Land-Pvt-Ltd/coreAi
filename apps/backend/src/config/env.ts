@@ -140,6 +140,8 @@ const envSchema = z.object({
   DEEPGRAM_API_KEY: z.string().optional(),
 
   MISTRAL_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
   STABILITY_API_KEY: z.string().optional(),
   LLAMA_BASE_URL: z.string().default("http://localhost:11434/v1"),
 

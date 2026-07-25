@@ -1,30 +1,55 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getLLMProviders, type LLMProviderResponse } from "../../features/api";
+import { useState, useRef, useEffect } from "react";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
-import { Section, Label, TextInput, TextArea, SelectBox } from "./node-inspector";
+import { Section, Label, TextInput, TextArea } from "./node-inspector";
+import { LLM_MODELS } from "./llm-catalog";
 
 type NodePropsPanel = {
   selectedNode: BuilderNode;
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
 };
 
-type ProviderFromApi = {
-  id: string;
-  displayName: string;
-  models: string[];
-};
-
 export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const [providers, setProviders] = useState<ProviderFromApi[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
 
+  const str = (key: string, fallback = ""): string => {
+    const value = selectedNode.data[key];
+    return typeof value === "string" ? value : fallback;
+  };
+
+  const activeModelId = str("llmModel", "gpt-4o");
+
+  // Find active model or fallback to GPT-4o
+  const currentModel = LLM_MODELS.find((m) => m.id === activeModelId) ?? LLM_MODELS[4];
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Handle model change
+  const handleModelChange = (modelId: string) => {
+    const foundModel = LLM_MODELS.find((m) => m.id === modelId);
+    if (foundModel) {
+      onUpdateNodeData("llmModel", foundModel.id);
+      onUpdateNodeData("llmProvider", foundModel.providerId);
+    }
+    setDropdownOpen(false);
+  };
+
+  // Attachment handling
   const handleRemoveAttachment = (indexToRemove: number) => {
     const updated = attachments.filter((_, idx) => idx !== indexToRemove);
     onUpdateNodeData("attachments", updated);
@@ -53,180 +78,80 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     e.target.value = "";
   };
 
-  useEffect(() => {
-    async function fetchProviders() {
-      try {
-        setLoading(true);
-        const res = await getLLMProviders();
-        if (res.success && res.data?.providers) {
-          setProviders(res.data.providers);
-        } else {
-          setError(res.error ?? "Failed to load providers from backend");
-        }
-      } catch (err) {
-        setError("An unexpected error occurred while fetching providers");
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchProviders();
-  }, []);
-
-  const str = (key: string, fallback = ""): string => {
-    const value = selectedNode.data[key];
-    return typeof value === "string" ? value : fallback;
-  };
-
-  const set = (key: string) => (value: string) => {
-    onUpdateNodeData(key as keyof BuilderNodeData, value);
-  };
-
-  // Get currently selected provider and model
-  const activeProviderId = str("llmProvider", "openai");
-  const activeModel = str("llmModel", "gpt-4o");
-
-  // Find active provider and fallback models if API is loading/fails
-  const activeProvider = providers.find((p) => p.id === activeProviderId);
-  const availableModels = activeProvider?.models ?? [];
-
-  // When provider changes, select its first model automatically
-  const handleProviderChange = (providerId: string) => {
-    set("llmProvider")(providerId);
-    const found = providers.find((p) => p.id === providerId);
-    if (found && found.models.length > 0) {
-      set("llmModel")(found.models[0]);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex h-48 items-center justify-center text-slate-500">
-        <div className="flex flex-col items-center gap-2">
-          <svg className="h-6 w-6 animate-spin text-violet-600" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span className="text-xs font-semibold">Fetching AI models...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-5 text-center text-red-600">
-        <BuilderIcon name="info" className="mx-auto h-8 w-8 text-red-500" />
-        <p className="mt-2 text-xs font-semibold">{error}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setError(null);
-            setLoading(true);
-            getLLMProviders().then((res) => {
-              if (res.success && res.data?.providers) {
-                setProviders(res.data.providers);
-              } else {
-                setError(res.error ?? "Failed to load providers from backend");
-              }
-              setLoading(false);
-            });
-          }}
-          className="mt-3 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-200"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
   return (
     <>
+      {/* --- Section 1: General Info --- */}
       <Section title="General">
         <Label>Node name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={(val) => onUpdateNodeData("title", val)}
+        />
       </Section>
 
-      <Section title="LLM Provider">
-        <div className="grid grid-cols-3 gap-2">
-          {providers.map((p) => {
-            const isSelected = p.id === activeProviderId;
-            let themeClass = "";
-            let logoColor = "";
-            let logoSvg = null;
+      {/* --- Section 2: Model Selection (Consistent with node-inspector styling) --- */}
+      <Section title="AI Model">
+        <Label>Model</Label>
 
-            if (p.id === "openai") {
-              themeClass = isSelected
-                ? "border-emerald-500 bg-emerald-50 text-emerald-950 ring-2 ring-emerald-500/20"
-                : "border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/30";
-              logoColor = isSelected ? "text-emerald-600" : "text-slate-500";
-              logoSvg = (
-                <svg viewBox="0 0 24 24" className={`h-5 w-5 ${logoColor}`} fill="currentColor">
-                  <path d="M21.7 10.3c.4-.4.6-.9.6-1.5 0-1.1-.9-2.1-2.1-2.1-.3 0-.6.1-.9.2C18.6 5.4 17 4.2 15.2 4.2c-.7 0-1.4.3-2 .7-.6-1.2-1.8-1.9-3.2-1.9C8 3 6.3 4.4 6 6.3c-.3-.1-.6-.2-.9-.2-1.1 0-2.1.9-2.1 2.1 0 .6.3 1.1.7 1.5C3.3 10.9 2.5 12.3 2.5 14c0 1.9 1.5 3.5 3.5 3.5.3 0 .6-.1.9-.2.7 1.5 2.3 2.5 4.1 2.5.7 0 1.4-.2 2-.7.6 1.2 1.8 1.9 3.2 1.9 2 0 3.7-1.4 4-3.3.3.1.6.2.9.2 1.1 0 2.1-.9 2.1-2.1 0-.6-.3-1.1-.7-1.5.4-.5 1.2-2 1.2-3.7-.1-1.8-.9-3.2-2-3.8zm-6.2 7.8c-.2.1-.5.1-.7-.1l-2.8-1.6-2.8 1.6c-.2.1-.5.1-.7-.1-.2-.2-.2-.5-.1-.7l1.6-2.8-1.6-2.8c-.1-.2-.1-.5.1-.7.2-.2.5-.2.7-.1l2.8 1.6 2.8-1.6c.2-.1.5-.1.7.1.2.2.2.5.1.7L13.7 13.5l1.6 2.8c.2.2.2.5.2.8z" />
-                </svg>
-              );
-            } else if (p.id === "claude") {
-              themeClass = isSelected
-                ? "border-orange-500 bg-orange-50 text-orange-950 ring-2 ring-orange-500/20"
-                : "border-slate-200 hover:border-orange-200 hover:bg-orange-50/30";
-              logoColor = isSelected ? "text-orange-600" : "text-slate-500";
-              logoSvg = (
-                <svg viewBox="0 0 24 24" className={`h-5 w-5 ${logoColor}`} fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14.5h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-                </svg>
-              );
-            } else if (p.id === "gemini") {
-              themeClass = isSelected
-                ? "border-indigo-500 bg-indigo-50 text-indigo-950 ring-2 ring-indigo-500/20"
-                : "border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30";
-              logoColor = isSelected ? "text-indigo-600" : "text-slate-500";
-              logoSvg = (
-                <svg viewBox="0 0 24 24" className={`h-5 w-5 ${logoColor}`} fill="currentColor">
-                  <path d="M12 2l2.8 7.2L22 12l-7.2 2.8L12 22l-2.8-7.2L2 12l7.2-2.8L12 2z" />
-                </svg>
-              );
-            } else {
-              themeClass = isSelected
-                ? "border-violet-500 bg-violet-50 text-violet-950 ring-2 ring-violet-500/20"
-                : "border-slate-200 hover:border-violet-200 hover:bg-violet-50/30";
-              logoColor = isSelected ? "text-violet-600" : "text-slate-500";
-              logoSvg = (
-                <svg viewBox="0 0 24 24" className={`h-5 w-5 ${logoColor}`} fill="currentColor">
-                  <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zm6 13l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z" />
-                </svg>
-              );
-            }
+        <div className="relative" ref={dropdownRef}>
+          {/* Custom Select Button */}
+          <button
+            type="button"
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none transition hover:border-slate-300 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <span className="font-medium truncate">{currentModel.displayName}</span>
+              <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                {currentModel.badge}
+              </span>
+            </div>
+            <span className="ml-2 text-slate-400 shrink-0">
+              <BuilderIcon
+                name="chevron"
+                className={`h-4 w-4 transition-transform duration-200 ${
+                  dropdownOpen ? "rotate-180" : ""
+                }`}
+              />
+            </span>
+          </button>
 
-            return (
-              <button
-                type="button"
-                key={p.id}
-                onClick={() => handleProviderChange(p.id)}
-                className={`flex flex-col items-center justify-center gap-2 rounded-xl border p-3.5 text-center font-semibold transition ${themeClass}`}
-              >
-                {logoSvg}
-                <span className="text-xs truncate max-w-full leading-tight">{p.displayName}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-4">
-          <Label>Model</Label>
-          <SelectBox
-            value={activeModel}
-            onChange={set("llmModel")}
-            options={availableModels}
-          />
+          {/* Custom Dropdown Menu Popover */}
+          {dropdownOpen && (
+            <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 scrollbar-thin">
+              {LLM_MODELS.map((m) => {
+                const isSelected = m.id === currentModel.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleModelChange(m.id)}
+                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
+                      isSelected
+                        ? "bg-slate-100 text-slate-900 font-semibold"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="truncate">{m.displayName}</span>
+                    <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                      {m.badge}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Section>
 
+      {/* --- Section 3: Prompts --- */}
       <Section title="Prompts">
         <div className="space-y-4">
           <div>
             <Label>What should this AI step do?</Label>
             <TextArea
               value={str("llmRequirements")}
-              onChange={set("llmRequirements")}
+              onChange={(val) => onUpdateNodeData("llmRequirements", val)}
               height="h-32"
               placeholder="e.g. Reply to the customer nicely and include the booking link if they want an appointment."
             />
@@ -234,6 +159,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         </div>
       </Section>
 
+      {/* --- Section 4: Attachments --- */}
       <Section title="Attachments">
         <div className="space-y-3">
           <Label>Files (Images / PDFs / Docs)</Label>
@@ -243,7 +169,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
               {attachments.map((att, idx) => {
                 const isImage = att.mimeType.startsWith("image/");
                 const isPdf = att.mimeType === "application/pdf";
-                
+
                 return (
                   <div
                     key={idx}
@@ -311,13 +237,14 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         </div>
       </Section>
 
+      {/* --- Section 5: Advanced Options --- */}
       <Section title="Advanced options" last>
         <button
           type="button"
           onClick={() => setAdvancedOpen(!advancedOpen)}
-          className="flex w-full items-center justify-between rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5 text-left transition hover:border-gray-200"
+          className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-left transition hover:border-slate-300"
         >
-          <span className="text-xs font-bold text-slate-600">Advanced settings</span>
+          <span className="text-xs font-bold text-slate-700">Advanced settings</span>
           <BuilderIcon
             name="chevron"
             className={`h-3.5 w-3.5 text-slate-400 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
@@ -337,7 +264,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                 max="1"
                 step="0.1"
                 value={str("llmTemperature", "0.7")}
-                onChange={(e) => set("llmTemperature")(e.target.value)}
+                onChange={(e) => onUpdateNodeData("llmTemperature", e.target.value)}
                 className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-violet-600 focus:outline-none"
               />
               <div className="flex justify-between text-[9px] text-slate-400 mt-1">
@@ -353,8 +280,8 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                 min="1"
                 max="8192"
                 value={str("llmMaxTokens", "1024")}
-                onChange={(e) => set("llmMaxTokens")(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/50"
+                onChange={(e) => onUpdateNodeData("llmMaxTokens", e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none"
               />
             </div>
           </div>

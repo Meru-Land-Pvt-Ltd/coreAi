@@ -1,0 +1,162 @@
+import OpenAI from "openai";
+import { env } from "../../../config/env";
+import type {
+  AIProviderAdapter,
+  AIExecuteRequest,
+  AIContinueRequest,
+  AIExecuteResponse,
+  CostEstimate,
+  ValidationResult,
+  AIIntent,
+  AIMessage,
+  ProviderCapability,
+} from "../types";
+import {
+  checkEnvKey,
+  buildCostEstimate,
+  retryOnTransient,
+  parseJsonFromText,
+  errorResponse,
+  enrichContinueRequest,
+  type PricingTable,
+} from "./base-adapter";
+
+class GroqAdapter implements AIProviderAdapter {
+  readonly providerId = "groq";
+  readonly displayName = "Groq";
+  readonly capabilities: ProviderCapability[] = ["llm"];
+  readonly scores: Partial<Record<AIIntent, number>> = {
+    chat: 9,
+    reasoning: 9,
+    code: 8,
+  };
+
+  private dynamicModels: string[] | null = null;
+  private dynamicPricing: PricingTable | null = null;
+
+  get models(): string[] {
+    return this.dynamicModels ?? [
+      "deepseek-r1-distill-llama-70b",
+      "llama-3.3-70b-versatile",
+      "llama-3.1-8b-instant",
+      "mixtral-8x7b-32768",
+    ];
+  }
+
+  get pricing(): PricingTable {
+    return this.dynamicPricing ?? {
+      "deepseek-r1-distill-llama-70b": { input: 0.59, output: 0.79 },
+      "llama-3.3-70b-versatile":       { input: 0.59, output: 0.79 },
+      "llama-3.1-8b-instant":          { input: 0.05, output: 0.08 },
+      "mixtral-8x7b-32768":             { input: 0.24, output: 0.24 },
+    };
+  }
+
+  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
+    this.dynamicModels = models;
+    this.dynamicPricing = pricing;
+  }
+
+  private _client: OpenAI | null = null;
+  private get client(): OpenAI {
+    if (!this._client) {
+      const apiKey = process.env.GROQ_API_KEY ?? env.OPENAI_API_KEY ?? "";
+      this._client = new OpenAI({
+        apiKey,
+        baseURL: "https://api.groq.com/openai/v1",
+      });
+    }
+    return this._client;
+  }
+
+  private get defaultModel() {
+    return "llama-3.3-70b-versatile";
+  }
+
+  async validate(): Promise<ValidationResult> {
+    if (process.env.GROQ_API_KEY) {
+      return { valid: true, message: "GROQ_API_KEY set" };
+    }
+    return checkEnvKey("OPENAI_API_KEY");
+  }
+
+  async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {
+    const startMs = Date.now();
+    const model = request.model ?? this.defaultModel;
+
+    try {
+      const messages = this.buildMessages(request);
+
+      const completion = await retryOnTransient(() =>
+        this.client.chat.completions.create({
+          model,
+          messages,
+          temperature: request.temperature ?? 0.7,
+          max_tokens: request.maxTokens,
+        })
+      );
+
+      const rawText = completion.choices[0]?.message?.content ?? "";
+      const usage = {
+        promptTokens: completion.usage?.prompt_tokens ?? 0,
+        completionTokens: completion.usage?.completion_tokens ?? 0,
+        totalTokens: completion.usage?.total_tokens ?? 0,
+      };
+
+      return {
+        status: "success",
+        capability: "llm",
+        text: rawText,
+        structuredOutput: request.outputFormat === "json" ? parseJsonFromText(rawText) : null,
+        attachments: [],
+        usage,
+        cost: buildCostEstimate(request, this.pricing, this.defaultModel, usage),
+        conversationId: null,
+        providerMetadata: {
+          model,
+          finishReason: completion.choices[0]?.finish_reason ?? null,
+          groqId: completion.id,
+        },
+        providerId: this.providerId,
+        modelName: model,
+        durationMs: Date.now() - startMs,
+        error: null,
+      };
+    } catch (err) {
+      return errorResponse(this.providerId, model, err instanceof Error ? err.message : String(err), Date.now() - startMs);
+    }
+  }
+
+  async continueConversation(request: AIContinueRequest): Promise<AIExecuteResponse> {
+    return this.execute(enrichContinueRequest(request));
+  }
+
+  async estimateCost(request: AIExecuteRequest): Promise<CostEstimate> {
+    return buildCostEstimate(request, this.pricing, this.defaultModel);
+  }
+
+  private buildMessages(request: AIExecuteRequest): OpenAI.Chat.ChatCompletionMessageParam[] {
+    const result: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+
+    if (request.systemPrompt) result.push({ role: "system", content: request.systemPrompt });
+
+    const history: AIMessage[] = [
+      ...(request.conversationHistory ?? []),
+      ...(request.messages ?? []),
+    ];
+
+    for (const msg of history) {
+      if (msg.role === "system") {
+        result.push({ role: "system", content: msg.content });
+      } else if (msg.role === "assistant") {
+        result.push({ role: "assistant", content: msg.content });
+      } else {
+        result.push({ role: "user", content: msg.content });
+      }
+    }
+
+    return result;
+  }
+}
+
+export default new GroqAdapter();

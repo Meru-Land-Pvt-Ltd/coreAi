@@ -117,24 +117,30 @@ export function parseGraph(workflowJson: unknown, channel: AgentChannel): Parsed
   }
 
   const executionOrder: GraphNode[] = [];
+  const inDegreeMap = new Map<string, number>();
+  for (const node of nodes) {
+    inDegreeMap.set(node.id, incoming.get(node.id)?.length ?? 0);
+  }
 
   if (startNode) {
-    const visited = new Set<string>([startNode.id]);
     const queue: string[] = [startNode.id];
+    const visited = new Set<string>();
 
     while (queue.length > 0) {
       const currentId = queue.shift();
-
-      if (!currentId) break;
+      if (!currentId || visited.has(currentId)) continue;
+      visited.add(currentId);
 
       const current = nodeById.get(currentId);
-
       if (current) executionOrder.push(current);
 
       for (const targetId of outgoing.get(currentId) ?? []) {
-        if (visited.has(targetId)) continue;
-        visited.add(targetId);
-        queue.push(targetId);
+        const currentDeg = inDegreeMap.get(targetId) ?? 1;
+        const nextDeg = Math.max(0, currentDeg - 1);
+        inDegreeMap.set(targetId, nextDeg);
+        if (nextDeg === 0 && !visited.has(targetId)) {
+          queue.push(targetId);
+        }
       }
     }
   }
