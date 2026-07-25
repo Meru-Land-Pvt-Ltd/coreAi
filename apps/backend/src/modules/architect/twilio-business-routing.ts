@@ -66,7 +66,8 @@ import {
   resolveAfterHoursGreeting,
   type SpecialHoursEntry
 } from "@coreai/shared";
-import { escapeXml, normalizePhoneE164, validateSmsRecipientE164,
+import {
+  escapeXml, normalizePhoneE164, validateSmsRecipientE164,
   isSmsDeliveryUnreliable
 } from "./twilio-connector";
 import {
@@ -75,6 +76,7 @@ import {
   sendTrackedSms,
   type SmsSendOutcome
 } from "../notifications/sms-notification-service";
+import { sendBusinessAppointmentBookedEmail } from "../notifications/appointment-booked-email";
 import {
   applySmsOptOut,
   applySmsReOptIn,
@@ -854,6 +856,14 @@ async function createBusinessAppointment({
       notes: notes ?? undefined
     }
   });
+
+  if (executionMode === "LIVE") {
+    try {
+      await sendBusinessAppointmentBookedEmail(appointment.id);
+    } catch (error) {
+      console.error("[appointment-email] buyer notification failed (appointment kept)", error);
+    }
+  }
 
   return { calendarEvent, appointment };
 }
@@ -2823,15 +2833,13 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
         ? "business_schedule"
         : "calendar",
     calendar_status: availability.calendarStatus,
-    message: `${
-      availability.totalFreeSlots > availability.spokenSlots.length
+    message: `${availability.totalFreeSlots > availability.spokenSlots.length
         ? `These are ${availability.spokenSlots.length} of ${availability.totalFreeSlots} free times across the day. If the caller asks about a specific time not listed, call check_availability again with the time parameter — NEVER assume unlisted times are booked.`
         : "These are all the free times for that day."
-    }${
-      availability.calendarStatus === "not_connected" || availability.calendarStatus === "restricted"
+      }${availability.calendarStatus === "not_connected" || availability.calendarStatus === "restricted"
         ? " (Times are based on the business's appointment hours and existing bookings — the external calendar was not consulted, so frame the booking as one the team will confirm.)"
         : ""
-    }`
+      }`
   };
 }
 
@@ -3184,9 +3192,9 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
       : {}),
     ...(smsDeliveryUnreliable
       ? {
-          sms_delivery_note:
-            "Carriers in this number's region often filter our texts, so delivery cannot be promised. Confirm every appointment detail verbally with the caller and never promise the text will arrive."
-        }
+        sms_delivery_note:
+          "Carriers in this number's region often filter our texts, so delivery cannot be promised. Confirm every appointment detail verbally with the caller and never promise the text will arrive."
+      }
       : {})
   };
 
@@ -3209,6 +3217,14 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
           },
           select: { id: true }
         });
+        rememberCallContact(ctx.callId, { appointmentId: localAppointment?.id });
+        if ((ctx.business.executionMode ?? "LIVE") === "LIVE") {
+          try {
+            await sendBusinessAppointmentBookedEmail(localAppointment.id);
+          } catch (error) {
+            console.error("[appointment-email] buyer notification failed (appointment kept)", error);
+          }
+        }
         await updateCallContact(ctx.business?.businessId, ctx.callId, {
           appointmentId: localAppointment?.id,
           canonicalPhoneE164: patientPhone,
@@ -3326,7 +3342,7 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
         date,
         time: `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}`,
         service_type: service,
-      doctor: providerName ?? null,
+        doctor: providerName ?? null,
         startAt: calendarEvent.startAt,
         endAt: calendarEvent.endAt,
         confirmation,
@@ -4284,23 +4300,23 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
   const declined = outcome.consent.status !== "OPTED_IN";
   const speech = declined
     ? {
-        customerSpeechCode: "CONSENT_DECLINED" as const,
-        customerSafeMessage: "No problem — I won't send any texts. Your appointment is all set."
-      }
+      customerSpeechCode: "CONSENT_DECLINED" as const,
+      customerSafeMessage: "No problem — I won't send any texts. Your appointment is all set."
+    }
     : confirmationSmsSent
       ? {
-          customerSpeechCode: "CONFIRMATION_SUBMITTED" as const,
-          customerSafeMessage: "Your confirmation text has been submitted."
-        }
+        customerSpeechCode: "CONFIRMATION_SUBMITTED" as const,
+        customerSafeMessage: "Your confirmation text has been submitted."
+      }
       : confirmationAttempted
         ? {
-            customerSpeechCode: "CONFIRMATION_FAILED" as const,
-            customerSafeMessage: "Your appointment is still booked, but I couldn't send the confirmation text."
-          }
+          customerSpeechCode: "CONFIRMATION_FAILED" as const,
+          customerSafeMessage: "Your appointment is still booked, but I couldn't send the confirmation text."
+        }
         : {
-            customerSpeechCode: "CONSENT_RECORDED" as const,
-            customerSafeMessage: "You're all set to receive text updates."
-          };
+          customerSpeechCode: "CONSENT_RECORDED" as const,
+          customerSafeMessage: "You're all set to receive text updates."
+        };
 
   const recipientEnding = phone.slice(-4);
   return {
@@ -5133,20 +5149,20 @@ export async function handleVapiWebhook(c: Context) {
                 "Distributed call state is unavailable. Do NOT book, update a phone number, record consent, or send any text. Apologize briefly, take the caller's name and callback number, and tell them the team will follow up."
             };
           } else {
-          console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
-          payload = isLookup
-            ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
-            : isCheck
-              ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
-              : isBook
-                ? { success: false, message: "Could not complete the booking right now. Please try again." }
-                : isConsent
-                  ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
-                  : isCancel
-                    ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
-                    : isReschedule
-                      ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
-                      : { success: false };
+            console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
+            payload = isLookup
+              ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
+              : isCheck
+                ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
+                : isBook
+                  ? { success: false, message: "Could not complete the booking right now. Please try again." }
+                  : isConsent
+                    ? { success: false, consent_recorded: false, message: "Could not record consent. Do not send texts." }
+                    : isCancel
+                      ? { cancelled: false, code: "CANCELLATION_FAILED", message: CANCEL_FAILED_MESSAGE }
+                      : isReschedule
+                        ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
+                        : { success: false };
           }
         }
 

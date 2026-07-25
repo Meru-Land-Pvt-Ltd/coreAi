@@ -318,7 +318,7 @@ function ActivityFeed({
   if (loading && !activities.length) {
     return (
       <div className="space-y-3">
-        {Array.from({ length: 4 }).map((_, index) => (
+        {Array.from({ length: 3 }).map((_, index) => (
           <div key={index} className="h-14 animate-pulse rounded-xl bg-gray-50" />
         ))}
       </div>
@@ -330,9 +330,9 @@ function ActivityFeed({
   }
 
   return (
-    <div className="divide-y divide-gray-100" data-testid="architect-dashboard-activity-feed">
+    <div className="activity-scrollbar max-h-60 divide-y divide-gray-100 overflow-y-auto pr-2" data-testid="architect-dashboard-activity-feed">
       {activities.map((activity) => (
-        <div key={activity.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+        <div key={activity.id} className="flex h-20 items-start gap-3 py-3 first:pt-0 last:pb-0">
           <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${activityTone(activity.type)}`}>
             {activity.type === "SALE" ? (
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

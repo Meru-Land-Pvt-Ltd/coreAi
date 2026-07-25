@@ -367,8 +367,13 @@ export type InvoiceData = {
   billingAddress?: string | null;
   paymentMethod?: string | null;
   transactionId?: string;
-  /** Fee breakdown rows (agent price + number fee); single description row when absent. */
-  lineItems?: Array<{ label: string; amountCents: number }>;
+  /** Itemized fee rows; quantity/unit-price metadata is optional for legacy invoices. */
+  lineItems?: Array<{
+    label: string;
+    amountCents: number;
+    quantity?: number;
+    unitPriceDisplay?: string;
+  }>;
 };
 
 type InvoiceStatusView = {
@@ -381,7 +386,7 @@ type InvoiceStatusView = {
 
 function invoiceStatusView(status: string): InvoiceStatusView {
   const value = (status || "").toUpperCase();
-  if (value === "SUCCEEDED" || value === "PAID") {
+  if (value === "SUCCEEDED" || value === "PAID" || value === "COMPLETED") {
     return {
       label: "PAID",
       badgeBg: "#dcfce7",
@@ -399,7 +404,7 @@ function invoiceStatusView(status: string): InvoiceStatusView {
       isPaid: false
     };
   }
-  if (value === "PENDING") {
+  if (value === "PENDING" || value === "OPEN") {
     return {
       label: "PENDING",
       badgeBg: "#dbeafe",
@@ -414,6 +419,24 @@ function invoiceStatusView(status: string): InvoiceStatusView {
       badgeBg: "#fee2e2",
       badgeText: "#b91c1c",
       balanceColor: "#dc2626",
+      isPaid: false
+    };
+  }
+  if (value === "OVERDUE") {
+    return {
+      label: "OVERDUE",
+      badgeBg: "#fee2e2",
+      badgeText: "#b91c1c",
+      balanceColor: "#dc2626",
+      isPaid: false
+    };
+  }
+  if (value === "REFUNDED" || value === "CANCELED" || value === "VOID") {
+    return {
+      label: value,
+      badgeBg: "#f1f5f9",
+      badgeText: "#475569",
+      balanceColor: "#64748b",
       isPaid: false
     };
   }
@@ -433,13 +456,37 @@ function formatInvoiceFullDate(date: Date) {
 function invoiceAmounts(invoice: InvoiceData) {
   const status = invoiceStatusView(invoice.status);
   const displayAmount = formatMoney(invoice.amountCents, invoice.currency);
-  const listPriceCents = invoice.listPriceCents ?? invoice.amountCents;
-  const amountPaid = status.isPaid
-    ? formatMoney(listPriceCents, invoice.currency)
-    : displayAmount;
-  const balanceDue = status.isPaid ? "$0.00" : displayAmount;
+  const zeroAmount = formatMoney(0, invoice.currency);
+  const closedWithoutBalance = ["REFUNDED", "CANCELED", "VOID"].includes(
+    (invoice.status || "").toUpperCase()
+  );
+  const amountPaid = status.isPaid ? displayAmount : zeroAmount;
+  const balanceDue = status.isPaid || closedWithoutBalance ? zeroAmount : displayAmount;
 
   return { status, displayAmount, amountPaid, balanceDue };
+}
+
+function invoiceLineItemValues(
+  item: NonNullable<InvoiceData["lineItems"]>[number],
+  currency: string
+) {
+  const quantity =
+    typeof item.quantity === "number" && Number.isFinite(item.quantity) && item.quantity > 0
+      ? item.quantity
+      : 1;
+  const quantityDisplay = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6
+  }).format(quantity);
+  const unitPrice =
+    item.unitPriceDisplay?.trim() ||
+    formatMoney(item.amountCents / quantity, currency);
+
+  return {
+    label: item.label,
+    quantity: quantityDisplay,
+    unitPrice,
+    amount: formatMoney(item.amountCents, currency)
+  };
 }
 
 /** Matches the billing invoice detail page card — used in emails, HTML, and PDF. */
@@ -467,18 +514,16 @@ export function buildInvoiceCardHtml(
   // otherwise the single description row shown historically.
   const lineItems =
     invoice.lineItems && invoice.lineItems.length > 0
-      ? invoice.lineItems.map((item) => ({
-          label: escapeHtml(item.label),
-          amount: formatMoney(item.amountCents, invoice.currency)
-        }))
-      : [{ label: description, amount: displayAmount }];
+      ? invoice.lineItems.map((item) => invoiceLineItemValues(item, invoice.currency))
+      : [{ label: invoice.description || invoice.agentName || "Agent purchase", amountCents: invoice.amountCents }]
+          .map((item) => invoiceLineItemValues(item, invoice.currency));
   const lineItemRows = lineItems
     .map(
       (item, index) => `<tr style="border-bottom:1px solid #f1f5f9;">
 <td style="padding:12px;color:#64748b;">${index + 1}</td>
-<td style="padding:12px;color:#0f172a;">${item.label}</td>
-<td align="right" style="padding:12px;color:#0f172a;">1</td>
-<td align="right" style="padding:12px;color:#0f172a;">${item.amount}</td>
+<td style="padding:12px;color:#0f172a;">${escapeHtml(item.label)}</td>
+<td align="right" style="padding:12px;color:#0f172a;">${escapeHtml(item.quantity)}</td>
+<td align="right" style="padding:12px;color:#0f172a;">${escapeHtml(item.unitPrice)}</td>
 <td align="right" style="padding:12px;font-weight:600;color:#0f172a;">${item.amount}</td>
 </tr>`
     )
@@ -697,15 +742,22 @@ export function buildInvoicePdfBuffer(invoice: InvoiceData): Promise<Buffer> {
       const cardLeft = margin;
       let y = margin;
 
-      // Card container
-      doc.roundedRect(cardLeft, y, cardWidth, 720, 12).lineWidth(1).strokeColor("#e2e8f0").stroke();
+      const drawCardContainer = () => {
+        doc
+          .save()
+          .rect(0, 0, doc.page.width, doc.page.height)
+          .fill("#ffffff")
+          .restore();
+        doc
+          .save()
+          .roundedRect(cardLeft, margin, cardWidth, doc.page.height - margin * 2, 12)
+          .lineWidth(1)
+          .fillAndStroke("#ffffff", "#e2e8f0")
+          .restore();
+      };
 
-      // Watermark
-      doc
-        .fillColor("#f1f5f9")
-        .font("Helvetica-Bold")
-        .fontSize(72)
-        .text("INVOICE", cardLeft + cardWidth - 210, y + 24, { width: 200, align: "right" });
+      // Card container
+      drawCardContainer();
 
       const innerX = cardLeft + 40;
       const innerRight = cardLeft + cardWidth - 40;
@@ -775,27 +827,67 @@ export function buildInvoicePdfBuffer(invoice: InvoiceData): Promise<Buffer> {
 
       y = billY + 20;
 
-      // Table header
-      doc.rect(innerX, y, innerRight - innerX, 22).fill("#f8fafc");
-      doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
-      doc.text("#", innerX + 8, y + 7, { width: 20 });
-      doc.text("Description", innerX + 32, y + 7, { width: 220 });
-      doc.text("Qty", innerX + 280, y + 7, { width: 30, align: "right" });
-      doc.text("Unit Price", innerX + 320, y + 7, { width: 70, align: "right" });
-      doc.text("Amount", innerX + 400, y + 7, { width: innerRight - innerX - 408, align: "right" });
-
-      y += 22;
       const description = invoice.description || invoice.agentName || "Agent purchase";
-      doc.fillColor("#64748b").font("Helvetica").fontSize(10).text("1", innerX + 8, y + 10, { width: 20 });
-      doc.fillColor("#0f172a").text(description, innerX + 32, y + 10, { width: 220 });
-      doc.text("1", innerX + 280, y + 10, { width: 30, align: "right" });
-      doc.text(displayAmount, innerX + 320, y + 10, { width: 70, align: "right" });
-      doc.font("Helvetica-Bold").text(displayAmount, innerX + 400, y + 10, {
-        width: innerRight - innerX - 408,
-        align: "right"
+      const lineItems =
+        invoice.lineItems && invoice.lineItems.length > 0
+          ? invoice.lineItems
+          : [{ label: description, amountCents: invoice.amountCents }];
+
+      const drawTableHeader = () => {
+        doc.rect(innerX, y, innerRight - innerX, 22).fill("#f8fafc");
+        doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
+        doc.text("#", innerX + 8, y + 7, { width: 20 });
+        doc.text("Description", innerX + 32, y + 7, { width: 220 });
+        doc.text("Qty", innerX + 280, y + 7, { width: 30, align: "right" });
+        doc.text("Unit Price", innerX + 320, y + 7, { width: 70, align: "right" });
+        doc.text("Amount", innerX + 400, y + 7, {
+          width: innerRight - innerX - 408,
+          align: "right"
+        });
+        y += 22;
+      };
+
+      const beginContinuationPage = () => {
+        doc.addPage();
+        drawCardContainer();
+        y = margin + 24;
+        doc
+          .fillColor("#94a3b8")
+          .font("Helvetica-Bold")
+          .fontSize(16)
+          .text("INVOICE - CONTINUED", innerX, y);
+        doc
+          .fillColor("#475569")
+          .font("Helvetica")
+          .fontSize(10)
+          .text(`#${invoice.invoiceNumber}`, innerX, y + 22);
+        y += 52;
+        drawTableHeader();
+      };
+
+      drawTableHeader();
+      lineItems.forEach((item, index) => {
+        doc.font("Helvetica").fontSize(10);
+        const rowHeight = Math.max(32, doc.heightOfString(item.label, { width: 220 }) + 18);
+        if (y + rowHeight > doc.page.height - margin - 215) {
+          beginContinuationPage();
+        }
+
+        const values = invoiceLineItemValues(item, invoice.currency);
+        doc.fillColor("#64748b").font("Helvetica").fontSize(10).text(String(index + 1), innerX + 8, y + 9, {
+          width: 20
+        });
+        doc.fillColor("#0f172a").text(values.label, innerX + 32, y + 9, { width: 220 });
+        doc.text(values.quantity, innerX + 280, y + 9, { width: 30, align: "right" });
+        doc.text(values.unitPrice, innerX + 320, y + 9, { width: 70, align: "right" });
+        doc.font("Helvetica-Bold").text(values.amount, innerX + 400, y + 9, {
+          width: innerRight - innerX - 408,
+          align: "right"
+        });
+        y += rowHeight;
+        doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
       });
 
-      y += 36;
       doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
       y += 18;
 
@@ -1236,6 +1328,171 @@ function primaryButton(href: string, label: string) {
 
 function secondaryButton(href: string, label: string) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;"><tr><td align="center" bgcolor="#ffffff" style="border-radius:8px;border:1px solid #fcd34d;"><a href="${href}" target="_blank" style="display:inline-block;padding:11px 28px;${emailBodyStyle}font-size:15px;font-weight:600;color:#b45309;text-decoration:none;border-radius:8px;">${label}</a></td></tr></table>`;
+}
+
+export function buildTrialEndedEmailHtml({
+  agentName,
+  trialEndDate,
+  myAgentsLink
+}: {
+  agentName: string;
+  trialEndDate: string;
+  myAgentsLink: string;
+}) {
+  const safeAgentName = escapeHtml(agentName);
+  const safeTrialEndDate = escapeHtml(trialEndDate);
+  const safeMyAgentsLink = escapeHtml(myAgentsLink);
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Your ${brandName} trial for <strong>${safeAgentName}</strong> ended on <strong>${safeTrialEndDate}</strong>. Your data is safe. Choose a plan to continue using your agent.</p>
+${primaryButton(safeMyAgentsLink, "Choose a plan")}
+</td>
+</tr>`;
+
+  return emailShell(
+    "Your trial ended, but your data is safe.",
+    "Your trial has expired",
+    inner
+  );
+}
+
+export type AppointmentBookedEmailDetails = {
+  businessName: string;
+  appointmentId: string;
+  customerName?: string | null;
+  customerPhone: string;
+  service?: string | null;
+  providerName?: string | null;
+  startAt: Date;
+  endAt: Date;
+  timeZone?: string | null;
+  appointmentLink?: string | null;
+};
+
+type SendAppointmentBookedEmailInput = AppointmentBookedEmailDetails & {
+  to: string;
+};
+
+function appointmentEmailTimeZone(timeZone?: string | null) {
+  const requested = timeZone?.trim() || "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: requested }).format(new Date());
+    return requested;
+  } catch {
+    return "UTC";
+  }
+}
+
+function appointmentEmailDisplay(details: AppointmentBookedEmailDetails) {
+  const timeZone = appointmentEmailTimeZone(details.timeZone);
+  const date = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone
+  }).format(details.startAt);
+  const time = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+    timeZone
+  }).format(details.startAt);
+  const durationMinutes = Math.max(
+    0,
+    Math.round((details.endAt.getTime() - details.startAt.getTime()) / 60_000)
+  );
+
+  return {
+    customerName: details.customerName?.trim() || "Customer",
+    service: details.service?.trim() || "Appointment",
+    providerName: details.providerName?.trim() || null,
+    date,
+    time,
+    duration: durationMinutes === 1 ? "1 minute" : `${durationMinutes} minutes`,
+    timeZone
+  };
+}
+
+function appointmentEmailDestination(appointmentLink?: string | null) {
+  const dashboardLink = `${appUrl}/business/dashboard`;
+  const candidate = appointmentLink?.trim();
+  if (!candidate) return dashboardLink;
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.toString()
+      : dashboardLink;
+  } catch {
+    return dashboardLink;
+  }
+}
+
+export function buildAppointmentBookedEmailHtml(details: AppointmentBookedEmailDetails) {
+  const display = appointmentEmailDisplay(details);
+  const destination = appointmentEmailDestination(details.appointmentLink);
+  const detailRow = (label: string, value: string) =>
+    `<tr><td valign="top" width="145" style="padding:7px 12px 7px 0;${emailBodyStyle}font-size:13px;font-weight:600;line-height:1.5;color:#64748b;">${escapeHtml(label)}</td><td valign="top" style="padding:7px 0;${emailBodyStyle}font-size:14px;font-weight:500;line-height:1.5;color:#111827;word-break:break-word;">${escapeHtml(value)}</td></tr>`;
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 7px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">New appointment booked</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">A new appointment has been booked for <strong>${escapeHtml(details.businessName)}</strong>. Here are the details your team needs.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+<tr><td style="padding:14px 18px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+${detailRow("Customer", display.customerName)}
+${detailRow("Phone", details.customerPhone)}
+${detailRow("Service", display.service)}
+${detailRow("Date", display.date)}
+${detailRow("Time", display.time)}
+${detailRow("Duration", display.duration)}
+${display.providerName ? detailRow("Team member", display.providerName) : ""}
+${detailRow("Booking reference", details.appointmentId)}
+</table>
+</td></tr>
+</table>
+${primaryButton(escapeHtml(destination), "View appointment")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">Please review the appointment and prepare for the customer. This notification was sent automatically by ${brandName}.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `${escapeHtml(display.customerName)} booked ${escapeHtml(display.service)} for ${escapeHtml(display.date)}.`,
+    "New appointment booked",
+    inner
+  );
+}
+
+export async function sendAppointmentBookedEmail({
+  to,
+  ...details
+}: SendAppointmentBookedEmailInput) {
+  const display = appointmentEmailDisplay(details);
+  const destination = appointmentEmailDestination(details.appointmentLink);
+  const textRows = [
+    `A new appointment has been booked for ${details.businessName}.`,
+    "",
+    `Customer: ${display.customerName}`,
+    `Phone: ${details.customerPhone}`,
+    `Service: ${display.service}`,
+    `Date: ${display.date}`,
+    `Time: ${display.time}`,
+    `Duration: ${display.duration}`,
+    ...(display.providerName ? [`Team member: ${display.providerName}`] : []),
+    `Booking reference: ${details.appointmentId}`,
+    "",
+    `View appointment: ${destination}`
+  ];
+
+  await sendPlatformEmail({
+    purpose: "notification",
+    to,
+    subject: `New appointment booked: ${display.customerName} — ${display.service}`,
+    text: textRows.join("\n"),
+    html: buildAppointmentBookedEmailHtml(details)
+  });
 }
 
 // --- 1) Welcome email (sent on a buyer's first login) ----------------------

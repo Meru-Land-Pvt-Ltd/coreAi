@@ -1531,10 +1531,10 @@ export default function ArchitectSettingsPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-semibold text-slate-900">Data export</h3>
-                  <p className="mt-1 text-sm text-slate-500">Download a copy of your account data, storefront, listing metadata, sales history, and payout records. Agent source code and conversation logs are not included.</p>
+                  <p className="mt-1 text-sm text-slate-500">Download a readable text document containing your account data, storefront, listing metadata, sales history, and payout records. Information is organized into clearly labeled sections. Agent source code and conversation logs are not included.</p>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <button type="button" onClick={() => void handleExportData()} disabled={exportingData} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50" data-testid="architect-settings-request-export">{exportingData ? "Preparing export…" : "Export data"}</button>
-                    <span className="text-xs text-slate-400">Downloaded instantly as a ZIP file.</span>
+                    <button type="button" onClick={() => void handleExportData()} disabled={exportingData} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50" data-testid="architect-settings-request-export">{exportingData ? "Preparing text document…" : "Download data as TXT"}</button>
+                    <span className="text-xs text-slate-400">Downloads instantly as a readable text file.</span>
                   </div>
                 </div>
                 {PRIVACY_GROUPS.map((group) => (

@@ -653,6 +653,7 @@ businessSettingsRoutes.get("/data-export", async (c) => {
     c.header("Content-Type", "application/zip");
     c.header("Content-Disposition", `attachment; filename="${filename}"`);
     c.header("Cache-Control", "no-store");
+    c.header("X-Content-Type-Options", "nosniff");
     return c.body(zip);
   } catch (error) {
     console.error("Business data export failed", error);
