@@ -187,7 +187,7 @@ export function getIncludedItems(listing: ApiListing) {
     items.push(improveIncludedWording(getLlmIncludedItem(llm)));
   }
 
-  items.push("Runs on autopilot — replies, routes, and follows up without you");
+  items.push("Runs on autopilot to handle customer replies, call routing, and follow-ups");
   items.push("Setup tuned to your business name, hours, services, and FAQs");
   items.push("Your own private agent instance (not shared with other businesses)");
   items.push("Free product updates as Triven ships new capabilities");

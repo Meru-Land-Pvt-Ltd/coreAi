@@ -35,6 +35,15 @@ export const AGENT_DESCRIPTION_STYLES = `
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
 }
 
+@keyframes subtleFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+
+.animate-subtle-float {
+  animation: subtleFloat 5s ease-in-out infinite;
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -515,12 +524,14 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                 )}
               </div>
 
-              {/* Right: Agent Phone Workflow Preview */}
+              {/* Right: Agent Phone Workflow Preview (Sticky Floating) */}
               <div
                 id="demo"
-                className="flex min-w-0 scroll-mt-24 flex-col items-center lg:col-span-2 lg:items-end lg:pt-1"
+                className="flex min-w-0 scroll-mt-24 flex-col items-center lg:sticky lg:top-24 lg:col-span-2 lg:items-end lg:pt-1 self-start"
               >
-                <AgentWorkflowPreview listing={listing} />
+                <div className="animate-subtle-float w-full flex justify-center lg:justify-end">
+                  <AgentWorkflowPreview listing={listing} />
+                </div>
               </div>
             </div>
           </section>
@@ -530,7 +541,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
             <div className="mx-auto max-w-6xl">
               <SectionHeader
                 title="How It Works"
-                description="From setup to live phone calls & texts — get value in minutes without developer help."
+                description="From setup to live phone calls & texts, get value in minutes without developer help."
               />
 
               <div className="relative mt-10 sm:mt-12">
@@ -550,7 +561,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
 
               {/* Demo video — click-to-play, zero load cost until clicked */}
               {demoVideoUrl ? (
-                <VideoEmbed url={demoVideoUrl} title={`${listingName} — how it works`} />
+                <VideoEmbed url={demoVideoUrl} title={`${listingName} video demonstration`} />
               ) : null}
             </div>
           </section>
@@ -600,17 +611,20 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
             <div className="mx-auto max-w-3xl">
               <SectionHeader
                 title="What's included"
-                description="Everything bundled with this agent — configured and ready for your business."
+                description="Everything bundled with this agent is pre-configured and ready for your business."
               />
 
               <div className="shadow-subtle mt-8 overflow-hidden rounded-2xl border border-slate-200/90 bg-white sm:mt-10">
                 <ul className="divide-y divide-slate-100">
-                  {includedItems.map((item) => (
-                    <li key={item} data-testid={`agent-detail-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
-                      <CheckIcon className="h-5 w-5 shrink-0 text-emerald-600" />
-                      <span className="min-w-0 break-words text-[14px] text-slate-700" data-testid={`agent-detail-included-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
-                    </li>
-                  ))}
+                  {includedItems.map((rawItem) => {
+                    const item = rawItem.replace(/\s*—\s*/g, " ");
+                    return (
+                      <li key={rawItem} data-testid={`agent-detail-included-item-${rawItem.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
+                        <CheckIcon className="h-5 w-5 shrink-0 text-emerald-600" />
+                        <span className="min-w-0 break-words text-[14px] text-slate-700" data-testid={`agent-detail-included-text-${rawItem.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             </div>
