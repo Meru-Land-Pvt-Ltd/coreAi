@@ -1,19 +1,19 @@
-import JSZip from "jszip";
 import { prisma } from "../../lib/prisma";
+import { buildReadableDataExport, type ReadableExportSection } from "../../lib/readable-data-export";
 import { loadArchitectEarnings, serializeArchitectSale } from "./payout-earnings";
 import { normalizePayoutSchedule } from "./payout-schedule";
 
 /**
- * Builds a ZIP export of an architect's account data.
+ * Builds a readable text export of an architect's account data.
  *
  * IMPORTANT: This intentionally EXCLUDES agent source code (workflow
  * definitions / node graphs) and conversation logs (call transcripts, chat
  * history) per product policy. Only account, storefront, listing metadata,
  * sales, and payout records are included.
  */
-export async function buildArchitectDataExportZip(
+export async function buildArchitectDataExportText(
   architectUserId: string
-): Promise<{ filename: string; zip: ArrayBuffer }> {
+): Promise<{ filename: string; content: string }> {
   const [user, listings, payoutMethod, payouts] = await Promise.all([
     prisma.user.findUnique({
       where: { id: architectUserId },
@@ -127,39 +127,60 @@ export async function buildArchitectDataExportZip(
   };
 
   const generatedAt = new Date();
-  const zip = new JSZip();
+  const sections: ReadableExportSection[] = [
+    {
+      title: "Account information",
+      description: "Your Triven sign-in and personal profile information.",
+      data: account
+    },
+    {
+      title: "Storefront",
+      description: "The professional details displayed on your architect storefront.",
+      data: storefront
+    },
+    {
+      title: "Preferences",
+      description: "Your saved notification, privacy, and payout schedule preferences.",
+      data: preferences
+    },
+    {
+      title: "Listings",
+      description: "Marketplace listing information and publication status. Agent source code is excluded.",
+      data: listings
+    },
+    {
+      title: "Sales",
+      description: "Sales and earnings records associated with your listings.",
+      data: sales.map(serializeArchitectSale)
+    },
+    {
+      title: "Payouts",
+      description: "Your masked payout method and payout history.",
+      data: payoutData
+    }
+  ];
 
-  zip.file(
-    "README.txt",
-    [
-      "Triven — Architect data export",
-      `Generated: ${generatedAt.toISOString()}`,
-      `Account: ${user.email}`,
-      "",
-      "This archive contains your account, storefront, listing metadata,",
-      "sales, and payout records.",
-      "",
-      "For your protection and per platform policy, this export does NOT",
-      "include agent source code (workflow definitions) or conversation logs",
-      "(call transcripts and chat history).",
-      ""
-    ].join("\n")
-  );
+  const content = buildReadableDataExport({
+    title: "Triven — Architect data export",
+    generatedAt,
+    summary:
+      "This plain-text document contains the account, storefront, listing, sales, and payout data included in your export.",
+    subject: [
+      { label: "Account", value: user.email },
+      { label: "User ID", value: user.id }
+    ],
+    exclusions: [
+      "Agent source code and workflow definitions",
+      "Call transcripts, chat history, and other conversation logs",
+      "Password hashes, session tokens, and secret credentials"
+    ],
+    sections
+  });
 
-  const pretty = (value: unknown) => JSON.stringify(value, null, 2);
-
-  zip.file("account.json", pretty(account));
-  zip.file("storefront.json", pretty(storefront));
-  zip.file("preferences.json", pretty(preferences));
-  zip.file("listings.json", pretty(listings));
-  zip.file("sales.json", pretty(sales.map(serializeArchitectSale)));
-  zip.file("payouts.json", pretty(payoutData));
-
-  const zipBuffer = await zip.generateAsync({ type: "arraybuffer" });
   const dateStamp = generatedAt.toISOString().slice(0, 10);
 
   return {
-    filename: `triven-architect-data-${dateStamp}.zip`,
-    zip: zipBuffer
+    filename: `triven-architect-data-${dateStamp}.txt`,
+    content
   };
 }

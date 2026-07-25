@@ -43,142 +43,142 @@ import { requestSignedDpa } from "@/lib/dpa";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 
 function VisaIcon() {
-    return (
-        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <text
-                x="2"
-                y="12.5"
-                fontFamily="'Inter', 'Arial Black', sans-serif"
-                fontWeight="900"
-                fontStyle="italic"
-                fontSize="12"
-                fill="#1A1F71"
-                letterSpacing="-0.3"
-            >
-                VISA
-            </text>
-            <polygon points="2,4.5 4.5,4.5 3,6" fill="#F7B600" />
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text
+        x="2"
+        y="12.5"
+        fontFamily="'Inter', 'Arial Black', sans-serif"
+        fontWeight="900"
+        fontStyle="italic"
+        fontSize="12"
+        fill="#1A1F71"
+        letterSpacing="-0.3"
+      >
+        VISA
+      </text>
+      <polygon points="2,4.5 4.5,4.5 3,6" fill="#F7B600" />
+    </svg>
+  );
 }
 
 function MastercardIcon() {
-    return (
-        <svg viewBox="0 0 76 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="8" cy="8" r="7" fill="#EB001B" />
-            <circle cx="17" cy="8" r="7" fill="#F79E1B" fillOpacity="0.85" />
-            <text x="28" y="11.5" fontFamily="'Inter', sans-serif" fontWeight="700" fontSize="8" fill="#1F2937" letterSpacing="-0.2">mastercard</text>
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 76 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="7" fill="#EB001B" />
+      <circle cx="17" cy="8" r="7" fill="#F79E1B" fillOpacity="0.85" />
+      <text x="28" y="11.5" fontFamily="'Inter', sans-serif" fontWeight="700" fontSize="8" fill="#1F2937" letterSpacing="-0.2">mastercard</text>
+    </svg>
+  );
 }
 
 function AmexIcon() {
-    return (
-        <svg viewBox="0 0 28 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="28" height="16" rx="2" fill="#01A6E5" />
-            <text x="14" y="10.5" textAnchor="middle" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="5.5" fill="#FFFFFF" letterSpacing="0.2">AMEX</text>
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 28 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="28" height="16" rx="2" fill="#01A6E5" />
+      <text x="14" y="10.5" textAnchor="middle" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="5.5" fill="#FFFFFF" letterSpacing="0.2">AMEX</text>
+    </svg>
+  );
 }
 
 function DiscoverIcon() {
-    return (
-        <svg viewBox="0 0 54 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-                <linearGradient id="discGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#FF8A00" />
-                    <stop offset="100%" stopColor="#FF5000" />
-                </linearGradient>
-            </defs>
-            <text x="1" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">DISC</text>
-            <circle cx="28.5" cy="8" r="3.2" fill="url(#discGrad)" />
-            <text x="33.5" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">VER</text>
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 54 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="discGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FF8A00" />
+          <stop offset="100%" stopColor="#FF5000" />
+        </linearGradient>
+      </defs>
+      <text x="1" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">DISC</text>
+      <circle cx="28.5" cy="8" r="3.2" fill="url(#discGrad)" />
+      <text x="33.5" y="11.5" fontFamily="'Inter', 'Arial Black', sans-serif" fontWeight="900" fontSize="9" fill="#111827" letterSpacing="-0.2">VER</text>
+    </svg>
+  );
 }
 
 function DinersClubIcon() {
-    return (
-        <svg viewBox="0 0 68 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="8" cy="8" r="6.5" stroke="#0079C1" strokeWidth="1.5" />
-            <path d="M8 1.5a6.5 6.5 0 0 0 0 13v-13z" fill="#0079C1" />
-            <circle cx="8" cy="8" r="3" stroke="#0079C1" strokeWidth="1" fill="#FFFFFF" />
-            <text x="18" y="11" fontFamily="'Inter', sans-serif" fontWeight="800" fontSize="7" fill="#0D4B81" letterSpacing="-0.1">Diners Club</text>
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 68 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="6.5" stroke="#0079C1" strokeWidth="1.5" />
+      <path d="M8 1.5a6.5 6.5 0 0 0 0 13v-13z" fill="#0079C1" />
+      <circle cx="8" cy="8" r="3" stroke="#0079C1" strokeWidth="1" fill="#FFFFFF" />
+      <text x="18" y="11" fontFamily="'Inter', sans-serif" fontWeight="800" fontSize="7" fill="#0D4B81" letterSpacing="-0.1">Diners Club</text>
+    </svg>
+  );
 }
 
 function JcbIcon() {
-    return (
-        <svg viewBox="0 0 32 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="1" y="2" width="9" height="12" rx="1.5" fill="#003580" />
-            <rect x="11" y="2" width="9" height="12" rx="1.5" fill="#D0021B" />
-            <rect x="21" y="2" width="9" height="12" rx="1.5" fill="#00875A" />
-            <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">J</text>
-            <text x="13" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">C</text>
-            <text x="23" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">B</text>
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 32 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="2" width="9" height="12" rx="1.5" fill="#003580" />
+      <rect x="11" y="2" width="9" height="12" rx="1.5" fill="#D0021B" />
+      <rect x="21" y="2" width="9" height="12" rx="1.5" fill="#00875A" />
+      <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">J</text>
+      <text x="13" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">C</text>
+      <text x="23" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="7.5" fill="#FFFFFF">B</text>
+    </svg>
+  );
 }
 
 function UnionPayIcon() {
-    return (
-        <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="1" y="2" width="17" height="12" rx="1" fill="#C51A1B" />
-            <rect x="18" y="2" width="19" height="12" rx="1" fill="#004D95" />
-            <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#FFFFFF">Union</text>
-            <text x="19.5" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#00B0FF">Pay</text>
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 38 16" className="h-5 w-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="2" width="17" height="12" rx="1" fill="#C51A1B" />
+      <rect x="18" y="2" width="19" height="12" rx="1" fill="#004D95" />
+      <text x="3" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#FFFFFF">Union</text>
+      <text x="19.5" y="10.5" fontFamily="'Inter', sans-serif" fontWeight="900" fontSize="6" fill="#00B0FF">Pay</text>
+    </svg>
+  );
 }
 
 function DefaultCardIcon() {
-    return (
-        <svg viewBox="0 0 24 24" className="h-5 w-auto text-slate-400" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-            <rect width="20" height="14" x="2" y="5" rx="2" />
-            <line x1="2" x2="22" y1="10" y2="10" />
-        </svg>
-    );
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-auto text-slate-400" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <rect width="20" height="14" x="2" y="5" rx="2" />
+      <line x1="2" x2="22" y1="10" y2="10" />
+    </svg>
+  );
 }
 
 function CardBrandIcon({ brand }: { brand: string }) {
-    const brandKey = brand.toLowerCase().trim();
+  const brandKey = brand.toLowerCase().trim();
 
-    let iconElement: React.ReactNode;
-    switch (brandKey) {
-        case "visa":
-            iconElement = <VisaIcon />;
-            break;
-        case "mastercard":
-            iconElement = <MastercardIcon />;
-            break;
-        case "amex":
-        case "american express":
-            iconElement = <AmexIcon />;
-            break;
-        case "discover":
-            iconElement = <DiscoverIcon />;
-            break;
-        case "diners":
-        case "diners club":
-            iconElement = <DinersClubIcon />;
-            break;
-        case "jcb":
-            iconElement = <JcbIcon />;
-            break;
-        case "unionpay":
-            iconElement = <UnionPayIcon />;
-            break;
-        default:
-            iconElement = <DefaultCardIcon />;
-            break;
-    }
+  let iconElement: React.ReactNode;
+  switch (brandKey) {
+    case "visa":
+      iconElement = <VisaIcon />;
+      break;
+    case "mastercard":
+      iconElement = <MastercardIcon />;
+      break;
+    case "amex":
+    case "american express":
+      iconElement = <AmexIcon />;
+      break;
+    case "discover":
+      iconElement = <DiscoverIcon />;
+      break;
+    case "diners":
+    case "diners club":
+      iconElement = <DinersClubIcon />;
+      break;
+    case "jcb":
+      iconElement = <JcbIcon />;
+      break;
+    case "unionpay":
+      iconElement = <UnionPayIcon />;
+      break;
+    default:
+      iconElement = <DefaultCardIcon />;
+      break;
+  }
 
-    return (
-        <div className="flex h-8 w-14 shrink-0 items-center justify-start">
-            {iconElement}
-        </div>
-    );
+  return (
+    <div className="flex h-8 w-14 shrink-0 items-center justify-start">
+      {iconElement}
+    </div>
+  );
 }
 
 type SettingsTab =
@@ -378,9 +378,8 @@ function SettingsSelect({
                   onChange(option);
                   setOpen(false);
                 }}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                  active ? "bg-amber-50 text-amber-700" : "bg-white text-slate-700 hover:bg-amber-50 hover:text-amber-700"
-                }`}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${active ? "bg-amber-50 text-amber-700" : "bg-white text-slate-700 hover:bg-amber-50 hover:text-amber-700"
+                  }`}
               >
                 <span className="truncate">{option}</span>
                 {active ? (
@@ -404,32 +403,32 @@ const NOTIFICATION_ROWS: Array<{
   locked?: boolean;
   defaults: { email: boolean };
 }> = [
-  {
-    key: "agentActivity",
-    title: "Agent activity",
-    description: "When your agents complete tasks, encounter errors, or need attention",
-    defaults: { email: true }
-  },
-  {
-    key: "billingPayments",
-    title: "Billing & payments",
-    description: "Payment confirmations, failed charges, upcoming renewals",
-    defaults: { email: true }
-  },
-  {
-    key: "productUpdates",
-    title: "Product updates",
-    description: "New features, marketplace additions, and platform improvements",
-    defaults: { email: false }
-  },
-  {
-    key: "securityAlerts",
-    title: "Security alerts",
-    description: "New logins, password changes, and suspicious activity",
-    defaults: { email: true },
-    locked: true
-  }
-];
+    {
+      key: "agentActivity",
+      title: "Agent activity",
+      description: "When your agents complete tasks, encounter errors, or need attention",
+      defaults: { email: true }
+    },
+    {
+      key: "billingPayments",
+      title: "Billing & payments",
+      description: "Payment confirmations, failed charges, upcoming renewals",
+      defaults: { email: true }
+    },
+    {
+      key: "productUpdates",
+      title: "Product updates",
+      description: "New features, marketplace additions, and platform improvements",
+      defaults: { email: false }
+    },
+    {
+      key: "securityAlerts",
+      title: "Security alerts",
+      description: "New logins, password changes, and suspicious activity",
+      defaults: { email: true },
+      locked: true
+    }
+  ];
 
 const PRIVACY_PREFS = [
   {
@@ -1215,13 +1214,13 @@ export function BusinessSettingsView() {
   const loadData = useCallback(async () => {
     const [setupResult, billingResult, calendarResult, profileResult, sessionsResult, loginHistoryResult] =
       await Promise.all([
-      getBusinessSetup(),
-      apiGet<{ billing: BillingData }>("/payments/billing"),
-      getBusinessCalendarStatus(),
-      getBusinessSettingsProfile(),
-      getBusinessActiveSessions(),
-      getBusinessLoginHistory()
-    ]);
+        getBusinessSetup(),
+        apiGet<{ billing: BillingData }>("/payments/billing"),
+        getBusinessCalendarStatus(),
+        getBusinessSettingsProfile(),
+        getBusinessActiveSessions(),
+        getBusinessLoginHistory()
+      ]);
 
     const settingsProfile =
       profileResult.success && profileResult.data?.profile ? profileResult.data.profile : null;
@@ -1552,10 +1551,10 @@ export function BusinessSettingsView() {
     setBilling((current) =>
       current
         ? {
-            ...current,
-            billingAddress: savedAddress.address,
-            billingPostalCode: savedAddress.pincode
-          }
+          ...current,
+          billingAddress: savedAddress.address,
+          billingPostalCode: savedAddress.pincode
+        }
         : current
     );
     setBillingAddressEditing(false);
@@ -1713,15 +1712,14 @@ export function BusinessSettingsView() {
                 aria-selected={activeTab === tab.id}
                 data-testid={`business-settings-tab-${tab.id}`}
                 onClick={() => handleDesktopTab(tab.id)}
-                className={`w-full rounded-xl px-4 py-2.5 text-left text-sm font-medium transition ${
-                  activeTab === tab.id
+                className={`w-full rounded-xl px-4 py-2.5 text-left text-sm font-medium transition ${activeTab === tab.id
                     ? tab.danger
                       ? "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700"
                       : "border-l-2 border-amber-500 bg-amber-50 font-semibold text-amber-700"
                     : tab.danger
                       ? "border-l-2 border-transparent text-red-600 hover:bg-red-50"
                       : "border-l-2 border-transparent text-slate-600 hover:bg-gray-50"
-                }`}
+                  }`}
               >
                 {tab.label}
               </button>
@@ -1737,318 +1735,317 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-profile"
               onMobileToggle={handleMobileToggle}
             >
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900">Profile information</h2>
-                    <p className="mt-1 text-sm text-slate-500">Manage your personal and business details.</p>
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-900">Profile information</h2>
+                <p className="mt-1 text-sm text-slate-500">Manage your personal and business details.</p>
+              </div>
+
+              <form onSubmit={handleSaveProfile}>
+                <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Personal</h3>
+
+                <div className="mb-6 flex items-center gap-4">
+                  <div className="group relative h-20 w-20 shrink-0 rounded-full">
+                    <div
+                      className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-semibold text-white"
+                      data-testid="business-settings-avatar"
+                    >
+                      {profilePhotoDraft ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={profilePhotoDraft} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        initials
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-slate-900/55 text-white opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label="Change profile photo"
+                      data-testid="business-settings-avatar-change"
+                      disabled={profilePhotoSelecting || saving}
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                      </svg>
+                      <span className="mt-0.5 text-[11px] font-semibold">Change</span>
+                    </button>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="hidden"
+                      data-testid="business-settings-avatar-input"
+                      onChange={(e) => handleProfilePhotoSelect(e.target.files?.[0])}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">Profile photo</p>
+                    <p className="text-sm text-slate-500">
+                      {profilePhotoSelecting ? "Loading preview..." : "JPG or PNG, up to 2MB. Saved when you click Save changes."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <div className="sm:col-span-2 sm:max-w-md">
+                    <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Full name
+                    </label>
+                    <input
+                      id="fullName"
+                      data-testid="business-settings-full-name"
+                      value={profileForm.fullName}
+                      onChange={(e) => setProfileForm((c) => ({ ...c, fullName: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    />
                   </div>
 
-                  <form onSubmit={handleSaveProfile}>
-                    <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Personal</h3>
-
-                    <div className="mb-6 flex items-center gap-4">
-                      <div className="group relative h-20 w-20 shrink-0 rounded-full">
-                        <div
-                          className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-semibold text-white"
-                          data-testid="business-settings-avatar"
-                        >
-                          {profilePhotoDraft ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={profilePhotoDraft} alt="" className="h-full w-full object-cover" />
+                  <div className="sm:col-span-2">
+                    <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Email address
+                    </label>
+                    <div className="relative sm:max-w-md">
+                      <input
+                        id="email"
+                        type="email"
+                        value={emailDraft}
+                        data-testid="business-settings-email"
+                        onChange={(e) => {
+                          setEmailDraft(e.target.value);
+                          setEmailVerified(false);
+                          setEmailOtpVisible(false);
+                          setEmailOtp("");
+                        }}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-3 pr-24 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                      />
+                      <span
+                        className={`absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${emailDraftChanged
+                            ? emailVerified
+                              ? "bg-green-50 text-green-700"
+                              : "bg-amber-50 text-amber-700"
+                            : "bg-green-50 text-green-700"
+                          }`}
+                      >
+                        {emailDraftChanged ? (
+                          emailVerified ? (
+                            <>
+                              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                              Verified
+                            </>
                           ) : (
-                            initials
-                          )}
+                            "New"
+                          )
+                        ) : (
+                          <>
+                            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                            Verified
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    {emailDraftChanged ? (
+                      <button
+                        type="button"
+                        disabled={!emailDraftValid || emailChangeSending}
+                        className="mt-2 text-sm font-semibold text-amber-700 hover:underline disabled:opacity-50"
+                        data-testid="business-settings-change-email"
+                        onClick={handleRequestEmailChange}
+                      >
+                        {emailChangeSending ? "Sending code..." : "Change email"}
+                      </button>
+                    ) : null}
+                    {emailOtpVisible ? (
+                      <div className="mt-3 max-w-md rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
+                        <p className="text-sm text-slate-600">
+                          A confirmation code was sent to <span className="font-semibold text-slate-800">{normalizedEmailDraft}</span>.
+                        </p>
+                        <label htmlFor="emailOtp" className="mb-1.5 mt-3 block text-xs font-semibold text-amber-900">
+                          Enter verification code
+                        </label>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <input
+                            id="emailOtp"
+                            value={emailOtp}
+                            onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            data-testid="business-settings-email-otp"
+                            className="w-full rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                            placeholder="6-digit code"
+                          />
+                          <button
+                            type="button"
+                            disabled={emailOtp.length !== 6 || emailChangeVerifying}
+                            onClick={handleVerifyEmailChange}
+                            data-testid="business-settings-verify-email"
+                            className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+                          >
+                            {emailChangeVerifying ? "Verifying..." : "Verify"}
+                          </button>
                         </div>
                         <button
                           type="button"
-                          className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-slate-900/55 text-white opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
-                          aria-label="Change profile photo"
-                          data-testid="business-settings-avatar-change"
-                          disabled={profilePhotoSelecting || saving}
-                          onClick={() => avatarInputRef.current?.click()}
+                          disabled={emailChangeSending}
+                          onClick={handleRequestEmailChange}
+                          data-testid="business-settings-resend-email-otp"
+                          className="mt-2 text-sm font-semibold text-amber-700 hover:underline disabled:opacity-50"
                         >
-                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                            <circle cx="12" cy="13" r="4" />
-                          </svg>
-                          <span className="mt-0.5 text-[11px] font-semibold">Change</span>
+                          {emailChangeSending ? "Sending..." : "Resend code"}
                         </button>
-                        <input
-                          ref={avatarInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg"
-                          className="hidden"
-                          data-testid="business-settings-avatar-input"
-                          onChange={(e) => handleProfilePhotoSelect(e.target.files?.[0])}
-                        />
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-slate-700">Profile photo</p>
-                        <p className="text-sm text-slate-500">
-                          {profilePhotoSelecting ? "Loading preview..." : "JPG or PNG, up to 2MB. Saved when you click Save changes."}
-                        </p>
-                      </div>
-                    </div>
+                    ) : null}
+                  </div>
 
-                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                      <div className="sm:col-span-2 sm:max-w-md">
-                        <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Full name
-                        </label>
-                        <input
-                          id="fullName"
-                          data-testid="business-settings-full-name"
-                          value={profileForm.fullName}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, fullName: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Email address
-                        </label>
-                        <div className="relative sm:max-w-md">
-                          <input
-                            id="email"
-                            type="email"
-                            value={emailDraft}
-                            data-testid="business-settings-email"
-                            onChange={(e) => {
-                              setEmailDraft(e.target.value);
-                              setEmailVerified(false);
-                              setEmailOtpVisible(false);
-                              setEmailOtp("");
-                            }}
-                            className="w-full rounded-xl border border-gray-200 px-4 py-3 pr-24 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                          />
-                          <span
-                            className={`absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${
-                              emailDraftChanged
-                                ? emailVerified
-                                  ? "bg-green-50 text-green-700"
-                                  : "bg-amber-50 text-amber-700"
-                                : "bg-green-50 text-green-700"
-                            }`}
-                          >
-                            {emailDraftChanged ? (
-                              emailVerified ? (
-                                <>
-                                  <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M20 6 9 17l-5-5" />
-                                  </svg>
-                                  Verified
-                                </>
-                              ) : (
-                                "New"
-                              )
-                            ) : (
-                              <>
-                                <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M20 6 9 17l-5-5" />
-                                </svg>
-                                Verified
-                              </>
-                            )}
-                          </span>
-                        </div>
-                        {emailDraftChanged ? (
-                          <button
-                            type="button"
-                            disabled={!emailDraftValid || emailChangeSending}
-                            className="mt-2 text-sm font-semibold text-amber-700 hover:underline disabled:opacity-50"
-                            data-testid="business-settings-change-email"
-                            onClick={handleRequestEmailChange}
-                          >
-                            {emailChangeSending ? "Sending code..." : "Change email"}
-                          </button>
-                        ) : null}
-                        {emailOtpVisible ? (
-                          <div className="mt-3 max-w-md rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
-                            <p className="text-sm text-slate-600">
-                              A confirmation code was sent to <span className="font-semibold text-slate-800">{normalizedEmailDraft}</span>.
-                            </p>
-                            <label htmlFor="emailOtp" className="mb-1.5 mt-3 block text-xs font-semibold text-amber-900">
-                              Enter verification code
-                            </label>
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                              <input
-                                id="emailOtp"
-                                value={emailOtp}
-                                onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
-                                data-testid="business-settings-email-otp"
-                                className="w-full rounded-xl border border-amber-200 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                                placeholder="6-digit code"
-                              />
-                              <button
-                                type="button"
-                                disabled={emailOtp.length !== 6 || emailChangeVerifying}
-                                onClick={handleVerifyEmailChange}
-                                data-testid="business-settings-verify-email"
-                                className="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
-                              >
-                                {emailChangeVerifying ? "Verifying..." : "Verify"}
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={emailChangeSending}
-                              onClick={handleRequestEmailChange}
-                              data-testid="business-settings-resend-email-otp"
-                              className="mt-2 text-sm font-semibold text-amber-700 hover:underline disabled:opacity-50"
-                            >
-                              {emailChangeSending ? "Sending..." : "Resend code"}
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="sm:max-w-md">
-                        <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Phone number
-                        </label>
-                        <div className="flex">
-                          <select
-                            aria-label="Phone country code"
-                            data-testid="business-settings-phone-country-code"
-                            value={phoneCountryCode}
-                            onChange={(e) =>
-                              setProfileForm((current) => ({
-                                ...current,
-                                phone: buildInternationalPhoneNumber(
-                                  e.target.value,
-                                  getNationalPhoneNumber(current.phone)
-                                )
-                              }))
-                            }
-                            className="w-36 shrink-0 rounded-l-xl border border-r-0 border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100 sm:w-44"
-                          >
-                            {PHONE_COUNTRIES.map((country) => (
-                              <option key={country.dialCode} value={country.dialCode}>
-                                {country.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            id="phone"
-                            type="tel"
-                            data-testid="business-settings-phone"
-                            value={nationalPhoneNumber}
-                            onChange={(e) =>
-                              setProfileForm((current) => ({
-                                ...current,
-                                phone: buildInternationalPhoneNumber(phoneCountryCode, e.target.value)
-                              }))
-                            }
-                            className="min-w-0 w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <hr className="my-7 border-gray-100" />
-
-                    <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Business</h3>
-
-                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                      <div>
-                        <label htmlFor="businessName" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Business name
-                        </label>
-                        <input
-                          id="businessName"
-                          data-testid="business-settings-business-name"
-                          value={profileForm.businessName}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, businessName: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="industry" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Industry
-                        </label>
-                        <SettingsSelect
-                          id="industry"
-                          value={profileForm.industry}
-                          options={INDUSTRIES}
-                          placeholder="Select industry"
-                          testId="business-settings-industry"
-                          menuTestId="business-settings-industry-menu"
-                          optionTestIdPrefix="business-settings-industry-option"
-                          onChange={(industry) => setProfileForm((c) => ({ ...c, industry }))}
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="businessSize" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Business size
-                        </label>
-                        <SettingsSelect
-                          id="businessSize"
-                          value={profileForm.businessSize}
-                          options={BUSINESS_SIZES}
-                          placeholder="Select business size"
-                          testId="business-settings-business-size"
-                          menuTestId="business-settings-business-size-menu"
-                          optionTestIdPrefix="business-settings-business-size-option"
-                          onChange={(businessSize) => setProfileForm((c) => ({ ...c, businessSize }))}
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="website" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Business website
-                        </label>
-                        <input
-                          id="website"
-                          data-testid="business-settings-website"
-                          value={profileForm.website}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, website: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        />
-                      </div>
-                      <div className="sm:col-span-2 sm:max-w-md">
-                        <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Timezone
-                        </label>
-                        <select
-                          id="timezone"
-                          data-testid="business-settings-timezone"
-                          value={profileForm.timezone}
-                          onChange={(e) => setProfileForm((c) => ({ ...c, timezone: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                        >
-                          {[
-                            ...(TIMEZONES.includes(profileForm.timezone) ? [] : [profileForm.timezone]),
-                            ...TIMEZONES
-                          ].map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="mt-8 flex items-center gap-3">
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        data-testid="business-settings-save-profile"
-                        className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
+                  <div className="sm:max-w-md">
+                    <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Phone number
+                    </label>
+                    <div className="flex">
+                      <select
+                        aria-label="Phone country code"
+                        data-testid="business-settings-phone-country-code"
+                        value={phoneCountryCode}
+                        onChange={(e) =>
+                          setProfileForm((current) => ({
+                            ...current,
+                            phone: buildInternationalPhoneNumber(
+                              e.target.value,
+                              getNationalPhoneNumber(current.phone)
+                            )
+                          }))
+                        }
+                        className="w-36 shrink-0 rounded-l-xl border border-r-0 border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100 sm:w-44"
                       >
-                        Save changes
-                      </button>
-                      <button
-                        type="button"
-                        className="text-sm font-semibold text-amber-700 hover:underline"
-                        onClick={() => {
-                          void loadData();
-                        }}
-                      >
-                        Cancel
-                      </button>
+                        {PHONE_COUNTRIES.map((country) => (
+                          <option key={country.dialCode} value={country.dialCode}>
+                            {country.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        id="phone"
+                        type="tel"
+                        data-testid="business-settings-phone"
+                        value={nationalPhoneNumber}
+                        onChange={(e) =>
+                          setProfileForm((current) => ({
+                            ...current,
+                            phone: buildInternationalPhoneNumber(phoneCountryCode, e.target.value)
+                          }))
+                        }
+                        className="min-w-0 w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                      />
                     </div>
-                  </form>
+                  </div>
+                </div>
+
+                <hr className="my-7 border-gray-100" />
+
+                <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Business</h3>
+
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="businessName" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Business name
+                    </label>
+                    <input
+                      id="businessName"
+                      data-testid="business-settings-business-name"
+                      value={profileForm.businessName}
+                      onChange={(e) => setProfileForm((c) => ({ ...c, businessName: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="industry" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Industry
+                    </label>
+                    <SettingsSelect
+                      id="industry"
+                      value={profileForm.industry}
+                      options={INDUSTRIES}
+                      placeholder="Select industry"
+                      testId="business-settings-industry"
+                      menuTestId="business-settings-industry-menu"
+                      optionTestIdPrefix="business-settings-industry-option"
+                      onChange={(industry) => setProfileForm((c) => ({ ...c, industry }))}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="businessSize" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Business size
+                    </label>
+                    <SettingsSelect
+                      id="businessSize"
+                      value={profileForm.businessSize}
+                      options={BUSINESS_SIZES}
+                      placeholder="Select business size"
+                      testId="business-settings-business-size"
+                      menuTestId="business-settings-business-size-menu"
+                      optionTestIdPrefix="business-settings-business-size-option"
+                      onChange={(businessSize) => setProfileForm((c) => ({ ...c, businessSize }))}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="website" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Business website
+                    </label>
+                    <input
+                      id="website"
+                      data-testid="business-settings-website"
+                      value={profileForm.website}
+                      onChange={(e) => setProfileForm((c) => ({ ...c, website: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 sm:max-w-md">
+                    <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Timezone
+                    </label>
+                    <select
+                      id="timezone"
+                      data-testid="business-settings-timezone"
+                      value={profileForm.timezone}
+                      onChange={(e) => setProfileForm((c) => ({ ...c, timezone: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                    >
+                      {[
+                        ...(TIMEZONES.includes(profileForm.timezone) ? [] : [profileForm.timezone]),
+                        ...TIMEZONES
+                      ].map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    data-testid="business-settings-save-profile"
+                    className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    Save changes
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm font-semibold text-amber-700 hover:underline"
+                    onClick={() => {
+                      void loadData();
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </SettingsSection>
 
             <SettingsSection
@@ -2059,108 +2056,107 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-security"
               onMobileToggle={handleMobileToggle}
             >
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900">Security &amp; authentication</h2>
-                    <p className="mt-1 text-sm text-slate-500">Keep your account secure with strong authentication.</p>
-                  </div>
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-900">Security &amp; authentication</h2>
+                <p className="mt-1 text-sm text-slate-500">Keep your account secure with strong authentication.</p>
+              </div>
 
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Active sessions</h3>
-                  <div className="overflow-hidden rounded-xl border border-gray-100">
-                    {sessions.length === 0 ? (
-                      <p className="p-4 text-sm text-slate-500" data-testid="business-settings-sessions-empty">
-                        No active sessions found.
-                      </p>
-                    ) : (
-                      sessions.map((session, index) => (
-                      <div
-                        key={session.id}
-                        className={`flex items-center gap-3 p-4 ${index < sessions.length - 1 ? "border-b border-gray-100" : ""}`}
-                        data-testid={`business-settings-session-${session.id}`}
-                      >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-slate-500">
-                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            {/iphone|ipad|android/i.test(session.deviceLabel) ? (
-                              <>
-                                <rect x="7" y="2" width="10" height="20" rx="2" />
-                                <path d="M11 18h2" />
-                              </>
-                            ) : (
-                              <>
-                                <rect x="2" y="3" width="20" height="14" rx="2" />
-                                <path d="M8 21h8M12 17v4" />
-                              </>
-                            )}
-                          </svg>
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-800">
-                            {session.deviceLabel}
-                            {session.isCurrent ? (
-                              <span className="ml-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
-                                This device
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {session.ipMasked} · {session.location} · {session.statusLabel}
-                          </p>
-                        </div>
-                        {!session.isCurrent ? (
-                          <button
-                            type="button"
-                            className="rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-gray-50"
-                            data-testid={`business-settings-revoke-${session.id}`}
-                            onClick={() => void handleRevokeSession(session.id)}
-                          >
-                            Revoke
-                          </button>
-                        ) : null}
-                      </div>
-                    ))
-                    )}
-                  </div>
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      data-testid="business-settings-revoke-all"
-                      disabled={sessions.filter((session) => !session.isCurrent).length === 0}
-                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50"
-                      onClick={() => void handleRevokeOtherSessions()}
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Active sessions</h3>
+              <div className="overflow-hidden rounded-xl border border-gray-100">
+                {sessions.length === 0 ? (
+                  <p className="p-4 text-sm text-slate-500" data-testid="business-settings-sessions-empty">
+                    No active sessions found.
+                  </p>
+                ) : (
+                  sessions.map((session, index) => (
+                    <div
+                      key={session.id}
+                      className={`flex items-center gap-3 p-4 ${index < sessions.length - 1 ? "border-b border-gray-100" : ""}`}
+                      data-testid={`business-settings-session-${session.id}`}
                     >
-                      Revoke all other sessions
-                    </button>
-                  </div>
-
-                  <hr className="my-7 border-gray-100" />
-
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Login history</h3>
-                  <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
-                    {loginHistory.length === 0 ? (
-                      <p className="p-4 text-sm text-slate-500" data-testid="business-settings-login-history-empty">
-                        No login history yet.
-                      </p>
-                    ) : (
-                      loginHistory.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`business-settings-login-${entry.id}`}>
-                        <div className="min-w-0">
-                          <p className="text-sm text-slate-700">{formatDateTime(entry.date)}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {entry.device} · {entry.location}
-                          </p>
-                        </div>
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                            entry.status === "Success"
-                              ? "border border-green-200 bg-green-50 text-green-700"
-                              : "border border-red-200 bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {entry.status}
-                        </span>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-slate-500">
+                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          {/iphone|ipad|android/i.test(session.deviceLabel) ? (
+                            <>
+                              <rect x="7" y="2" width="10" height="20" rx="2" />
+                              <path d="M11 18h2" />
+                            </>
+                          ) : (
+                            <>
+                              <rect x="2" y="3" width="20" height="14" rx="2" />
+                              <path d="M8 21h8M12 17v4" />
+                            </>
+                          )}
+                        </svg>
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">
+                          {session.deviceLabel}
+                          {session.isCurrent ? (
+                            <span className="ml-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
+                              This device
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {session.ipMasked} · {session.location} · {session.statusLabel}
+                        </p>
                       </div>
-                    ))
-                    )}
-                  </div>
+                      {!session.isCurrent ? (
+                        <button
+                          type="button"
+                          className="rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-gray-50"
+                          data-testid={`business-settings-revoke-${session.id}`}
+                          onClick={() => void handleRevokeSession(session.id)}
+                        >
+                          Revoke
+                        </button>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  data-testid="business-settings-revoke-all"
+                  disabled={sessions.filter((session) => !session.isCurrent).length === 0}
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50 disabled:opacity-50"
+                  onClick={() => void handleRevokeOtherSessions()}
+                >
+                  Revoke all other sessions
+                </button>
+              </div>
+
+              <hr className="my-7 border-gray-100" />
+
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Login history</h3>
+              <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
+                {loginHistory.length === 0 ? (
+                  <p className="p-4 text-sm text-slate-500" data-testid="business-settings-login-history-empty">
+                    No login history yet.
+                  </p>
+                ) : (
+                  loginHistory.map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`business-settings-login-${entry.id}`}>
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-700">{formatDateTime(entry.date)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {entry.device} · {entry.location}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-semibold ${entry.status === "Success"
+                            ? "border border-green-200 bg-green-50 text-green-700"
+                            : "border border-red-200 bg-red-50 text-red-700"
+                          }`}
+                      >
+                        {entry.status}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </SettingsSection>
 
             <SettingsSection
@@ -2171,62 +2167,62 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-notifications"
               onMobileToggle={handleMobileToggle}
             >
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900">Notification preferences</h2>
-                    <p className="mt-1 text-sm text-slate-500">Choose how and when Triven contacts you.</p>
-                  </div>
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-900">Notification preferences</h2>
+                <p className="mt-1 text-sm text-slate-500">Choose how and when Triven contacts you.</p>
+              </div>
 
-                  <div className="hidden grid-cols-[1fr_5rem] gap-4 px-1 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 sm:grid">
-                    <span>Notification</span>
-                    <span className="text-center">Email</span>
-                  </div>
+              <div className="hidden grid-cols-[1fr_5rem] gap-4 px-1 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 sm:grid">
+                <span>Notification</span>
+                <span className="text-center">Email</span>
+              </div>
 
-                  {NOTIFICATION_ROWS.map((row) => {
-                    const pref = notificationPrefs[row.key] ?? row.defaults;
-                    return (
-                      <div
-                        key={row.key}
-                        className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-gray-100 py-4 sm:grid-cols-[1fr_5rem]"
-                      >
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
-                            {row.title}
-                            {row.locked ? (
-                              <span className="text-slate-400" title="Required for account security">
-                                <LockIcon />
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-0.5 text-sm text-slate-500">{row.description}</p>
-                        </div>
-                        <div className="flex flex-col items-center gap-1">
-                          <Toggle
-                            checked={pref.email}
-                            disabled={pref.locked}
-                            testId={`business-settings-notify-${row.key}-email`}
-                            onChange={(email) =>
-                              setNotificationPrefs((current) => ({
-                                ...current,
-                                [row.key]: { ...pref, email }
-                              }))
-                            }
-                          />
-                          <span className="text-[10px] text-slate-400 sm:hidden">Email</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <div className="mt-7">
-                    <button
-                      type="button"
-                      onClick={handleSaveNotifications}
-                      data-testid="business-settings-save-notifications"
-                      className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
-                    >
-                      Save preferences
-                    </button>
+              {NOTIFICATION_ROWS.map((row) => {
+                const pref = notificationPrefs[row.key] ?? row.defaults;
+                return (
+                  <div
+                    key={row.key}
+                    className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-gray-100 py-4 sm:grid-cols-[1fr_5rem]"
+                  >
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+                        {row.title}
+                        {row.locked ? (
+                          <span className="text-slate-400" title="Required for account security">
+                            <LockIcon />
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="mt-0.5 text-sm text-slate-500">{row.description}</p>
+                    </div>
+                    <div className="flex flex-col items-center gap-1">
+                      <Toggle
+                        checked={pref.email}
+                        disabled={pref.locked}
+                        testId={`business-settings-notify-${row.key}-email`}
+                        onChange={(email) =>
+                          setNotificationPrefs((current) => ({
+                            ...current,
+                            [row.key]: { ...pref, email }
+                          }))
+                        }
+                      />
+                      <span className="text-[10px] text-slate-400 sm:hidden">Email</span>
+                    </div>
                   </div>
+                );
+              })}
+
+              <div className="mt-7">
+                <button
+                  type="button"
+                  onClick={handleSaveNotifications}
+                  data-testid="business-settings-save-notifications"
+                  className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
+                >
+                  Save preferences
+                </button>
+              </div>
             </SettingsSection>
 
             <SettingsSection
@@ -2237,58 +2233,58 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-integrations"
               onMobileToggle={handleMobileToggle}
             >
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900">Connected services</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Manage third-party services connected to your Triven account. Agents use these integrations to perform
-                      tasks.
-                    </p>
-                  </div>
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-900">Connected services</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Manage third-party services connected to your Triven account. Agents use these integrations to perform
+                  tasks.
+                </p>
+              </div>
 
-                  <div className="space-y-3">
-                    <IntegrationCard
-                      name="Google Calendar"
-                      description="Sync appointments and scheduling from your AI agents"
-                      connected={calendarConnected}
-                      connectedDetail={calendarEmail ? `Connected · since recently` : undefined}
-                      testId="google-calendar"
-                      icon="google-calendar"
-                      onConnect={handleConnectCalendar}
-                      onDisconnect={handleDisconnectCalendar}
-                    />
-                    <IntegrationCard
-                      name="Google Business Profile"
-                      description="Manage reviews, respond to customers, update business listing"
-                      connected={false}
-                      testId="google-business-profile"
-                      icon="google-business"
-                      onConnect={() => showToast("Google Business Profile connection coming soon")}
-                    />
-                    <IntegrationCard
-                      name="Slack"
-                      description="Receive real-time agent notifications in your Slack workspace"
-                      connected={false}
-                      testId="slack"
-                      icon="slack"
-                      onConnect={() => showToast("Slack connection coming soon")}
-                    />
-                    <IntegrationCard
-                      name="Zapier"
-                      description="Connect Triven to 5,000+ apps with automated workflows"
-                      connected={false}
-                      testId="zapier"
-                      icon="zapier"
-                      onConnect={() => showToast("Zapier connection coming soon")}
-                    />
-                    <IntegrationCard
-                      name="QuickBooks"
-                      description="Sync invoicing and payment data from your agents"
-                      connected={false}
-                      testId="quickbooks"
-                      icon="quickbooks"
-                      onConnect={() => showToast("QuickBooks connection coming soon")}
-                    />
-                  </div>
+              <div className="space-y-3">
+                <IntegrationCard
+                  name="Google Calendar"
+                  description="Sync appointments and scheduling from your AI agents"
+                  connected={calendarConnected}
+                  connectedDetail={calendarEmail ? `Connected · since recently` : undefined}
+                  testId="google-calendar"
+                  icon="google-calendar"
+                  onConnect={handleConnectCalendar}
+                  onDisconnect={handleDisconnectCalendar}
+                />
+                {/* <IntegrationCard
+                  name="Google Business Profile"
+                  description="Manage reviews, respond to customers, update business listing"
+                  connected={false}
+                  testId="google-business-profile"
+                  icon="google-business"
+                  onConnect={() => showToast("Google Business Profile connection coming soon")}
+                />
+                <IntegrationCard
+                  name="Slack"
+                  description="Receive real-time agent notifications in your Slack workspace"
+                  connected={false}
+                  testId="slack"
+                  icon="slack"
+                  onConnect={() => showToast("Slack connection coming soon")}
+                />
+                <IntegrationCard
+                  name="Zapier"
+                  description="Connect Triven to 5,000+ apps with automated workflows"
+                  connected={false}
+                  testId="zapier"
+                  icon="zapier"
+                  onConnect={() => showToast("Zapier connection coming soon")}
+                />
+                <IntegrationCard
+                  name="QuickBooks"
+                  description="Sync invoicing and payment data from your agents"
+                  connected={false}
+                  testId="quickbooks"
+                  icon="quickbooks"
+                  onConnect={() => showToast("QuickBooks connection coming soon")}
+                /> */}
+              </div>
             </SettingsSection>
 
             <SettingsSection
@@ -2299,227 +2295,227 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-billing"
               onMobileToggle={handleMobileToggle}
             >
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900">Billing &amp; subscription</h2>
-                    <p className="mt-1 text-sm text-slate-500">Manage your plan, payment methods, and invoices.</p>
-                  </div>             
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-900">Billing &amp; subscription</h2>
+                <p className="mt-1 text-sm text-slate-500">Manage your plan, payment methods, and invoices.</p>
+              </div>
 
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Payment method</h3>
-                  {billing?.paymentMethod ? (
-                    <div className="space-y-4">
-                    <div className="rounded-xl border border-gray-100 p-4">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <CardBrandIcon brand={billing.paymentMethod.brand} />
-                          <div className="min-w-0">
-                            <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
-                              •••• •••• •••• {billing.paymentMethod.last4}
-                              <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
-                                Primary
-                              </span>
-                            </p>
-                            <p className="mt-0.5 text-xs text-slate-500">
-                              Expires {String(billing.paymentMethod.expMonth).padStart(2, "0")}/{billing.paymentMethod.expYear}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 sm:ml-auto sm:flex-none">
-                          <button
-                            type="button"
-                            data-testid="business-settings-update-card"
-                            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                            onClick={() => setCardModalMode("primary")}
-                          >
-                            Update card
-                          </button>
-                          <button
-                            type="button"
-                            className="text-sm font-semibold text-amber-700 hover:underline"
-                            data-testid="business-settings-add-backup-card"
-                            onClick={() => setCardModalMode("backup")}
-                          >
-                            Add backup method
-                          </button>
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Payment method</h3>
+              {billing?.paymentMethod ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-gray-100 p-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <CardBrandIcon brand={billing.paymentMethod.brand} />
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                            •••• •••• •••• {billing.paymentMethod.last4}
+                            <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
+                              Primary
+                            </span>
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Expires {String(billing.paymentMethod.expMonth).padStart(2, "0")}/{billing.paymentMethod.expYear}
+                          </p>
                         </div>
                       </div>
-                    </div>
-                    {billing.backupPaymentMethod ? (
-                      <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-settings-backup-card">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <CardBrandIcon brand={billing.backupPaymentMethod.brand} />
-                            <div>
-                              <p className="flex items-center gap-2 text-sm font-medium text-slate-800">•••• •••• •••• {billing.backupPaymentMethod.last4}<span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">Backup</span></p>
-                              <p className="mt-0.5 text-xs text-slate-500">Expires {String(billing.backupPaymentMethod.expMonth).padStart(2, "0")}/{billing.backupPaymentMethod.expYear}</p>
-                            </div>
-                          </div>
-                          <button type="button" disabled={makingCardPrimary} onClick={() => void handleMakeBackupCardPrimary()} className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50" data-testid="business-settings-make-card-primary">{makingCardPrimary ? "Updating…" : "Make primary"}</button>
-                        </div>
-                      </div>
-                    ) : null}
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-gray-100 p-4">
-                      <div className="flex items-center gap-3 text-sm text-slate-500">
-                        <CardBrandIcon brand="" />
-                        <span>No payment method on file.</span>
-                      </div>
-                      <button type="button" onClick={() => setCardModalMode("primary")} className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600" data-testid="business-settings-add-card">Add payment method</button>
-                    </div>
-                  )}
-                  <p className="mt-2 text-xs text-slate-400">Your card will be charged on the 1st of each month.</p>
-
-                  <hr className="my-7 border-gray-100" />
-
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Billing address</h3>
-                  {billingAddressEditing ? (
-                    <form
-                      className="space-y-4 rounded-xl border border-gray-100 p-4"
-                      onSubmit={handleSaveBillingAddress}
-                      data-testid="business-settings-billing-address-form"
-                    >
-                      <div>
-                        <label htmlFor="billingAddress" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Address
-                        </label>
-                        <input
-                          id="billingAddress"
-                          value={billingAddressForm.address}
-                          onChange={(event) =>
-                            setBillingAddressForm((current) => ({ ...current, address: event.target.value }))
-                          }
-                          data-testid="business-settings-billing-address-input"
-                          autoComplete="street-address"
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                          placeholder="Enter billing address"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="billingPincode" className="mb-1.5 block text-sm font-medium text-slate-700">
-                          Pincode
-                        </label>
-                        <input
-                          id="billingPincode"
-                          value={billingAddressForm.pincode}
-                          onChange={(event) =>
-                            setBillingAddressForm((current) => ({ ...current, pincode: event.target.value }))
-                          }
-                          data-testid="business-settings-billing-pincode-input"
-                          autoComplete="postal-code"
-                          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
-                          placeholder="Enter pincode"
-                          required
-                        />
-                      </div>
-                      <div className="flex justify-end gap-2">
+                      <div className="flex items-center gap-2 sm:ml-auto sm:flex-none">
                         <button
                           type="button"
+                          data-testid="business-settings-update-card"
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                          onClick={() => {
-                            setBillingAddressForm({
-                              address: billing?.billingAddress ?? "",
-                              pincode: billing?.billingPostalCode ?? ""
-                            });
-                            setBillingAddressEditing(false);
-                          }}
+                          onClick={() => setCardModalMode("primary")}
                         >
-                          Cancel
+                          Update card
                         </button>
                         <button
-                          type="submit"
-                          disabled={billingAddressSaving}
-                          data-testid="business-settings-save-billing-address"
-                          className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                          type="button"
+                          className="text-sm font-semibold text-amber-700 hover:underline"
+                          data-testid="business-settings-add-backup-card"
+                          onClick={() => setCardModalMode("backup")}
                         >
-                          {billingAddressSaving ? "Saving..." : "Save address"}
+                          Add backup method
                         </button>
                       </div>
-                    </form>
-                  ) : (
-                    <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 p-4">
-                      <address className="not-italic text-sm leading-relaxed text-slate-700">
-                        {billing?.businessName ?? profileForm.businessName}
+                    </div>
+                  </div>
+                  {billing.backupPaymentMethod ? (
+                    <div className="rounded-xl border border-gray-100 bg-slate-50/60 p-4" data-testid="business-settings-backup-card">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <CardBrandIcon brand={billing.backupPaymentMethod.brand} />
+                          <div>
+                            <p className="flex items-center gap-2 text-sm font-medium text-slate-800">•••• •••• •••• {billing.backupPaymentMethod.last4}<span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-500">Backup</span></p>
+                            <p className="mt-0.5 text-xs text-slate-500">Expires {String(billing.backupPaymentMethod.expMonth).padStart(2, "0")}/{billing.backupPaymentMethod.expYear}</p>
+                          </div>
+                        </div>
+                        <button type="button" disabled={makingCardPrimary} onClick={() => void handleMakeBackupCardPrimary()} className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50" data-testid="business-settings-make-card-primary">{makingCardPrimary ? "Updating…" : "Make primary"}</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-gray-100 p-4">
+                  <div className="flex items-center gap-3 text-sm text-slate-500">
+                    <CardBrandIcon brand="" />
+                    <span>No payment method on file.</span>
+                  </div>
+                  <button type="button" onClick={() => setCardModalMode("primary")} className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600" data-testid="business-settings-add-card">Add payment method</button>
+                </div>
+              )}
+              <p className="mt-2 text-xs text-slate-400">Your card will be charged on the 1st of each month.</p>
+
+              <hr className="my-7 border-gray-100" />
+
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Billing address</h3>
+              {billingAddressEditing ? (
+                <form
+                  className="space-y-4 rounded-xl border border-gray-100 p-4"
+                  onSubmit={handleSaveBillingAddress}
+                  data-testid="business-settings-billing-address-form"
+                >
+                  <div>
+                    <label htmlFor="billingAddress" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Address
+                    </label>
+                    <input
+                      id="billingAddress"
+                      value={billingAddressForm.address}
+                      onChange={(event) =>
+                        setBillingAddressForm((current) => ({ ...current, address: event.target.value }))
+                      }
+                      data-testid="business-settings-billing-address-input"
+                      autoComplete="street-address"
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                      placeholder="Enter billing address"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="billingPincode" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Pincode
+                    </label>
+                    <input
+                      id="billingPincode"
+                      value={billingAddressForm.pincode}
+                      onChange={(event) =>
+                        setBillingAddressForm((current) => ({ ...current, pincode: event.target.value }))
+                      }
+                      data-testid="business-settings-billing-pincode-input"
+                      autoComplete="postal-code"
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm shadow-sm focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100"
+                      placeholder="Enter pincode"
+                      required
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
+                      onClick={() => {
+                        setBillingAddressForm({
+                          address: billing?.billingAddress ?? "",
+                          pincode: billing?.billingPostalCode ?? ""
+                        });
+                        setBillingAddressEditing(false);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={billingAddressSaving}
+                      data-testid="business-settings-save-billing-address"
+                      className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {billingAddressSaving ? "Saving..." : "Save address"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 p-4">
+                  <address className="not-italic text-sm leading-relaxed text-slate-700">
+                    {billing?.businessName ?? profileForm.businessName}
+                    <br />
+                    {billing?.billingAddress ?? (profileForm.address || "No billing address on file")}
+                    {billing?.billingPostalCode ? (
+                      <>
                         <br />
-                        {billing?.billingAddress ?? (profileForm.address || "No billing address on file")}
-                        {billing?.billingPostalCode ? (
-                          <>
-                            <br />
-                            {billing.billingPostalCode}
-                          </>
-                        ) : null}
-                      </address>
-                      <button
-                        type="button"
-                        data-testid="business-settings-edit-billing-address"
-                        className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                        onClick={() => setBillingAddressEditing(true)}
-                      >
-                        Edit address
-                      </button>
-                    </div>
-                  )}
-
-                  <hr className="my-7 border-gray-100" />
-
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Recent invoices</h3>
-                  {recentInvoices.length ? (
-                    <div className="overflow-hidden rounded-xl border border-gray-100">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                          <tr>
-                            <th className="px-4 py-3 text-left font-semibold">Date</th>
-                            <th className="px-4 py-3 text-left font-semibold">Amount</th>
-                            <th className="px-4 py-3 text-left font-semibold">Status</th>
-                            <th className="px-4 py-3 text-right font-semibold">Invoice</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {recentInvoices.map((invoice) => (
-                            <tr key={invoice.id}>
-                              <td className="px-4 py-3 text-slate-700">{formatDate(invoice.createdAt)}</td>
-                              <td className="px-4 py-3 text-slate-700">
-                                {formatUsd(invoice.displayAmountCents ?? invoice.amountCents)}
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
-                                  <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M20 6 9 17l-5-5" />
-                                  </svg>
-                                  Paid
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <button
-                                  type="button"
-                                  aria-label={`Download invoice from ${formatDate(invoice.createdAt)}`}
-                                  data-testid={`business-settings-download-invoice-${invoice.id}`}
-                                  disabled={downloadingInvoiceId !== null}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-gray-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50"
-                                  onClick={() => void handleDownloadInvoice(invoice)}
-                                >
-                                  <svg viewBox="0 0 24 24" className={`h-4 w-4 ${downloadingInvoiceId === invoice.id ? "animate-pulse" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                    <path d="M7 10l5 5 5-5" />
-                                    <path d="M12 15V3" />
-                                  </svg>
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">No invoices yet.</p>
-                  )}
-                  <Link
-                    href={BUSINESS_BILLING_PATH}
-                    data-testid="business-settings-view-all-invoices"
-                    className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:underline"
+                        {billing.billingPostalCode}
+                      </>
+                    ) : null}
+                  </address>
+                  <button
+                    type="button"
+                    data-testid="business-settings-edit-billing-address"
+                    className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-gray-50"
+                    onClick={() => setBillingAddressEditing(true)}
                   >
-                    View all invoices
-                  </Link>
+                    Edit address
+                  </button>
+                </div>
+              )}
+
+              <hr className="my-7 border-gray-100" />
+
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Recent invoices</h3>
+              {recentInvoices.length ? (
+                <div className="overflow-hidden rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold">Date</th>
+                        <th className="px-4 py-3 text-left font-semibold">Amount</th>
+                        <th className="px-4 py-3 text-left font-semibold">Status</th>
+                        <th className="px-4 py-3 text-right font-semibold">Invoice</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {recentInvoices.map((invoice) => (
+                        <tr key={invoice.id}>
+                          <td className="px-4 py-3 text-slate-700">{formatDate(invoice.createdAt)}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {formatUsd(invoice.displayAmountCents ?? invoice.amountCents)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
+                              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                              Paid
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              aria-label={`Download invoice from ${formatDate(invoice.createdAt)}`}
+                              data-testid={`business-settings-download-invoice-${invoice.id}`}
+                              disabled={downloadingInvoiceId !== null}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-gray-100 hover:text-slate-700 disabled:cursor-wait disabled:opacity-50"
+                              onClick={() => void handleDownloadInvoice(invoice)}
+                            >
+                              <svg viewBox="0 0 24 24" className={`h-4 w-4 ${downloadingInvoiceId === invoice.id ? "animate-pulse" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <path d="M7 10l5 5 5-5" />
+                                <path d="M12 15V3" />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">No invoices yet.</p>
+              )}
+              <Link
+                href={BUSINESS_BILLING_PATH}
+                data-testid="business-settings-view-all-invoices"
+                className="mt-3 inline-block text-sm font-semibold text-amber-700 hover:underline"
+              >
+                View all invoices
+              </Link>
             </SettingsSection>
 
             <SettingsSection
@@ -2530,116 +2526,115 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-privacy"
               onMobileToggle={handleMobileToggle}
             >
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900">Data &amp; privacy</h2>
-                    <p className="mt-1 text-sm text-slate-500">Control how your data is used and manage your privacy preferences.</p>
-                  </div>
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-slate-900">Data &amp; privacy</h2>
+                <p className="mt-1 text-sm text-slate-500">Control how your data is used and manage your privacy preferences.</p>
+              </div>
 
-                  <h3 className="mb-2 text-base font-semibold text-slate-900">Data export</h3>
-                  <p className="mb-4 text-sm text-slate-500">
-                    Download a ZIP containing this business&apos;s account data, agent configurations, conversation history,
-                    and activity logs.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      data-testid="business-settings-export-data"
-                      className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                      disabled={exportingData || !profileForm.businessId}
-                      onClick={() => void handleExportData()}
-                    >
-                      {exportingData ? "Preparing export..." : "Request data export"}
-                    </button>
-                    <span className="text-xs text-slate-400">Last export: Never requested</span>
-                  </div>
+              <h3 className="mb-2 text-base font-semibold text-slate-900">Data export</h3>
+              <p className="text-sm leading-6 text-slate-500">
+                Download a complete copy of your account data, agent configurations, conversation history, and activity logs. Download as a ZIP file.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  data-testid="business-settings-export-data"
+                  className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={exportingData || !profileForm.businessId}
+                  onClick={() => void handleExportData()}
+                >
+                  {exportingData ? "Building your ZIP..." : "Download Data ZIP"}
+                </button>
 
-                  <hr className="my-7 border-gray-100" />
+              </div>
 
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Privacy preferences</h3>
-                  <div className="space-y-1">
-                    {PRIVACY_PREFS.map((row, index) => (
-                      <div
-                        key={row.key}
-                        className={`flex items-start justify-between gap-4 py-3 ${index > 0 ? "border-t border-gray-100" : ""}`}
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800">{row.label}</p>
-                          <p className="mt-0.5 text-sm text-slate-500">{row.description}</p>
-                        </div>
-                        <Toggle
-                          checked={privacyPrefs[row.key] ?? row.defaultOn}
-                          testId={`business-settings-privacy-${row.key}`}
-                          onChange={(value) => setPrivacyPrefs((current) => ({ ...current, [row.key]: value }))}
-                        />
-                      </div>
-                    ))}
-                  </div>
+              <hr className="my-7 border-gray-100" />
 
-                  <hr className="my-7 border-gray-100" />
-
-                  <h3 className="mb-4 text-base font-semibold text-slate-900">Cookie preferences</h3>
-                  <div className="space-y-1">
-                    {COOKIE_PREFS.map((row, index) => (
-                      <div
-                        key={row.key}
-                        className={`flex items-start justify-between gap-4 py-3 ${index > 0 ? "border-t border-gray-100" : ""}`}
-                      >
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
-                            {row.label}
-                            {row.locked ? (
-                              <span className="text-slate-400" title="Required for the platform to function">
-                                <LockIcon />
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-0.5 text-sm text-slate-500">{row.description}</p>
-                        </div>
-                        <Toggle
-                          checked={cookiePrefs[row.key] ?? row.defaultOn}
-                          disabled={row.locked}
-                          testId={`business-settings-cookie-${row.key}`}
-                          onChange={(value) => setCookiePrefs((current) => ({ ...current, [row.key]: value }))}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <hr className="my-7 border-gray-100" />
-
-                  <h3 className="mb-2 text-base font-semibold text-slate-900">Data processing agreement</h3>
-                  <p className="mb-4 text-sm text-slate-500">
-                    <Link
-                      href={"/DPA" as Route}
-                      className="font-semibold text-amber-700 hover:underline"
-                      data-testid="business-settings-view-dpa"
-                    >
-                      View our Data Processing Agreement
-                    </Link>
-                  </p>
-                  <button
-                    type="button"
-                    data-testid="business-settings-request-dpa"
-                    className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50"
-                    disabled={requestingDpa}
-                    onClick={() => void handleRequestSignedDpa()}
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Privacy preferences</h3>
+              <div className="space-y-1">
+                {PRIVACY_PREFS.map((row, index) => (
+                  <div
+                    key={row.key}
+                    className={`flex items-start justify-between gap-4 py-3 ${index > 0 ? "border-t border-gray-100" : ""}`}
                   >
-                    {requestingDpa ? "Sending request..." : "Request a signed DPA for your organization"}
-                  </button>
-                  <p className="mt-2 text-xs text-slate-400">
-                    Enterprise customers can request a countersigned DPA. Delivered within 2 business days.
-                  </p>
-
-                  <div className="mt-7">
-                    <button
-                      type="button"
-                      onClick={handleSavePrivacy}
-                      data-testid="business-settings-save-privacy"
-                      className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
-                    >
-                      Save preferences
-                    </button>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800">{row.label}</p>
+                      <p className="mt-0.5 text-sm text-slate-500">{row.description}</p>
+                    </div>
+                    <Toggle
+                      checked={privacyPrefs[row.key] ?? row.defaultOn}
+                      testId={`business-settings-privacy-${row.key}`}
+                      onChange={(value) => setPrivacyPrefs((current) => ({ ...current, [row.key]: value }))}
+                    />
                   </div>
+                ))}
+              </div>
+
+              <hr className="my-7 border-gray-100" />
+
+              <h3 className="mb-4 text-base font-semibold text-slate-900">Cookie preferences</h3>
+              <div className="space-y-1">
+                {COOKIE_PREFS.map((row, index) => (
+                  <div
+                    key={row.key}
+                    className={`flex items-start justify-between gap-4 py-3 ${index > 0 ? "border-t border-gray-100" : ""}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+                        {row.label}
+                        {row.locked ? (
+                          <span className="text-slate-400" title="Required for the platform to function">
+                            <LockIcon />
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="mt-0.5 text-sm text-slate-500">{row.description}</p>
+                    </div>
+                    <Toggle
+                      checked={cookiePrefs[row.key] ?? row.defaultOn}
+                      disabled={row.locked}
+                      testId={`business-settings-cookie-${row.key}`}
+                      onChange={(value) => setCookiePrefs((current) => ({ ...current, [row.key]: value }))}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <hr className="my-7 border-gray-100" />
+
+              <h3 className="mb-2 text-base font-semibold text-slate-900">Data processing agreement</h3>
+              <p className="mb-4 text-sm text-slate-500">
+                <Link
+                  href={"/DPA" as Route}
+                  className="font-semibold text-amber-700 hover:underline"
+                  data-testid="business-settings-view-dpa"
+                >
+                  View our Data Processing Agreement
+                </Link>
+              </p>
+              <button
+                type="button"
+                data-testid="business-settings-request-dpa"
+                className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-gray-50"
+                disabled={requestingDpa}
+                onClick={() => void handleRequestSignedDpa()}
+              >
+                {requestingDpa ? "Sending request..." : "Request a signed DPA for your organization"}
+              </button>
+              <p className="mt-2 text-xs text-slate-400">
+                Enterprise customers can request a countersigned DPA. Delivered within 2 business days.
+              </p>
+
+              <div className="mt-7">
+                <button
+                  type="button"
+                  onClick={handleSavePrivacy}
+                  data-testid="business-settings-save-privacy"
+                  className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
+                >
+                  Save preferences
+                </button>
+              </div>
             </SettingsSection>
 
             <SettingsSection
@@ -2651,48 +2646,48 @@ export function BusinessSettingsView() {
               testId="business-settings-panel-danger"
               onMobileToggle={handleMobileToggle}
             >
-                    <div className="mb-6">
-                      <h2 className="text-lg font-bold text-red-700">Danger zone</h2>
-                      <p className="mt-1 text-sm text-slate-500">
-                        These actions are irreversible. Please proceed with extreme caution.
-                      </p>
-                    </div>
+              <div className="mb-6">
+                <h2 className="text-lg font-bold text-red-700">Danger zone</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  These actions are irreversible. Please proceed with extreme caution.
+                </p>
+              </div>
 
-                    <div className="flex flex-col gap-4 rounded-xl border border-red-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">Deactivate your account</p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Temporarily disable your account. All your agents will stop running immediately. Your data will
-                          be preserved and you can reactivate at any time by logging back in.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        data-testid="business-settings-deactivate"
-                        className="w-full shrink-0 rounded-xl border border-red-500 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 sm:w-auto"
-                        onClick={() => showToast("Account deactivation coming soon")}
-                      >
-                        Deactivate account
-                      </button>
-                    </div>
+              <div className="flex flex-col gap-4 rounded-xl border border-red-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">Deactivate your account</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Temporarily disable your account. All your agents will stop running immediately. Your data will
+                    be preserved and you can reactivate at any time by logging back in.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="business-settings-deactivate"
+                  className="w-full shrink-0 rounded-xl border border-red-500 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 sm:w-auto"
+                  onClick={() => showToast("Account deactivation coming soon")}
+                >
+                  Deactivate account
+                </button>
+              </div>
 
-                    <div className="mt-4 flex flex-col gap-4 rounded-xl border border-red-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">Permanently delete account</p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          This will permanently delete your account, all agent configurations, conversation history, and
-                          personal data. Active agent subscriptions will be cancelled immediately. This cannot be undone.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        data-testid="business-settings-delete-open"
-                        className="w-full shrink-0 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 sm:w-auto"
-                        onClick={() => setDeleteModalOpen(true)}
-                      >
-                        Delete my account
-                      </button>
-                    </div>
+              <div className="mt-4 flex flex-col gap-4 rounded-xl border border-red-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">Permanently delete account</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    This will permanently delete your account, all agent configurations, conversation history, and
+                    personal data. Active agent subscriptions will be cancelled immediately. This cannot be undone.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="business-settings-delete-open"
+                  className="w-full shrink-0 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 sm:w-auto"
+                  onClick={() => setDeleteModalOpen(true)}
+                >
+                  Delete my account
+                </button>
+              </div>
             </SettingsSection>
           </div>
         </div>

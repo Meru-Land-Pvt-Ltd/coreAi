@@ -1,6 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
-import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
+import {
+  buildTrialEndedEmailHtml,
+  isPlatformMailConfigured,
+  sendPlatformEmail
+} from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
 import { parsePaymentLineItems, type PaymentLineItem } from "../../lib/billing-invoices";
 import {
@@ -514,32 +518,26 @@ async function sendPendingTrialEndEmails(now: Date) {
     return { considered: pending.length, sent: 0 };
   }
 
-  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  const myAgentsUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/agents`;
   let sent = 0;
 
   for (const item of pending) {
     const to = item.billingEmail?.trim() || item.buyerEmail;
     const recipientName =
       item.buyerName?.trim() || item.businessName?.trim() || "there";
-    const amountCents = item.invoiceAmountCents ?? 0;
-    const amount = `$${(amountCents / 100).toFixed(2)}`;
-    const hasInvoice = Boolean(item.invoiceId) && amountCents > 0;
-    const actionText = hasInvoice
-      ? `A new invoice for ${amount} is now available. Please pay it within the 7-day grace period to keep this agent active.`
-      : "No post-trial payment is due for this agent.";
+    const trialEndDate = item.endedAt.toLocaleDateString("en-US");
 
     try {
       await sendPlatformEmail({
         purpose: "billing",
         to,
         subject: `Your trial for ${item.agentName} has ended`,
-        text: `Hi ${recipientName}, your trial for ${item.agentName} ended on ${item.endedAt.toLocaleDateString("en-US")}. ${actionText} View billing: ${billingUrl}`,
-        html: [
-          `<p>Hi ${escapeEmailHtml(recipientName)},</p>`,
-          `<p>Your trial for <strong>${escapeEmailHtml(item.agentName)}</strong> has ended.</p>`,
-          `<p>${escapeEmailHtml(actionText)}</p>`,
-          `<p><a href="${escapeEmailHtml(billingUrl)}">View billing and usage</a></p>`
-        ].join("")
+        text: `Hi ${recipientName}, your Triven.ai trial for ${item.agentName} ended on ${trialEndDate}. Your data is safe. Choose a plan to continue using your agent: ${myAgentsUrl}`,
+        html: buildTrialEndedEmailHtml({
+          agentName: item.agentName,
+          trialEndDate,
+          myAgentsLink: myAgentsUrl
+        })
       });
 
       const marked = await prisma.$executeRaw`

@@ -68,6 +68,7 @@ import {
   sendTrackedSms,
   type SmsSendOutcome
 } from "../notifications/sms-notification-service";
+import { sendBusinessAppointmentBookedEmail } from "../notifications/appointment-booked-email";
 import {
   applySmsOptOut,
   applySmsReOptIn,
@@ -817,6 +818,14 @@ async function createBusinessAppointment({
       notes: notes ?? undefined
     }
   });
+
+  if (executionMode === "LIVE") {
+    try {
+      await sendBusinessAppointmentBookedEmail(appointment.id);
+    } catch (error) {
+      console.error("[appointment-email] buyer notification failed (appointment kept)", error);
+    }
+  }
 
   return { calendarEvent, appointment };
 }
@@ -3175,6 +3184,13 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
           select: { id: true }
         });
         rememberCallContact(ctx.callId, { appointmentId: localAppointment?.id });
+        if ((ctx.business.executionMode ?? "LIVE") === "LIVE") {
+          try {
+            await sendBusinessAppointmentBookedEmail(localAppointment.id);
+          } catch (error) {
+            console.error("[appointment-email] buyer notification failed (appointment kept)", error);
+          }
+        }
       } catch (error) {
         console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
       }

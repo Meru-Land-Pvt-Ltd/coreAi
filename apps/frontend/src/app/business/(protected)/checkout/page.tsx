@@ -2411,7 +2411,7 @@ function OrderSummary({
                         {isPurchaseMode || pricingModel === "FREE" ? null : (
                             <PriceRow label={`${trialDays}-day free trial`} value={`−$${trialDiscountLabel}`} green />
                         )}
-                        {!isUsageMode ? (
+                        {/* {!isUsageMode ? (
                             <div data-testid="checkout-execution-charges-row">
                                 <PriceRow
                                     label="Execution charges"
@@ -2426,7 +2426,7 @@ function OrderSummary({
                                     Usage-based charges apply when this agent handles calls or performs configured billable actions. Billed monthly from actual usage.
                                 </p>
                             </div>
-                        ) : null}
+                        ) : null} */}
                     </div>
 
                     <div className="my-4 border-t border-gray-100" />
