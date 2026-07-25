@@ -203,8 +203,8 @@ export function resolveAppointmentSchedule(input: {
   const hasStructuredDays = WEEKDAYS.some((day) => record(structuredDays[day]).open !== undefined);
   const hasBusinessHours = Object.keys(fromBusinessHours).length > 0;
 
-  const inheritsBusinessHours = structured.useBusinessHours === true;
-  const useStructuredDays = hasStructuredDays && !inheritsBusinessHours;
+  const structuredConfirmed = structured.confirmed === true;
+  const useStructuredDays = hasStructuredDays && (structuredConfirmed || !hasBusinessHours);
 
   // Legacy single open/close (configJson.scheduling.openHour/closeHour) only
   // applies when neither structured days nor business hours exist.

@@ -681,7 +681,7 @@ export function resolveVapiModel(model?: string | null): VapiModelResolution {
   };
 }
 
-function genericAssistantTools() {
+export function genericAssistantTools() {
   return [
     {
       type: "function",
@@ -901,22 +901,27 @@ function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.updateAppointmentContact,
         description:
-          "Correct the phone number on the caller's CURRENT booking. Two steps: (1) call with the full corrected number including its country code (confirmed omitted or false) to validate it — you'll get back the masked number to read aloud; (2) ONLY after the caller clearly confirms that masked number, call again with the SAME phone and confirmed=true to commit. This moves the appointment's number and the text recipient together. The new number has NO SMS consent — after committing, read the SMS disclosure again before any text. Never pass a number you are not sure of; ask the caller to repeat it with the country code.",
+          "Correct the phone number on the caller's CURRENT booking. Two steps: (1) PREPARE — call with corrected_phone (full E.164 with country code) and confirmed omitted/false to validate it; you'll get back the masked old and new numbers to read aloud. (2) COMMIT — ONLY after the caller clearly confirms, call again with confirmed=true and NO phone (the validated number is loaded server-side). This moves the appointment's number and the text recipient together. The new number has NO SMS consent — after committing, read the SMS disclosure again before any text. Never guess a number; ask the caller to repeat it with the country code.",
         parameters: {
           type: "object",
           properties: {
-            phone: {
+            appointment_id: {
               type: "string",
               description:
-                "The corrected full phone number in E.164 with country code (e.g. +16505551234). Ask the caller to say it with the country code; never guess."
+                "Optional internal appointment id from the booking in THIS call. The appointment is resolved server-side if omitted."
+            },
+            corrected_phone: {
+              type: "string",
+              description:
+                "PREPARE step only: the corrected full phone number in E.164 with country code (e.g. +16505551234). Omit on the confirmed=true commit call."
             },
             confirmed: {
               type: "boolean",
               description:
-                "true ONLY after the caller clearly confirmed the masked number read back in step 1. false or omitted on the first (validation) call."
+                "COMMIT step: true ONLY after the caller clearly confirmed the masked number read back in the prepare step. Omit/false on the prepare call."
             }
           },
-          required: ["phone"]
+          required: []
         }
       }
     },

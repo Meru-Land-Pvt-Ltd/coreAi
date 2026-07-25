@@ -49,7 +49,13 @@ import {
   type LiveAfterHoursGateContext
 } from "./after-hours-live-gate";
 import { updateAfterHoursStaffNotificationStatus } from "../business/after-hours-call-state";
-import { buildRedFlagStaffAlert, buildUrgentStaffAlert, verbalSmsConsentDisclosure, spokenDateTimeInTimeZone } from "@coreai/shared";
+import { buildRedFlagStaffAlert, buildUrgentStaffAlert, verbalSmsConsentDisclosure, spokenDateTimeInTimeZone, spokenDateInTimeZone } from "@coreai/shared";
+import {
+  readCallContact,
+  updateCallContact,
+  clearCallContact,
+  type CanonicalCallContact
+} from "./call-contact-store";
 import {
   addDaysToDate,
   businessOpenStatus,
@@ -2487,26 +2493,6 @@ type VapiToolContext = {
   voicePipeline?: ResolvedVoicePipeline | null;
 };
 
-const CALL_CONTACT_TTL_MS = 6 * 60 * 60 * 1000;
-
-/** How the canonical number was established, in precedence order. */
-export type CallPhoneSource = "confirmed" | "caller_id" | "supplied";
-const PHONE_SOURCE_RANK: Record<CallPhoneSource, number> = { confirmed: 3, caller_id: 2, supplied: 1 };
-
-export type CallContactState = {
-  name?: string;
-  /** Back-compat alias of canonicalPhoneE164 (always full E.164, never last-4). */
-  phone?: string;
-  canonicalPhoneE164?: string;
-  phoneSource?: CallPhoneSource;
-  phoneConfirmedAt?: number;
-  appointmentId?: string;
-  smsRecipientE164?: string;
-  at: number;
-};
-
-const callContactCache = new Map<string, CallContactState>();
-
 function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
   if (!ctx.callId || !ctx.business?.businessId) return null;
   return {
@@ -2524,67 +2510,6 @@ async function smsDisclosureOffered(ctx: VapiToolContext): Promise<boolean> {
     return true;
   }
   return false;
-}
-
-export function rememberCallContact(
-  callId: string | undefined,
-  contact: {
-    name?: string;
-    phone?: string;
-    canonicalPhoneE164?: string;
-    phoneSource?: CallPhoneSource;
-    appointmentId?: string;
-    smsRecipientE164?: string;
-  }
-) {
-  if (!callId) return;
-  const now = Date.now();
-  for (const [key, value] of callContactCache) {
-    if (now - value.at > CALL_CONTACT_TTL_MS) callContactCache.delete(key);
-  }
-  const existing = callContactCache.get(callId);
-
-  const incomingPhone = contact.canonicalPhoneE164 || contact.phone;
-  const incomingSource: CallPhoneSource = contact.phoneSource ?? "supplied";
-  let canonicalPhoneE164 = existing?.canonicalPhoneE164 ?? existing?.phone;
-  let phoneSource = existing?.phoneSource;
-  let phoneConfirmedAt = existing?.phoneConfirmedAt;
-  if (incomingPhone) {
-    const existingRank = phoneSource ? PHONE_SOURCE_RANK[phoneSource] : 0;
-    const replace =
-      canonicalPhoneE164 !== incomingPhone
-        ? PHONE_SOURCE_RANK[incomingSource] >= existingRank
-        : true;
-    if (replace) {
-      canonicalPhoneE164 = incomingPhone;
-      phoneSource = incomingSource;
-      if (incomingSource === "confirmed") phoneConfirmedAt = now;
-    }
-  }
-
-  callContactCache.set(callId, {
-    name: contact.name || existing?.name,
-    phone: canonicalPhoneE164,
-    canonicalPhoneE164,
-    phoneSource,
-    phoneConfirmedAt,
-    appointmentId: contact.appointmentId || existing?.appointmentId,
-    smsRecipientE164: contact.smsRecipientE164 || canonicalPhoneE164 || existing?.smsRecipientE164,
-    at: now
-  });
-}
-
-export function recallCallContact(callId: string | undefined): Omit<CallContactState, "at"> {
-  if (!callId) return {};
-  const entry = callContactCache.get(callId);
-  if (!entry || Date.now() - entry.at > CALL_CONTACT_TTL_MS) return {};
-  const { at: _at, ...rest } = entry;
-  return rest;
-}
-
-/** Test hook: clear the per-call canonical contact cache. */
-export function resetCallContactCacheForTests(): void {
-  callContactCache.clear();
 }
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -2902,8 +2827,9 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
-  const rememberedContact = recallCallContact(ctx.callId);
-  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? rememberedContact.name ?? null;
+  const rememberedContact: Partial<CanonicalCallContact> =
+    (await readCallContact(ctx.business?.businessId, ctx.callId)) ?? {};
+  const patientName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? rememberedContact.customerName ?? null;
   if (!patientName) {
     console.log("[vapi-tool] book_appointment missing fields", ["customer_name"]);
     console.warn("[vapi-webhook] book_appointment rejected: no valid customer name", {
@@ -2911,16 +2837,12 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     });
     return NEEDS_CUSTOMER_NAME_RESULT;
   }
-  rememberCallContact(ctx.callId, { name: patientName });
+  await updateCallContact(ctx.business?.businessId, ctx.callId, { customerName: patientName });
 
   const rawPhone = argStr(args, PHONE_ARG_KEYS);
 
   const callerIdPhone = normalizePhoneE164(ctx.customerPhone);
   let patientPhone = "";
-  // #2 canonical precedence: once a number has been CONFIRMED for this call
-  // (e.g. a prior booking established it), it wins over any later, possibly
-  // mis-transcribed, model-supplied argument. Full E.164 identity only — we
-  // never treat two numbers as equal because their last four digits match.
   const confirmedCanonical =
     rememberedContact.phoneSource === "confirmed" ? rememberedContact.canonicalPhoneE164 ?? "" : "";
   if (confirmedCanonical) {
@@ -2938,15 +2860,15 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       // The caller dictated their OWN number without the code — the verified
       // caller-ID form is the confirmed canonical recipient.
       patientPhone = callerIdPhone;
-    } else if (rememberedContact.phone) {
+    } else if (rememberedContact.canonicalPhoneE164) {
       // A full number was already confirmed earlier in this call.
-      patientPhone = rememberedContact.phone;
+      patientPhone = rememberedContact.canonicalPhoneE164;
     } else {
       console.log("[vapi-tool] book_appointment missing fields", ["country_code"]);
       return NEEDS_COUNTRY_CODE_RESULT;
     }
   } else {
-    patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.phone || "";
+    patientPhone = resolvePatientPhone(rawPhone, ctx.customerPhone) || rememberedContact.canonicalPhoneE164 || "";
   }
 
   if (!patientPhone && ctx.dental?.dryRun) {
@@ -2958,7 +2880,11 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
     console.log("[vapi-tool] book_appointment missing fields", ["customer_phone"]);
     return NEEDS_CUSTOMER_PHONE_RESULT;
   }
-  rememberCallContact(ctx.callId, { name: patientName, phone: patientPhone });
+  await updateCallContact(ctx.business?.businessId, ctx.callId, {
+    customerName: patientName,
+    canonicalPhoneE164: patientPhone,
+    phoneSource: rememberedContact.phoneSource === "confirmed" ? "confirmed" : "supplied"
+  });
 
   const service =
     argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) ||
@@ -3267,7 +3193,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
           },
           select: { id: true }
         });
-        rememberCallContact(ctx.callId, {
+        await updateCallContact(ctx.business?.businessId, ctx.callId, {
           appointmentId: localAppointment?.id,
           canonicalPhoneE164: patientPhone,
           phoneSource: "confirmed",
@@ -3353,7 +3279,7 @@ async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiTo
       }
 
       const { calendarEvent, appointment } = reservation.booking;
-      rememberCallContact(ctx.callId, {
+      await updateCallContact(ctx.business?.businessId, ctx.callId, {
         appointmentId: appointment.id,
         canonicalPhoneE164: patientPhone,
         phoneSource: "confirmed",
@@ -3418,6 +3344,10 @@ const CANCEL_FAILED_MESSAGE =
   "I couldn’t complete the cancellation just now. Please try again in a moment, or contact the business team and they’ll take care of it.";
 
 function formatApptDate(startAt: Date, timeZone?: string | null): string {
+  // Voice-facing (spoken in cancel/reschedule confirmations) → ordinal words
+  // ("Saturday, July twenty-fifth") so TTS never says "July 20 fifth" (#7).
+  const spoken = spokenDateInTimeZone(startAt, timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
+  if (spoken) return spoken;
   try {
     return startAt.toLocaleDateString("en-US", {
       timeZone: timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
@@ -4043,105 +3973,120 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
   };
 }
 
-async function runUpdateAppointmentContactTool(args: Record<string, unknown>, ctx: VapiToolContext) {
-  if (!ctx.business?.businessId) {
+export async function runUpdateAppointmentContactTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  const businessId = ctx.business?.businessId;
+  if (!businessId) {
     return { success: false, error: "BUSINESS_NOT_RESOLVED", message: "I couldn't update the appointment right now." };
   }
-
-  const rawPhone = argStr(args, PHONE_ARG_KEYS);
   const confirmed = args.confirmed === true || String(args.confirmed ?? "").toLowerCase() === "true";
 
-  if (!rawPhone) {
-    return {
-      success: false,
-      error: "PHONE_REQUIRED",
-      message: "Ask the caller for the full corrected number including its country code, then call this again."
-    };
-  }
-  if (!hasExplicitCountryCode(rawPhone)) {
-    return { ...NEEDS_COUNTRY_CODE_RESULT };
-  }
-  const corrected = normalizePhoneE164(rawPhone);
-  if (!corrected || corrected.replace(/\D/g, "").length < 8) {
-    return {
-      success: false,
-      error: "INVALID_PHONE",
-      message: "That number isn't a valid full number. Ask for it again with the country code."
-    };
-  }
-  const maskedRecipient = `•••${corrected.slice(-4)}`;
+  const contact = await readCallContact(businessId, ctx.callId);
+  const appointmentSelect = { id: true, businessId: true, customerPhone: true } as const;
+  const resolveAppointment = async () => {
+    let appt = contact?.appointmentId
+      ? await prisma.appointment.findUnique({ where: { id: contact.appointmentId }, select: appointmentSelect })
+      : null;
+    if (!appt && ctx.callId) {
+      appt = await prisma.appointment.findFirst({
+        where: { businessId, bookingCallId: ctx.callId, status: "BOOKED" },
+        orderBy: { createdAt: "desc" },
+        select: appointmentSelect
+      });
+    }
+    return appt && appt.businessId === businessId ? appt : null;
+  };
 
-  // Step A — validate and read back for an explicit yes before changing anything.
+  // ---------------------------- PREPARE (validate) --------------------------
+  // Validate the full E.164, store it as a PENDING correction in the distributed
+  // call state, and read both masked numbers back. NO database change here.
   if (!confirmed) {
+    const rawPhone = argStr(args, ["corrected_phone", ...PHONE_ARG_KEYS]);
+    if (!rawPhone) {
+      return {
+        success: false,
+        error: "PHONE_REQUIRED",
+        message: "Ask the caller for the full corrected number including its country code, then call this again."
+      };
+    }
+    if (!hasExplicitCountryCode(rawPhone)) return { ...NEEDS_COUNTRY_CODE_RESULT };
+    const corrected = normalizePhoneE164(rawPhone);
+    if (!corrected || corrected.replace(/\D/g, "").length < 8) {
+      return { success: false, error: "INVALID_PHONE", message: "That number isn't a valid full number. Ask for it again with the country code." };
+    }
+    const appt = await resolveAppointment();
+    if (!appt) {
+      return { success: false, error: "APPOINTMENT_NOT_FOUND", message: "There's no booking on this call to update. Complete the booking first." };
+    }
+    await updateCallContact(businessId, ctx.callId, { pendingCorrectedPhoneE164: corrected });
     return {
       success: true,
       needs_confirmation: true,
-      masked_recipient: maskedRecipient,
+      masked_old_recipient: `•••${appt.customerPhone.slice(-4)}`,
+      masked_new_recipient: `•••${corrected.slice(-4)}`,
       customerSpeechCode: "CONFIRM_CORRECTED_NUMBER" as const,
-      customerSafeMessage: `I have the number ending ${corrected.slice(-4)}. Should I update your appointment to use it?`,
+      customerSafeMessage: `I'll change your appointment from the number ending ${appt.customerPhone.slice(-4)} to the one ending ${corrected.slice(-4)}. Is that right?`,
       message:
-        "Read the masked number back and get an explicit yes. Then call update_appointment_contact again with the SAME phone and confirmed=true."
+        "Read both masked numbers back and get an explicit yes. Then call update_appointment_contact again with confirmed=true — do NOT re-send the phone number; the validated number is loaded server-side."
     };
   }
 
+  const pending = contact?.pendingCorrectedPhoneE164 ?? "";
+  if (!pending) {
+    return { success: false, error: "NO_PENDING_CORRECTION", message: "There's no corrected number to confirm yet. Ask for the corrected number first." };
+  }
+  const maskedRecipient = `•••${pending.slice(-4)}`;
+
   if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST" || ctx.executionMode === "ARCHITECT_DRY_RUN") {
+    await updateCallContact(businessId, ctx.callId, { pendingCorrectedPhoneE164: null });
     return { success: true, dry_run: true, updated: false, masked_recipient: maskedRecipient };
   }
 
-  const contact = recallCallContact(ctx.callId);
-  let appt = contact.appointmentId
-    ? await prisma.appointment.findUnique({
-        where: { id: contact.appointmentId },
-        select: { id: true, businessId: true, customerPhone: true }
-      })
-    : null;
-  if (!appt && ctx.callId) {
-    appt = await prisma.appointment.findFirst({
-      where: { businessId: ctx.business.businessId, bookingCallId: ctx.callId, status: "BOOKED" },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, businessId: true, customerPhone: true }
-    });
+  const appt = await resolveAppointment();
+  if (!appt) {
+    return { success: false, error: "APPOINTMENT_NOT_FOUND", message: "There's no booking on this call to update. Complete the booking first." };
   }
-  if (!appt || appt.businessId !== ctx.business.businessId) {
-    return {
-      success: false,
-      error: "APPOINTMENT_NOT_FOUND",
-      message: "There's no booking on this call to update. Complete the booking first."
-    };
-  }
-
   const previous = appt.customerPhone;
 
-  await prisma.$transaction([
-    prisma.appointment.update({ where: { id: appt.id }, data: { customerPhone: corrected } })
-  ]);
-  rememberCallContact(ctx.callId, {
-    canonicalPhoneE164: corrected,
-    phoneSource: "confirmed",
-    smsRecipientE164: corrected,
-    appointmentId: appt.id
+  await prisma.$transaction(async (tx) => {
+    await tx.appointment.update({ where: { id: appt.id }, data: { customerPhone: pending } });
+    await tx.smsConsent.updateMany({
+      where: { businessId, phoneNumber: previous, appointmentId: appt.id },
+      data: { appointmentId: null }
+    });
+    await tx.smsExecution.updateMany({
+      where: { businessId, appointmentId: appt.id, toPhone: previous, status: { in: ["QUEUED", "SENDING"] } },
+      data: { status: "FAILED" }
+    });
   });
+
+  // Move canonical + SMS recipient together AFTER the transaction; clear pending.
+  await updateCallContact(businessId, ctx.callId, {
+    canonicalPhoneE164: pending,
+    phoneSource: "confirmed",
+    smsRecipientE164: pending,
+    appointmentId: appt.id,
+    pendingCorrectedPhoneE164: null
+  });
+  // The disclosure must be re-read for the NEW recipient — invalidate the offer.
   const offerKey = consentOfferKey(ctx);
   if (offerKey) await clearConsentOffer(offerKey);
 
   console.log("[vapi-tool] update_appointment_contact committed", {
     appointmentId: appt.id,
     from: maskPhone(previous),
-    to: maskPhone(corrected),
+    to: maskPhone(pending),
     callId: ctx.callId ?? null
   });
 
-  const alreadyCorrect = previous === corrected;
   return {
     success: true,
     updated: true,
-    unchanged: alreadyCorrect,
     appointment_ref: appointmentAiRef(appt.id),
     masked_recipient: maskedRecipient,
     consent_status: "none",
-    required_disclosure: verbalSmsConsentDisclosure(ctx.business.businessName),
+    required_disclosure: verbalSmsConsentDisclosure(ctx.business?.businessName ?? ""),
     customerSpeechCode: "CONTACT_UPDATED" as const,
-    customerSafeMessage: `Done — your appointment now uses the number ending ${corrected.slice(-4)}.`,
+    customerSafeMessage: `Done — your appointment now uses the number ending ${pending.slice(-4)}.`,
     message:
       "Appointment recipient updated. The new number has NO SMS consent yet — do not promise a text. If the caller wants a confirmation text, read the disclosure in required_disclosure word-for-word, then call record_sms_consent with only appointment_id and affirmative."
   };
@@ -4192,7 +4137,8 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
     };
   }
 
-  const consentContact = recallCallContact(ctx.callId);
+  const consentContact: Partial<CanonicalCallContact> =
+    (await readCallContact(ctx.business.businessId, ctx.callId)) ?? {};
 
   const appointmentSelect = {
     id: true,

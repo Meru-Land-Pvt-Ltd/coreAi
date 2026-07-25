@@ -58,31 +58,31 @@ describe("resolveAppointmentSchedule inheritance", () => {
     expect(after.days.tuesday.closed).toBe(true);
   });
 
-  it("custom schedules (useBusinessHours=false) ignore Business Hours edits entirely", () => {
+  it("UNCONFIRMED custom days (useBusinessHours=false, no confirmed) DEFER to confirmed Business Hours", () => {
+    // AUTHORITATIVE PRECEDENCE: confirmed BusinessProfile.hoursJson wins over an
+    // unconfirmed config/template schedule — this is the production fix (a
+    // template Saturday can no longer reopen a day the business closed).
     const config = { appointmentSchedule: { useBusinessHours: false, days: CUSTOM_DAYS } };
     const schedule = resolveAppointmentSchedule({ configJson: config, hoursJson: HOURS_JSON, timeZone: TZ });
-    const afterHoursChange = resolveAppointmentSchedule({
-      configJson: config,
-      hoursJson: [{ day: "monday", closed: false, open: "07:30", close: "12:00" }],
-      timeZone: TZ
-    });
-
-    expect(schedule.source).toBe("configured");
-    expect(schedule.useBusinessHours).toBe(false);
-    expect(schedule.days.monday).toEqual({ open: "11:00", close: "15:00", closed: false });
-    expect(afterHoursChange.days.monday).toEqual({ open: "11:00", close: "15:00", closed: false });
+    expect(schedule.source).toBe("business_hours");
+    expect(schedule.days.monday).toEqual({ open: "08:00", close: "18:00", closed: false });
   });
 
-  it("legacy configs without the flag keep their stored days exactly as before", () => {
+  it("a buyer-CONFIRMED custom schedule (confirmed=true) still overrides Business Hours", () => {
+    const config = { appointmentSchedule: { confirmed: true, days: CUSTOM_DAYS } };
+    const schedule = resolveAppointmentSchedule({ configJson: config, hoursJson: HOURS_JSON, timeZone: TZ });
+    expect(schedule.source).toBe("configured");
+    expect(schedule.days.monday).toEqual({ open: "11:00", close: "15:00", closed: false });
+  });
+
+  it("legacy configs without the confirmed flag DEFER to confirmed Business Hours", () => {
     const schedule = resolveAppointmentSchedule({
       configJson: { appointmentSchedule: { days: CUSTOM_DAYS } },
       hoursJson: HOURS_JSON,
       timeZone: TZ
     });
-
-    expect(schedule.source).toBe("configured");
-    expect(schedule.useBusinessHours).toBe(false);
-    expect(schedule.days.monday.open).toBe("11:00");
+    expect(schedule.source).toBe("business_hours");
+    expect(schedule.days.monday.open).toBe("08:00");
   });
 
   it("no custom days at all inherits Business Hours (useBusinessHours=true)", () => {

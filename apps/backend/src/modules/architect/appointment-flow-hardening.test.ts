@@ -1,21 +1,38 @@
-/**
- * Regression suite for the production-critical after-hours booking / phone /
- * consent hardening. Pure and near-pure assertions (no live Vapi/Twilio/Stripe):
- * business-hours authority, canonical-phone precedence with FULL E.164 identity,
- * spoken-date output, and the per-call canonical contact state.
- */
-import { afterEach, describe, expect, it } from "vitest";
-import { spokenDateInTimeZone, ordinalDayWord } from "@coreai/shared";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  spokenDateInTimeZone,
+  ordinalDayWord,
+  deriveLiveAfterHoursCallState,
+  evaluateAfterHoursToolGate,
+  DEFAULT_DENTAL_AFTER_HOURS_POLICY,
+  type AfterHoursCallTurn
+} from "@coreai/shared";
+import { env } from "../../config/env";
+import { resetSharedRedisForTests } from "../../lib/redis";
 import {
   resolveAppointmentSchedule,
   computeDayAvailability,
   checkExactTime
 } from "../business/scheduling";
 import {
-  rememberCallContact,
-  recallCallContact,
-  resetCallContactCacheForTests
-} from "./twilio-business-routing";
+  updateCallContact,
+  readCallContact,
+  resetCallContactStoreForTests
+} from "./call-contact-store";
+
+// Force deterministic memory-fallback mode for the distributed call-state store
+// (no live Redis in unit tests); config/env re-imports dotenv so REDIS_URL can
+// leak back — clear it and rebuild the shared client each run.
+const originalRedisUrl = env.REDIS_URL;
+beforeAll(() => {
+  env.REDIS_URL = undefined;
+  resetSharedRedisForTests();
+  resetCallContactStoreForTests();
+});
+afterAll(() => {
+  env.REDIS_URL = originalRedisUrl;
+  resetSharedRedisForTests();
+});
 
 const TZ = "America/Los_Angeles";
 
@@ -81,44 +98,127 @@ describe("#1 authoritative business hours (Better White)", () => {
       );
     }
   });
+
+  it("J: confirmed business hours WIN over unconfirmed workflow/config/template days (Saturday 09:00-18:00)", () => {
+    const withTemplateSaturday = resolveAppointmentSchedule({
+      configJson: {
+        appointmentSchedule: {
+          // Template/workflow default (NOT buyer-confirmed) tries to open Saturday.
+          days: { saturday: { open: "09:00", close: "18:00", closed: false } }
+        }
+      },
+      hoursJson: BETTER_WHITE_HOURS, // Saturday closed — confirmed business hours.
+      timeZone: TZ
+    });
+    expect(withTemplateSaturday.source).toBe("business_hours");
+    const saturday = computeDayAvailability({ schedule: withTemplateSaturday, date: SATURDAY, busy: [], now: CALL_TIME });
+    expect(saturday.closed).toBe(true);
+    expect(saturday.allSlots).toHaveLength(0);
+    expect(
+      checkExactTime({ schedule: withTemplateSaturday, date: SATURDAY, hour: 9, minute: 0, busy: [], now: CALL_TIME }).verdict
+    ).toBe("closed_day");
+    // …and the next valid Monday still books.
+    expect(
+      checkExactTime({ schedule: withTemplateSaturday, date: MONDAY, hour: 9, minute: 0, busy: [], now: CALL_TIME }).verdict
+    ).toBe("available");
+  });
 });
 
-describe("#2 canonical phone precedence — FULL E.164 identity only", () => {
-  afterEach(() => resetCallContactCacheForTests());
+describe("#2 distributed canonical phone state — FULL E.164 identity only", () => {
+  const BIZ = "biz-canon";
+  afterEach(() => resetCallContactStoreForTests());
 
-  it("J: a confirmed canonical number wins over a later malformed/supplied argument", () => {
+  it("J: a confirmed canonical number wins over a later malformed/supplied argument", async () => {
     const callId = "call-canon-1";
-    rememberCallContact(callId, { canonicalPhoneE164: "+16505551234", phoneSource: "confirmed" });
+    await updateCallContact(BIZ, callId, { canonicalPhoneE164: "+16505551234", phoneSource: "confirmed" });
     // A later, model-transcribed "supplied" number must NOT overwrite it.
-    rememberCallContact(callId, { phone: "+16505559999", phoneSource: "supplied" });
-    expect(recallCallContact(callId).canonicalPhoneE164).toBe("+16505551234");
-    expect(recallCallContact(callId).phoneSource).toBe("confirmed");
+    await updateCallContact(BIZ, callId, { canonicalPhoneE164: "+16505559999", phoneSource: "supplied" });
+    const state = await readCallContact(BIZ, callId);
+    expect(state?.canonicalPhoneE164).toBe("+16505551234");
+    expect(state?.phoneSource).toBe("confirmed");
   });
 
-  it("J: two DIFFERENT full numbers that share the last four are NOT treated as equal", () => {
+  it("J: two DIFFERENT full numbers that share the last four are NOT treated as equal", async () => {
     const callId = "call-canon-2";
-    rememberCallContact(callId, { canonicalPhoneE164: "+916396039675", phoneSource: "confirmed" });
+    await updateCallContact(BIZ, callId, { canonicalPhoneE164: "+916396039675", phoneSource: "confirmed" });
     // Same last-4 (9675) but a different full number, "supplied": must be ignored.
-    rememberCallContact(callId, { phone: "+916316039675", phoneSource: "supplied" });
-    const state = recallCallContact(callId);
-    expect(state.canonicalPhoneE164).toBe("+916396039675");
-    expect(state.canonicalPhoneE164).not.toBe("+916316039675");
+    await updateCallContact(BIZ, callId, { canonicalPhoneE164: "+916316039675", phoneSource: "supplied" });
+    const state = await readCallContact(BIZ, callId);
+    expect(state?.canonicalPhoneE164).toBe("+916396039675");
+    expect(state?.canonicalPhoneE164).not.toBe("+916316039675");
     // Full-string inequality is what identity is based on — never last-4.
     expect("+916396039675".slice(-4)).toBe("+916316039675".slice(-4)); // last-4 collide…
     expect("+916396039675").not.toBe("+916316039675"); // …but the numbers are different.
   });
 
-  it("a genuine correction (higher-or-equal source) does replace the canonical + moves the recipient", () => {
+  it("state is scoped by businessId + callId (no cross-call/cross-business bleed)", async () => {
+    await updateCallContact(BIZ, "call-x", { canonicalPhoneE164: "+16505551234", phoneSource: "confirmed" });
+    expect((await readCallContact(BIZ, "call-y"))?.canonicalPhoneE164).toBeUndefined();
+    expect((await readCallContact("biz-other", "call-x"))?.canonicalPhoneE164).toBeUndefined();
+    expect((await readCallContact(BIZ, "call-x"))?.canonicalPhoneE164).toBe("+16505551234");
+  });
+
+  it("a genuine correction (equal source) replaces the canonical + moves the recipient", async () => {
     const callId = "call-canon-3";
-    rememberCallContact(callId, { canonicalPhoneE164: "+16505551234", phoneSource: "confirmed" });
-    rememberCallContact(callId, {
+    await updateCallContact(BIZ, callId, { canonicalPhoneE164: "+16505551234", phoneSource: "confirmed" });
+    await updateCallContact(BIZ, callId, {
       canonicalPhoneE164: "+16505550000",
       phoneSource: "confirmed",
       smsRecipientE164: "+16505550000"
     });
-    const state = recallCallContact(callId);
-    expect(state.canonicalPhoneE164).toBe("+16505550000");
-    expect(state.smsRecipientE164).toBe("+16505550000");
+    const state = await readCallContact(BIZ, callId);
+    expect(state?.canonicalPhoneE164).toBe("+16505550000");
+    expect(state?.smsRecipientE164).toBe("+16505550000");
+  });
+
+  it("pending corrected number round-trips and clears", async () => {
+    const callId = "call-canon-4";
+    await updateCallContact(BIZ, callId, { pendingCorrectedPhoneE164: "+16505550001" });
+    expect((await readCallContact(BIZ, callId))?.pendingCorrectedPhoneE164).toBe("+16505550001");
+    await updateCallContact(BIZ, callId, { pendingCorrectedPhoneE164: null });
+    expect((await readCallContact(BIZ, callId))?.pendingCorrectedPhoneE164).toBeUndefined();
+  });
+});
+
+describe("#4 emergency screening order — booking tools gated until screening", () => {
+  const GREETING =
+    "Thank you for calling. Our office is currently closed. Are you calling about a dental emergency, or would you like help scheduling the next available appointment?";
+  const bot = (content: string): AfterHoursCallTurn => ({ role: "assistant", content });
+  const user = (content: string): AfterHoursCallTurn => ({ role: "user", content });
+  const route = (turns: AfterHoursCallTurn[]) =>
+    deriveLiveAfterHoursCallState({ turns, policy: DEFAULT_DENTAL_AFTER_HOURS_POLICY, businessHoursState: "CLOSED" });
+  const gate = (turns: AfterHoursCallTurn[], action: "check_availability" | "book_appointment") => {
+    const s = route(turns);
+    return evaluateAfterHoursToolGate({ route: s.route, emergencyInstructionStatus: s.emergencyInstructionStatus, action });
+  };
+
+  it("routine cleaning bypasses screening — both check and book are allowed", () => {
+    const turns = [bot(GREETING), user("I'd like to book a routine cleaning please")];
+    expect(gate(turns, "check_availability").allowed).toBe(true);
+    expect(gate(turns, "book_appointment").allowed).toBe(true);
+  });
+
+  it("before the caller answers, BOTH check_availability and book_appointment are blocked (no data committed before screening)", () => {
+    const turns = [bot(GREETING)];
+    expect(gate(turns, "check_availability").allowed).toBe(false);
+    expect(gate(turns, "book_appointment").allowed).toBe(false);
+  });
+
+  it("reported symptoms require screening — booking stays blocked", () => {
+    const turns = [bot(GREETING), user("my tooth is bleeding and won't stop")];
+    expect(route(turns).route).not.toBe("STANDARD_BOOKING");
+    expect(gate(turns, "book_appointment").allowed).toBe(false);
+  });
+
+  it("a later emergency symptom re-enters the emergency route after a routine start", () => {
+    const turns = [
+      bot(GREETING),
+      user("just a cleaning please"),
+      bot("Great, may I have your name?"),
+      user("actually my face is really swollen and I can't swallow")
+    ];
+    expect(route(turns).route).toBe("RED_FLAG_DETECTED");
+    expect(gate(turns, "book_appointment").allowed).toBe(false);
   });
 });
 
