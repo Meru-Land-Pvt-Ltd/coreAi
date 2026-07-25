@@ -21,6 +21,7 @@ import {
   getCleanBase64,
   type PricingTable,
 } from "./base-adapter";
+import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 class ClaudeAdapter implements AIProviderAdapter {
   readonly providerId = "claude";
@@ -32,32 +33,12 @@ class ClaudeAdapter implements AIProviderAdapter {
     code: 8,
   };
 
-  private dynamicModels: string[] | null = null;
-  private dynamicPricing: PricingTable | null = null;
-
   get models(): string[] {
-    return this.dynamicModels ?? [
-      "claude-3-5-sonnet-latest",
-      "claude-3-5-haiku-latest",
-      "claude-3-opus-latest",
-      "claude-3-sonnet-20240229",
-      "claude-3-haiku-20240307",
-    ];
+    return getModelsForProvider("claude");
   }
 
   get pricing(): PricingTable {
-    return this.dynamicPricing ?? {
-      "claude-3-5-sonnet-latest": { input: 3.00,  output: 15.00 },
-      "claude-3-5-haiku-latest":  { input: 0.80,  output: 4.00  },
-      "claude-3-opus-latest":     { input: 15.00, output: 75.00 },
-      "claude-3-sonnet-20240229": { input: 3.00,  output: 15.00 },
-      "claude-3-haiku-20240307":  { input: 0.25,  output: 1.25  },
-    };
-  }
-
-  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
-    this.dynamicModels = models;
-    this.dynamicPricing = pricing;
+    return getPricingForProvider("claude");
   }
 
   private _client: Anthropic | null = null;
@@ -69,7 +50,7 @@ class ClaudeAdapter implements AIProviderAdapter {
   }
 
   private get defaultModel() {
-    return "claude-3-5-sonnet-latest";
+    return "claude-sonnet-5";
   }
 
   async validate(): Promise<ValidationResult> {

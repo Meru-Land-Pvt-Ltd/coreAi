@@ -362,9 +362,9 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
   };
 
   return (
-    <div className="relative mx-auto w-full max-w-[300px] overflow-hidden">
+    <div className="relative mx-auto w-full max-w-[300px] overflow-hidden transform-gpu [backface-visibility:hidden]">
       <div className="mx-auto w-full" data-testid="agent-workflow-preview">
-        <div className="rounded-[2rem] border-2 border-amber-400 bg-gradient-to-b from-slate-100 to-slate-50 p-[7px] ring-1 ring-amber-200/60 sm:rounded-[2.25rem] sm:p-2">
+        <div className="rounded-[2rem] border-2 border-amber-400 bg-gradient-to-b from-slate-100 to-slate-50 p-[7px] ring-1 ring-amber-200/60 sm:rounded-[2.25rem] sm:p-2 transform-gpu [backface-visibility:hidden]">
           <div className="overflow-hidden rounded-[1.55rem] bg-white sm:rounded-[1.85rem]">
             {/* status bar */}
             <div className="flex items-center justify-between px-5 pt-3.5 pb-1 text-[10px] font-semibold tracking-wide text-slate-400">

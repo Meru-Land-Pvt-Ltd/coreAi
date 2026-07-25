@@ -19,6 +19,7 @@ import {
   enrichContinueRequest,
   type PricingTable,
 } from "./base-adapter";
+import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 class MistralAdapter implements AIProviderAdapter {
   readonly providerId = "mistral";
@@ -30,29 +31,16 @@ class MistralAdapter implements AIProviderAdapter {
     code: 7,
   };
 
-  private dynamicModels: string[] | null = null;
-  private dynamicPricing: PricingTable | null = null;
-
   get models(): string[] {
-    return this.dynamicModels ?? ["mistral-tiny", "mistral-small-latest", "mistral-medium", "mistral-large-latest"];
+    return getModelsForProvider("mistral");
   }
 
   get pricing(): PricingTable {
-    return this.dynamicPricing ?? {
-      "mistral-tiny":         { input: 0.25, output: 0.25 },
-      "mistral-small-latest": { input: 1.00, output: 3.00 },
-      "mistral-medium":       { input: 2.70, output: 8.10 },
-      "mistral-large-latest": { input: 4.00, output: 12.00 },
-    };
-  }
-
-  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
-    this.dynamicModels = models;
-    this.dynamicPricing = pricing;
+    return getPricingForProvider("mistral");
   }
 
   private get defaultModel() {
-    return "mistral-tiny";
+    return "mistral-medium-3-5";
   }
 
   async validate(): Promise<ValidationResult> {

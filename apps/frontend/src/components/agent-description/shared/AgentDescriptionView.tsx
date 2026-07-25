@@ -2,6 +2,7 @@
 
 import type { Route } from "next";
 import type { ComponentProps, ReactNode } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
@@ -32,6 +33,15 @@ export const AGENT_DESCRIPTION_STYLES = `
 
 .shadow-subtle {
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+@keyframes subtleFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+
+.animate-subtle-float {
+  animation: subtleFloat 5s ease-in-out infinite;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -102,7 +112,117 @@ export type AgentDescriptionViewProps = {
   showDemo: boolean;
   /** Public = IP-limited 2×2min; authenticated = buyer route. */
   demoMode?: "public" | "authenticated";
+  /** Optional YouTube or Loom demo video URL shown in the How It Works section. */
+  demoVideoUrl?: string | null;
 };
+
+/** Parses a YouTube or Loom URL and returns an embed URL, or null if unrecognised. */
+function getEmbedUrl(url: string): { embedUrl: string; provider: "youtube" | "loom" } | null {
+  try {
+    const u = new URL(url);
+
+    // YouTube: youtube.com/watch?v=ID  |  youtu.be/ID  |  youtube.com/embed/ID
+    const ytMatch =
+      u.hostname.includes("youtube.com")
+        ? (u.pathname.match(/\/embed\/([^/?&]+)/) ?? u.searchParams.get("v") ? [null, u.searchParams.get("v")] : null)
+        : u.hostname === "youtu.be"
+          ? u.pathname.match(/^\/([^/?&]+)/)
+          : null;
+    if (ytMatch?.[1]) {
+      return { embedUrl: `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&rel=0`, provider: "youtube" };
+    }
+
+    // Loom: loom.com/share/ID
+    if (u.hostname.includes("loom.com")) {
+      const loomMatch = u.pathname.match(/\/share\/([^/?&]+)/);
+      if (loomMatch?.[1]) {
+        return { embedUrl: `https://www.loom.com/embed/${loomMatch[1]}?autoplay=1`, provider: "loom" };
+      }
+    }
+  } catch {
+    // malformed URL — silently skip
+  }
+  return null;
+}
+
+/** Click-to-play video embed — iframe is NOT loaded until the user clicks play, so page load is not affected. */
+function VideoEmbed({ url, title }: { url: string; title: string }) {
+  const [playing, setPlaying] = useState(false);
+  const parsed = getEmbedUrl(url);
+  if (!parsed) return null;
+
+  const { embedUrl, provider } = parsed;
+
+  // YouTube thumbnail (hi-res, then fallback to medium)
+  const ytThumbId = provider === "youtube" ? embedUrl.match(/embed\/([^?]+)/)?.[1] : null;
+  const thumbSrc = ytThumbId
+    ? `https://img.youtube.com/vi/${ytThumbId}/maxresdefault.jpg`
+    : null;
+
+  return (
+    <div className="mt-8 mx-auto max-w-2xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white sm:mt-10">
+      {/* Single Line Header */}
+      <div className="border-b border-amber-100 bg-amber-50/50 px-4 py-2.5 text-center">
+        <span className="text-[13px] font-bold text-slate-800">
+          🎬 Watch how this agent works for your business
+        </span>
+      </div>
+
+      {/* Video area */}
+      <div className="relative aspect-video w-full bg-slate-900">
+        {playing ? (
+          <iframe
+            src={embedUrl}
+            title={title}
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            className="absolute inset-0 h-full w-full"
+            loading="lazy"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPlaying(true)}
+            aria-label={`Play demo video: ${title}`}
+            className="group absolute inset-0 flex h-full w-full flex-col items-center justify-center"
+          >
+            {/* Thumbnail */}
+            {thumbSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumbSrc}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover opacity-80 transition group-hover:opacity-70"
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (img.src.includes("maxresdefault")) {
+                    img.src = img.src.replace("maxresdefault", "hqdefault");
+                  }
+                }}
+              />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900" />
+            )}
+
+            {/* Overlay */}
+            <div className="absolute inset-0 bg-slate-900/30 transition group-hover:bg-slate-900/40" />
+
+            {/* Play button */}
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 ring-4 ring-white/20 transition duration-200 group-hover:scale-105 group-hover:bg-amber-400 sm:h-14 sm:w-14">
+              <svg className="h-5 w-5 translate-x-0.5 text-white sm:h-6 sm:w-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.14v14l11-7-11-7z" />
+              </svg>
+            </div>
+
+            <span className="relative mt-3 rounded-full bg-white/10 px-3.5 py-1 text-[12px] font-semibold text-white backdrop-blur-sm">
+              Click to watch walkthrough
+            </span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ArrowIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -234,7 +354,8 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
     similar,
     similarHref,
     showDemo,
-    demoMode = "public"
+    demoMode = "public",
+    demoVideoUrl
   } = props;
 
   // Strict limit of max 3 agents for "More agents businesses love"
@@ -403,12 +524,14 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                 )}
               </div>
 
-              {/* Right: Agent Phone Workflow Preview */}
+              {/* Right: Agent Phone Workflow Preview (Sticky Floating) */}
               <div
                 id="demo"
-                className="flex min-w-0 scroll-mt-24 flex-col items-center lg:col-span-2 lg:items-end lg:pt-1"
+                className="flex min-w-0 scroll-mt-24 flex-col items-center lg:sticky lg:top-24 lg:col-span-2 lg:items-end lg:pt-1 self-start"
               >
-                <AgentWorkflowPreview listing={listing} />
+                <div className="animate-subtle-float w-full flex justify-center lg:justify-end">
+                  <AgentWorkflowPreview listing={listing} />
+                </div>
               </div>
             </div>
           </section>
@@ -418,7 +541,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
             <div className="mx-auto max-w-6xl">
               <SectionHeader
                 title="How It Works"
-                description="From setup to live phone calls & texts — get value in minutes without developer help."
+                description="From setup to live phone calls & texts, get value in minutes without developer help."
               />
 
               <div className="relative mt-10 sm:mt-12">
@@ -435,6 +558,11 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                   ))}
                 </div>
               </div>
+
+              {/* Demo video — click-to-play, zero load cost until clicked */}
+              {demoVideoUrl ? (
+                <VideoEmbed url={demoVideoUrl} title={`${listingName} video demonstration`} />
+              ) : null}
             </div>
           </section>
 
@@ -483,17 +611,20 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
             <div className="mx-auto max-w-3xl">
               <SectionHeader
                 title="What's included"
-                description="Everything bundled with this agent — configured and ready for your business."
+                description="Everything bundled with this agent is pre-configured and ready for your business."
               />
 
               <div className="shadow-subtle mt-8 overflow-hidden rounded-2xl border border-slate-200/90 bg-white sm:mt-10">
                 <ul className="divide-y divide-slate-100">
-                  {includedItems.map((item) => (
-                    <li key={item} data-testid={`agent-detail-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
-                      <CheckIcon className="h-5 w-5 shrink-0 text-emerald-600" />
-                      <span className="min-w-0 break-words text-[14px] text-slate-700" data-testid={`agent-detail-included-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
-                    </li>
-                  ))}
+                  {includedItems.map((rawItem) => {
+                    const item = rawItem.replace(/\s*—\s*/g, " ");
+                    return (
+                      <li key={rawItem} data-testid={`agent-detail-included-item-${rawItem.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
+                        <CheckIcon className="h-5 w-5 shrink-0 text-emerald-600" />
+                        <span className="min-w-0 break-words text-[14px] text-slate-700" data-testid={`agent-detail-included-text-${rawItem.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             </div>

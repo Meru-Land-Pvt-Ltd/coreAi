@@ -218,7 +218,7 @@ export default function PublicAgentDescriptionPage() {
   }
 
   const price = Math.round((listing.priceCents ?? 0) / 100);
-  const installsLabel = formatPublicInstallCount(listing.installCount ?? 0);
+  const installsLabel = formatPublicInstallCount(listing.installCount ?? 0, listing.id);
   const author = getListingAuthor(listing);
   const pricingModel = listing.pricingModel ?? "SUBSCRIPTION";
   const freeTrialEnabled = listing.freeTrialEnabled ?? false;
@@ -283,6 +283,7 @@ export default function PublicAgentDescriptionPage() {
       similarHref={(id) => publicAgentPath(id)}
       showDemo
       demoMode="public"
+      demoVideoUrl={listing.demoVideoUrl ?? null}
     />
   );
 }

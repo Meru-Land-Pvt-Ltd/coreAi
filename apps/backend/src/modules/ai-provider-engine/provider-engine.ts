@@ -2,7 +2,6 @@ import { ProviderRegistry } from "./provider-registry";
 import { ProviderExecutionError, CapabilityNotSupportedError } from "./errors";
 import { ProviderSelector } from "./provider-selector";
 import type { AIProviderAdapter, AIExecuteRequest, AIContinueRequest, AIExecuteResponse, CostEstimate, ValidationResult, SelectionExplanation, ProviderCapability } from "./types";
-import { ModelCacheManager } from "./model-cache-manager";
 import { DATA_CLASSIFICATION, workspaceAiBlockReason } from "../compliance/workspace-ai-guard";
 
 function assertClassificationAllowed(providerId: string, request: AIExecuteRequest): void {
@@ -179,7 +178,6 @@ export async function initProviderEngine(): Promise<void> {
   }
   _registry = await ProviderRegistry.create();
   _engine = new AIProviderEngine(_registry);
-  await ModelCacheManager.sync(_registry);
   await _engine.populateValidationCache();
   console.info(`[AIProviderEngine] Ready. Registered: [${_registry.list().join(", ")}], Active: [${_engine.listActiveProviders().join(", ")}]`);
 }

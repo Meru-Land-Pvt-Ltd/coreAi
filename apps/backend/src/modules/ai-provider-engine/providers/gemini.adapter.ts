@@ -20,6 +20,7 @@ import {
   getCleanBase64,
   type PricingTable,
 } from "./base-adapter";
+import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 // cached after first call — avoids re-importing the ESM-only package on every request
 let genAiClient: unknown = null;
@@ -44,38 +45,16 @@ class GeminiAdapter implements AIProviderAdapter {
     code: 8,
   };
 
-  private dynamicModels: string[] | null = null;
-  private dynamicPricing: PricingTable | null = null;
-
   get models(): string[] {
-    return this.dynamicModels ?? [
-      "gemini-3.1-flash-lite",
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-pro",
-      "gemini-1.5-flash",
-      "gemini-1.0-pro",
-    ];
+    return getModelsForProvider("gemini");
   }
 
   get pricing(): PricingTable {
-    return this.dynamicPricing ?? {
-      "gemini-3.1-flash-lite": { input: 0.0375, output: 0.15 },
-      "gemini-2.5-flash":      { input: 0.075,  output: 0.30  },
-      "gemini-2.0-flash":      { input: 0.075,  output: 0.30  },
-      "gemini-1.5-pro":        { input: 1.25,   output: 5.00  },
-      "gemini-1.5-flash":      { input: 0.075,  output: 0.30  },
-      "gemini-1.0-pro":        { input: 0.50,   output: 1.50  },
-    };
-  }
-
-  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
-    this.dynamicModels = models;
-    this.dynamicPricing = pricing;
+    return getPricingForProvider("gemini");
   }
 
   private get defaultModel() {
-    return "gemini-2.0-flash";
+    return "gemini-3.5-flash";
   }
 
   async validate(): Promise<ValidationResult> {
