@@ -7,9 +7,14 @@ import {
 import { env, isProduction } from "../../config/env";
 
 const CALL_STATE_TTL_SECONDS = 12 * 60 * 60;
+const REDIS_CONNECT_TIMEOUT_MS = 5_000;
 
 function storeKey(businessId: string, callId: string): string {
   return `after-hours-call:${businessId}:${callId}:${AFTER_HOURS_POLICY_VERSION}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 let redis: Redis | null | undefined;
@@ -21,23 +26,26 @@ export class AfterHoursStateStoreUnavailableError extends Error {
   }
 }
 
-/**
- * Minimal Redis surface this store depends on — injectable so operational
- * readiness and failure paths are integration-testable without a real Redis
- * and without binding behavior at module import.
- */
 export type AfterHoursRedisAdapter = {
   readonly status: string;
+
   get(key: string): Promise<string | null>;
-  set(key: string, value: string, mode: "EX", ttlSeconds: number): Promise<unknown>;
+
+  set(
+    key: string,
+    value: string,
+    mode: "EX",
+    ttlSeconds: number
+  ): Promise<unknown>;
+
   del(key: string): Promise<unknown>;
+
   ping?(): Promise<string>;
 };
 
-/** undefined = no override; null = simulate "not configured"; object = fake. */
 let adapterOverride: AfterHoursRedisAdapter | null | undefined;
 let adapterOverrideActive = false;
-/** null = use the real env; boolean = simulate production-ness in tests. */
+
 let productionOverride: boolean | null = null;
 
 export function setAfterHoursRedisAdapterForTests(
@@ -47,7 +55,9 @@ export function setAfterHoursRedisAdapterForTests(
   adapterOverride = adapter;
 }
 
-export function setAfterHoursProductionModeForTests(value: boolean | null): void {
+export function setAfterHoursProductionModeForTests(
+  value: boolean | null
+): void {
   productionOverride = value;
 }
 
@@ -56,46 +66,65 @@ function effectiveProduction(): boolean {
 }
 
 function redisClient(): AfterHoursRedisAdapter | null {
-  if (adapterOverrideActive) return adapterOverride ?? null;
-  if (redis !== undefined) return redis;
+  if (adapterOverrideActive) {
+    return adapterOverride ?? null;
+  }
+
+  if (redis !== undefined) {
+    return redis;
+  }
 
   if (!env.REDIS_URL) {
     redis = null;
-    return redis;
+    return null;
   }
 
   redis = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: 1,
-    lazyConnect: true,
-    enableOfflineQueue: false
+    connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+
+    lazyConnect: false,
+
+    enableOfflineQueue: true
   });
+
+  redis.on("ready", () => {
+    console.info("[after-hours-call-state] redis ready");
+  });
+
+  redis.on("reconnecting", (delay: number) => {
+    console.warn(
+      `[after-hours-call-state] redis reconnecting in ${delay}ms`
+    );
+  });
+
   redis.on("error", (error) => {
-    console.error("[after-hours-call-state] redis error", error instanceof Error ? error.message : error);
+    console.error(
+      "[after-hours-call-state] redis error",
+      errorMessage(error)
+    );
   });
-  // Pre-warm so readiness reflects a REAL connection, not just a configured
-  // URL — Boolean(REDIS_URL) is configuration, `status === "ready"` is health.
-  redis.connect().catch((error) => {
-    console.error("[after-hours-call-state] redis connect failed", error instanceof Error ? error.message : error);
+
+  redis.on("end", () => {
+    console.warn("[after-hours-call-state] redis connection ended");
   });
+
   return redis;
 }
 
 export function afterHoursCallStateStoreIsDistributed(): boolean {
-  if (adapterOverrideActive) return adapterOverride !== null;
+  if (adapterOverrideActive) {
+    return adapterOverride !== null;
+  }
+
   return Boolean(env.REDIS_URL);
 }
 
-/** True only when the Redis connection is genuinely READY right now. */
 export function afterHoursStateStoreReady(): boolean {
   const client = redisClient();
   return Boolean(client && client.status === "ready");
 }
 
-/**
- * Async operational probe: configuration, live connection status, and a real
- * PING round-trip. `safeForLive` is the production gate — a configured URL
- * whose connection is refused or whose PING fails is NOT ready.
- */
 export async function probeAfterHoursStateStore(): Promise<{
   distributed: boolean;
   production: boolean;
@@ -107,65 +136,112 @@ export async function probeAfterHoursStateStore(): Promise<{
   const distributed = afterHoursCallStateStoreIsDistributed();
   const production = effectiveProduction();
   const client = redisClient();
-  const connectionReady = Boolean(client && client.status === "ready");
+
+  const connectionReadyBeforeProbe = Boolean(
+    client && client.status === "ready"
+  );
 
   let pingOk = false;
-  if (client && connectionReady) {
+
+  if (client) {
     try {
-      const pong = client.ping ? await client.ping() : "PONG";
-      pingOk = typeof pong === "string" && pong.toUpperCase().includes("PONG");
-    } catch {
+      if (typeof client.ping === "function") {
+        const pong = await client.ping();
+
+        pingOk =
+          typeof pong === "string" &&
+          pong.toUpperCase().includes("PONG");
+      } else {
+        // Compatibility for minimal test adapters without ping().
+        pingOk = client.status === "ready";
+      }
+    } catch (error) {
+      console.error(
+        "[after-hours-call-state] redis health probe failed",
+        errorMessage(error)
+      );
+
       pingOk = false;
     }
   }
 
-  const ready = connectionReady && pingOk;
+  const connectionReady =
+    connectionReadyBeforeProbe ||
+    Boolean(client && client.status === "ready");
+
+  const ready = pingOk;
+
   return {
     distributed,
     production,
     connectionReady,
     pingOk,
     ready,
-    safeForLive: isAfterHoursStoreSafeForLive({ distributed, production, ready })
+    safeForLive: isAfterHoursStoreSafeForLive({
+      distributed,
+      production,
+      ready
+    })
   };
 }
 
-/**
- * Pure availability rule (exported for tests): production requires a
- * configured AND genuinely ready distributed store; development/test may use
- * the in-process memory fallback.
- */
 export function isAfterHoursStoreSafeForLive(params: {
   distributed: boolean;
   production: boolean;
   ready: boolean;
 }): boolean {
-  if (!params.production) return true;
+  if (!params.production) {
+    return true;
+  }
+
   return params.distributed && params.ready;
 }
 
 export function afterHoursStateStoreAvailableForLive(): boolean {
-  return isAfterHoursStoreSafeForLive({
-    distributed: afterHoursCallStateStoreIsDistributed(),
-    production: effectiveProduction(),
-    ready: afterHoursStateStoreReady()
-  });
+  if (!effectiveProduction()) {
+    return true;
+  }
+
+  return afterHoursCallStateStoreIsDistributed();
 }
 
-const memoryStore = new Map<string, { expiresAtMs: number; value: AfterHoursLiveCallState }>();
+const memoryStore = new Map<
+  string,
+  {
+    expiresAtMs: number;
+    value: AfterHoursLiveCallState;
+  }
+>();
 
 function pruneMemoryStore(): void {
   const now = Date.now();
+
   for (const [key, entry] of memoryStore) {
-    if (entry.expiresAtMs <= now) memoryStore.delete(key);
+    if (entry.expiresAtMs <= now) {
+      memoryStore.delete(key);
+    }
   }
 }
 
-function parseState(raw: string | null): AfterHoursLiveCallState | null {
-  if (!raw) return null;
+function parseState(
+  raw: string | null
+): AfterHoursLiveCallState | null {
+  if (!raw) {
+    return null;
+  }
+
   try {
     const parsed = JSON.parse(raw) as AfterHoursLiveCallState;
-    return parsed && typeof parsed === "object" && typeof parsed.route === "string" ? parsed : null;
+
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.route !== "string"
+    ) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }
@@ -180,24 +256,35 @@ export async function readAfterHoursCallState(
 
   if (client) {
     try {
-      return parseState(await client.get(key));
+      const raw = await client.get(key);
+      return parseState(raw);
     } catch (error) {
-      // PRODUCTION never degrades to per-process memory — that would let two
-      // backend instances hold divergent safety state. Fail closed instead.
       if (effectiveProduction()) {
         throw new AfterHoursStateStoreUnavailableError(
-          `redis get failed: ${error instanceof Error ? error.message : String(error)}`
+          `redis get failed: ${errorMessage(error)}`
         );
       }
-      console.error("[after-hours-call-state] redis get failed — using memory fallback (non-production)", error);
+
+      console.error(
+        "[after-hours-call-state] redis get failed — using memory fallback in non-production",
+        errorMessage(error)
+      );
     }
   } else if (effectiveProduction()) {
-    throw new AfterHoursStateStoreUnavailableError("redis not configured in production");
+    throw new AfterHoursStateStoreUnavailableError(
+      "redis not configured in production"
+    );
   }
 
   pruneMemoryStore();
+
   const entry = memoryStore.get(key);
-  return entry && entry.expiresAtMs > Date.now() ? entry.value : null;
+
+  if (!entry || entry.expiresAtMs <= Date.now()) {
+    return null;
+  }
+
+  return entry.value;
 }
 
 export async function writeAfterHoursCallState(
@@ -210,64 +297,98 @@ export async function writeAfterHoursCallState(
 
   if (client) {
     try {
-      await client.set(key, JSON.stringify(state), "EX", CALL_STATE_TTL_SECONDS);
+      await client.set(
+        key,
+        JSON.stringify(state),
+        "EX",
+        CALL_STATE_TTL_SECONDS
+      );
+
       return;
     } catch (error) {
       if (effectiveProduction()) {
         throw new AfterHoursStateStoreUnavailableError(
-          `redis set failed: ${error instanceof Error ? error.message : String(error)}`
+          `redis set failed: ${errorMessage(error)}`
         );
       }
-      console.error("[after-hours-call-state] redis set failed — using memory fallback (non-production)", error);
+
+      console.error(
+        "[after-hours-call-state] redis set failed — using memory fallback in non-production",
+        errorMessage(error)
+      );
     }
   } else if (effectiveProduction()) {
-    throw new AfterHoursStateStoreUnavailableError("redis not configured in production");
+    throw new AfterHoursStateStoreUnavailableError(
+      "redis not configured in production"
+    );
   }
 
   pruneMemoryStore();
-  memoryStore.set(key, { expiresAtMs: Date.now() + CALL_STATE_TTL_SECONDS * 1000, value: state });
+
+  memoryStore.set(key, {
+    expiresAtMs:
+      Date.now() + CALL_STATE_TTL_SECONDS * 1_000,
+    value: state
+  });
 }
 
-/** Called when the Vapi call ends — the TTL remains the backstop. */
-export async function clearAfterHoursCallState(businessId: string, callId: string): Promise<void> {
+export async function clearAfterHoursCallState(
+  businessId: string,
+  callId: string
+): Promise<void> {
   const key = storeKey(businessId, callId);
   const client = redisClient();
 
   if (client) {
     try {
       await client.del(key);
-    } catch {
-      // TTL remains the backstop.
+    } catch (error) {
+      console.warn(
+        "[after-hours-call-state] redis delete failed; TTL remains the backstop",
+        errorMessage(error)
+      );
     }
   }
+
   memoryStore.delete(key);
 }
 
-/** Persist only the staff-notification lifecycle without touching the route. */
 export async function updateAfterHoursStaffNotificationStatus(
   businessId: string,
   callId: string,
   status: StaffNotificationStatus
 ): Promise<void> {
-  const existing = await readAfterHoursCallState(businessId, callId);
-  if (!existing) return;
-  await writeAfterHoursCallState(businessId, callId, {
-    ...existing,
-    staffNotificationStatus: status,
-    updatedAt: new Date().toISOString()
-  });
+  const existing = await readAfterHoursCallState(
+    businessId,
+    callId
+  );
+
+  if (!existing) {
+    return;
+  }
+
+  await writeAfterHoursCallState(
+    businessId,
+    callId,
+    {
+      ...existing,
+      staffNotificationStatus: status,
+      updatedAt: new Date().toISOString()
+    }
+  );
 }
 
-/** Test hook: clear memory state, overrides, and re-resolve the client. */
 export function resetAfterHoursCallStateStore(): void {
   memoryStore.clear();
+
   if (redis) {
     try {
       redis.disconnect();
     } catch {
-      // already disconnected
+      // The client was already disconnected.
     }
   }
+
   redis = undefined;
   adapterOverride = undefined;
   adapterOverrideActive = false;
