@@ -1,7 +1,11 @@
 import type { Context } from "hono";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
-import { getStripeClient, isStripeConfigured } from "../payments/stripe";
+import {
+  attachOrReusePaymentMethod,
+  getStripeClient,
+  isStripeConfigured
+} from "../payments/stripe";
 import {
   billingMonthFor,
   MICRO_USD_PER_CENT,
@@ -14,6 +18,13 @@ import {
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { countStandaloneBillableSms } from "./usage-billing";
+import type { UsageLineItem } from "../../lib/usage-pricing";
+import {
+  customerFacingUsageLineItems,
+  rollupCustomerUsageLineItems,
+  rollupRecordedUsageLineItems,
+  type UsageInvoiceLabelMap
+} from "./usage-invoice-line-items";
 
 function microUsdToUsd(value: number) {
   return value / 1_000_000;
@@ -98,7 +109,14 @@ export async function getBusinessExecutionUsage(c: Context) {
     });
   }
 
-  const [executions, calls, executionMonths, invoiceMonths, standaloneSmsCount] = await Promise.all([
+  const [
+    executions,
+    calls,
+    executionMonths,
+    invoiceMonths,
+    standaloneSmsCount,
+    usageServiceLabels
+  ] = await Promise.all([
     prisma.agentUsageExecution.findMany({
       where: { businessId: business.id, billingMonth: month },
       orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
@@ -135,6 +153,7 @@ export async function getBusinessExecutionUsage(c: Context) {
         installedAgentId: true,
         durationMinutes: true,
         durationSeconds: true,
+        usageLineItemsJson: true,
         billingRecordedAt: true,
         recordingUrl: true
       }
@@ -152,14 +171,29 @@ export async function getBusinessExecutionUsage(c: Context) {
     // Provider-accepted customer SMS with NO provable voice-execution link —
     // business-period SMS usage, reported separately so it is neither
     // discarded nor falsely attached to a call execution.
-    countStandaloneBillableSms(business.id, selectedBounds)
+    countStandaloneBillableSms(business.id, selectedBounds),
+    prisma.platformUsageService.findMany({
+      select: { code: true, role: true }
+    })
   ]);
+  const invoiceLabels: UsageInvoiceLabelMap = new Map(
+    usageServiceLabels.map((service) => [service.code, service.role])
+  );
 
   const agentsById = new Map(business.installedAgents.map((agent) => [agent.id, agent]));
   const agentsForMonth = business.installedAgents.filter(
     (agent) => agent.createdAt < selectedBounds.end
   );
   const statsByAgent = rollupExecutions(executions);
+  const chargedCallIds = new Set(
+    executions
+      .filter(
+        (execution) =>
+          execution.source === "VAPI" &&
+          execution.amountMicroUsd + execution.legacyBilledCostMicroUsd > 0
+      )
+      .map((execution) => execution.sourceId)
+  );
   const callDurationByAgent = new Map<string, number>();
   for (const call of calls) {
     if (!call.installedAgentId) continue;
@@ -183,6 +217,43 @@ export async function getBusinessExecutionUsage(c: Context) {
       displayCostMicroUsd: 0
     };
     const billedCostUsd = microUsdToUsd(stats.displayCostMicroUsd);
+    const recordedLineItemGroups = calls
+      .filter(
+        (call) =>
+          call.installedAgentId === agent.id &&
+          chargedCallIds.has(call.callId) &&
+          Array.isArray(call.usageLineItemsJson)
+      )
+      .map(
+        (call) => call.usageLineItemsJson as unknown as UsageLineItem[]
+      );
+    const detailedServiceCosts = rollupRecordedUsageLineItems(
+      recordedLineItemGroups
+    ).map((service) => ({
+      serviceCode: service.serviceCode,
+      serviceName: service.serviceName,
+      unit: service.unit,
+      quantity: service.quantity,
+      unitPriceUsd: (service.billingRateMicroUsd ?? 0) / 1_000_000,
+      billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
+      amountCents: Math.round(
+        service.billedCostMicroUsd / MICRO_USD_PER_CENT
+      )
+    }));
+    const invoiceServiceCosts = rollupCustomerUsageLineItems(
+      recordedLineItemGroups,
+      invoiceLabels
+    ).map((service) => ({
+      serviceCode: service.serviceCode,
+      serviceName: service.invoiceLabel ?? service.serviceName,
+      invoiceLabel: service.invoiceLabel ?? service.serviceName,
+      unit: service.unit,
+      quantity: service.quantity,
+      billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
+      amountCents: Math.round(
+        service.billedCostMicroUsd / MICRO_USD_PER_CENT
+      )
+    }));
     return {
       agentId: agent.id,
       installedAgentId: agent.id,
@@ -213,17 +284,8 @@ export async function getBusinessExecutionUsage(c: Context) {
         0,
         agent.trialExecutionLimit - agent.trialExecutionsUsed
       ),
-      serviceCosts: [
-        {
-          serviceCode: "agent_execution",
-          serviceName: "Agent executions",
-          unit: "PER_UNIT",
-          quantity: stats.billableExecutions,
-          unitPriceUsd: agent.executionFeeCents / 100,
-          billedCostUsd,
-          amountCents: Math.round(stats.displayCostMicroUsd / MICRO_USD_PER_CENT)
-        }
-      ]
+      serviceCosts: detailedServiceCosts,
+      invoiceServiceCosts
     };
   });
 
@@ -273,17 +335,25 @@ export async function getBusinessExecutionUsage(c: Context) {
     updatedAt: executions[0]?.occurredAt.toISOString() ?? null,
     standaloneSms: { count: standaloneSmsCount },
     agentRollup,
-    serviceRollup: [
-      {
-        serviceCode: "agent_execution",
-        serviceName: "Agent executions",
-        unit: "PER_UNIT",
-        quantity: executions.filter((execution) => execution.billable).length,
-        billedCostMicroUsd: totalMicroUsd,
-        billedCostUsd: totalCostUsd,
-        amountCents: Math.round(totalMicroUsd / MICRO_USD_PER_CENT)
-      }
-    ],
+    serviceRollup: rollupRecordedUsageLineItems(
+      calls
+        .filter(
+          (call) =>
+            chargedCallIds.has(call.callId) &&
+            Array.isArray(call.usageLineItemsJson)
+        )
+        .map((call) => call.usageLineItemsJson as unknown as UsageLineItem[])
+    ).map((service) => ({
+      serviceCode: service.serviceCode,
+      serviceName: service.serviceName,
+      unit: service.unit,
+      quantity: service.quantity,
+      billedCostMicroUsd: service.billedCostMicroUsd,
+      billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
+      amountCents: Math.round(
+        service.billedCostMicroUsd / MICRO_USD_PER_CENT
+      )
+    })),
     executions: executions.map((execution) => ({
       id: execution.id,
       installedAgentId: execution.installedAgentId,
@@ -325,11 +395,14 @@ export async function getBusinessExecutionUsage(c: Context) {
 
 function legacyAgentBreakdown(
   calls: Array<{
+    callId?: string;
     installedAgentId: string | null;
     durationMinutes: number | null;
     billedCostMicroUsd: number | null;
+    usageLineItemsJson?: unknown;
   }>,
-  agentNames: Map<string, string>
+  agentNames: Map<string, string>,
+  invoiceLabels: UsageInvoiceLabelMap
 ) {
   const rows = new Map<
     string,
@@ -366,7 +439,47 @@ function legacyAgentBreakdown(
     freeTrialExecutions: 0,
     billedCostUsd: microUsdToUsd(row.totalMicroUsd),
     amountCents: Math.round(row.totalMicroUsd / MICRO_USD_PER_CENT),
-    serviceCosts: []
+    serviceCosts: detailedInvoiceServiceCosts(
+      calls.map((call, index) => ({
+        callId: call.callId ?? `legacy-${index}`,
+        installedAgentId: call.installedAgentId,
+        durationMinutes: call.durationMinutes,
+        billedCostMicroUsd: call.billedCostMicroUsd,
+        usageLineItemsJson: call.usageLineItemsJson
+      })).filter((call) => call.installedAgentId === row.installedAgentId),
+      invoiceLabels
+    )
+  }));
+}
+
+type InvoiceUsageCall = {
+  callId: string;
+  installedAgentId: string | null;
+  durationMinutes: number | null;
+  billedCostMicroUsd: number | null;
+  usageLineItemsJson: unknown;
+};
+
+function detailedInvoiceServiceCosts(
+  calls: InvoiceUsageCall[],
+  invoiceLabels: UsageInvoiceLabelMap
+) {
+  return rollupCustomerUsageLineItems(
+    calls
+      .filter((call) => Array.isArray(call.usageLineItemsJson))
+      .map((call) => call.usageLineItemsJson as unknown as UsageLineItem[]),
+    invoiceLabels
+  ).map((service) => ({
+    serviceCode: service.serviceCode,
+    serviceName: service.invoiceLabel ?? service.serviceName,
+    invoiceLabel: service.invoiceLabel ?? service.serviceName,
+    unit: service.unit,
+    quantity: service.quantity,
+    amountMicroUsd: service.billedCostMicroUsd,
+    billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
+    amountCents: Math.round(
+      service.billedCostMicroUsd / MICRO_USD_PER_CENT
+    )
   }));
 }
 
@@ -375,54 +488,111 @@ export async function getBusinessExecutionInvoices(c: Context) {
   const business = await loadOwnedBusiness(authUser.id);
   if (!business) return successResponse(c, { invoices: [] });
 
-  const invoices = await prisma.businessUsageInvoice.findMany({
-    where: { businessId: business.id },
-    orderBy: [
-      { billingMonth: "desc" },
-      { sequence: "desc" },
-      { issuedAt: "desc" }
-    ],
-    include: {
-      installedAgent: {
-        select: {
-          id: true,
-          name: true,
-          executionFeeCents: true,
-          listing: { select: { iconUrl: true } }
-        }
-      },
-      lineItems: { orderBy: { amountMicroUsd: "desc" } },
-      executions: {
-        orderBy: { occurredAt: "asc" },
-        select: {
-          installedAgentId: true,
-          billable: true,
-          freeReason: true,
-          amountMicroUsd: true,
-          actualCostMicroUsd: true,
-          legacyBilledCostMicroUsd: true
-        }
-      },
-      calls: {
-        select: {
-          installedAgentId: true,
-          durationMinutes: true,
-          billedCostMicroUsd: true
+  const [invoices, usageServiceLabels] = await Promise.all([
+    prisma.businessUsageInvoice.findMany({
+      where: { businessId: business.id },
+      orderBy: [
+        { billingMonth: "desc" },
+        { sequence: "desc" },
+        { issuedAt: "desc" }
+      ],
+      include: {
+        installedAgent: {
+          select: {
+            id: true,
+            name: true,
+            executionFeeCents: true,
+            listing: { select: { iconUrl: true } }
+          }
+        },
+        lineItems: { orderBy: { amountMicroUsd: "desc" } },
+        executions: {
+          orderBy: { occurredAt: "asc" },
+          select: {
+            installedAgentId: true,
+            source: true,
+            sourceId: true,
+            billable: true,
+            freeReason: true,
+            amountMicroUsd: true,
+            actualCostMicroUsd: true,
+            legacyBilledCostMicroUsd: true
+          }
+        },
+        calls: {
+          select: {
+            callId: true,
+            installedAgentId: true,
+            durationMinutes: true,
+            billedCostMicroUsd: true,
+            usageLineItemsJson: true
+          }
         }
       }
-    }
-  });
+    }),
+    prisma.platformUsageService.findMany({
+      select: { code: true, role: true }
+    })
+  ]);
+  const invoiceLabels: UsageInvoiceLabelMap = new Map(
+    usageServiceLabels.map((service) => [service.code, service.role])
+  );
+  const invoiceCallIds = [
+    ...new Set(
+      invoices.flatMap((invoice) =>
+        invoice.executions
+          .filter((execution) => execution.source === "VAPI")
+          .map((execution) => execution.sourceId)
+      )
+    )
+  ];
+  // Historical canonical invoices did not always attach VapiCall through the
+  // relation. Resolve those calls by the immutable execution source ID too.
+  const executionCalls =
+    invoiceCallIds.length > 0
+      ? await prisma.vapiCall.findMany({
+          where: {
+            businessId: business.id,
+            callId: { in: invoiceCallIds }
+          },
+          select: {
+            callId: true,
+            installedAgentId: true,
+            durationMinutes: true,
+            billedCostMicroUsd: true,
+            usageLineItemsJson: true
+          }
+        })
+      : [];
+  const callsById = new Map(
+    executionCalls.map((call) => [call.callId, call])
+  );
   const agentNames = new Map(
     business.installedAgents.map((agent) => [agent.id, agent.name])
   );
 
   return successResponse(c, {
     invoices: invoices.map((invoice) => {
+      const invoiceCallsById = new Map<string, InvoiceUsageCall>(
+        invoice.calls.map((call) => [call.callId, call])
+      );
+      for (const execution of invoice.executions) {
+        if (execution.source !== "VAPI") continue;
+        const call = callsById.get(execution.sourceId);
+        if (call) invoiceCallsById.set(call.callId, call);
+      }
+      const invoiceCalls = [...invoiceCallsById.values()];
       const status = normalizeUsageInvoiceStatus(invoice.status);
       const canonicalStats = rollupExecutions(invoice.executions);
       const canonicalBreakdown = [...canonicalStats.values()].map((stats) => {
         const agent = business.installedAgents.find(
           (item) => item.id === stats.installedAgentId
+        );
+        const serviceCosts = detailedInvoiceServiceCosts(
+          invoiceCalls.filter(
+            (call) => call.installedAgentId === stats.installedAgentId
+          ),
+          invoiceLabels
         );
         return {
           agentId: stats.installedAgentId,
@@ -433,20 +603,53 @@ export async function getBusinessExecutionInvoices(c: Context) {
           callCount: stats.executionCount,
           billableExecutions: stats.billableExecutions,
           freeTrialExecutions: stats.freeTrialExecutions,
-          durationMinutes: 0,
+          durationMinutes: invoiceCalls
+            .filter(
+              (call) => call.installedAgentId === stats.installedAgentId
+            )
+            .reduce(
+              (sum, call) => sum + (call.durationMinutes ?? 0),
+              0
+            ),
           billedCostUsd: microUsdToUsd(stats.totalMicroUsd),
           amountCents: Math.round(stats.totalMicroUsd / MICRO_USD_PER_CENT),
-          serviceCosts: []
+          serviceCosts
         };
       });
       const agentBreakdown =
         canonicalBreakdown.length > 0
           ? canonicalBreakdown
-          : legacyAgentBreakdown(invoice.calls, agentNames);
+          : legacyAgentBreakdown(invoiceCalls, agentNames, invoiceLabels);
       const executionCount =
         invoice.executions.length > 0
           ? invoice.executions.length
-          : invoice.calls.length;
+          : invoiceCalls.length;
+      const detailedLineItems = detailedInvoiceServiceCosts(
+        invoiceCalls,
+        invoiceLabels
+      );
+      const storedLineItems = customerFacingUsageLineItems(
+        invoice.lineItems.map((item) => ({
+          serviceCode: item.serviceCode,
+          serviceName: item.serviceName,
+          unit: item.unit,
+          quantity: item.quantity,
+          actualCostMicroUsd: 0,
+          billedCostMicroUsd: item.amountMicroUsd
+        })),
+        invoiceLabels
+      ).map((item) => ({
+        serviceCode: item.serviceCode,
+        serviceName: item.invoiceLabel ?? item.serviceName,
+        invoiceLabel: item.invoiceLabel ?? item.serviceName,
+        unit: item.unit,
+        quantity: item.quantity,
+        amountMicroUsd: item.billedCostMicroUsd,
+        amountUsd: microUsdToUsd(item.billedCostMicroUsd),
+        amountCents: Math.round(
+          item.billedCostMicroUsd / MICRO_USD_PER_CENT
+        )
+      }));
 
       return {
         id: invoice.id,
@@ -477,17 +680,13 @@ export async function getBusinessExecutionInvoices(c: Context) {
         isAccruing:
           status === "PENDING" && !invoice.paidAt && !invoice.closedAt,
         agentBreakdown,
-        lineItems: invoice.lineItems.map((item) => ({
-          serviceCode: item.serviceCode,
-          serviceName: item.serviceName,
-          unit: item.unit,
-          quantity: item.quantity,
-          unitPriceMicroUsd: item.unitPriceMicroUsd,
-          unitPriceUsd: microUsdToUsd(item.unitPriceMicroUsd),
-          amountMicroUsd: item.amountMicroUsd,
-          amountUsd: microUsdToUsd(item.amountMicroUsd),
-          amountCents: Math.round(item.amountMicroUsd / MICRO_USD_PER_CENT)
-        }))
+        lineItems:
+          detailedLineItems.length > 0
+            ? detailedLineItems.map((item) => ({
+                ...item,
+                amountUsd: item.billedCostUsd
+              }))
+            : storedLineItems
       };
     })
   });
@@ -496,6 +695,14 @@ export async function getBusinessExecutionInvoices(c: Context) {
 export async function payBusinessExecutionInvoice(c: Context) {
   const authUser = c.get("authUser");
   const invoiceId = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const requestedPaymentMethodId =
+    body &&
+    typeof body === "object" &&
+    "paymentMethodId" in body &&
+    typeof body.paymentMethodId === "string"
+      ? body.paymentMethodId.trim()
+      : "";
   const invoice = await prisma.businessUsageInvoice.findFirst({
     where: { id: invoiceId, business: { ownerId: authUser.id } },
     include: {
@@ -546,17 +753,34 @@ export async function payBusinessExecutionInvoice(c: Context) {
     );
   }
 
-  let paymentMethodId = savedPayment?.stripePaymentId ?? null;
+  let paymentMethodId = requestedPaymentMethodId || savedPayment?.stripePaymentId || null;
   try {
-    const customer = await stripe.customers.retrieve(customerId);
-    if (typeof customer !== "string" && !customer.deleted) {
-      const defaultMethod = customer.invoice_settings.default_payment_method;
-      paymentMethodId =
-        (typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id) ||
-        paymentMethodId;
+    if (requestedPaymentMethodId) {
+      const method = await attachOrReusePaymentMethod(
+        stripe,
+        requestedPaymentMethodId,
+        customerId
+      );
+      paymentMethodId = method.id;
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: method.id }
+      });
+    } else {
+      const customer = await stripe.customers.retrieve(customerId);
+      if (typeof customer !== "string" && !customer.deleted) {
+        const defaultMethod = customer.invoice_settings.default_payment_method;
+        paymentMethodId =
+          (typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id) ||
+          paymentMethodId;
+      }
     }
   } catch {
-    // The saved purchase method remains a safe fallback.
+    return errorResponse(
+      c,
+      "The selected payment method could not be used",
+      422,
+      "PAYMENT_METHOD_INVALID"
+    );
   }
   if (!paymentMethodId) {
     return errorResponse(

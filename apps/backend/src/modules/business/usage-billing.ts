@@ -31,45 +31,12 @@ import {
   recordVapiExecutionUsage,
   rollupExecutions
 } from "./execution-billing";
+import {
+  customerFacingUsageLineItems,
+  type UsageInvoiceLabelMap
+} from "./usage-invoice-line-items";
 
-const PLATFORM_SERVICE_CODES = new Set(["database_storage", "google_calendar"]);
-type ServiceRoleMap = Map<string, string | null>;
-
-function customerServiceIdentity(serviceCode: string, serviceRoles: ServiceRoleMap) {
-  if (PLATFORM_SERVICE_CODES.has(serviceCode)) {
-    return { serviceCode: "platform_service", serviceName: "Platform service" };
-  }
-
-  const role = serviceRoles.get(serviceCode)?.trim() || "Usage service";
-  const safeRoleKey = role.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "usage_service";
-  return { serviceCode: `service_role_${safeRoleKey}`, serviceName: role };
-}
-
-function customerFacingLineItems(items: UsageLineItem[], serviceRoles: ServiceRoleMap): UsageLineItem[] {
-  const grouped = new Map<string, UsageLineItem>();
-
-  for (const item of items) {
-    const identity = customerServiceIdentity(item.serviceCode, serviceRoles);
-    const existing = grouped.get(identity.serviceCode);
-    if (!existing) {
-      grouped.set(identity.serviceCode, {
-        ...item,
-        ...identity,
-        unit: identity.serviceCode === "platform_service" ? "PER_UNIT" : item.unit
-      });
-      continue;
-    }
-
-    existing.quantity += item.quantity;
-    existing.actualCostMicroUsd += item.actualCostMicroUsd;
-    existing.billedCostMicroUsd += item.billedCostMicroUsd;
-    if (existing.unit !== item.unit) existing.unit = "PER_UNIT";
-  }
-
-  return [...grouped.values()];
-}
-
-async function loadServiceRoles(): Promise<ServiceRoleMap> {
+async function loadServiceRoles(): Promise<UsageInvoiceLabelMap> {
   const services = await prisma.platformUsageService.findMany({
     select: { code: true, role: true }
   });
@@ -582,14 +549,23 @@ export async function recordVapiCallUsage({
       installedAgentId: installedAgent.id,
       callId,
       occurredAt: endedAt,
-      actualCostMicroUsd: totals.actualCostMicroUsd
-    }).catch((error) => {
-      console.error("[usage-billing] canonical execution write failed (non-fatal)", {
-        callId,
-        installedAgentId: installedAgent.id,
-        error
+      actualCostMicroUsd: totals.actualCostMicroUsd,
+      usageLineItems: lineItems
+    })
+      .then(async (execution) => {
+        if (!execution?.usageInvoiceId) return;
+        await prisma.vapiCall.updateMany({
+          where: { callId, usageInvoiceId: null },
+          data: { usageInvoiceId: execution.usageInvoiceId }
+        });
+      })
+      .catch((error) => {
+        console.error("[usage-billing] canonical execution write failed (non-fatal)", {
+          callId,
+          installedAgentId: installedAgent.id,
+          error
+        });
       });
-    });
   }
 
   console.log("[usage-billing] recorded call usage", {
@@ -601,7 +577,10 @@ export async function recordVapiCallUsage({
   });
 }
 
-function rollupLineItems(calls: Array<{ usageLineItemsJson: unknown }>, serviceRoles: ServiceRoleMap) {
+function rollupLineItems(
+  calls: Array<{ usageLineItemsJson: unknown }>,
+  serviceRoles: UsageInvoiceLabelMap
+) {
   const rollup = new Map<
     string,
     {
@@ -616,7 +595,10 @@ function rollupLineItems(calls: Array<{ usageLineItemsJson: unknown }>, serviceR
 
   for (const call of calls) {
     const items = Array.isArray(call.usageLineItemsJson)
-      ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
+      ? customerFacingUsageLineItems(
+          call.usageLineItemsJson as UsageLineItem[],
+          serviceRoles
+        )
       : [];
 
     for (const item of items) {
@@ -654,7 +636,7 @@ function rollupAgentUsage(
     usageLineItemsJson?: unknown;
   }>,
   agentNames: Map<string, string>,
-  serviceRoles: ServiceRoleMap
+  serviceRoles: UsageInvoiceLabelMap
 ) {
   const rollup = new Map<string, {
     agentId: string | null;
@@ -687,7 +669,10 @@ function rollupAgentUsage(
     existing.durationMinutes += call.durationMinutes ?? 0;
     existing.billedCostMicroUsd += call.billedCostMicroUsd ?? 0;
     const lineItems = Array.isArray(call.usageLineItemsJson)
-      ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
+      ? customerFacingUsageLineItems(
+          call.usageLineItemsJson as UsageLineItem[],
+          serviceRoles
+        )
       : [];
     for (const lineItem of lineItems) {
       if (lineItem.quantity <= 0 || lineItem.billedCostMicroUsd <= 0) continue;
@@ -801,7 +786,10 @@ export async function getBusinessUsageBill(c: Context) {
       billedCostUsd: call.billedCostMicroUsd ? microUsdToUsd(call.billedCostMicroUsd) : 0,
       vapiReportedCostUsd: call.vapiCostMicroUsd ? microUsdToUsd(call.vapiCostMicroUsd) : null,
       lineItems: Array.isArray(call.usageLineItemsJson)
-        ? customerFacingLineItems(call.usageLineItemsJson as UsageLineItem[], serviceRoles)
+        ? customerFacingUsageLineItems(
+            call.usageLineItemsJson as UsageLineItem[],
+            serviceRoles
+          )
         : [],
       recordedAt: call.billingRecordedAt?.toISOString() ?? null,
       recordingUrl: call.recordingUrl ?? null
@@ -837,7 +825,7 @@ function serializeUsageInvoice(invoice: {
     billedCostMicroUsd: number | null;
     usageLineItemsJson: unknown;
   }>;
-}, agentNames: Map<string, string>, serviceRoles: ServiceRoleMap) {
+}, agentNames: Map<string, string>, serviceRoles: UsageInvoiceLabelMap) {
   const agentBreakdown = rollupAgentUsage(invoice.calls, agentNames, serviceRoles);
   return {
     id: invoice.id,
@@ -857,7 +845,7 @@ function serializeUsageInvoice(invoice: {
     suspendedAt: invoice.suspendedAt?.toISOString() ?? null,
     callCount: invoice.calls.length,
     agentBreakdown,
-    lineItems: customerFacingLineItems(
+    lineItems: customerFacingUsageLineItems(
       invoice.lineItems.map((item) => ({
         serviceCode: item.serviceCode,
         serviceName: item.serviceName,

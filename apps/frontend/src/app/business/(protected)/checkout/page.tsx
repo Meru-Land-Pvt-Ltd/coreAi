@@ -129,7 +129,52 @@ type CheckoutBillingResponse = {
         businessName: string | null;
         billingAddress: string | null;
         billingPostalCode: string | null;
+        invoices?: CheckoutAgentInvoice[];
     };
+};
+
+type CheckoutAgentInvoice = {
+    id: string;
+    description: string;
+    amountCents: number;
+    status: string;
+    listingId?: string | null;
+    listingName?: string | null;
+    invoiceKind?: string | null;
+};
+
+type CheckoutUsageInvoice = {
+    id: string;
+    invoiceNumber: string;
+    billingMonth: string;
+    status: string;
+    amountCents: number;
+    agentBreakdown: Array<{
+        agentId: string | null;
+        installedAgentId?: string | null;
+        agentName: string;
+        executionCount?: number;
+        callCount: number;
+        serviceCosts: Array<{
+            serviceName: string;
+            invoiceLabel?: string;
+            billedCostUsd: number;
+            amountCents: number;
+        }>;
+    }>;
+};
+
+type CheckoutUsageInvoicesResponse = {
+    invoices: CheckoutUsageInvoice[];
+};
+
+type InvoicePaymentResponse = {
+    status?: string;
+    invoiceIds?: string[];
+    carriedForward?: boolean;
+    requiresAction?: boolean;
+    clientSecret?: string | null;
+    paymentIntentId?: string | null;
 };
 
 type CheckoutUsageBill = {
@@ -143,6 +188,7 @@ type CheckoutUsageBill = {
         serviceCosts: Array<{
             serviceCode: string;
             serviceName: string;
+            invoiceLabel?: string;
             billedCostUsd: number;
         }>;
     }>;
@@ -765,6 +811,13 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const listingId = searchParams.get("listingId");
     const usageMode = searchParams.get("mode") === "usage";
     const usageAgentId = searchParams.get("agentId") || null;
+    const invoiceId = searchParams.get("invoiceId");
+    const invoiceTypeParam = searchParams.get("invoiceType");
+    const invoiceType =
+        invoiceTypeParam === "agent" || invoiceTypeParam === "usage"
+            ? invoiceTypeParam
+            : null;
+    const invoiceMode = Boolean(invoiceId && invoiceType);
 
     const [authReady, setAuthReady] = useState(false);
     const [email, setEmail] = useState("");
@@ -774,6 +827,8 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [includedItems, setIncludedItems] = useState<string[]>([]);
     const [usageSummaryLoading, setUsageSummaryLoading] = useState(usageMode);
     const [usageSummaryReady, setUsageSummaryReady] = useState(!usageMode);
+    const [invoiceSummaryLoading, setInvoiceSummaryLoading] = useState(invoiceMode);
+    const [invoiceSummaryReady, setInvoiceSummaryReady] = useState(!invoiceMode);
     const [trialError, setTrialError] = useState("");
     const [paymentTab, setPaymentTab] = useState<PaymentTab>("credit");
     const [elementBrand, setElementBrand] = useState<CardBrand>(null);
@@ -817,7 +872,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
         error: executionPricingError
     } = useBuyerExecutionPricing();
 
-    const isFree = listingAccess?.pricingModel === "FREE";
+    const isFree = !invoiceMode && listingAccess?.pricingModel === "FREE";
     const trialDays = listingAccess?.trialDays ?? 7;
     const freeTrialEnabled = listingAccess?.freeTrialEnabled ?? true;
     const trialDate = useMemo(() => formatTrialDate(trialDays), [trialDays]);
@@ -843,7 +898,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
 
     // One-time dedicated number fee for phone-capable agents — charged with
     // the agent price, shown as its own summary row.
-    const phoneFee = usageMode ? null : listingAccess?.phoneNumberFee ?? null;
+    const phoneFee = usageMode || invoiceMode ? null : listingAccess?.phoneNumberFee ?? null;
     const phoneFeeAmount = (phoneFee?.amountCents ?? 0) / 100;
     const payTotal = basePrice + phoneFeeAmount;
 
@@ -851,9 +906,9 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const canPayNow = listingAccess?.canPayNow ?? (
         listingAccess ? (listingAccess.trialUsed || !freeTrialEnabled || trialDays <= 0) && !listingAccess.hasActiveAccess : false
     );
-    const isPurchaseMode = usageMode || canPayNow || isFree || !freeTrialEnabled || trialDays <= 0;
+    const isPurchaseMode = invoiceMode || usageMode || canPayNow || isFree || !freeTrialEnabled || trialDays <= 0;
     const hasActiveAccess = listingAccess?.hasActiveAccess ?? false;
-    const checkoutBlocked = !usageMode && hasActiveAccess && !canPayNow;
+    const checkoutBlocked = !invoiceMode && !usageMode && hasActiveAccess && !canPayNow;
     const dueTodayAmount = isFree ? 0 : (isPurchaseMode ? payTotal : 0);
     const checkoutButtonLabel = isFree
         ? "Install Agent"
@@ -866,16 +921,19 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
             ? `Pay $${payTotal.toFixed(2)}`
             : `Start ${trialDays}-day free trial`;
 
-    const formReady =
-        authReady &&
-        (isFree ||
-        (usageMode && usageSummaryReady) ||
+    const paymentFieldsReady =
+        isFree ||
         (paymentTab !== "credit" ||
             ((Boolean(usePrimaryCard && primaryCard) ||
                 (validations.card && validations.expiry && validations.cvc)) &&
                 validations.name &&
                 validations.address &&
-                validations.zip)));
+                validations.zip));
+    const formReady =
+        authReady &&
+        (!invoiceMode || invoiceSummaryReady) &&
+        (!usageMode || usageSummaryReady) &&
+        (usageMode || paymentFieldsReady);
 
     useEffect(() => {
         const token = getAuthToken();
@@ -918,7 +976,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
             setIncludedItems(
                 agentUsage.serviceCosts
                     .filter((service) => service.billedCostUsd > 0)
-                    .map((service) => `${service.serviceName} — $${service.billedCostUsd.toFixed(2)}`)
+                    .map((service) => `${service.invoiceLabel ?? service.serviceName} — $${service.billedCostUsd.toFixed(2)}`)
             );
             setCheckoutError("");
             setUsageSummaryReady(true);
@@ -931,6 +989,98 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
             mounted = false;
         };
     }, [authReady, usageAgentId, usageMode]);
+
+    useEffect(() => {
+        if (!authReady || !invoiceMode || !invoiceId || !invoiceType) return;
+
+        let mounted = true;
+
+        async function loadInvoiceSummary() {
+            setInvoiceSummaryLoading(true);
+            setInvoiceSummaryReady(false);
+
+            if (invoiceType === "agent") {
+                const response = await apiGet<CheckoutBillingResponse>("/payments/billing");
+                if (!mounted) return;
+                const invoice = response.data?.billing.invoices?.find((item) => item.id === invoiceId);
+                if (!response.success || !invoice) {
+                    setCheckoutError(response.error ?? "Could not load this invoice.");
+                    setInvoiceSummaryLoading(false);
+                    return;
+                }
+                if (!["PENDING", "OVERDUE"].includes(invoice.status.toUpperCase())) {
+                    setCheckoutError(
+                        invoice.status.toUpperCase() === "SUCCEEDED"
+                            ? "This invoice is already paid."
+                            : "This invoice is not payable."
+                    );
+                    setInvoiceSummaryLoading(false);
+                    return;
+                }
+
+                setListingName(invoice.listingName || invoice.description || "Agent invoice");
+                setListingAuthor(`Invoice ${invoice.id.slice(-8).toUpperCase()}`);
+                setBasePrice(invoice.amountCents / 100);
+                setIncludedItems([invoice.description || "Agent subscription payment"]);
+            } else {
+                const response = await apiGet<CheckoutUsageInvoicesResponse>(
+                    "/business/billing/usage-invoices"
+                );
+                if (!mounted) return;
+                const invoice = response.data?.invoices.find((item) => item.id === invoiceId);
+                if (!response.success || !invoice) {
+                    setCheckoutError(response.error ?? "Could not load this usage invoice.");
+                    setInvoiceSummaryLoading(false);
+                    return;
+                }
+                if (!["PENDING", "OPEN", "OVERDUE"].includes(invoice.status.toUpperCase())) {
+                    setCheckoutError(
+                        invoice.status.toUpperCase() === "PAID"
+                            ? "This invoice is already paid."
+                            : "This invoice is not payable."
+                    );
+                    setInvoiceSummaryLoading(false);
+                    return;
+                }
+
+                const agents = invoice.agentBreakdown
+                    .map((agent) => agent.agentName)
+                    .filter(Boolean);
+                const serviceItems = invoice.agentBreakdown.flatMap((agent) =>
+                    agent.serviceCosts
+                        .filter((service) => service.amountCents > 0 || service.billedCostUsd > 0)
+                        .map(
+                            (service) =>
+                                `${service.invoiceLabel ?? service.serviceName} — $${(
+                                    service.amountCents > 0
+                                        ? service.amountCents / 100
+                                        : service.billedCostUsd
+                                ).toFixed(2)}`
+                        )
+                );
+                setListingName(
+                    agents.length > 0
+                        ? `Usage — ${agents.join(", ")}`
+                        : "Agent usage invoice"
+                );
+                setListingAuthor(`${invoice.billingMonth} · ${invoice.invoiceNumber}`);
+                setBasePrice(invoice.amountCents / 100);
+                setIncludedItems(
+                    serviceItems.length > 0 ? serviceItems : ["Usage service"]
+                );
+            }
+
+            setCheckoutError("");
+            setInvoiceSummaryReady(true);
+            setInvoiceSummaryLoading(false);
+        }
+
+        void loadInvoiceSummary();
+
+        return () => {
+            mounted = false;
+        };
+    }, [authReady, invoiceId, invoiceMode, invoiceType]);
 
     useEffect(() => {
         if (!authReady || !countriesReady) return;
@@ -967,7 +1117,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     }, [authReady, countries, countriesReady]);
 
     useEffect(() => {
-        if (!authReady || !listingId) return;
+        if (!authReady || !listingId || invoiceMode) return;
 
         let mounted = true;
 
@@ -1000,10 +1150,10 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
         return () => {
             mounted = false;
         };
-    }, [authReady, listingId]);
+    }, [authReady, invoiceMode, listingId]);
 
     useEffect(() => {
-        if (!authReady || !listingId) return;
+        if (!authReady || !listingId || invoiceMode) return;
 
         let mounted = true;
 
@@ -1027,7 +1177,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
         return () => {
             mounted = false;
         };
-    }, [authReady, listingId]);
+    }, [authReady, invoiceMode, listingId]);
 
     useEffect(() => {
         if (!authReady) return;
@@ -1155,7 +1305,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                 return;
             }
 
-            if (!listingId) {
+            if (!invoiceMode && !listingId) {
                 router.push(
                     businessPaymentSuccessPath({
                         agent: listingName,
@@ -1169,7 +1319,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
             }
 
             if (checkoutBlocked) {
-                router.push(businessSetupPath(listingId));
+                router.push(businessSetupPath(listingId ?? undefined));
                 return;
             }
 
@@ -1220,6 +1370,85 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                 paymentMethodId = created.paymentMethod.id;
             } else {
                 paymentMethodId = testPaymentMethodForBrand(brand);
+            }
+
+            if (invoiceMode && invoiceId && invoiceType) {
+                const endpoint =
+                    invoiceType === "usage"
+                        ? `/business/billing/usage-invoices/${invoiceId}/pay`
+                        : `/payments/invoices/${invoiceId}/pay`;
+                let response = await apiPost<InvoicePaymentResponse>(endpoint, {
+                    paymentMethodId
+                });
+
+                if (!response.success) {
+                    failCheckout(
+                        response.error ?? "We couldn't complete this invoice payment. Please try again.",
+                        { notify: true }
+                    );
+                    return;
+                }
+                if (response.data?.carriedForward) {
+                    failCheckout(
+                        "This balance is below the card minimum and will be carried into the next statement."
+                    );
+                    return;
+                }
+
+                if (response.data?.requiresAction && response.data.clientSecret) {
+                    if (!stripe) {
+                        failCheckout(
+                            "Your bank requires extra authentication, but the payment library isn't ready. Please try again."
+                        );
+                        return;
+                    }
+                    const nextAction = await stripe.handleNextAction({
+                        clientSecret: response.data.clientSecret
+                    });
+                    if (nextAction.error) {
+                        failCheckout(
+                            nextAction.error.message ??
+                                "Card authentication failed. Please try again.",
+                            { notify: true }
+                        );
+                        return;
+                    }
+                    response = await apiPost<InvoicePaymentResponse>(endpoint, {
+                        paymentMethodId
+                    });
+                    if (!response.success) {
+                        failCheckout(
+                            response.error ??
+                                "We couldn't verify the completed payment. Please try again.",
+                            { notify: true }
+                        );
+                        return;
+                    }
+                }
+
+                if (response.data?.status?.toUpperCase() !== "PAID") {
+                    failCheckout(
+                        "The payment has not succeeded, so this invoice remains unpaid."
+                    );
+                    return;
+                }
+
+                router.push(
+                    businessPaymentSuccessPath({
+                        listingId: listingId ?? undefined,
+                        agent: listingName,
+                        amount: payTotal,
+                        email,
+                        mode: "invoice",
+                        paymentId: invoiceId
+                    })
+                );
+                return;
+            }
+
+            if (!listingId) {
+                failCheckout("Choose an agent before starting checkout.");
+                return;
             }
 
             const endpoint = isPurchaseMode ? "/payments/purchase" : "/payments/start-trial";
@@ -1770,14 +1999,17 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                             </div>
 
                             <aside className="order-1 lg:order-2 lg:col-span-2">
-                                {usageSummaryLoading ? (
+                                {usageSummaryLoading || invoiceSummaryLoading ? (
                                     <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm" aria-live="polite">
                                         <div className="h-6 w-36 animate-pulse rounded bg-slate-200" />
                                         <div className="mt-6 h-16 animate-pulse rounded-xl bg-slate-100" />
                                         <div className="mt-4 h-32 animate-pulse rounded-xl bg-slate-100" />
-                                        <p className="mt-4 text-sm text-slate-500">Loading your current usage…</p>
+                                        <p className="mt-4 text-sm text-slate-500">
+                                            {invoiceSummaryLoading ? "Loading invoice…" : "Loading your current usage…"}
+                                        </p>
                                     </div>
-                                ) : usageMode && !usageSummaryReady ? null : (
+                                ) : (usageMode && !usageSummaryReady) ||
+                                  (invoiceMode && !invoiceSummaryReady) ? null : (
                                     <OrderSummary
                                         trialDate={trialDate}
                                         includedItems={includedItems}
@@ -1787,7 +2019,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                         price={basePrice}
                                         isPurchaseMode={isPurchaseMode}
                                         dueTodayAmount={dueTodayAmount}
-                                        isUsageMode={usageMode}
+                                        isUsageMode={usageMode || invoiceType === "usage"}
                                         phoneFeeLabel={phoneFee?.label ?? null}
                                         phoneFeeAmount={phoneFeeAmount}
                                         pricingModel={listingAccess?.pricingModel}

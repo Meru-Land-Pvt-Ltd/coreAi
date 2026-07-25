@@ -26,7 +26,11 @@ import {
   sendPaymentSuccessEmail,
   type InvoiceData
 } from "../../lib/mailer";
-import { getStripeClient, isStripeConfigured } from "./stripe";
+import {
+  attachOrReusePaymentMethod,
+  getStripeClient,
+  isStripeConfigured
+} from "./stripe";
 import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-finalize";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
@@ -96,6 +100,10 @@ const confirmPurchaseSchema = z.object({
 
 const billingPaymentMethodSchema = z.object({
   paymentMethodId: z.string().trim().min(1)
+});
+
+const invoicePaymentSchema = z.object({
+  paymentMethodId: z.string().trim().min(1).optional()
 });
 
 type CheckoutBillingDetails = {
@@ -195,23 +203,6 @@ function serializeBillingCard(method: { id: string; card?: { brand: string; last
     expMonth: method.card.exp_month,
     expYear: method.card.exp_year
   };
-}
-
-async function attachOrReusePaymentMethod(
-  stripe: NonNullable<ReturnType<typeof getStripeClient>>,
-  paymentMethodId: string,
-  customerId: string
-) {
-  const method = await stripe.paymentMethods.retrieve(paymentMethodId);
-  const attachedCustomerId =
-    typeof method.customer === "string" ? method.customer : method.customer?.id ?? null;
-
-  if (attachedCustomerId === customerId) return method;
-  if (attachedCustomerId) {
-    throw new Error("Payment method belongs to a different customer");
-  }
-
-  return stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
 }
 
 async function chargeAgentOnce({
@@ -1321,6 +1312,17 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
 paymentRoutes.post("/invoices/:id/pay", async (c) => {
   const authUser = c.get("authUser");
   const invoiceId = c.req.param("id");
+  const parsedPayment = invoicePaymentSchema.safeParse(
+    await c.req.json().catch(() => ({}))
+  );
+  if (!parsedPayment.success) {
+    return errorResponse(
+      c,
+      parsedPayment.error.issues[0]?.message ?? "Invalid payment method",
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
   const invoice = await prisma.payment.findFirst({
     where: {
       id: invoiceId,
@@ -1366,7 +1368,10 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
   }
   const customerId =
     invoice.business?.stripeCustomerId ?? invoice.stripeCustomerId ?? null;
-  if (!customerId || !invoice.stripePaymentId) {
+  if (
+    !customerId ||
+    (!invoice.stripePaymentId && !parsedPayment.data.paymentMethodId)
+  ) {
     return errorResponse(
       c,
       "Update your payment method before paying this invoice.",
@@ -1375,17 +1380,43 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
     );
   }
 
-  let paymentMethodId = invoice.stripePaymentId;
+  let paymentMethodId = parsedPayment.data.paymentMethodId ?? invoice.stripePaymentId;
   try {
-    const customer = await stripe.customers.retrieve(customerId);
-    if (typeof customer !== "string" && !customer.deleted) {
-      const defaultMethod = customer.invoice_settings.default_payment_method;
-      paymentMethodId =
-        (typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id) ||
-        paymentMethodId;
+    if (parsedPayment.data.paymentMethodId) {
+      const method = await attachOrReusePaymentMethod(
+        stripe,
+        parsedPayment.data.paymentMethodId,
+        customerId
+      );
+      paymentMethodId = method.id;
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: method.id }
+      });
+    } else {
+      const customer = await stripe.customers.retrieve(customerId);
+      if (typeof customer !== "string" && !customer.deleted) {
+        const defaultMethod = customer.invoice_settings.default_payment_method;
+        paymentMethodId =
+          (typeof defaultMethod === "string" ? defaultMethod : defaultMethod?.id) ||
+          paymentMethodId;
+      }
     }
-  } catch {
-    // Fall back to the method captured on the invoice.
+  } catch (error) {
+    const failure = describeStripeError(error);
+    return errorResponse(
+      c,
+      failure?.message ?? "The selected payment method could not be used.",
+      failure?.status ?? 422,
+      failure?.code ?? "PAYMENT_METHOD_INVALID"
+    );
+  }
+  if (!paymentMethodId) {
+    return errorResponse(
+      c,
+      "Update your payment method before paying this invoice.",
+      409,
+      "PAYMENT_METHOD_REQUIRED"
+    );
   }
 
   const claimed = await prisma.$transaction(async (tx) => {
@@ -1394,6 +1425,13 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
     if (!fresh) return { kind: "missing" as const };
     if (fresh.status === "SUCCEEDED") {
       return { kind: "paid" as const, fresh };
+    }
+    if (fresh.stripeSessionId) {
+      return {
+        kind: "claimed" as const,
+        fresh,
+        attempt: Math.max(1, fresh.paymentAttemptCount)
+      };
     }
     const pendingIsFresh =
       fresh.paymentPendingAt &&
@@ -1462,8 +1500,18 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
     if (intent.status !== "succeeded") {
       intent = await stripe.paymentIntents.confirm(intent.id, {
         payment_method: paymentMethodId,
-        off_session: true
+        off_session: false,
+        use_stripe_sdk: true
       });
+    }
+
+    if (intent.status === "requires_action" && intent.client_secret) {
+      return successResponse(c, {
+        invoiceId,
+        requiresAction: true,
+        paymentIntentId: intent.id,
+        clientSecret: intent.client_secret
+      }, "Card authentication required");
     }
 
     if (intent.status !== "succeeded") {
