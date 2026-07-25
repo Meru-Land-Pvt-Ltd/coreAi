@@ -58,6 +58,17 @@ const KNOWN_PRICING: Record<string, PricingEntry> = {
   "open-mixtral-8x7b":    { input: 0.70, output: 0.70 },
   "open-mixtral-8x22b":   { input: 2.00, output: 6.00 },
   "codestral-latest":     { input: 1.00, output: 3.00 },
+
+  // DeepSeek
+  "deepseek-reasoner": { input: 0.55, output: 2.19 },
+  "deepseek-chat":     { input: 0.14, output: 0.28 },
+  "deepseek-coder":    { input: 0.14, output: 0.28 },
+
+  // Groq
+  "deepseek-r1-distill-llama-70b": { input: 0.59, output: 0.79 },
+  "llama-3.3-70b-versatile":       { input: 0.59, output: 0.79 },
+  "llama-3.1-8b-instant":          { input: 0.05, output: 0.08 },
+  "mixtral-8x7b-32768":             { input: 0.24, output: 0.24 },
 };
 
 // Sort pricing keys by length descending to match longest prefix first during fuzzy matching

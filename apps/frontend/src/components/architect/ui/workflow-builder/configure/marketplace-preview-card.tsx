@@ -25,25 +25,26 @@ export function MarketplacePreviewCard({
 
   return (
     <div
-      className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+      className="lift-card shadow-soft w-full overflow-visible rounded-2xl border border-gray-100 bg-white"
       data-testid="configure-preview-card"
     >
-      <div className="relative z-0 h-24">
+      <div className="relative z-0 h-24 overflow-hidden rounded-t-2xl">
         {cover ? (
           <img src={cover} alt="Listing cover" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div
-            className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500"
+            className="absolute inset-0 bg-gradient-to-br from-slate-50 to-slate-100"
             data-testid="configure-preview-default-cover"
           />
         )}
         <span className="absolute right-2.5 top-2.5 z-10 rounded-full bg-white/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm backdrop-blur">
-          {configure.basics.category}
+          {configure.basics.category || "Category"}
         </span>
       </div>
-      <div className="relative z-10 p-4 pt-0">
+
+      <div className="relative z-10 px-4 pb-4 pt-0">
         <div
-          className="relative z-10 -mt-6 mb-2.5 flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-md ring-4 ring-white"
+          className="shadow-amber-sm relative z-10 -mt-6 mb-2.5 flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 ring-4 ring-white"
           data-testid="configure-preview-icon"
         >
           {configure.basics.iconUrl ? (
@@ -52,7 +53,11 @@ export function MarketplacePreviewCard({
             <BuilderIcon name="message" className="h-6 w-6 text-white" />
           )}
         </div>
-        <h4 className="truncate text-[15px] font-bold leading-tight tracking-tight text-slate-900" data-testid="configure-preview-name">
+
+        <h4
+          className="truncate text-[15px] font-bold leading-tight tracking-tight text-slate-900"
+          data-testid="configure-preview-name"
+        >
           {name}
         </h4>
         <p
@@ -66,15 +71,16 @@ export function MarketplacePreviewCard({
         <p className="mt-1.5 truncate text-[11px] text-slate-400">
           by <span className="font-medium text-slate-600">{architectName}</span>
         </p>
+
         <div className="mt-3.5 flex items-center justify-between border-t border-gray-50 pt-3">
           {showPrice ? (
-            <span className="text-base font-extrabold text-slate-900" data-testid="configure-preview-price">
+            <span className="text-[16px] font-extrabold leading-none text-slate-900" data-testid="configure-preview-price">
               {priceLabel}
             </span>
           ) : (
             <span />
           )}
-          <span className="inline-flex cursor-default select-none items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
+          <span className="shadow-amber-sm inline-flex flex-none cursor-default select-none items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-[12px] font-bold text-white">
             Install
           </span>
         </div>

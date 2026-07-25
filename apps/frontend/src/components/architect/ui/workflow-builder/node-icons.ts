@@ -6,7 +6,8 @@ export const nodeIconAccent: Record<string, NodeAccent> = {
   diamond: "orange",
   message: "green",
   mail: "blue",
-  capture: "blue"
+  capture: "blue",
+  database: "violet"
 };
 
 export function getIconAccent(icon: string): NodeAccent {

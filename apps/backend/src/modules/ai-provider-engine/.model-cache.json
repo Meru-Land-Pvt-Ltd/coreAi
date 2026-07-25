@@ -1,18 +1,4 @@
 {
-  "timestamp": 1784870494364,
-  "providers": {
-    "elevenlabs": {
-      "models": [
-        "eleven_v3",
-        "eleven_multilingual_v2",
-        "eleven_flash_v2_5",
-        "eleven_turbo_v2_5",
-        "eleven_turbo_v2",
-        "eleven_flash_v2",
-        "eleven_english_sts_v2",
-        "eleven_multilingual_sts_v2"
-      ],
-      "pricing": {}
-    }
-  }
+  "timestamp": 1784961480817,
+  "providers": {}
 }

@@ -1,6 +1,7 @@
 export { MemoryBroker, memoryBroker } from "./memory-broker";
 export * from "./types";
 export { buildContextBundle, mergeWorkflowMemory } from "./context-builder";
+export { buildCompactMemoryString } from "./memory-compression";
 export { runMemorySelfTest } from "./test-memory";
 
 export {

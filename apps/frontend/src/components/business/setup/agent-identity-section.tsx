@@ -79,6 +79,11 @@ export function AgentIdentitySection({
     if (voicePlaying) return;
     setVoicePreviewError("");
 
+    if (!voiceChoice) {
+      setVoicePreviewError("Please select a voice first.");
+      return;
+    }
+
     const isCustom = voiceChoice === "custom";
     if (isCustom && !customVoiceId.trim()) {
       setVoicePreviewError("Enter your custom voice ID first.");

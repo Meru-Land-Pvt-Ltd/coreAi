@@ -338,8 +338,8 @@ export default function BusinessMyAgentsPage() {
         };
     }, [authReady]);
 
-    function setupAgent(agent: OwnedAgent) {
-        router.push(businessSetupPath(agent.listingId));
+    function setupAgent(agent: OwnedAgent, isEdit?: boolean) {
+        router.push(businessSetupPath(agent.listingId, isEdit ?? isSetupCompleted(agent)));
     }
 
     function payAgent(agent: OwnedAgent) {
@@ -619,18 +619,27 @@ function OwnedAgentCard({
                                     >
                                         {canManageAgent ? (
                                             <>
-                                                <button
-                                                    type="button"
-                                                    role="menuitem"
-                                                    data-testid={`business-my-agent-menu-edit-${agent.listingId}`}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        onSetup();
-                                                    }}
-                                                    className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50"
-                                                >
-                                                    Edit Configuration
-                                                </button>
+                                                <div className="group/edit-tooltip relative w-full">
+                                                    <button
+                                                        type="button"
+                                                        role="menuitem"
+                                                        data-testid={`business-my-agent-menu-edit-${agent.listingId}`}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            onSetup();
+                                                        }}
+                                                        className="block w-full px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-gray-50"
+                                                    >
+                                                        Edit Configuration
+                                                    </button>
+                                                    <div
+                                                        role="tooltip"
+                                                        data-testid={`business-my-agent-edit-tooltip-${agent.listingId}`}
+                                                        className="pointer-events-none absolute right-full top-1/2 -translate-y-1/2 mr-2 hidden w-52 rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-xs text-white shadow-xl group-hover/edit-tooltip:block z-30 leading-snug"
+                                                    >
+                                                        Editing agent configuration will not affect your previous call history, bookings, or data.
+                                                    </div>
+                                                </div>
 
                                                 <button
                                                     type="button"

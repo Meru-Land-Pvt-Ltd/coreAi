@@ -55,6 +55,7 @@ export const libraryGroups: LibraryGroup[] = [
     items: [
       paletteItem(VOICE_NODE_TYPES.voiceConversation, { icon: "sparkles", accent: "violet" }),
       paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
+      paletteItem("ai.memory", { icon: "database", accent: "violet" }),
       {
         nodeKind: "ai",
         label: "AI Brain",

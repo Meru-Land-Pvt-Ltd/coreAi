@@ -28,6 +28,7 @@ import {
   failWorkflowRun,
   runAiBrainNode,
   memoryBroker,
+  buildCompactMemoryString,
   type AiBrainNodeConfig,
 } from "../memory";
 
@@ -157,12 +158,15 @@ type RunnerNodeData = {
   llmRequirements?: unknown;
   llmSystemPrompt?: unknown;
   llmPrompt?: unknown;
+  attachments?: unknown;
+  customMemoryNotes?: unknown;
+  notes?: unknown;
+  customNotes?: unknown;
   llmContext?: unknown;
   llmTemperature?: unknown;
   llmMaxTokens?: unknown;
   llmOutputFormat?: unknown;
   llmOutputKey?: unknown;
-  attachments?: unknown;
 };
 
 type RunnerNode = {
@@ -381,34 +385,31 @@ export function parseRunnerWorkflowJson(value: unknown) {
 function sortNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[]) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const outgoing = new Map<string, string[]>();
-  const incoming = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+
+  for (const node of nodes) {
+    inDegree.set(node.id, 0);
+  }
 
   for (const edge of edges) {
     if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue;
     outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
-    incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source]);
+    inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
   }
 
-  // Find start nodes (triggers or nodes with no incoming edges)
-  const triggers = nodes.filter((node) => asString(node.data?.nodeKind) === "trigger");
-  triggers.sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0));
-
-  const startNodes = triggers.length > 0
-    ? triggers
-    : nodes.filter((node) => !incoming.has(node.id));
-  startNodes.sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0));
+  // Start nodes: nodes with in-degree 0 (triggers or root nodes)
+  const queue: string[] = nodes
+    .filter((n) => (inDegree.get(n.id) ?? 0) === 0)
+    .sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0))
+    .map((n) => n.id);
 
   const executionOrder: RunnerNode[] = [];
   const visited = new Set<string>();
-  const queue: string[] = startNodes.map(n => n.id);
-
-  for (const id of queue) {
-    visited.add(id);
-  }
 
   while (queue.length > 0) {
     const currentId = queue.shift();
-    if (!currentId) break;
+    if (!currentId || visited.has(currentId)) continue;
+    visited.add(currentId);
 
     const current = nodeById.get(currentId);
     if (current) {
@@ -423,9 +424,12 @@ function sortNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[]) {
     });
 
     for (const targetId of nextIds) {
-      if (visited.has(targetId)) continue;
-      visited.add(targetId);
-      queue.push(targetId);
+      const currentDeg = inDegree.get(targetId) ?? 1;
+      const nextDeg = Math.max(0, currentDeg - 1);
+      inDegree.set(targetId, nextDeg);
+      if (nextDeg === 0 && !visited.has(targetId)) {
+        queue.push(targetId);
+      }
     }
   }
 
@@ -1988,6 +1992,61 @@ function seedNodeVariablesInContext(context: Record<string, any>, nodes: any[]) 
   }
 }
 
+async function runMemoryNodeInRunner({
+  workflowRunId,
+  threadId,
+  executionOrder,
+  node,
+  context,
+  logs
+}: {
+  workflowRunId?: string;
+  threadId?: string;
+  executionOrder: number;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+}) {
+  const attachments = (Array.isArray(node.data?.attachments) ? node.data.attachments : []) as any[];
+  const customNotes =
+    asString(node.data?.customMemoryNotes) || asString(node.data?.notes) || asString(node.data?.customNotes);
+
+  const compactMemoryText = buildCompactMemoryString({
+    executedNodes: logs.map((l) => ({ nodeId: l.nodeId, label: l.label, status: l.status, message: l.message, output: l.output })),
+    variables: context as Record<string, unknown>,
+    attachments,
+    customNotes
+  });
+
+  context.memory = compactMemoryText;
+  (context as Record<string, unknown>)["memory"] = compactMemoryText;
+
+  if (workflowRunId) {
+    await memoryBroker.saveNodeMemory({
+      workflowRunId,
+      nodeId: node.id,
+      nodeType: "ai.memory",
+      nodeLabel: asString(node.data?.title ?? node.data?.label) || node.id,
+      status: "success",
+      executionOrder,
+      threadId,
+      output: { memory: compactMemoryText },
+      summary: "Memory Node aggregated previous node executions and attachments",
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString()
+    });
+  }
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      "Stored and aggregated previous step executions and manual attachments into compact memory string {{memory}}.",
+      { memory: compactMemoryText }
+    )
+  );
+}
+
 export async function runWorkflowTest({
   userId,
   workflowId,
@@ -2115,6 +2174,18 @@ export async function runWorkflowTest({
         }
 
         if (nodeKind === "ai") {
+          if (asString(node.data?.type) === "ai.memory") {
+            await runMemoryNodeInRunner({
+              workflowRunId,
+              threadId,
+              executionOrder: executionOrder++,
+              node,
+              context,
+              logs
+            });
+            continue;
+          }
+
           if (shouldUseProviderEngine(node, mode)) {
             const result = await runAiBrainNode({
               workflowRunId,

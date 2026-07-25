@@ -32,6 +32,7 @@ export async function resolveBackLinkedMemories(params: {
   targetNodeId: string;
   selectedBacklinkNodeIds?: string[];
 }): Promise<{ memories: NodeMemoryRecord[]; links: ContextLinkRecord[] }> {
+  if (params.workflowRunId.startsWith("test-run-")) return { memories: [], links: [] };
   const targetRuns = await prisma.nodeRun.findMany({
     where: { workflowRunId: params.workflowRunId, nodeId: params.targetNodeId },
     orderBy: { executionOrder: "desc" },

@@ -268,10 +268,10 @@ function buildJourneyPreview(listing: WorkflowPreviewListing): JourneyPreview {
 }
 
 function stepClass(step: PreviewStep) {
-  if (step.side === "customer") return "ml-auto max-w-[82%] rounded-2xl rounded-br-md bg-amber-500 px-3 py-2 text-[12px] font-medium leading-snug text-slate-950 shadow-sm";
-  if (step.side === "event") return "max-w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm";
-  if (step.side === "action") return "max-w-[88%] rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-[12px] leading-snug text-emerald-900 shadow-sm";
-  return "max-w-[86%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3 py-2 text-[12px] leading-snug text-slate-700 shadow-sm";
+  if (step.side === "customer") return "ml-auto max-w-[82%] rounded-2xl rounded-br-md bg-amber-500 px-3.5 py-2.5 text-[12.5px] font-medium leading-snug text-slate-950";
+  if (step.side === "event") return "max-w-full rounded-xl border border-gray-100 bg-white px-3.5 py-2.5 text-[12.5px] leading-snug text-slate-700";
+  if (step.side === "action") return "max-w-[88%] rounded-xl border border-emerald-100 bg-emerald-50/80 px-3.5 py-2.5 text-[12.5px] leading-snug text-emerald-900";
+  return "max-w-[86%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-3.5 py-2.5 text-[12.5px] leading-snug text-slate-700";
 }
 
 function getInitials(name: string) {
@@ -321,7 +321,7 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
   const renderTriggerCard = () => {
     if (preview.channel === "missed-call") {
       return (
-        <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-3.5 py-2.5">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-500">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 5a2 2 0 0 1 2-2h2l2 5-2 1a11 11 0 0 0 5 5l1-2 5 2v2a2 2 0 0 1-2 2A16 16 0 0 1 3 5z" />
@@ -329,7 +329,7 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
             </svg>
           </span>
           <div className="min-w-0">
-            <div className="text-xs font-semibold text-slate-900">Missed call</div>
+            <div className="text-[12.5px] font-semibold text-slate-900">Missed call</div>
             <div className="truncate text-[11px] text-slate-500">
               {preview.header} · just now
             </div>
@@ -349,12 +349,12 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
     }
 
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+      <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-3.5 py-2.5">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${iconBg}`}>
           {icon}
         </span>
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-slate-900">{preview.triggerTitle}</div>
+          <div className="text-[12.5px] font-semibold text-slate-900">{preview.triggerTitle}</div>
           <div className="truncate text-[11px] text-slate-500">{preview.triggerBody}</div>
         </div>
       </div>
@@ -362,14 +362,12 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
   };
 
   return (
-    <div className="relative mx-auto w-full max-w-[320px] overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 -z-10 rounded-[3rem] bg-[radial-gradient(60%_60%_at_50%_40%,rgba(245,158,11,0.12),transparent_70%)]" />
-
-      <div className="mx-auto w-full animate-float" data-testid="agent-workflow-preview">
-        <div className="rounded-[2rem] border border-gray-200 bg-white p-2 shadow-2xl sm:rounded-[2.5rem] sm:p-2.5">
-          <div className="overflow-hidden rounded-[1.6rem] bg-gray-50 sm:rounded-[2rem]">
+    <div className="relative mx-auto w-full max-w-[300px] overflow-hidden">
+      <div className="mx-auto w-full" data-testid="agent-workflow-preview">
+        <div className="rounded-[2rem] border-2 border-amber-400 bg-gradient-to-b from-slate-100 to-slate-50 p-[7px] ring-1 ring-amber-200/60 sm:rounded-[2.25rem] sm:p-2">
+          <div className="overflow-hidden rounded-[1.55rem] bg-white sm:rounded-[1.85rem]">
             {/* status bar */}
-            <div className="flex items-center justify-between px-5 pt-3 pb-1 text-[10px] font-semibold text-slate-500">
+            <div className="flex items-center justify-between px-5 pt-3.5 pb-1 text-[10px] font-semibold tracking-wide text-slate-400">
               <span>9:41</span>
               <span className="inline-flex items-center gap-1" aria-hidden="true">
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
@@ -384,24 +382,24 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
             </div>
 
             {/* conversation header */}
-            <div className="flex items-center gap-2 border-b border-gray-100 bg-white px-4 py-3">
+            <div className="flex items-center gap-2.5 border-b border-gray-100 bg-white px-4 py-3">
               {listing.iconUrl ? (
-                <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full ring-1 ring-amber-200">
+                <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full ring-1 ring-gray-100">
                   <img src={listing.iconUrl} alt="" className="h-full w-full object-cover" />
                 </div>
               ) : (
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-50 text-[11px] font-bold text-amber-700 ring-1 ring-amber-100">
                   {initials}
                 </span>
               )}
               <div className="min-w-0">
-                <div className="truncate text-xs font-semibold text-slate-900">{preview.header}</div>
-                <div className="text-[10px] text-slate-500">{subheaderText}</div>
+                <div className="truncate text-[13px] font-semibold text-slate-900">{preview.header}</div>
+                <div className="text-[10px] font-medium text-slate-400">{subheaderText}</div>
               </div>
             </div>
 
             {/* messages */}
-            <div className="space-y-3 px-4 py-4">
+            <div className="space-y-3 bg-gray-50/50 px-4 py-4">
               {renderTriggerCard()}
 
               {preview.steps.map((step, index) => (
@@ -413,7 +411,7 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
                 </div>
               ))}
 
-              <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
+              <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] font-medium text-slate-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Automated by Triven AI · replied in 5s
               </div>

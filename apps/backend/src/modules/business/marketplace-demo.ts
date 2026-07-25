@@ -12,6 +12,12 @@ export const DEMO_MAX_DURATION_SECONDS = 180;
 /** Demo starts allowed per buyer per listing per day. */
 export const DEMO_DAILY_LIMIT = 3;
 
+/** Public (logged-out) visitors: shorter calls and fewer of them, keyed by IP. */
+export const PUBLIC_DEMO_MAX_DURATION_SECONDS = 120;
+
+/** Public demo starts allowed per IP per listing per day. */
+export const PUBLIC_DEMO_DAILY_LIMIT = 2;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class MarketplaceDemoError extends Error {
@@ -25,6 +31,14 @@ export class MarketplaceDemoError extends Error {
     this.code = code;
   }
 }
+
+export type DemoCallCustomInfo = {
+  businessName?: string;
+  doctorName?: string;
+  businessType?: string;
+  address?: string;
+  services?: string;
+};
 
 export type MarketplaceDemoSession = {
   publicKey: string;
@@ -211,28 +225,89 @@ function buildDemoSystemPrompt(params: {
   industry: string;
   listingName: string;
   listingDescription: string;
+  customInfo?: DemoCallCustomInfo;
 }): string {
-  return [
-    `You are ${params.assistantName}, the AI receptionist for ${params.demoBusinessName}, a fictional ${params.industry} business used to demo "${params.listingName}" on the Triven marketplace.`,
+  const bizName = params.customInfo?.businessName?.trim() || params.demoBusinessName;
+  const docName = params.customInfo?.doctorName?.trim();
+  const bizType = params.customInfo?.businessType?.trim() || params.industry;
+  const address = params.customInfo?.address?.trim();
+  const services = params.customInfo?.services?.trim();
+
+  const businessIdentity = docName
+    ? `${bizName} (Contact/Practitioner: ${docName})`
+    : bizName;
+
+  const lines = [
+    `You are ${params.assistantName}, the dedicated AI receptionist for ${businessIdentity}, a ${bizType} practice/business.`,
     ``,
     `About this agent: ${params.listingDescription}`,
+    ``
+  ];
+
+  if (address) {
+    lines.push(`Location / Address: ${address}`);
+  }
+  if (services) {
+    lines.push(`Services offered: ${services}`);
+  }
+
+  lines.push(
     ``,
     `DEMO RULES:`,
-    `- This is a short live demo for a potential buyer. Greet callers warmly and answer questions the way you would for a real ${params.industry} business.`,
-    `- Use plausible sample details (opening hours, common services and prices) for ${params.demoBusinessName}. Make clear they are examples when asked.`,
+    `- This is a live demo personalized for a prospective buyer. Greet callers warmly and answer questions specifically as the AI receptionist for ${bizName}.`,
+    `- Use the provided location (${address || "sample office"}) and services (${services || "standard services"}) when answering caller inquiries.`,
     `- You cannot actually book appointments, send texts, or send emails in this demo. If the caller asks, walk them through what WOULD happen for a real customer, step by step.`,
     `- If asked about buying the agent: after purchase, the agent is configured with the buyer's real business details, phone number, and calendar.`,
-    `- Keep replies short and natural — this is a phone conversation.`
-  ].join("\n");
+    `- Keep replies short, professional, and natural — this is a phone conversation.`
+  );
+
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
 // Start a demo call
 // ---------------------------------------------------------------------------
+
+/** Authenticated buyer demo: keyed by user id, 3/day, 3-minute cap. */
 export async function startMarketplaceDemoCall(
   userId: string,
-  listingId: string
+  listingId: string,
+  customInfo?: DemoCallCustomInfo
 ): Promise<MarketplaceDemoSession> {
+  return startDemoCallInternal({
+    scopeKey: `user:${userId}`,
+    listingId,
+    dailyLimit: DEMO_DAILY_LIMIT,
+    maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
+    customInfo
+  });
+}
+
+/** Public (logged-out) visitor demo: keyed by client IP, 2/day, 2-minute cap. */
+export async function startPublicMarketplaceDemoCall(
+  clientIp: string,
+  listingId: string,
+  customInfo?: DemoCallCustomInfo
+): Promise<MarketplaceDemoSession> {
+  const ip = clientIp.trim() || "unknown";
+  return startDemoCallInternal({
+    scopeKey: `ip:${ip}`,
+    listingId,
+    dailyLimit: PUBLIC_DEMO_DAILY_LIMIT,
+    maxDurationSeconds: PUBLIC_DEMO_MAX_DURATION_SECONDS,
+    customInfo
+  });
+}
+
+async function startDemoCallInternal(params: {
+  scopeKey: string;
+  listingId: string;
+  dailyLimit: number;
+  maxDurationSeconds: number;
+  customInfo?: DemoCallCustomInfo;
+}): Promise<MarketplaceDemoSession> {
+  const { scopeKey, listingId, dailyLimit, maxDurationSeconds, customInfo } = params;
+
   if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
     throw new MarketplaceDemoError(
       "Live demos are not configured on the server.",
@@ -269,11 +344,11 @@ export async function startMarketplaceDemoCall(
   }
 
   const bucket = dayBucket();
-  const userKey = `demo:user:${userId}:${listingId}:${bucket}`;
+  const userKey = `demo:${scopeKey}:${listingId}:${bucket}`;
   const globalKey = `demo:global:${bucket}`;
   const counts = await readDemoCounts(userKey, globalKey);
 
-  if (counts.user >= DEMO_DAILY_LIMIT) {
+  if (counts.user >= dailyLimit) {
     throw new MarketplaceDemoError(
       "Demo limit reached for today. Buy the agent to keep testing with your own business details.",
       429,
@@ -299,7 +374,7 @@ export async function startMarketplaceDemoCall(
       ? voicePresetName.replace(/^./, (ch) => ch.toUpperCase())
       : "Alex";
   const assistantName = str(voiceNode, "assistantName", fallbackName);
-  const demoBusinessName = `Demo ${industry.replace(/^./, (ch) => ch.toUpperCase())} Studio`;
+  const demoBusinessName = customInfo?.businessName?.trim() || `Demo ${industry.replace(/^./, (ch) => ch.toUpperCase())} Studio`;
 
   const systemPrompt = buildDemoSystemPrompt({
     assistantName,
@@ -307,9 +382,18 @@ export async function startMarketplaceDemoCall(
     industry,
     listingName: listing.name,
     listingDescription: listing.shortDescription || listing.description || "an AI receptionist",
+    customInfo
   });
 
-  const firstMessage = `Hi! Thanks for calling ${demoBusinessName}. This is ${assistantName} — this is a live demo, so feel free to ask me anything. How can I help?`;
+  const customDocName = customInfo?.doctorName?.trim();
+  const customBizName = customInfo?.businessName?.trim();
+  let firstMessage: string;
+  if (customBizName) {
+    const docText = customDocName ? ` speaking on behalf of ${customDocName}` : "";
+    firstMessage = `Hi! Thanks for calling ${customBizName}. This is ${assistantName}${docText} — how can I help you today?`;
+  } else {
+    firstMessage = `Hi! Thanks for calling ${demoBusinessName}. This is ${assistantName} — this is a live demo, so feel free to ask me anything. How can I help?`;
+  }
 
   const existingAssistantId = await findExistingDemoAssistant(listing.id);
 
@@ -329,7 +413,7 @@ export async function startMarketplaceDemoCall(
     // The demo converses only: no booking, no SMS, no notifications.
     includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false, knowledgeLookup: false },
     silenceTimeoutSeconds: 30,
-    maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
+    maxDurationSeconds,
     recordingEnabled: false
   });
 
@@ -337,12 +421,12 @@ export async function startMarketplaceDemoCall(
 
   // Consume the allowance only after the assistant deployed successfully.
   await recordDemoStart(userKey, globalKey);
-  const remainingToday = Math.max(0, DEMO_DAILY_LIMIT - (counts.user + 1));
+  const remainingToday = Math.max(0, dailyLimit - (counts.user + 1));
 
   console.log("[marketplace-demo] session ready", {
     listingId: listing.id,
     assistantId: assistant.id,
-    userId,
+    scopeKey,
     remainingToday
   });
 
@@ -353,7 +437,7 @@ export async function startMarketplaceDemoCall(
     listingName: listing.name,
     assistantName,
     demoBusinessName,
-    maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
+    maxDurationSeconds,
     remainingDemosToday: remainingToday,
     demo: true
   };

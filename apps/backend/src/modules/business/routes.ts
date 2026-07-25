@@ -1550,8 +1550,23 @@ businessRoutes.post("/marketplace/listings/:listingId/demo-call", async (c) => {
     return errorResponse(c, "Listing id is required", 422, "LISTING_ID_REQUIRED");
   }
 
+  let body: Record<string, unknown> = {};
   try {
-    const session = await startMarketplaceDemoCall(authUser.id, listingId);
+    body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  } catch {
+    // Body optional
+  }
+
+  const customInfo = {
+    businessName: typeof body.businessName === "string" ? body.businessName : undefined,
+    doctorName: typeof body.doctorName === "string" ? body.doctorName : undefined,
+    businessType: typeof body.businessType === "string" ? body.businessType : undefined,
+    address: typeof body.address === "string" ? body.address : undefined,
+    services: typeof body.services === "string" ? body.services : undefined
+  };
+
+  try {
+    const session = await startMarketplaceDemoCall(authUser.id, listingId, customInfo);
     return successResponse(c, { session }, "Demo call ready");
   } catch (error) {
     if (error instanceof MarketplaceDemoError) {

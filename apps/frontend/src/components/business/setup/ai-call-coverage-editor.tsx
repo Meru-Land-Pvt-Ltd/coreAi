@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { WorkflowTriggerKind } from "@coreai/shared";
 
 import { CompactWeeklyPreview } from "@/components/business/setup/weekly-preview";
+import { InfoTooltip } from "./InfoTooltip";
+import { SECTION_TITLE } from "./ui";
 
 export type AiCoverageKind = "always" | "business_hours" | "custom";
 
@@ -33,6 +35,22 @@ export const COVERAGE_WEEKDAYS: { key: string; pill: string }[] = [
   { key: "Saturday", pill: "S" },
   { key: "Sunday", pill: "S" }
 ];
+
+function to12h(hhmm: string): string {
+  const match = hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return hhmm;
+  const hour = Number(match[1]);
+  const meridiem = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return match[2] === "00" ? `${hour12} ${meridiem}` : `${hour12}:${match[2]} ${meridiem}`;
+}
+
+function summarizeAnsweringWeek(answeringDays: AnsweringDayRow[]): string[] {
+  return answeringDays.map((d) => {
+    if (d.closed) return `${d.day}: Closed`;
+    return `${d.day}: ${to12h(d.open)}-${to12h(d.close)}`;
+  });
+}
 
 export function defaultAnsweringDays(): AnsweringDayRow[] {
   return ANSWERING_WEEK_DAYS.map((day) => ({
@@ -144,6 +162,7 @@ export function AiCallCoverageEditor({
 
   const [sameHoursForAll, setSameHoursForAll] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string>("Monday");
+  const [showPreview, setShowPreview] = useState(false);
 
   const firstOpenDayRow = answeringDays.find((row) => !row.closed) ?? answeringDays[0];
   const unifiedOpen = firstOpenDayRow?.open ?? "09:00";
@@ -226,11 +245,11 @@ export function AiCallCoverageEditor({
 
   return (
     <div data-testid="business-setup-ai-coverage">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">{t.sectionTitle}</h4>
-          <p className="mt-0.5 text-xs text-slate-500">{t.sectionDescription}</p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h4 className={`${SECTION_TITLE} inline-flex items-center`}>
+          {t.sectionTitle}
+          <InfoTooltip content={t.sectionDescription} />
+        </h4>
       </div>
 
       <div className="mt-3 space-y-2" role="radiogroup" aria-label="AI call coverage">
@@ -244,8 +263,8 @@ export function AiCallCoverageEditor({
               aria-checked={selected}
               data-testid={`business-setup-ai-coverage-${option.kind}`}
               onClick={() => onKind(option.kind)}
-              className={`pick flex w-full items-start gap-3 rounded-xl border p-3.5 text-left ${
-                selected ? "selected" : "border-gray-200 bg-white"
+              className={`pick flex w-full items-start gap-3 rounded-xl border p-4 text-left transition ${
+                selected ? "selected border-amber-300 bg-white shadow-2xs" : "border-gray-200 bg-white hover:bg-slate-50/50"
               }`}
             >
               <span
@@ -253,7 +272,7 @@ export function AiCallCoverageEditor({
                   selected ? "border-amber-500" : "border-slate-300"
                 }`}
               >
-                {selected ? <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> : null}
+                {selected ? <span className="radio-fill h-2.5 w-2.5 rounded-full bg-amber-500" /> : null}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-2">
@@ -271,44 +290,21 @@ export function AiCallCoverageEditor({
         })}
       </div>
 
-      {kind === "always" ? (
-        <p className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600" data-testid="business-setup-ai-coverage-always-note">
-          {t.alwaysNote}
-        </p>
-      ) : null}
-
-      {kind === "business_hours" ? (
-        <div className="mt-3">
-          {businessHoursConfigured && businessHoursSummary ? null : (
-            <div
-              data-testid="business-setup-ai-coverage-bh-summary"
-              className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5"
-            >
-              <p className="text-xs font-semibold text-amber-800">
-                {triggerKind === "inbound_sms"
-                  ? "Business Hours are not set yet — the AI responds to all texts until they are."
-                  : triggerKind === "missed_call"
-                    ? "Business Hours are not set yet — the AI texts back all missed calls until they are."
-                    : "Business Hours are not set yet — the AI answers all calls until they are."}
-              </p>
-            </div>
-          )}
-        </div>
-      ) : null}
-
       {kind === "custom" ? (
         <div
-          className="mt-3 rounded-2xl border border-amber-200/80 bg-amber-50/30 p-4 sm:p-5 shadow-sm"
+          className="mt-3 rounded-none border-0 bg-transparent p-0"
           data-testid="business-setup-ai-coverage-custom-editor"
         >
-          <div className="mb-4">
-            <h4 className="text-sm font-bold text-slate-800">{t.customHeading}</h4>
-            <p className="text-xs text-slate-500">{t.customSubheading}</p>
+          <div className="mb-3">
+            <h4 className={`${SECTION_TITLE} inline-flex items-center`}>
+              {t.customHeading}
+              <InfoTooltip content={t.customSubheading} />
+            </h4>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Start</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Start</label>
               <input
                 type="time"
                 value={displayOpen}
@@ -318,7 +314,7 @@ export function AiCallCoverageEditor({
             </div>
             <span className="mt-5 text-slate-400 font-bold" aria-hidden="true">→</span>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">End</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">End</label>
               <input
                 type="time"
                 value={displayClose}
@@ -328,7 +324,7 @@ export function AiCallCoverageEditor({
             </div>
 
             <div className="mt-5 flex items-center">
-              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={sameHoursForAll}
@@ -342,12 +338,22 @@ export function AiCallCoverageEditor({
 
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-500">Active days</label>
-              {!sameHoursForAll && (
-                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
-                  Editing: <span className="capitalize">{selectedDay}</span> ({answeringDays.find((r) => r.day === selectedDay)?.closed ? "Closed" : "Open"})
-                </span>
-              )}
+              <label className="block text-xs font-medium text-slate-500">Active days</label>
+              <div className="flex items-center gap-2.5 text-xs">
+                <span className="text-slate-400">({answeringDays.filter(r => !r.closed).length} active)</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="font-semibold text-amber-600 hover:text-amber-700 transition"
+                >
+                  {showPreview ? "Hide Preview" : "Show Preview"}
+                </button>
+                {!sameHoursForAll && (
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50">
+                    Editing: <span className="capitalize">{selectedDay}</span> ({answeringDays.find((r) => r.day === selectedDay)?.closed ? "Closed" : "Open"})
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {COVERAGE_WEEKDAYS.map(({ key, pill }) => {
@@ -372,6 +378,12 @@ export function AiCallCoverageEditor({
               })}
             </div>
           </div>
+
+          {showPreview && (
+            <div className="mt-3.5">
+              <CompactWeeklyPreview summary={summarizeAnsweringWeek(answeringDays)} />
+            </div>
+          )}
 
           {/* Hidden accessibility container for test compatibility */}
           <div className="hidden" aria-hidden="true">

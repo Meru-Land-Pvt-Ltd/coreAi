@@ -305,18 +305,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return { completed, summary };
   }, [nodes.length, runLogs, conversationLogs, testDeployment]);
 
-  // Generic test-tab-only defaults. These never change the workflow nodes themselves.
-  useEffect(() => {
-    if (!isVoiceWorkflow) return;
-    setBusinessName((value) => value || "Sample Business");
-    setBusinessType((value) => value || "Service Business");
-    setCallerName((value) => value || "Test Customer");
-    setCalendarId((value) => value || "primary");
-    // Default the test timezone to the architect's browser zone (they can pick
-    // any IANA zone in the dropdown) — never a hardcoded server-side default.
-    setTimeZone((value) => value || browserTimeZone());
-    setAppointmentService((value) => value || "General Consultation");
-  }, [isVoiceWorkflow]);
+  // Test-tab form fields stay empty until the architect types them.
+  // Placeholders guide input; run/call handlers still apply safe fallbacks if blank.
 
   const meaningfulForSave = useCallback(
     (snap: { nodes: BuilderNode[]; agentName: string }) =>

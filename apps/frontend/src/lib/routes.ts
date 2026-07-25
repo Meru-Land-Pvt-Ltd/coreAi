@@ -60,7 +60,7 @@ export function resolveBusinessLoginReturnPath(next: string | null | undefined):
   return next as Route;
 }
 
-// Owned-agent detail page under My Agents (/business/agents/[agentId]).
+/** Business profile agent description page (/business/agents/[agentId]). */
 export function businessAgentDetailPath(agentId: string): Route {
   return `/business/agents/${agentId}` as Route;
 }
@@ -94,10 +94,12 @@ export function architectAnalyticsPath(listingId?: string): Route {
 // Business install/setup destination. Buyers installing an agent go to the
 // business setup wizard (NOT the architect publish flow). Optionally carries the
 // marketplace listing id as context.
-export function businessSetupPath(listingId?: string): Route {
-  return (listingId
-    ? `/business/agents/setup?listingId=${encodeURIComponent(listingId)}`
-    : "/business/agents/setup") as Route;
+export function businessSetupPath(listingId?: string, edit?: boolean): Route {
+  if (!listingId) {
+    return (edit ? "/business/agents/setup?mode=edit" : "/business/agents/setup") as Route;
+  }
+  const base = `/business/agents/setup?listingId=${encodeURIComponent(listingId)}`;
+  return (edit ? `${base}&mode=edit` : base) as Route;
 }
 
 // Checkout destination. Buyers starting a trial go to the checkout page,

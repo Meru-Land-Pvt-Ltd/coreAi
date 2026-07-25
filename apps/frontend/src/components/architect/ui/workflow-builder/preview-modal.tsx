@@ -67,13 +67,13 @@ export function PreviewModal({
           type="button"
           onClick={onClose}
           data-testid="preview-modal-close"
-          className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-500 shadow-lg transition hover:text-slate-800 md:-right-12 md:top-0"
+          className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-gray-100 bg-white text-slate-500 transition hover:text-slate-800 md:-right-12 md:top-0"
           aria-label="Close preview"
         >
           <BuilderIcon name="x" className="h-4 w-4" />
         </button>
         <p className="mb-4 text-sm font-medium text-white/80" data-testid="architect-ui-workflow-builder-preview-modal-what-the-patient-sees-on-their-phone-text">What the customer sees on their phone</p>
-        <div className="phone-shell h-[600px] w-[300px] rounded-[44px] bg-black p-2.5">
+        <div className="phone-shell h-[600px] w-[300px] rounded-[44px] border-2 border-amber-500 bg-black p-2.5">
           <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[36px] bg-white">
             <div className="absolute left-1/2 top-0 z-20 h-6 w-32 -translate-x-1/2 rounded-b-2xl bg-black" />
             <div className="z-10 flex items-center justify-between px-6 pb-1 pt-3 text-[11px] font-semibold text-slate-900">
@@ -93,17 +93,17 @@ export function PreviewModal({
             <div className="flex-1 space-y-3 overflow-y-auto bg-white px-4 py-5">
               <p className="text-center text-[10px] uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-preview-modal-today-2-14-pm-text">Today 2:14 PM</p>
               <div className="flex">
-                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm" data-testid="preview-modal-greeting">
+                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800" data-testid="preview-modal-greeting">
                   {botGreeting}
                 </div>
               </div>
               <div className="flex justify-end">
-                <div className="max-w-[70%] rounded-2xl rounded-br-md bg-green-500 px-3.5 py-2.5 text-[13px] leading-relaxed text-white shadow-sm" data-testid="preview-modal-user-message">
+                <div className="max-w-[70%] rounded-2xl rounded-br-md bg-green-500 px-3.5 py-2.5 text-[13px] leading-relaxed text-white" data-testid="preview-modal-user-message">
                   {userMessage}
                 </div>
               </div>
               <div className="flex">
-                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800 shadow-sm" data-testid="preview-modal-reply">
+                <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-800" data-testid="preview-modal-reply">
                   {botReply}
                   {canBook
                     ? resolvedSlots.map((slot, index) => (

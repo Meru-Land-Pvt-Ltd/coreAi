@@ -332,6 +332,23 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "ai" }
   }),
   def({
+    type: "ai.memory",
+    label: "Memory Node",
+    category: "ai",
+    description: "Stores and aggregates all previous node execution history + manual document uploads into a compact text memory string.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: true,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      customMemoryNotes: "",
+      maxMemoryTokens: "4000"
+    },
+    capability: "ai.memory",
+    producedVariables: ["memory"]
+  }),
+  def({
     type: "action.send_sms",
     label: "Send SMS",
     category: "action",

@@ -54,7 +54,8 @@ export function ConfigureSectionCard({
 
   return (
     <section
-      className={`transition-colors border-b border-gray-200/80 pb-4 last:border-b-0`}
+      id={id}
+      className={`transition-colors border-b border-gray-100 pb-4 last:border-b-0`}
       data-testid={`business-configure-section-${id}`}
     >
       <button
@@ -63,25 +64,27 @@ export function ConfigureSectionCard({
         aria-expanded={open}
         aria-controls={regionId}
         data-testid={`business-configure-section-${id}-toggle`}
-        className="flex w-full items-center justify-between gap-3 px-0 py-3.5 text-left transition-colors cursor-pointer"
+        className="group flex w-full items-center justify-between gap-3 px-0 py-4 text-left transition-colors cursor-pointer"
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3.5 min-w-0">
           {icon ? (
             <span
               aria-hidden="true"
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100/80 text-slate-600"
+              className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-400 transition-colors duration-200 group-hover:text-slate-600"
             >
               {icon}
             </span>
           ) : null}
-          <span className="text-sm font-bold text-slate-800 truncate">{title}</span>
+          <span className="text-base font-medium text-slate-700 transition-colors group-hover:text-slate-900 truncate">
+            {title}
+          </span>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
           <div data-testid={`business-configure-section-${id}-status`}>
             {isComplete ? (
               <span
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100"
                 aria-label="Completed"
                 title="Completed"
               >
@@ -92,14 +95,14 @@ export function ConfigureSectionCard({
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="h-3.5 w-3.5"
+                  className="h-2.5 w-2.5"
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </span>
             ) : (
               <span
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-50 text-slate-400 border border-slate-200/40"
                 aria-label="Not completed"
                 title="Not completed"
               >
@@ -110,7 +113,7 @@ export function ConfigureSectionCard({
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="h-3.5 w-3.5"
+                  className="h-2.5 w-2.5"
                 >
                   <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
                 </svg>
@@ -122,11 +125,11 @@ export function ConfigureSectionCard({
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.5"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
-            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${
+            className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-200 group-hover:text-slate-600 ${
               open ? "rotate-180" : ""
             }`}
           >
@@ -135,7 +138,7 @@ export function ConfigureSectionCard({
         </div>
       </button>
 
-      <div id={regionId} hidden={!open} className="px-0 py-4">
+      <div id={regionId} hidden={!open} className="px-0 py-3">
         {children}
       </div>
     </section>

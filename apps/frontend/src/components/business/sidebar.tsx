@@ -400,11 +400,6 @@ function isMarketplaceRoute(pathname: string) {
         return true;
     }
 
-    // Public shareable agent details (/agent/[id]) shown with sidebar when logged in
-    if (pathname.startsWith("/agent/")) {
-        return true;
-    }
-
     return false;
 }
 
