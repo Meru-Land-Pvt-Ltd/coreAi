@@ -47,7 +47,7 @@ export function ComplianceChecklist({
     <div className="space-y-8">
       <div>
         <p className="mb-1 block text-[13.5px] font-semibold text-slate-700">Data handling</p>
-        <p className="mb-3 text-xs text-slate-400">Honest answers here speed up review and build buyer trust.</p>
+        <p className="mb-3 text-[12.5px] text-slate-400">Honest answers here speed up review and build buyer trust.</p>
         <div className="space-y-2.5">
           {DATA_HANDLING_QUESTIONS.map((item) => {
             const value = compliance[item.key];
@@ -55,9 +55,9 @@ export function ComplianceChecklist({
             return (
               <div
                 key={item.key}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-white px-4 py-3.5"
+                className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-gray-50/40 p-4"
               >
-                <p className="text-sm font-medium text-slate-700">{item.question}</p>
+                <p className="text-[13.5px] font-medium text-slate-700">{item.question}</p>
                 <div className="inline-flex flex-none rounded-xl bg-gray-100 p-1" role="radiogroup" aria-label={item.question}>
                   <button
                     type="button"
@@ -65,11 +65,7 @@ export function ComplianceChecklist({
                     aria-pressed={value}
                     disabled={disabled}
                     onClick={() => onChange({ [item.key]: true } as Partial<AgentConfigureCompliance>)}
-                    className={
-                      value
-                        ? "rounded-lg bg-white px-4 py-1.5 text-[13px] font-semibold text-slate-900 shadow-sm transition"
-                        : "rounded-lg px-4 py-1.5 text-[13px] font-medium text-slate-500 transition hover:text-slate-700"
-                    }
+                    className="seg-btn rounded-lg px-4 py-1.5 text-[13px] font-medium text-slate-500 disabled:opacity-60"
                   >
                     Yes
                   </button>
@@ -79,11 +75,7 @@ export function ComplianceChecklist({
                     aria-pressed={!value}
                     disabled={disabled}
                     onClick={() => onChange({ [item.key]: false } as Partial<AgentConfigureCompliance>)}
-                    className={
-                      !value
-                        ? "rounded-lg bg-white px-4 py-1.5 text-[13px] font-semibold text-slate-900 shadow-sm transition"
-                        : "rounded-lg px-4 py-1.5 text-[13px] font-medium text-slate-500 transition hover:text-slate-700"
-                    }
+                    className="seg-btn rounded-lg px-4 py-1.5 text-[13px] font-medium text-slate-500 disabled:opacity-60"
                   >
                     No
                   </button>
@@ -96,7 +88,7 @@ export function ComplianceChecklist({
 
       <div>
         <p className="mb-1 block text-[13.5px] font-semibold text-slate-700">Before you publish</p>
-        <p className="mb-3 text-xs text-slate-400">All four are required to submit.</p>
+        <p className="mb-3 text-[12.5px] text-slate-400">All four are required to submit.</p>
         <div className="space-y-2.5">
           {COMPLIANCE_CHECK_DEFS.map((check) => {
             const checked = compliance.complianceChecks[check.key];
@@ -110,24 +102,17 @@ export function ComplianceChecklist({
                 aria-checked={checked}
                 disabled={disabled}
                 onClick={() => toggleCheck(check.key)}
-                className={
-                  checked
-                    ? "flex w-full items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3.5 text-left transition disabled:opacity-60"
-                    : "flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3.5 text-left transition hover:border-amber-200 disabled:opacity-60"
-                }
+                className="flex w-full items-center gap-3.5 rounded-2xl border border-gray-100 bg-gray-50/40 p-4 text-left transition hover:border-gray-200 disabled:opacity-60"
               >
                 <span
-                  className={
-                    checked
-                      ? "flex h-5 w-5 flex-none items-center justify-center rounded-md border border-amber-500 bg-amber-500 text-white transition"
-                      : "flex h-5 w-5 flex-none items-center justify-center rounded-md border border-gray-300 bg-white text-transparent transition"
-                  }
+                  className="ck flex h-5 w-5 flex-none items-center justify-center rounded-md border-2 border-gray-300 bg-white"
+                  aria-checked={checked}
                 >
-                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="h-3 w-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M20 6 9 17l-5-5" />
                   </svg>
                 </span>
-                <span className="text-sm font-medium text-slate-700">{check.label}</span>
+                <span className="text-[13.5px] font-medium text-slate-700">{check.label}</span>
               </button>
             );
           })}

@@ -53,6 +53,14 @@ export function IconUploader({
     void handleFile(event.dataTransfer.files?.[0]);
   }
 
+  const dropzoneClass = [
+    "dropzone relative flex h-44 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/40 px-4 text-center sm:w-44",
+    dragOver ? "dragover" : "",
+    iconUrl ? "filled" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div
       role="button"
@@ -69,20 +77,14 @@ export function IconUploader({
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={onDrop}
-      className={
-        dragOver
-          ? "relative flex h-44 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50 px-4 text-center transition-all sm:w-44"
-          : iconUrl
-            ? "relative flex h-44 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-solid border-amber-400 bg-amber-50/40 px-4 text-center transition-all sm:w-44"
-            : "relative flex h-44 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/40 px-4 text-center transition-all hover:border-gray-300 sm:w-44"
-      }
+      className={dropzoneClass}
     >
       {iconUrl ? (
-        <div className="flex flex-col items-center">
-          <div className="mb-2 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-md">
+        <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-white">
+          <div className="shadow-amber-sm mb-2 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600">
             <img src={iconUrl} alt="Agent icon preview" className="h-full w-full object-cover" />
           </div>
-          <p className="text-[12.5px] font-semibold text-slate-700">Icon uploaded</p>
+          <p className="max-w-full truncate px-3 text-[12.5px] font-semibold text-slate-700">Icon uploaded</p>
           {!disabled ? (
             <button
               type="button"
@@ -99,7 +101,7 @@ export function IconUploader({
         </div>
       ) : (
         <div className="flex flex-col items-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-gray-100 bg-white shadow-sm">
+          <div className="shadow-soft mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-gray-100 bg-white">
             <svg className="h-5 w-5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 16V4m0 0L8 8m4-4 4 4" />
               <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
@@ -136,6 +138,7 @@ export function ScreenshotUploader({
   disabled?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   async function handleFiles(files: FileList | null) {
     if (!files || disabled) return;
@@ -165,7 +168,7 @@ export function ScreenshotUploader({
       {screenshotUrls.map((url, index) => (
         <div
           key={`${index}-${url.slice(0, 24)}`}
-          className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-amber-200 bg-amber-50/40"
+          className="dropzone filled group relative aspect-[3/4] overflow-hidden rounded-xl border-2 border-solid border-amber-500 bg-[#fffbeb]"
           data-testid={`configure-screenshot-${index}`}
         >
           <img src={url} alt={`Screenshot ${index + 1}`} className="h-full w-full object-cover" />
@@ -193,7 +196,23 @@ export function ScreenshotUploader({
           data-testid="configure-screenshot-add"
           disabled={disabled}
           onClick={() => inputRef.current?.click()}
-          className="flex aspect-[4/3] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/40 text-slate-400 transition hover:border-gray-300 hover:text-slate-500 disabled:opacity-60"
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragOverIndex(screenshotUrls.length);
+          }}
+          onDragLeave={() => setDragOverIndex(null)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragOverIndex(null);
+            void handleFiles(event.dataTransfer.files);
+          }}
+          className={[
+            "dropzone flex aspect-[3/4] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/40 text-slate-400",
+            dragOverIndex === screenshotUrls.length ? "dragover" : "",
+            disabled ? "opacity-60" : "cursor-pointer"
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           <svg className="mb-1 h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14" />

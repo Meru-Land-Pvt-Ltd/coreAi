@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { BusinessHoursSection } from "@/components/business/business-hours-section";
-import { BUSINESS_MARKETPLACE_PATH, publicAgentPath } from "@/lib/routes";
+import { BUSINESS_MARKETPLACE_PATH, businessAgentDetailPath } from "@/lib/routes";
 import { BriefcaseBusiness, Rocket, TrendingUp } from "lucide-react";
 import {
   PhoneCall,
@@ -1156,7 +1156,7 @@ export function BusinessOnboardingFlow() {
                           <button
                             type="button"
                             onClick={() =>
-                              void finishAndNavigate("complete", publicAgentPath(agent.id))
+                              void finishAndNavigate("complete", businessAgentDetailPath(agent.id))
                             }
                             className={
                               index === 0

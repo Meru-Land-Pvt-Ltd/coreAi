@@ -11,14 +11,14 @@ export function StepProgress({
 }) {
   return (
     <div
-      className="mb-8 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6"
+      className="shadow-soft mb-8 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
       data-testid="configure-step-progress"
     >
       <div className="mb-4 flex items-baseline justify-between sm:hidden">
         <span className="text-[15px] font-bold text-slate-900" data-testid="configure-step-progress-mobile-label">
           {labels[current - 1]}
         </span>
-        <span className="text-xs font-semibold text-slate-400" data-testid="configure-step-progress-mobile-count">
+        <span className="text-[12px] font-semibold text-slate-400" data-testid="configure-step-progress-mobile-count">
           Step {current} of {labels.length}
         </span>
       </div>
@@ -37,15 +37,15 @@ export function StepProgress({
                 data-testid={`configure-step-goto-${step}`}
                 onClick={() => reachable && onGoto(step)}
                 disabled={!reachable}
-                className="group flex flex-none flex-col items-center gap-2 rounded-xl px-1 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 disabled:cursor-default"
+                className="group flex flex-none flex-col items-center gap-2 rounded-xl px-1 outline-none transition-all focus-visible:shadow-[0_0_0_3px_rgba(245,158,11,.45)] disabled:cursor-default"
               >
                 <span
                   className={
                     isDone
-                      ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-green-500 bg-green-500 text-sm font-bold text-white shadow-sm transition-all"
+                      ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-green-500 bg-green-500 text-[14px] font-bold text-white transition-all"
                       : isCurrent
-                        ? "flex h-9 w-9 items-center justify-center rounded-full border-2 border-amber-500 bg-amber-500 text-sm font-bold text-white shadow-sm transition-all"
-                        : "flex h-9 w-9 items-center justify-center rounded-full border-2 border-gray-200 bg-white text-sm font-bold text-slate-400 transition-all"
+                        ? "shadow-amber-sm flex h-9 w-9 items-center justify-center rounded-full border-2 border-amber-500 bg-amber-500 text-[14px] font-bold text-white transition-all"
+                        : "flex h-9 w-9 items-center justify-center rounded-full border-2 border-gray-200 bg-white text-[14px] font-bold text-slate-400 transition-all"
                   }
                 >
                   {isDone ? (
@@ -59,10 +59,10 @@ export function StepProgress({
                 <span
                   className={
                     isCurrent
-                      ? "hidden whitespace-nowrap text-xs font-bold text-slate-900 sm:block"
+                      ? "hidden whitespace-nowrap text-[12px] font-semibold text-slate-900 sm:block"
                       : isDone
-                        ? "hidden whitespace-nowrap text-xs font-medium text-green-600 sm:block"
-                        : "hidden whitespace-nowrap text-xs font-medium text-slate-400 sm:block"
+                        ? "hidden whitespace-nowrap text-[12px] font-semibold text-green-600 sm:block"
+                        : "hidden whitespace-nowrap text-[12px] font-semibold text-slate-400 sm:block"
                   }
                 >
                   {label}

@@ -37,24 +37,20 @@ export function RequiredIntegrationsSelector({
             aria-pressed={active}
             disabled={disabled}
             onClick={() => onToggle(def.key)}
-            className={
-              active
-                ? "flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50/60 px-4 py-3.5 text-left transition-all disabled:opacity-60"
-                : "flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3.5 text-left transition-all hover:border-amber-200 disabled:opacity-60"
-            }
+            className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3.5 text-left transition-all hover:border-gray-200 disabled:opacity-60"
           >
             <span
               className={
                 active
-                  ? "flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm"
+                  ? "shadow-soft flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-500 text-white"
                   : "flex h-9 w-9 flex-none items-center justify-center rounded-xl border border-gray-100 bg-gray-50 text-slate-400"
               }
             >
               <BuilderIcon name={INTEGRATION_ICONS[def.key]} className="h-[18px] w-[18px]" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-slate-800">{def.label}</span>
-              <span className="mt-0.5 block text-xs text-slate-400">{def.description}</span>
+              <span className="block text-[13.5px] font-semibold text-slate-800">{def.label}</span>
+              <span className="mt-0.5 block text-[12px] text-slate-400">{def.description}</span>
             </span>
             <span className={active ? "toggle on" : "toggle"} role="switch" aria-checked={active}>
               <span className="knob" />
