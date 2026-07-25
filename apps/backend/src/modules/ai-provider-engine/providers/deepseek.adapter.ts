@@ -20,6 +20,7 @@ import {
   enrichContinueRequest,
   type PricingTable,
 } from "./base-adapter";
+import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 class DeepSeekAdapter implements AIProviderAdapter {
   readonly providerId = "deepseek";
@@ -31,24 +32,12 @@ class DeepSeekAdapter implements AIProviderAdapter {
     code: 9,
   };
 
-  private dynamicModels: string[] | null = null;
-  private dynamicPricing: PricingTable | null = null;
-
   get models(): string[] {
-    return this.dynamicModels ?? ["deepseek-reasoner", "deepseek-chat", "deepseek-coder"];
+    return getModelsForProvider("deepseek");
   }
 
   get pricing(): PricingTable {
-    return this.dynamicPricing ?? {
-      "deepseek-reasoner": { input: 0.55, output: 2.19 },
-      "deepseek-chat":     { input: 0.14, output: 0.28 },
-      "deepseek-coder":    { input: 0.14, output: 0.28 },
-    };
-  }
-
-  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
-    this.dynamicModels = models;
-    this.dynamicPricing = pricing;
+    return getPricingForProvider("deepseek");
   }
 
   private _client: OpenAI | null = null;
@@ -64,7 +53,7 @@ class DeepSeekAdapter implements AIProviderAdapter {
   }
 
   private get defaultModel() {
-    return "deepseek-chat";
+    return "DeepSeek-V4-Flash";
   }
 
   async validate(): Promise<ValidationResult> {

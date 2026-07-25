@@ -21,6 +21,7 @@ import {
   ensureDataUri,
   type PricingTable,
 } from "./base-adapter";
+import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 class OpenAIAdapter implements AIProviderAdapter {
   readonly providerId = "openai";
@@ -33,25 +34,12 @@ class OpenAIAdapter implements AIProviderAdapter {
     image: 9,
   };
 
-  private dynamicModels: string[] | null = null;
-  private dynamicPricing: PricingTable | null = null;
-
   get models(): string[] {
-    return this.dynamicModels ?? ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"];
+    return getModelsForProvider("openai");
   }
 
   get pricing(): PricingTable {
-    return this.dynamicPricing ?? {
-      "gpt-4o":        { input: 2.50,  output: 10.00 },
-      "gpt-4o-mini":   { input: 0.15,  output: 0.60  },
-      "gpt-4-turbo":   { input: 10.00, output: 30.00 },
-      "gpt-3.5-turbo": { input: 0.50,  output: 1.50  },
-    };
-  }
-
-  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
-    this.dynamicModels = models;
-    this.dynamicPricing = pricing;
+    return getPricingForProvider("openai");
   }
 
   private _client: OpenAI | null = null;

@@ -20,6 +20,7 @@ import {
   enrichContinueRequest,
   type PricingTable,
 } from "./base-adapter";
+import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 class GroqAdapter implements AIProviderAdapter {
   readonly providerId = "groq";
@@ -31,30 +32,12 @@ class GroqAdapter implements AIProviderAdapter {
     code: 8,
   };
 
-  private dynamicModels: string[] | null = null;
-  private dynamicPricing: PricingTable | null = null;
-
   get models(): string[] {
-    return this.dynamicModels ?? [
-      "deepseek-r1-distill-llama-70b",
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant",
-      "mixtral-8x7b-32768",
-    ];
+    return getModelsForProvider("groq");
   }
 
   get pricing(): PricingTable {
-    return this.dynamicPricing ?? {
-      "deepseek-r1-distill-llama-70b": { input: 0.59, output: 0.79 },
-      "llama-3.3-70b-versatile":       { input: 0.59, output: 0.79 },
-      "llama-3.1-8b-instant":          { input: 0.05, output: 0.08 },
-      "mixtral-8x7b-32768":             { input: 0.24, output: 0.24 },
-    };
-  }
-
-  updateModelsAndPricing(models: string[], pricing: PricingTable): void {
-    this.dynamicModels = models;
-    this.dynamicPricing = pricing;
+    return getPricingForProvider("groq");
   }
 
   private _client: OpenAI | null = null;

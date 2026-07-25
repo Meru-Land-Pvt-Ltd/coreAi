@@ -322,6 +322,7 @@ export default function BusinessAgentDescriptionPage() {
       similarHref={(id) => businessAgentDetailPath(id)}
       showDemo
       demoMode="authenticated"
+      demoVideoUrl={listing.demoVideoUrl ?? null}
     />
   );
 }

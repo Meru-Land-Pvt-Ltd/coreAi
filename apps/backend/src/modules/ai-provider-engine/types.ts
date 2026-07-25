@@ -88,7 +88,6 @@ export interface AIProviderAdapter {
   continueConversation(request: AIContinueRequest): Promise<AIExecuteResponse>;
   estimateCost(request: AIExecuteRequest): Promise<CostEstimate>;
   listModels?(): Promise<ModelInfo[]>;
-  updateModelsAndPricing?(models: string[], pricing: Record<string, { input: number; output: number }>): void;
 }
 
 export type AIExecuteResponse = {

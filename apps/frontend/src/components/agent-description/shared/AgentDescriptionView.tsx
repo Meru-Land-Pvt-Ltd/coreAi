@@ -2,6 +2,7 @@
 
 import type { Route } from "next";
 import type { ComponentProps, ReactNode } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
@@ -102,7 +103,117 @@ export type AgentDescriptionViewProps = {
   showDemo: boolean;
   /** Public = IP-limited 2×2min; authenticated = buyer route. */
   demoMode?: "public" | "authenticated";
+  /** Optional YouTube or Loom demo video URL shown in the How It Works section. */
+  demoVideoUrl?: string | null;
 };
+
+/** Parses a YouTube or Loom URL and returns an embed URL, or null if unrecognised. */
+function getEmbedUrl(url: string): { embedUrl: string; provider: "youtube" | "loom" } | null {
+  try {
+    const u = new URL(url);
+
+    // YouTube: youtube.com/watch?v=ID  |  youtu.be/ID  |  youtube.com/embed/ID
+    const ytMatch =
+      u.hostname.includes("youtube.com")
+        ? (u.pathname.match(/\/embed\/([^/?&]+)/) ?? u.searchParams.get("v") ? [null, u.searchParams.get("v")] : null)
+        : u.hostname === "youtu.be"
+          ? u.pathname.match(/^\/([^/?&]+)/)
+          : null;
+    if (ytMatch?.[1]) {
+      return { embedUrl: `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&rel=0`, provider: "youtube" };
+    }
+
+    // Loom: loom.com/share/ID
+    if (u.hostname.includes("loom.com")) {
+      const loomMatch = u.pathname.match(/\/share\/([^/?&]+)/);
+      if (loomMatch?.[1]) {
+        return { embedUrl: `https://www.loom.com/embed/${loomMatch[1]}?autoplay=1`, provider: "loom" };
+      }
+    }
+  } catch {
+    // malformed URL — silently skip
+  }
+  return null;
+}
+
+/** Click-to-play video embed — iframe is NOT loaded until the user clicks play, so page load is not affected. */
+function VideoEmbed({ url, title }: { url: string; title: string }) {
+  const [playing, setPlaying] = useState(false);
+  const parsed = getEmbedUrl(url);
+  if (!parsed) return null;
+
+  const { embedUrl, provider } = parsed;
+
+  // YouTube thumbnail (hi-res, then fallback to medium)
+  const ytThumbId = provider === "youtube" ? embedUrl.match(/embed\/([^?]+)/)?.[1] : null;
+  const thumbSrc = ytThumbId
+    ? `https://img.youtube.com/vi/${ytThumbId}/maxresdefault.jpg`
+    : null;
+
+  return (
+    <div className="mt-8 mx-auto max-w-2xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white sm:mt-10">
+      {/* Single Line Header */}
+      <div className="border-b border-amber-100 bg-amber-50/50 px-4 py-2.5 text-center">
+        <span className="text-[13px] font-bold text-slate-800">
+          🎬 Watch how this agent works for your business
+        </span>
+      </div>
+
+      {/* Video area */}
+      <div className="relative aspect-video w-full bg-slate-900">
+        {playing ? (
+          <iframe
+            src={embedUrl}
+            title={title}
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            className="absolute inset-0 h-full w-full"
+            loading="lazy"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPlaying(true)}
+            aria-label={`Play demo video: ${title}`}
+            className="group absolute inset-0 flex h-full w-full flex-col items-center justify-center"
+          >
+            {/* Thumbnail */}
+            {thumbSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumbSrc}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover opacity-80 transition group-hover:opacity-70"
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (img.src.includes("maxresdefault")) {
+                    img.src = img.src.replace("maxresdefault", "hqdefault");
+                  }
+                }}
+              />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900" />
+            )}
+
+            {/* Overlay */}
+            <div className="absolute inset-0 bg-slate-900/30 transition group-hover:bg-slate-900/40" />
+
+            {/* Play button */}
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 ring-4 ring-white/20 transition duration-200 group-hover:scale-105 group-hover:bg-amber-400 sm:h-14 sm:w-14">
+              <svg className="h-5 w-5 translate-x-0.5 text-white sm:h-6 sm:w-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.14v14l11-7-11-7z" />
+              </svg>
+            </div>
+
+            <span className="relative mt-3 rounded-full bg-white/10 px-3.5 py-1 text-[12px] font-semibold text-white backdrop-blur-sm">
+              Click to watch walkthrough
+            </span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ArrowIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -234,7 +345,8 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
     similar,
     similarHref,
     showDemo,
-    demoMode = "public"
+    demoMode = "public",
+    demoVideoUrl
   } = props;
 
   // Strict limit of max 3 agents for "More agents businesses love"
@@ -435,6 +547,11 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                   ))}
                 </div>
               </div>
+
+              {/* Demo video — click-to-play, zero load cost until clicked */}
+              {demoVideoUrl ? (
+                <VideoEmbed url={demoVideoUrl} title={`${listingName} — how it works`} />
+              ) : null}
             </div>
           </section>
 

@@ -1,3 +1,8 @@
+/**
+ * LLM Model Catalog — static list shared across frontend and backend.
+ * Add/remove models here; the rest of the UI updates automatically.
+ */
+
 export type TaskCategory = "thinking" | "flagship" | "fast" | "code";
 
 export type LLMModelMeta = {
@@ -6,39 +11,40 @@ export type LLMModelMeta = {
   displayName: string;
   category: TaskCategory;
   badge: "Thinking" | "Flagship" | "Fast" | "Coding";
+  inputPricePer1M: number | null;   // USD, null = unknown / free tier
+  outputPricePer1M: number | null;  // USD, null = unknown / free tier
 };
 
 export const LLM_MODELS: LLMModelMeta[] = [
-  // OpenAI (Latest Models)
-  { id: "gpt-5.5", providerId: "openai", displayName: "GPT-5.5", category: "flagship", badge: "Flagship" },
-  { id: "gpt-4.5", providerId: "openai", displayName: "GPT-4.5", category: "flagship", badge: "Flagship" },
-  { id: "o3-mini", providerId: "openai", displayName: "OpenAI o3-mini", category: "thinking", badge: "Thinking" },
-  { id: "o1", providerId: "openai", displayName: "OpenAI o1", category: "thinking", badge: "Thinking" },
-  { id: "gpt-4o", providerId: "openai", displayName: "GPT-4o", category: "flagship", badge: "Flagship" },
-  { id: "gpt-4o-mini", providerId: "openai", displayName: "GPT-4o mini", category: "fast", badge: "Fast" },
+  // ── OpenAI ────────────────────────────────────────────────────────────────
+  { id: "gpt-5.5",      providerId: "openai", displayName: "GPT-5.5",      category: "flagship", badge: "Flagship", inputPricePer1M: 5.00,  outputPricePer1M: 45.00  },
+  { id: "gpt-5.5-pro",  providerId: "openai", displayName: "GPT-5.5 Pro",  category: "flagship", badge: "Flagship", inputPricePer1M: 30.00, outputPricePer1M: 270.00 },
+  { id: "gpt-5.4",      providerId: "openai", displayName: "GPT-5.4",      category: "flagship", badge: "Flagship", inputPricePer1M: 2.50,  outputPricePer1M: 22.50  },
+  { id: "gpt-5.4-mini", providerId: "openai", displayName: "GPT-5.4 Mini", category: "fast",     badge: "Fast",     inputPricePer1M: 0.75,  outputPricePer1M: null   },
 
-  // Anthropic Claude (Latest Models)
-  { id: "claude-4.6-sonnet", providerId: "claude", displayName: "Claude 4.6 Sonnet", category: "flagship", badge: "Flagship" },
-  { id: "claude-opus-4.5", providerId: "claude", displayName: "Claude 4.5 Opus", category: "thinking", badge: "Thinking" },
-  { id: "claude-3-5-haiku", providerId: "claude", displayName: "Claude 3.5 Haiku", category: "fast", badge: "Fast" },
+  // ── Google Gemini ─────────────────────────────────────────────────────────
+  { id: "gemini-3.6-flash",      providerId: "gemini", displayName: "Gemini 3.6 Flash",      category: "flagship", badge: "Flagship", inputPricePer1M: null, outputPricePer1M: null },
+  { id: "gemini-3.5-flash",      providerId: "gemini", displayName: "Gemini 3.5 Flash",      category: "flagship", badge: "Flagship", inputPricePer1M: null, outputPricePer1M: null },
+  { id: "gemini-3.5-flash-lite", providerId: "gemini", displayName: "Gemini 3.5 Flash Lite", category: "fast",     badge: "Fast",     inputPricePer1M: null, outputPricePer1M: null },
+  { id: "gemini-3.1-flash-lite", providerId: "gemini", displayName: "Gemini 3.1 Flash Lite", category: "fast",     badge: "Fast",     inputPricePer1M: null, outputPricePer1M: null },
 
-  // Google Gemini (Latest Models)
-  { id: "gemini-3.5-flash", providerId: "gemini", displayName: "Gemini 3.5 Flash", category: "flagship", badge: "Flagship" },
-  { id: "gemini-3.1-flash-lite", providerId: "gemini", displayName: "Gemini 3.1 Flash Lite", category: "fast", badge: "Fast" },
-  { id: "gemini-2.0-flash", providerId: "gemini", displayName: "Gemini 2.0 Flash", category: "fast", badge: "Fast" },
-  { id: "gemini-1.5-pro", providerId: "gemini", displayName: "Gemini 1.5 Pro", category: "thinking", badge: "Thinking" },
+  // ── Anthropic Claude ──────────────────────────────────────────────────────
+  { id: "claude-fable-5",            providerId: "claude", displayName: "Claude Fable 5",    category: "thinking", badge: "Thinking", inputPricePer1M: 10.00, outputPricePer1M: 50.00 },
+  { id: "claude-opus-5",             providerId: "claude", displayName: "Claude Opus 5",     category: "thinking", badge: "Thinking", inputPricePer1M: 5.00,  outputPricePer1M: 25.00 },
+  { id: "claude-sonnet-5",           providerId: "claude", displayName: "Claude Sonnet 5",   category: "flagship", badge: "Flagship", inputPricePer1M: 3.00,  outputPricePer1M: 15.00 },
+  { id: "claude-haiku-4-5-20251001", providerId: "claude", displayName: "Claude Haiku 4.5",  category: "fast",     badge: "Fast",     inputPricePer1M: 1.00,  outputPricePer1M: 5.00  },
 
-  // DeepSeek (Latest Models)
-  { id: "deepseek-r1", providerId: "deepseek", displayName: "DeepSeek R1", category: "thinking", badge: "Thinking" },
-  { id: "deepseek-v3", providerId: "deepseek", displayName: "DeepSeek V3", category: "flagship", badge: "Flagship" },
-  { id: "deepseek-coder", providerId: "deepseek", displayName: "DeepSeek Coder", category: "code", badge: "Coding" },
+  // ── DeepSeek ──────────────────────────────────────────────────────────────
+  { id: "DeepSeek-V4-Flash", providerId: "deepseek", displayName: "DeepSeek V4 Flash", category: "fast",     badge: "Fast",     inputPricePer1M: 0.14,  outputPricePer1M: 0.28 },
+  { id: "DeepSeek-V4-Pro",   providerId: "deepseek", displayName: "DeepSeek V4 Pro",   category: "flagship", badge: "Flagship", inputPricePer1M: 0.435, outputPricePer1M: 0.87 },
 
-  // Groq (Latest Fast Hardware Models)
-  { id: "deepseek-r1-distill-llama-70b", providerId: "groq", displayName: "DeepSeek R1 70B (Groq)", category: "thinking", badge: "Thinking" },
-  { id: "llama-3.3-70b-versatile", providerId: "groq", displayName: "Llama 3.3 70B (Groq)", category: "flagship", badge: "Flagship" },
-  { id: "llama-3.1-8b-instant", providerId: "groq", displayName: "Llama 3.1 8B (Groq)", category: "fast", badge: "Fast" },
+  // ── Mistral ───────────────────────────────────────────────────────────────
+  { id: "mistral-medium-3-5", providerId: "mistral", displayName: "Mistral Medium 3.5",    category: "flagship", badge: "Flagship", inputPricePer1M: 1.50, outputPricePer1M: 7.50 },
+  { id: "mistral-small-2603", providerId: "mistral", displayName: "Mistral Small 4 (2603)", category: "fast",     badge: "Fast",     inputPricePer1M: 0.15, outputPricePer1M: 0.60 },
 
-  // Mistral AI
-  { id: "codestral-latest", providerId: "mistral", displayName: "Codestral 22B", category: "code", badge: "Coding" },
-  { id: "mistral-large-latest", providerId: "mistral", displayName: "Mistral Large", category: "flagship", badge: "Flagship" },
+  // ── Groq ──────────────────────────────────────────────────────────────────
+  { id: "llama-3.1-8b-instant",    providerId: "groq", displayName: "Llama 3.1 8B (Groq)",  category: "fast",     badge: "Fast",     inputPricePer1M: 0.05,  outputPricePer1M: 0.08 },
+  { id: "llama-3.3-70b-versatile", providerId: "groq", displayName: "Llama 3.3 70B (Groq)", category: "flagship", badge: "Flagship", inputPricePer1M: 0.59,  outputPricePer1M: 0.79 },
+  { id: "openai/gpt-oss-120b",     providerId: "groq", displayName: "GPT-OSS 120B (Groq)",  category: "flagship", badge: "Flagship", inputPricePer1M: 0.15,  outputPricePer1M: 0.60 },
+  { id: "openai/gpt-oss-20b",      providerId: "groq", displayName: "GPT-OSS 20B (Groq)",   category: "fast",     badge: "Fast",     inputPricePer1M: 0.075, outputPricePer1M: 0.30 },
 ];

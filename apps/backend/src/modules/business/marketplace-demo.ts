@@ -43,6 +43,7 @@ export type DemoCallCustomInfo = {
 export type MarketplaceDemoSession = {
   publicKey: string;
   assistantId: string;
+  assistantOverrides?: Record<string, unknown>;
   listingId: string;
   listingName: string;
   assistantName: string;
@@ -224,7 +225,6 @@ function buildDemoSystemPrompt(params: {
   demoBusinessName: string;
   industry: string;
   listingName: string;
-  listingDescription: string;
   customInfo?: DemoCallCustomInfo;
 }): string {
   const bizName = params.customInfo?.businessName?.trim() || params.demoBusinessName;
@@ -234,13 +234,11 @@ function buildDemoSystemPrompt(params: {
   const services = params.customInfo?.services?.trim();
 
   const businessIdentity = docName
-    ? `${bizName} (Contact/Practitioner: ${docName})`
+    ? `${bizName} (Contact / Practitioner: ${docName})`
     : bizName;
 
   const lines = [
-    `You are ${params.assistantName}, the dedicated AI receptionist for ${businessIdentity}, a ${bizType} practice/business.`,
-    ``,
-    `About this agent: ${params.listingDescription}`,
+    `You are ${params.assistantName}, the dedicated AI voice receptionist for ${businessIdentity}, a ${bizType} practice/business.`,
     ``
   ];
 
@@ -253,12 +251,12 @@ function buildDemoSystemPrompt(params: {
 
   lines.push(
     ``,
-    `DEMO RULES:`,
-    `- This is a live demo personalized for a prospective buyer. Greet callers warmly and answer questions specifically as the AI receptionist for ${bizName}.`,
-    `- Use the provided location (${address || "sample office"}) and services (${services || "standard services"}) when answering caller inquiries.`,
-    `- You cannot actually book appointments, send texts, or send emails in this demo. If the caller asks, walk them through what WOULD happen for a real customer, step by step.`,
-    `- If asked about buying the agent: after purchase, the agent is configured with the buyer's real business details, phone number, and calendar.`,
-    `- Keep replies short, professional, and natural — this is a phone conversation.`
+    `DEMO RULES & BEHAVIOR:`,
+    `- Answer caller inquiries naturally, warmly, and concisely (1-2 natural sentences per turn) as the dedicated AI receptionist for ${bizName}.`,
+    `- Use the exact business details provided above: Business Name (${bizName})${docName ? `, Practitioner Name (${docName})` : ""}${address ? `, Address (${address})` : ""}${services ? `, Services (${services})` : ""}.`,
+    `- Stay strictly in character as the business receptionist. If asked about underlying AI software, platform architecture, or technical details, politely stay in character as the receptionist for ${bizName}.`,
+    `- You cannot actually finalize bookings or send texts during this live demo. Walk callers through what WOULD happen naturally (e.g. "I can note down your preferred appointment time and send a confirmation SMS!").`,
+    `- If asked about buying or configuring this agent: state that after purchasing on the marketplace, the agent will be set up with their real business phone number, custom details, and Google Calendar integration.`
   );
 
   return lines.join("\n");
@@ -381,7 +379,6 @@ async function startDemoCallInternal(params: {
     demoBusinessName,
     industry,
     listingName: listing.name,
-    listingDescription: listing.shortDescription || listing.description || "an AI receptionist",
     customInfo
   });
 
@@ -419,6 +416,21 @@ async function startDemoCallInternal(params: {
 
   demoAssistantByListing.set(listing.id, assistant.id);
 
+  // Real-time assistant overrides passed to vapi.start() to guarantee custom form values are applied instantly
+  const assistantOverrides = {
+    firstMessage,
+    model: {
+      provider: "openai",
+      model: str(voiceNode, "model", "gpt-4o-mini"),
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        }
+      ]
+    }
+  };
+
   // Consume the allowance only after the assistant deployed successfully.
   await recordDemoStart(userKey, globalKey);
   const remainingToday = Math.max(0, dailyLimit - (counts.user + 1));
@@ -433,6 +445,7 @@ async function startDemoCallInternal(params: {
   return {
     publicKey: env.VAPI_PUBLIC_KEY,
     assistantId: assistant.id,
+    assistantOverrides,
     listingId: listing.id,
     listingName: listing.name,
     assistantName,

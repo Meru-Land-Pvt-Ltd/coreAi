@@ -6,6 +6,7 @@ import { apiPost } from "@/lib/api";
 type DemoSession = {
     publicKey: string;
     assistantId: string;
+    assistantOverrides?: Record<string, unknown>;
     listingId: string;
     listingName: string;
     assistantName: string;
@@ -29,8 +30,6 @@ let sharedDemoClient: VapiWebClient | null = null;
 let sharedDemoClientKey = "";
 
 async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
-    if (sharedDemoClient && sharedDemoClientKey === publicKey) return sharedDemoClient;
-
     if (sharedDemoClient) {
         try {
             sharedDemoClient.stop();
@@ -43,6 +42,8 @@ async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
             // no listeners
         }
     }
+
+    if (sharedDemoClient && sharedDemoClientKey === publicKey) return sharedDemoClient;
 
     const mod = await import("@vapi-ai/web");
     const VapiCtor = mod.default as unknown as new (key: string) => VapiWebClient;
@@ -212,9 +213,12 @@ export function AgentDemoCall({
                 }
             };
 
-            await client.start(session.assistantId, {
+            const startOverrides = {
+                ...(session.assistantOverrides ?? {}),
                 metadata: { listingId: session.listingId, purpose: "MARKETPLACE_DEMO" }
-            });
+            };
+
+            await client.start(session.assistantId, startOverrides);
         } catch (error) {
             const text = error instanceof Error ? error.message : "";
             setMessage(
@@ -234,13 +238,13 @@ export function AgentDemoCall({
     return (
         <>
             <div
-                className="mt-4 rounded-2xl border border-amber-200/90 bg-amber-50/70 p-4 sm:p-4.5"
+                className="mt-4 rounded-2xl border border-amber-200/90 bg-amber-50/70 p-4 sm:p-4.5 transform-gpu [backface-visibility:hidden]"
                 data-testid="agent-demo-call"
             >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                            <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                            <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse transform-gpu" />
                             <p className="text-sm font-bold text-slate-900" data-testid="agent-demo-call-title">
                                 Try a live demo call
                             </p>
@@ -265,7 +269,7 @@ export function AgentDemoCall({
                                 type="button"
                                 onClick={endDemo}
                                 data-testid="agent-demo-call-end"
-                                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 transform-gpu [backface-visibility:hidden]"
                             >
                                 End demo
                             </button>
@@ -276,7 +280,7 @@ export function AgentDemoCall({
                             onClick={() => setIsModalOpen(true)}
                             disabled={state === "starting"}
                             data-testid="agent-demo-call-start"
-                            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-amber-400 active:bg-amber-600 disabled:opacity-50"
+                            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-amber-400 active:bg-amber-600 disabled:opacity-50 transform-gpu [backface-visibility:hidden]"
                         >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />

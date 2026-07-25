@@ -1119,15 +1119,15 @@ export async function deployVapiAssistant({
       language: resolveTranscriberLanguage(language)
     },
     startSpeakingPlan: {
-      waitSeconds: 0.4,
+      waitSeconds: 0.2,
       smartEndpointingPlan: {
         provider: "livekit",
         waitFunction: "2000 / (1 + exp(-10 * (x - 0.5)))"
       },
       transcriptionEndpointingPlan: {
         onPunctuationSeconds: 0.1,
-        onNoPunctuationSeconds: 0.8,
-        onNumberSeconds: 0.4
+        onNoPunctuationSeconds: 0.4,
+        onNumberSeconds: 0.3
       }
     },
     stopSpeakingPlan: {

@@ -57,6 +57,7 @@ export type ApiListing = {
   createdAt?: string;
   updatedAt?: string;
   installCount?: number;
+  demoVideoUrl?: string | null;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
 };
@@ -216,21 +217,33 @@ export function formatRealInstallCount(installs: number): string {
   return String(Math.max(0, Math.floor(installs)));
 }
 
-/**
- * Public page: add +1000 for social proof, and use compact 1K-style labels
- * once the displayed count reaches 100+.
- */
-export function formatPublicInstallCount(installs: number): string {
-  const display = Math.max(0, Math.floor(installs)) + 1000;
-  if (display >= 100) {
-    if (display >= 1000) {
-      const k = display / 1000;
-      const rounded = Math.round(k * 10) / 10;
-      return Number.isInteger(rounded) ? `${rounded}K` : `${rounded}K`;
-    }
-    return `${display}+`;
+function stringHash(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 33) ^ str.charCodeAt(i);
   }
-  return String(display);
+  return Math.abs(hash);
+}
+
+/**
+ * Public page: display real installs if present, or generate a realistic dynamic
+ * social proof label per listing seed instead of a static fixed "1K".
+ */
+export function formatPublicInstallCount(installs: number, seed?: string): string {
+  const realCount = Math.max(0, Math.floor(installs));
+  if (realCount > 0) {
+    if (realCount >= 1000) {
+      const k = Math.round((realCount / 1000) * 10) / 10;
+      return `${k}K+`;
+    }
+    return `${realCount}+`;
+  }
+
+  // Generate a dynamic social proof label per listing seed (e.g. 1.4K+, 2.3K+, 3.1K+)
+  const hash = seed ? stringHash(seed) : 1337;
+  const num = 1.2 + ((hash % 36) / 10); // Generates between 1.2 and 4.7
+  const rounded = Math.round(num * 10) / 10;
+  return `${rounded}K+`;
 }
 
 /** The long-form agent description shown in the "About this agent" section. */
