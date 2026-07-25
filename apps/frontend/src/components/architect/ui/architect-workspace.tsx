@@ -54,7 +54,7 @@ const emptyWorkflowJson = {
 
 function currency(cents: number | null | undefined) {
   if (!cents) return "Not set";
-  return `₹${Math.round(cents / 100).toLocaleString("en-IN")}`;
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function csvToArray(value: string) {

@@ -10,13 +10,14 @@ export const OWNED_PAYMENT_STATUSES: PaymentStatus[] = [
 export const TRIAL_ACCESS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function resolveActivePayment<
-  T extends { status: PaymentStatus; createdAt: Date; periodEnd?: Date | null }
+  T extends { status: PaymentStatus; createdAt: Date; periodEnd?: Date | null; canceledAt?: Date | null }
 >(
   payments: T[]
 ): T | null {
   const trialCutoff = Date.now() - TRIAL_ACCESS_WINDOW_MS;
   const owned = payments.filter(
     (payment) =>
+      !payment.canceledAt &&
       OWNED_PAYMENT_STATUSES.includes(payment.status) &&
       (payment.status !== PaymentStatus.TRIALING ||
         (payment.periodEnd
@@ -129,7 +130,12 @@ export async function canBusinessAccessListing(params: {
   }
 
   const installed = await prisma.installedAgent.findFirst({
-    where: { listingId: params.listingId, business: { ownerId: params.userId } },
+    where: {
+      listingId: params.listingId,
+      business: { ownerId: params.userId },
+      // A cancelled install no longer grants grandfathered access.
+      status: { notIn: ["CANCELED", "INACTIVE"] }
+    },
     select: { id: true }
   });
 

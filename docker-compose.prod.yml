@@ -77,6 +77,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       FRONTEND_URL: ${FRONTEND_URL}
       BACKEND_URL: ${BACKEND_URL}
+      VAPI_API_KEY: ${VAPI_API_KEY}
+      VAPI_WEBHOOK_SECRET: ${VAPI_WEBHOOK_SECRET:?VAPI_WEBHOOK_SECRET is required}
     depends_on:
       postgres:
         condition: service_healthy

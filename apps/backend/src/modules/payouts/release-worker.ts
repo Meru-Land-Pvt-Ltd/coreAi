@@ -1,21 +1,30 @@
 import { prisma } from "../../lib/prisma";
 import { payoutConfig, stripeLivemode } from "./config";
+import { runSettlementReconcile } from "./reconcile";
 import { releaseEligibleEarnings } from "./settlements";
-import { transferReleasedEarnings } from "./transfer-service";
+import { processPendingReversals, transferReleasedEarnings } from "./transfer-service";
 
 let releaseTimer: NodeJS.Timeout | null = null;
 
-/**
- * Hourly earning release cycle: moves expired HELD earnings (that passed the
- * admin review gate) to AVAILABLE_FOR_TRANSFER. Actual Stripe transfers run
- * here only when ARCHITECT_AUTO_TRANSFER_ENABLED=true — otherwise they happen
- * at payout-request time, so the worker never moves money unattended.
- */
 export async function runEarningReleaseCycle(): Promise<void> {
   try {
+    const reconciled = await runSettlementReconcile();
+    if (
+      reconciled.settlementsCreated > 0 ||
+      reconciled.transferClaimsReleased > 0 ||
+      reconciled.reservationsExpired > 0
+    ) {
+      console.log("[payouts] settlement reconcile", reconciled);
+    }
+
     const released = await releaseEligibleEarnings();
     if (released > 0) {
       console.log("[payouts] release cycle", { released });
+    }
+
+    const reversals = await processPendingReversals();
+    if (reversals.reversed > 0 || reversals.failures.length > 0) {
+      console.log("[payouts] reversal cycle", reversals);
     }
 
     if (!payoutConfig.autoTransferEnabled) return;

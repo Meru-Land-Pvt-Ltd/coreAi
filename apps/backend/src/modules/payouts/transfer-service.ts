@@ -4,13 +4,6 @@ import { requireReadyConnectedAccount } from "./connect-account";
 import { payoutConfig, stripeLivemode } from "./config";
 import { logStripeError, normalizeStripeError } from "./stripe-errors";
 
-/**
- * The ONLY place that calls stripe.transfers.create for architect earnings.
- * One transfer per released earning; deterministic idempotency key
- * `architect-transfer:{earningId}:{settlementVersion}`; stable transfer_group
- * `marketplace-payment:{paymentId}`.
- */
-
 export type TransferResult =
   | { ok: true; transferredCents: number; alreadyTransferred: boolean }
   | { ok: false; code: string; retryable: boolean };
@@ -58,7 +51,7 @@ export async function createArchitectTransfer(params: {
     return { ok: false, code: "EARNING_NOT_RELEASABLE", retryable: false };
   }
 
-  const idempotencyKey = `architect-transfer:${earning.id}:${earning.settlementVersion}`;
+  const idempotencyKey = `architect-transfer:${earning.id}`;
 
   try {
     const transfer = await stripe.transfers.create(
@@ -113,10 +106,6 @@ export async function createArchitectTransfer(params: {
   }
 }
 
-/**
- * Transfer every released earning for one architect (bounded). Used by the
- * payout request path and the optional release cycle.
- */
 export async function transferReleasedEarnings(
   architectUserId: string,
   actor: "payout_request" | "release_cycle" | "reconciliation"
@@ -149,10 +138,6 @@ export async function transferReleasedEarnings(
   return { transferredCents, failures };
 }
 
-/**
- * Reverse (part of) a transferred earning after a refund/lost dispute. Bounded
- * by the amount actually transferred minus what was already reversed.
- */
 export async function reverseArchitectTransfer(params: {
   earningId: string;
   amountCents: number;
@@ -166,7 +151,7 @@ export async function reverseArchitectTransfer(params: {
   if (!earning?.stripeTransferId) return { ok: false, code: "TRANSFER_NOT_FOUND" };
 
   const alreadyReversed = earning.reversalCents;
-  const transferredCents = earning.architectGrossCents - earning.refundCents - earning.disputeCents + earning.adjustmentCents + alreadyReversed;
+  const transferredCents = earning.architectGrossCents + earning.adjustmentCents;
   const reversible = Math.max(0, Math.min(params.amountCents, transferredCents - alreadyReversed));
   if (reversible <= 0) return { ok: false, code: "REVERSAL_AMOUNT_EXHAUSTED" };
 
@@ -215,4 +200,34 @@ export async function reverseArchitectTransfer(params: {
     logStripeError(normalized, { earningId: earning.id, sourceId: params.sourceId });
     return { ok: false, code: normalized.code };
   }
+}
+
+export async function processPendingReversals(
+  limit = 25
+): Promise<{ reversed: number; failures: string[] }> {
+  const pending = await prisma.architectEarning.findMany({
+    where: {
+      status: "REVERSAL_PENDING",
+      stripeTransferId: { not: null },
+      livemode: stripeLivemode()
+    },
+    orderBy: { updatedAt: "asc" },
+    take: limit
+  });
+
+  let reversed = 0;
+  const failures: string[] = [];
+  for (const earning of pending) {
+    const outstanding = earning.refundCents + earning.disputeCents - earning.reversalCents;
+    if (outstanding <= 0) continue;
+    const result = await reverseArchitectTransfer({
+      earningId: earning.id,
+      amountCents: outstanding,
+      reason: "Automated reversal after buyer refund / lost dispute",
+      sourceId: `auto-reversal:${earning.id}`
+    });
+    if (result.ok) reversed += 1;
+    else failures.push(result.code ?? "UNKNOWN");
+  }
+  return { reversed, failures };
 }
