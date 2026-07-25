@@ -2375,19 +2375,21 @@ function resolveRequestedDate(opts: { rawDate?: string; relativeText: string; ti
   today: string;
 } {
   const today = todayInZone(opts.timeZone);
-  const text = (opts.relativeText || "").toLowerCase();
 
+  const rawDate =
+    typeof opts.rawDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(opts.rawDate)
+      ? opts.rawDate.slice(0, 10)
+      : undefined;
+  if (rawDate) return { date: rawDate, isPast: rawDate < today, normalized: rawDate, today };
+
+  const text = (opts.relativeText || "").toLowerCase();
   let normalized: string | undefined;
   if (/\bday after tomorrow\b/.test(text)) normalized = addDaysToDateStr(today, 2);
   else if (/\btomorrow\b/.test(text)) normalized = addDaysToDateStr(today, 1);
   else if (/\b(today|tonight|this afternoon|this evening|this morning)\b/.test(text)) normalized = today;
   else normalized = nextWeekdayDateStr(text, today, opts.timeZone);
 
-  const rawDate =
-    typeof opts.rawDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(opts.rawDate)
-      ? opts.rawDate.slice(0, 10)
-      : undefined;
-  const date = normalized ?? rawDate ?? today;
+  const date = normalized ?? today;
   return { date, isPast: date < today, normalized, today };
 }
 
@@ -2650,9 +2652,7 @@ function resolvePatientPhone(argPhone: string | undefined, callerPhone: string):
 }
 
 export async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
-  const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
-    .filter(Boolean)
-    .join(" ");
+  const relativeText = argStr(args, ["date", "when", "day", "relativeDate"]) ?? "";
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
@@ -2839,9 +2839,7 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
 export async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   console.log("[vapi-tool] book_appointment raw args", JSON.stringify(redactForLog(args)));
 
-  const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
-    .filter(Boolean)
-    .join(" ");
+  const relativeText = argStr(args, ["date", "when", "day", "relativeDate"]) ?? "";
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
 
@@ -3780,7 +3778,8 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     };
   }
 
-  const relativeText = [newDateRaw, ctx.transcript, ctx.summary].filter(Boolean).join(" ");
+  // Only the new_date the model passed for THIS request — never the transcript.
+  const relativeText = newDateRaw ?? "";
   const { date: newDate, isPast } = resolveRequestedDate({ rawDate: newDateRaw, relativeText, timeZone });
   const newTime = parseClockTime(newTimeRaw);
   if (isPast || !newTime) {

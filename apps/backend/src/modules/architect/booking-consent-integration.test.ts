@@ -315,6 +315,40 @@ const SPOKEN_DATE_RE =
 const ISO_DATE_RE = /\d{4}-\d{2}-\d{2}/;
 const ABBREV_DATE_RE = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun), (Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/;
 
+describe("date resolution honors the explicit date argument, never a stale transcript", () => {
+  // Reproduces the production loop where an early "any appointment today?" pinned
+  // EVERY later check_availability to that same closed day, ignoring the date the
+  // model actually requested.
+  const POISON_TRANSCRIPT =
+    "AI: We're closed. User: any appointment available for today? " +
+    "AI: closed Sunday. User: yes today please. AI: Sunday. Monday. Tuesday. tomorrow.";
+
+  it("check_availability with a Monday date arg ignores a transcript full of 'today'/weekday and returns the Monday", async () => {
+    const ctx = ctxFor(`${RUN}-dr-avail`);
+    (ctx as unknown as { transcript: string }).transcript = POISON_TRANSCRIPT;
+    const res = (await runCheckAvailabilityTool({ date: MONDAY, service_type: "Cleaning" }, ctx)) as Record<string, unknown>;
+    expect(res.date).toBe(MONDAY); // the requested day, NOT 'today'
+    expect(res.closed).not.toBe(true);
+    expect((res.available_slots as string[] | undefined)?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("book_appointment with a Monday date arg ignores the transcript and books the Monday", async () => {
+    const ctx = ctxFor(`${RUN}-dr-book`);
+    (ctx as unknown as { transcript: string }).transcript = POISON_TRANSCRIPT;
+    const res = (await runBookAppointmentTool(
+      { customer_name: "Date Test", customer_phone: CALLER, date: MONDAY, time: "16:00", service_type: "Cleaning" },
+      ctx
+    )) as Record<string, unknown>;
+    expect(res.success).toBe(true);
+    const appt = await prisma.appointment.findFirst({
+      where: { businessId, customerName: "Date Test" },
+      orderBy: { createdAt: "desc" }
+    });
+    const bookedYmd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(appt!.startAt);
+    expect(bookedYmd).toBe(MONDAY); // booked the requested Monday, never 'today'
+  });
+});
+
 describe("#9 spoken dates in every voice-facing tool field", () => {
   it("check_availability (closed Saturday) surfaces a spoken date and the model message reads 'For <spoken>:'", async () => {
     const res = (await runCheckAvailabilityTool(

@@ -137,13 +137,11 @@ export async function probeAfterHoursStateStore(): Promise<{
   const production = effectiveProduction();
   const client = redisClient();
 
-  const connectionReadyBeforeProbe = Boolean(
-    client && client.status === "ready"
-  );
+  const connectionReady = Boolean(client && client.status === "ready");
 
   let pingOk = false;
 
-  if (client) {
+  if (client && connectionReady) {
     try {
       if (typeof client.ping === "function") {
         const pong = await client.ping();
@@ -153,7 +151,7 @@ export async function probeAfterHoursStateStore(): Promise<{
           pong.toUpperCase().includes("PONG");
       } else {
         // Compatibility for minimal test adapters without ping().
-        pingOk = client.status === "ready";
+        pingOk = true;
       }
     } catch (error) {
       console.error(
@@ -165,11 +163,7 @@ export async function probeAfterHoursStateStore(): Promise<{
     }
   }
 
-  const connectionReady =
-    connectionReadyBeforeProbe ||
-    Boolean(client && client.status === "ready");
-
-  const ready = pingOk;
+  const ready = connectionReady && pingOk;
 
   return {
     distributed,
@@ -202,7 +196,7 @@ export function afterHoursStateStoreAvailableForLive(): boolean {
     return true;
   }
 
-  return afterHoursCallStateStoreIsDistributed();
+  return afterHoursCallStateStoreIsDistributed() && afterHoursStateStoreReady();
 }
 
 const memoryStore = new Map<
