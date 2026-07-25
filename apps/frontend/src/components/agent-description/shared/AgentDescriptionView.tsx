@@ -20,18 +20,18 @@ export const AGENT_DESCRIPTION_STYLES = `
 }
 
 .agent-detail-root ::selection {
-  background: rgba(245,158,11,0.2);
+  background: rgba(245,158,11,0.18);
   color: #0f172a;
 }
 
 .agent-detail-root :focus-visible {
-  outline: 2px solid #fbbf24;
+  outline: 2px solid #f59e0b;
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
-.shadow-soft {
-  box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+.shadow-subtle {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -98,7 +98,7 @@ export type AgentDescriptionViewProps = {
   howItWorksSteps: HowItWorksStep[];
   similar: SimilarAgentItem[];
   similarHref: (id: string) => Route | string;
-  /** Whether to render the live demo widget in the pricing card. */
+  /** Whether to render the live demo widget in the hero card. */
   showDemo: boolean;
   /** Public = IP-limited 2×2min; authenticated = buyer route. */
   demoMode?: "public" | "authenticated";
@@ -153,7 +153,7 @@ function SectionHeader({ title, description }: { title: string; description?: st
   return (
     <div className="mx-auto max-w-2xl text-center">
       <h2 className="text-[24px] font-bold tracking-tight text-slate-900 sm:text-[28px] md:text-[32px]" data-testid="business-protected-agents-title-heading-2">{title}</h2>
-      {description ? <p className="mt-3 break-words text-[15px] leading-relaxed text-slate-600" data-testid="business-protected-agents-description-text">{description}</p> : null}
+      {description ? <p className="mt-2.5 break-words text-[15px] leading-relaxed text-slate-600" data-testid="business-protected-agents-description-text">{description}</p> : null}
     </div>
   );
 }
@@ -169,7 +169,7 @@ function SimilarAgentCard({ agent, href }: { agent: SimilarAgentItem; href: Rout
       data-testid={`similar-agent-card-${agent.id}`}
       className="block h-full min-w-0"
     >
-      <div className="shadow-soft flex h-full w-full min-w-0 flex-col rounded-2xl border border-gray-100 bg-white p-5 transition duration-200 hover:border-amber-200 sm:p-6">
+      <div className="shadow-subtle flex h-full w-full min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-5 transition duration-200 hover:border-amber-400 sm:p-6">
         <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-xl text-white">
           {iconUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -192,10 +192,10 @@ function SimilarAgentCard({ agent, href }: { agent: SimilarAgentItem; href: Rout
           )}
         </div>
         {agent.shortDescription ? (
-          <p className="mt-2 flex-1 text-[13px] leading-relaxed text-slate-500 line-clamp-2">{agent.shortDescription}</p>
+          <p className="mt-2 flex-1 text-[13px] leading-relaxed text-slate-600 line-clamp-2">{agent.shortDescription}</p>
         ) : null}
 
-        <span className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700">
+        <span className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-amber-600 transition hover:gap-2">
           View agent{" "}
           <ArrowIcon />
         </span>
@@ -237,32 +237,39 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
     demoMode = "public"
   } = props;
 
+  // Strict limit of max 3 agents for "More agents businesses love"
+  const displayedSimilar = similar.slice(0, 3);
+
   return (
     <>
       {header}
-      <div className="agent-detail-root min-h-screen overflow-x-hidden bg-white text-slate-600">
+      <div className="agent-detail-root min-h-screen overflow-x-hidden bg-white text-slate-700">
         <style dangerouslySetInnerHTML={{ __html: AGENT_DESCRIPTION_STYLES }} />
 
         <main>
           {/* Hero Section */}
           <section className="relative px-4 pb-10 pt-8 sm:px-6 sm:pb-14 sm:pt-12">
-            <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(245,158,11,0.08),rgba(255,255,255,0)_72%)]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(50%_55%_at_50%_0%,rgba(245,158,11,0.06),transparent_70%)]" />
 
             <div className="mx-auto grid w-full max-w-6xl grid-cols-1 items-start gap-8 lg:grid-cols-5 lg:gap-10 xl:gap-12">
-              {/* Left: Agent Info + CTA */}
+              {/* Left: Agent Info + CTA + Live Demo */}
               <div className="min-w-0 lg:col-span-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-700">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/80 bg-amber-50/90 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-700">
                     {category || "AI Agent"}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-100 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600">
                     {statusLabel}
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Verified Voice Agent
                   </span>
                 </div>
 
                 {/* Agent Title */}
                 <div className="mt-4 flex items-start gap-3.5 sm:gap-4">
-                  <div className="relative inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 ring-4 ring-white sm:h-14 sm:w-14">
+                  <div className="relative inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 ring-2 ring-amber-100 sm:h-14 sm:w-14">
                     {iconUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={iconUrl} alt="" className="h-full w-full object-cover" />
@@ -274,26 +281,26 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                     <h1 className="text-[26px] font-extrabold leading-tight tracking-tight text-slate-900 sm:text-[32px] md:text-[36px]">
                       {listingName}
                     </h1>
-                    <p className="mt-1.5 text-[13px] text-slate-500">
+                    <p className="mt-1.5 text-[13px] text-slate-600">
                       {showAuthor ? (
                         <>
-                          by <span className="font-semibold text-slate-700">{author}</span>
+                          by <span className="font-semibold text-slate-800">{author}</span>
                           <span className="mx-1.5 text-slate-300">·</span>
                         </>
                       ) : null}
-                      <span className="font-semibold text-slate-700">{installsLabel}</span> businesses installed
+                      <span className="font-semibold text-slate-900">{installsLabel}</span> businesses installed
                     </p>
                   </div>
                 </div>
 
                 {/* Short Description */}
                 {heroDescription ? (
-                  <p className="mt-4 max-w-xl break-words text-[15px] leading-relaxed text-slate-600 sm:text-[16px]">{heroDescription}</p>
+                  <p className="mt-4 max-w-xl break-words text-[15px] leading-relaxed text-slate-700 sm:text-[16px]">{heroDescription}</p>
                 ) : (
                   agentDescription && (
                     <ExpandableText
                       text={agentDescription}
-                      className="mt-4 max-w-xl break-words text-[15px] leading-relaxed text-slate-600 sm:text-[16px]"
+                      className="mt-4 max-w-xl break-words text-[15px] leading-relaxed text-slate-700 sm:text-[16px]"
                     />
                   )
                 )}
@@ -301,7 +308,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                 {heroDescription && agentDescription ? (
                   <ExpandableText
                     text={agentDescription}
-                    className="mt-3 break-words text-[13.5px] leading-relaxed text-slate-500"
+                    className="mt-3 break-words text-[13.5px] leading-relaxed text-slate-600"
                   />
                 ) : null}
 
@@ -311,20 +318,20 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                     {tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-gray-100 bg-gray-50/60 px-3 py-1 text-[12.5px] text-slate-700"
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50/70 px-3 py-1 text-[12.5px] font-medium text-slate-700"
                         data-testid="business-agent-detail-industry-tag"
                       >
-                        <span className="text-amber-500">🏷️</span>
+                        <span className="text-amber-600">🏷️</span>
                         <span className="truncate">{tag}</span>
                       </span>
                     ))}
                   </div>
                 ) : null}
 
-                {/* Pricing Card */}
-                <div className="shadow-soft mt-7 rounded-2xl border border-gray-100 bg-white p-4 sm:p-5">
+                {/* Pricing & Primary Action Card */}
+                <div className="shadow-subtle mt-7 rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6">
                   {canStartTrial && trialDays > 0 ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-700" data-testid="business-protected-agents-0-for-the-first-7-days-text">
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200/90 bg-amber-50/80 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-800" data-testid="business-protected-agents-0-for-the-first-7-days-text">
                       ⚡ $0 for the first {trialDays} days
                     </span>
                   ) : null}
@@ -344,7 +351,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                     )}
                   </div>
 
-                  <p className="mt-1 text-[12.5px] text-slate-500" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
+                  <p className="mt-1 text-[12.5px] text-slate-600" data-testid="business-protected-agents-per-business-location-billed-after-your-free-text">
                     {pricingSubtext}
                   </p>
 
@@ -353,7 +360,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                       id="hero-cta"
                       href={primaryCtaHref as Route}
                       data-testid={primaryCtaTestId}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-[14px] font-semibold text-slate-950 transition duration-200 hover:bg-amber-400 sm:px-6 sm:py-3.5 sm:text-[15px]"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-[14px] font-semibold text-slate-950 transition duration-200 hover:bg-amber-400 active:bg-amber-600 sm:px-6 sm:py-3.5 sm:text-[15px]"
                     >
                       {primaryCtaLabel}
                       <ArrowIcon />
@@ -362,23 +369,24 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
 
                   {canStartTrial && trialDays > 0 ? (
                     <p className="mt-3 text-[12.5px] text-slate-500">
-                      No credit card required to start.{" "}
-                      ${price}{pricingModel === "ONE_TIME" ? " one-time purchase (Usage charges apply separately)" : "/month subscription (Usage charges billed separately)"} after trial.
+                      No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time purchase" : "/month subscription"} after trial.
                     </p>
                   ) : null}
 
-                  {/* Live demo widget */}
+                  {/* Prominent Live Demo callout */}
                   {showDemo && !hasActiveAccess ? (
-                    <AgentDemoCall listingId={listingId} listingName={listingName} mode={demoMode} />
+                    <div className="mt-5 border-t border-slate-100 pt-5">
+                      <AgentDemoCall listingId={listingId} listingName={listingName} mode={demoMode} />
+                    </div>
                   ) : null}
                 </div>
 
                 {/* Trial Benefits */}
                 {canStartTrial && trialDays > 0 ? (
                   <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
-                    {[`${trialDays}-day free trial`, "Cancel anytime", "Setup in 2 minutes", "30-day money-back after conversion"].map((item) => (
-                      <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-[13px] text-slate-600">
-                        <CheckIcon className="h-4 w-4 text-emerald-500" />
+                    {[`${trialDays}-day free trial`, "Cancel anytime", "Setup in 2 minutes", "Money-back guarantee"].map((item) => (
+                      <span key={item} data-testid={`agent-detail-trial-benefit-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="inline-flex items-center gap-1.5 text-[13px] text-slate-700">
+                        <CheckIcon className="h-4 w-4 text-emerald-600" />
                         {item}
                       </span>
                     ))}
@@ -386,8 +394,8 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                 ) : (
                   <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2">
                     {["Install in minutes", "Works with your tools", "Cancel anytime"].map((item) => (
-                      <span key={item} className="inline-flex items-center gap-1.5 text-[13px] text-slate-600">
-                        <CheckIcon className="h-4 w-4 text-emerald-500" />
+                      <span key={item} className="inline-flex items-center gap-1.5 text-[13px] text-slate-700">
+                        <CheckIcon className="h-4 w-4 text-emerald-600" />
                         {item}
                       </span>
                     ))}
@@ -395,7 +403,7 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
                 )}
               </div>
 
-              {/* Right: Agent Preview */}
+              {/* Right: Agent Phone Workflow Preview */}
               <div
                 id="demo"
                 className="flex min-w-0 scroll-mt-24 flex-col items-center lg:col-span-2 lg:items-end lg:pt-1"
@@ -406,24 +414,22 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
           </section>
 
           {/* How It Works Section */}
-          <section className="bg-gray-50/80 px-4 py-12 sm:px-6 sm:py-16 md:py-20">
+          <section className="border-t border-slate-100 bg-amber-50/30 px-4 py-12 sm:px-6 sm:py-16">
             <div className="mx-auto max-w-6xl">
-              <div className="mx-auto max-w-2xl text-center">
-                <h2 className="text-[24px] font-bold tracking-tight text-slate-900 sm:text-[28px] md:text-[32px]">How It Works</h2>
-                <p className="mt-3 text-[15px] leading-relaxed text-slate-600">
-                  From install to live — get value in minutes, not weeks.
-                </p>
-              </div>
+              <SectionHeader
+                title="How It Works"
+                description="From setup to live phone calls & texts — get value in minutes without developer help."
+              />
 
-              <div className="relative mt-10 sm:mt-14">
-                <div className="absolute top-7 hidden border-t border-dashed border-amber-200 md:block" style={{ left: "16.66%", right: "16.66%" }}></div>
+              <div className="relative mt-10 sm:mt-12">
+                <div className="absolute top-7 hidden border-t border-dashed border-amber-300 md:block" style={{ left: "16.66%", right: "16.66%" }}></div>
                 <div className="relative grid gap-8 md:grid-cols-3 md:gap-10">
                   {howItWorksSteps.map((step) => (
                     <div key={step.step} className="text-center">
-                      <div className="relative z-10 mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 text-[15px] font-bold text-slate-950 ring-4 ring-gray-50">
+                      <div className="relative z-10 mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 text-[15px] font-bold text-slate-950 ring-4 ring-white">
                         {step.step}
                       </div>
-                      <h3 className="mt-5 text-[15px] font-bold text-slate-900">{step.title}</h3>
+                      <h3 className="mt-5 text-[16px] font-bold text-slate-900">{step.title}</h3>
                       <p className="mt-2 text-[13.5px] leading-relaxed text-slate-600">{step.description}</p>
                     </div>
                   ))}
@@ -433,37 +439,39 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
           </section>
 
           {/* Key Metrics Section */}
-          <section className="px-4 py-12 sm:px-6 sm:py-16 md:py-20">
+          <section className="px-4 py-12 sm:px-6 sm:py-16">
             <div id="metrics" className="mx-auto grid max-w-2xl gap-4 sm:grid-cols-2 sm:gap-5">
-              <div className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 text-center sm:p-6">
+              <div className="shadow-subtle rounded-2xl border border-slate-200/80 bg-white p-5 text-center sm:p-6">
                 <div className="text-[28px] font-extrabold tracking-tight text-amber-600 sm:text-[32px]">5 sec</div>
-                <div className="mt-2 text-[13px] text-slate-600">Average response time</div>
+                <div className="mt-1.5 text-[13.5px] font-medium text-slate-700">Average response time</div>
+                <div className="mt-1 text-[12px] text-slate-500">Instant customer attention day & night</div>
               </div>
-              <div className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 text-center sm:p-6">
+              <div className="shadow-subtle rounded-2xl border border-slate-200/80 bg-white p-5 text-center sm:p-6">
                 <div className="text-[28px] font-extrabold tracking-tight text-amber-600 sm:text-[32px]">24/7</div>
-                <div className="mt-2 text-[13px] text-slate-600">Always active, never sleeps</div>
+                <div className="mt-1.5 text-[13.5px] font-medium text-slate-700">Always active coverage</div>
+                <div className="mt-1 text-[12px] text-slate-500">Never miss a lead or booking call</div>
               </div>
             </div>
           </section>
 
           {/* What this agent does */}
-          <section className="bg-gray-50/80 px-4 py-12 sm:px-6 sm:py-16 md:py-20">
+          <section className="border-t border-slate-100 bg-amber-50/30 px-4 py-12 sm:px-6 sm:py-16">
             <div className="mx-auto max-w-6xl">
               <SectionHeader
                 title="Built for your business outcomes"
-                description={heroDescription || "Everything this agent delivers once it is installed and running."}
+                description={heroDescription || "Key capabilities this agent delivers to grow your business."}
               />
 
               <div className="mt-8 grid gap-3.5 sm:grid-cols-2 sm:gap-4">
                 {features.map((feature) => (
                   <div
                     key={feature}
-                    className="shadow-soft flex items-start gap-3 rounded-2xl border border-gray-100 bg-white p-4 transition duration-200 hover:border-amber-200 sm:gap-4 sm:p-5"
+                    className="shadow-subtle flex items-start gap-3.5 rounded-2xl border border-slate-200/80 bg-white p-4.5 transition duration-200 hover:border-amber-400 sm:p-5"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100/70 text-amber-700">
                       ⚡
                     </span>
-                    <p className="min-w-0 break-words pt-1.5 text-[14px] leading-snug text-slate-700" data-testid="business-protected-agents-feature-text">{feature}</p>
+                    <p className="min-w-0 break-words pt-1.5 text-[14px] font-medium leading-relaxed text-slate-800" data-testid="business-protected-agents-feature-text">{feature}</p>
                   </div>
                 ))}
               </div>
@@ -471,18 +479,18 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
           </section>
 
           {/* What's included */}
-          <section className="px-4 py-12 sm:px-6 sm:py-16 md:py-20">
+          <section className="px-4 py-12 sm:px-6 sm:py-16">
             <div className="mx-auto max-w-3xl">
               <SectionHeader
                 title="What's included"
-                description="Integrations, automation, and support that ship with this agent — ready once you install."
+                description="Everything bundled with this agent — configured and ready for your business."
               />
 
-              <div className="shadow-soft mt-8 overflow-hidden rounded-2xl border border-gray-100 bg-white sm:mt-10">
-                <ul className="divide-y divide-gray-100">
+              <div className="shadow-subtle mt-8 overflow-hidden rounded-2xl border border-slate-200/90 bg-white sm:mt-10">
+                <ul className="divide-y divide-slate-100">
                   {includedItems.map((item) => (
-                    <li key={item} data-testid={`agent-detail-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-4 py-3.5 sm:px-6">
-                      <CheckIcon className="h-5 w-5 shrink-0 text-emerald-500" />
+                    <li key={item} data-testid={`agent-detail-included-item-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
+                      <CheckIcon className="h-5 w-5 shrink-0 text-emerald-600" />
                       <span className="min-w-0 break-words text-[14px] text-slate-700" data-testid={`agent-detail-included-text-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{item}</span>
                     </li>
                   ))}
@@ -491,17 +499,17 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
             </div>
           </section>
 
-          {/* Similar Agents */}
-          {similar.length > 0 ? (
-            <section className="bg-gray-50/80 px-4 py-12 sm:px-6 sm:py-16 md:py-20">
+          {/* Similar Agents - Strictly max 3 agents */}
+          {displayedSimilar.length > 0 ? (
+            <section className="border-t border-slate-100 bg-amber-50/30 px-4 py-12 sm:px-6 sm:py-16">
               <div className="mx-auto max-w-6xl">
                 <SectionHeader
                   title="More agents businesses love"
-                  description="Browse similar agents to grow your automation stack."
+                  description="Recommended agents to expand your automated customer service."
                 />
 
                 <div className="mt-8 grid gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
-                  {similar.map((agent) => (
+                  {displayedSimilar.map((agent) => (
                     <SimilarAgentCard key={agent.id} agent={agent} href={similarHref(agent.id)} />
                   ))}
                 </div>
@@ -510,28 +518,27 @@ export function AgentDescriptionView(props: AgentDescriptionViewProps) {
           ) : null}
 
           {/* Bottom CTA */}
-          <section id="bottom-cta" className="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-16 md:py-20">
-            <div className="relative mx-auto max-w-4xl overflow-hidden rounded-3xl border border-amber-100 bg-amber-50/80 px-4 py-10 text-center sm:px-12 sm:py-14">
-              <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(50%_70%_at_50%_0%,rgba(245,158,11,0.08),transparent_70%)]" />
+          <section id="bottom-cta" className="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-16">
+            <div className="relative mx-auto max-w-4xl overflow-hidden rounded-3xl border border-amber-200/90 bg-gradient-to-b from-amber-50/90 to-amber-100/40 px-5 py-10 text-center sm:px-12 sm:py-14">
               <h2 className="text-balance text-[24px] font-extrabold tracking-tight text-slate-900 sm:text-[28px] md:text-[32px]">
                 Ready to put {listingName} to work?
               </h2>
-              <p className="mx-auto mt-3.5 max-w-xl text-[15px] leading-relaxed text-slate-600">
-                Install in minutes. Automate replies, bookings, and follow-ups — while you focus on customers.
+              <p className="mx-auto mt-3.5 max-w-xl text-[15px] leading-relaxed text-slate-700">
+                Set up in minutes. Automate call handling, SMS follow-ups, and appointment scheduling automatically.
               </p>
               <div className="mt-8">
                 <Link
                   href={primaryCtaHref as Route}
                   data-testid={hasActiveAccess ? "agent-detail-bottom-manage-agent" : canStartTrial ? "agent-detail-bottom-start-trial" : "agent-detail-bottom-pay-now"}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-[15px] font-semibold text-slate-950 transition duration-200 hover:bg-amber-400 sm:w-auto sm:px-9 sm:py-4 sm:text-[16px]"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-3.5 text-[15px] font-semibold text-slate-950 transition duration-200 hover:bg-amber-400 active:bg-amber-600 sm:w-auto sm:px-9 sm:py-4 sm:text-[16px]"
                 >
                   {primaryCtaLabel}
                   <ArrowIcon className="h-5 w-5" />
                 </Link>
               </div>
               {canStartTrial && trialDays > 0 ? (
-                <p className="mt-5 text-[13px] text-slate-500">
-                  No credit card required. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
+                <p className="mt-5 text-[13px] text-slate-600">
+                  No credit card required to start. ${price}{pricingModel === "ONE_TIME" ? " one-time" : "/month"} after trial.
                 </p>
               ) : null}
             </div>

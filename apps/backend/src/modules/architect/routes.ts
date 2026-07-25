@@ -326,8 +326,23 @@ architectRoutes.post("/listings/public/:id/demo-call", async (c) => {
     c.req.header("cf-connecting-ip") ||
     "127.0.0.1";
 
+  let body: Record<string, unknown> = {};
   try {
-    const session = await startPublicMarketplaceDemoCall(clientIp, listingId);
+    body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  } catch {
+    // Body optional
+  }
+
+  const customInfo = {
+    businessName: typeof body.businessName === "string" ? body.businessName : undefined,
+    doctorName: typeof body.doctorName === "string" ? body.doctorName : undefined,
+    businessType: typeof body.businessType === "string" ? body.businessType : undefined,
+    address: typeof body.address === "string" ? body.address : undefined,
+    services: typeof body.services === "string" ? body.services : undefined
+  };
+
+  try {
+    const session = await startPublicMarketplaceDemoCall(clientIp, listingId, customInfo);
     return successResponse(c, { session }, "Demo call ready");
   } catch (error) {
     if (error instanceof MarketplaceDemoError) {

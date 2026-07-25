@@ -282,6 +282,32 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
     expect(session.remainingDemosToday).toBe(PUBLIC_DEMO_DAILY_LIMIT - 1);
   });
 
+  it("supports personalized business details for public demo calls", async () => {
+    if (!dbAvailable) return;
+    enableVapi();
+    const calls = stubVapi();
+
+    const customInfo = {
+      businessName: "City General Hospital",
+      doctorName: "Dr. Gregory House",
+      businessType: "Medical clinic",
+      address: "100 Princeton Ave, NJ",
+      services: "Diagnostics, Consultations"
+    };
+
+    const session = await startPublicMarketplaceDemoCall("203.0.113.88", demoListingId, customInfo);
+
+    expect(session.demo).toBe(true);
+    expect(session.demoBusinessName).toBe("City General Hospital");
+
+    // Check captured Vapi payload contains custom firstMessage and system prompt
+    const vapiCall = calls.find((c) => c.url.includes("/assistant"));
+    if (vapiCall?.body) {
+      expect(String(vapiCall.body.firstMessage)).toContain("City General Hospital");
+      expect(String(vapiCall.body.firstMessage)).toContain("Dr. Gregory House");
+    }
+  });
+
   it("enforces 2 demos per IP per listing per day", async () => {
     if (!dbAvailable) return;
     enableVapi();

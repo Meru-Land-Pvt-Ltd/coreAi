@@ -527,6 +527,9 @@ function SetupWizard() {
   const [liveVapiAssistantId, setLiveVapiAssistantId] = useState<string | null>(null);
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
+  const isEditParam = searchParams.get("mode") === "edit";
+  const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId) || Boolean(liveInstalledAgentId);
+
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
   const [browserTestOutcome, setBrowserTestOutcome] = useState<"passed" | "failed" | null>(null);
@@ -878,38 +881,8 @@ function SetupWizard() {
         if (savedStep >= 1 && savedStep <= STEPS.length) {
           setStep(savedStep);
         } else {
-          // Dynamic resumption: evaluate which step is incomplete based on loaded data.
-          // Newly purchased agents (not live/ACTIVE yet) must always start at Step 1.
-          const isDeployed = data.installedAgent?.status === "ACTIVE";
-          const hasPhone = Boolean(data.selectedPlatformPhoneNumberId || data.phoneNumber?.phoneNumber);
-          const routingMode = data.answeringMode || "AI_FIRST";
-          const fwPhone = data.phoneNumber?.forwardToPhone || "";
-          const step1Ok = hasPhone && (routingMode === "AI_FIRST" || fwPhone.trim().length >= 5);
-
-          if (!isDeployed) {
-            setStep(1);
-          } else if (!step1Ok) {
-            setStep(1);
-          } else {
-            const bName = data.business?.name || "";
-            const bType = data.business?.type || "";
-            const setupIssues = validateBuyerSetupAnswers(loadedBuyerSetupFields, data.customFields || [], { requireMissing: true });
-            const step2Ok = bName.trim().length >= 2 && bType.trim().length >= 2 && setupIssues.length === 0;
-
-            if (!step2Ok) {
-              setStep(2);
-            } else {
-              // Step 3 check
-              const assistantNameVal = readAssistantName(data);
-              const step3Ok = assistantNameVal.trim().length >= 2;
-
-              if (!step3Ok) {
-                setStep(3);
-              } else {
-                setStep(4);
-              }
-            }
-          }
+          // Always start at Step 1 ("Connect") when opening setup or editing configuration
+          setStep(1);
         }
 
         window.sessionStorage.removeItem(STEP_STORAGE_KEY);
@@ -1698,6 +1671,17 @@ function SetupWizard() {
             >
               {(typeof listing?.name === "string" && listing.name.trim()) || businessName.trim() || "Your AI agent"}
             </h1>
+            {isEditMode && (
+              <span
+                className="ml-2.5 inline-flex items-center gap-1.5 rounded-full bg-amber-100/90 border border-amber-300/80 px-2.5 py-0.5 text-xs font-semibold text-amber-900 shrink-0"
+                data-testid="business-setup-edit-badge-header"
+              >
+                <svg className="w-3 h-3 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Editing Mode
+              </span>
+            )}
           </div>
 
           {/* Center: Step Indicator (always centered) */}
@@ -1745,7 +1729,7 @@ function SetupWizard() {
                           entry.id
                         )}
                       </span>
-                      <span className="plabel">{entry.title}</span>
+                      <span className="plabel">{entry.id === 4 && isEditMode ? "Redeploy" : entry.title}</span>
                     </button>
                   </div>
                 );
@@ -1771,9 +1755,27 @@ function SetupWizard() {
 
       <div className="mx-auto max-w-4xl px-4 sm:px-2 py-6">
         <div className={CARD}>
+          {isEditMode && (
+            <div
+              className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200/90 bg-amber-50/80 px-4 py-2.5 text-xs font-semibold text-amber-900 shadow-2xs"
+              data-testid="business-setup-edit-badge-banner"
+            >
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <span>Editing Agent Configuration</span>
+              </div>
+              <span className="text-[11px] font-medium text-amber-700">
+                Your previous call history, bookings, and data remain safe
+              </span>
+            </div>
+          )}
           {step === 1 ? (
             <StepConnect
               title={connectTitle}
+              isEditMode={isEditMode}
               showPhone={showPhone}
               showCallForwarding={showCallForwarding}
               showAnsweringMode={showAnsweringMode}
@@ -2044,20 +2046,31 @@ function SetupWizard() {
               </div>
 
               <div className="stagger">
-                {/* Dynamic success copy based on the workflow trigger kind */}
-                {(() => {
-                  const msg = getAgentSuccessMessage(triggerKind);
-                  return (
-                    <div>
-                      <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
-                        {msg.headline}
-                      </h2>
-                      <p className="text-lg text-slate-600 mt-3">
-                        {msg.body}
-                      </p>
-                    </div>
-                  );
-                })()}
+                {/* Dynamic success copy based on edit mode and workflow trigger kind */}
+                {isEditMode ? (
+                  <div>
+                    <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
+                      Agent Configuration Updated & Redeployed!
+                    </h2>
+                    <p className="text-lg text-slate-600 mt-3">
+                      Your changes have been saved and applied to your live AI agent. Previous call logs and data remain safe.
+                    </p>
+                  </div>
+                ) : (
+                  (() => {
+                    const msg = getAgentSuccessMessage(triggerKind);
+                    return (
+                      <div>
+                        <h2 className="text-3xl font-black tracking-tight mt-6 text-slate-900" data-testid="business-setup-success-title">
+                          {msg.headline}
+                        </h2>
+                        <p className="text-lg text-slate-600 mt-3">
+                          {msg.body}
+                        </p>
+                      </div>
+                    );
+                  })()
+                )}
 
                 {/* Capability list */}
                 <div
@@ -2087,21 +2100,20 @@ function SetupWizard() {
                     onClick={() => router.push(DASHBOARD_ROUTE)}
                     className="btn bg-amber-500 text-white rounded-xl px-8 py-3.5 font-semibold hover:bg-amber-600 w-full max-w-xs"
                   >
-                    Go to dashboard
+                    {isEditMode ? "Return to dashboard" : "Go to dashboard"}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
-                      setStep(3);
-                      setDeployed(false);
+                      setStep(1);
                       if (typeof window !== "undefined") {
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }
                     }}
                     className="btn border border-gray-200 rounded-xl px-8 py-3.5 text-slate-600 font-semibold hover:border-amber-300 hover:text-slate-800 bg-white w-full max-w-xs"
                   >
-                    Edit setup
+                    {isEditMode ? "Edit configuration again" : "Edit setup"}
                   </button>
                 </div>
 
@@ -2171,7 +2183,7 @@ function SetupWizard() {
                       data-testid="business-setup-submit"
                       className="btn w-full rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
                     >
-                      {saving ? "Deploying…" : "Go live"}
+                      {saving ? (isEditMode ? "Redeploying…" : "Deploying…") : (isEditMode ? "Update & Redeploy" : "Go live")}
                     </button>
                   )}
                 </div>
@@ -2204,6 +2216,7 @@ function SetupWizard() {
 
 function StepConnect({
   title,
+  isEditMode,
   showPhone,
   showCallForwarding,
   showAnsweringMode,
@@ -2238,6 +2251,7 @@ function StepConnect({
   onNumberProvisioned
 }: {
   title: string;
+  isEditMode?: boolean;
   showPhone: boolean;
   /** Show the call-forwarding number + answering-mode options. True for missed-call and voice workflows. */
   showCallForwarding: boolean;
@@ -2323,6 +2337,14 @@ function StepConnect({
                     >
                       Active
                     </span>
+                    {isEditMode && (
+                      <span
+                        className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600"
+                        data-testid="business-setup-assigned-number-locked"
+                      >
+                        🔒 Non-editable
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-3xl font-bold text-slate-900 tracking-tight" data-testid="business-setup-assigned-number">{assignedNumber}</p>
                 </div>
