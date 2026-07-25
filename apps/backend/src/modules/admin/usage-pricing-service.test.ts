@@ -92,14 +92,14 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.platformUsageService.deleteMany({ where: { code: { startsWith: RUN } } });
   await prisma.$disconnect();
 });
 
 describe("Admin Pricing Services API contract", () => {
   it("returns all eight fixture services with the documented field names; includeInactive gates inactive records", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const withInactive = await app().request("/admin/pricing/services?includeInactive=true");
     expect(withInactive.status).toBe(200);
@@ -134,7 +134,7 @@ describe("Admin Pricing Services API contract", () => {
   });
 
   it("the API and the internal canonical pricing service return consistent values", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const response = await app().request("/admin/pricing/services?includeInactive=true");
     const body = (await response.json()) as { data: { services: Array<Record<string, unknown>> } };
@@ -154,7 +154,7 @@ describe("Admin Pricing Services API contract", () => {
   });
 
   it("the fixture per-minute totals are exactly $0.0664 (billing AND actual), with the zero-rate service counted as active", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const records = (await loadActiveUsageServicePricing()).filter((record) => isFixture(record.serviceId));
 
     expect(sumPerMinuteBillingMicroUsd(records)).toBe(usdToMicroUsd(0.0664));
@@ -222,7 +222,7 @@ describe("dynamic execution-cost calculation (controlled fixture)", () => {
 
 describe("buyer-safe pricing projection", () => {
   it("exposes billing rates with breakdown, SMS and phone-number entries — and never vendor actual costs", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const records = (await loadActiveUsageServicePricing()).filter((record) => isFixture(record.serviceId));
     const view = buyerExecutionPricingView(records);
 

@@ -73,7 +73,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   if (createdNumberIds.length > 0) {
     await prisma.platformPhoneNumber.deleteMany({ where: { id: { in: createdNumberIds } } });
   }
@@ -82,7 +82,7 @@ afterAll(async () => {
 
 describe("billing state", () => {
   it("flag off (the production default) → enabled:false, no amount, the honest disabled message", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const state = await getPhoneNumberBillingState();
     expect(state).toMatchObject({
       enabled: false,
@@ -94,7 +94,7 @@ describe("billing state", () => {
   });
 
   it("feeEnabled:true → enabled with the real active phone_number rate and service code", async () => {
-    if (!dbAvailable || !phoneServiceSeeded) return;
+    if (!dbAvailable || !phoneServiceSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const state = await getPhoneNumberBillingState({ feeEnabled: true });
     expect(state.enabled).toBe(true);
     expect(state.cadence).toBe("ONE_TIME_PER_ASSIGNED_NUMBER");
@@ -106,7 +106,7 @@ describe("billing state", () => {
 
 describe("one-time-per-assigned-number cadence", () => {
   it("bills an assigned number exactly once — regeneration/retry never re-bills, marking is idempotent", async () => {
-    if (!dbAvailable || !phoneServiceSeeded) return;
+    if (!dbAvailable || !phoneServiceSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const buyerUserId = `${RUN}-buyer-${randomUUID()}`;
     const number = await createPlatformNumber({ status: "ASSIGNED", buyerUserId });
 
@@ -133,14 +133,14 @@ describe("one-time-per-assigned-number cadence", () => {
   });
 
   it("an unassigned (AVAILABLE) number never produces a fee", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const buyerUserId = `${RUN}-buyer-unassigned-${randomUUID()}`;
     await createPlatformNumber({ status: "AVAILABLE", buyerUserId: null });
     expect(await resolveUnbilledPhoneFee({ buyerUserId, feeEnabled: true })).toBeNull();
   });
 
   it("flag off → getPhoneNumberFee is zero and resolveUnbilledPhoneFee finds nothing to bill", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const buyerUserId = `${RUN}-buyer-flagoff-${randomUUID()}`;
     await createPlatformNumber({ status: "ASSIGNED", buyerUserId });
 

@@ -211,7 +211,7 @@ describe("canBusinessDeployAgent — enforcement DISABLED (current platform poli
 
   for (const key of allowedKeys) {
     it(`${key} owner → allowed`, async () => {
-      if (!dbAvailable) return;
+      if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
       disableEnforcement();
       const access = await canBusinessDeployAgent(fixtures[key].userId);
       expect(access).toEqual({ allowed: true, subscriptionEnforcementEnabled: false, reason: null });
@@ -221,7 +221,7 @@ describe("canBusinessDeployAgent — enforcement DISABLED (current platform poli
 
 describe("canBusinessDeployAgent — enforcement ENABLED", () => {
   it("active business → allowed", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableEnforcement();
     const access = await canBusinessDeployAgent(fixtures["active"].userId);
     expect(access.allowed).toBe(true);
@@ -229,14 +229,14 @@ describe("canBusinessDeployAgent — enforcement ENABLED", () => {
   });
 
   it("trialing business → allowed", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableEnforcement();
     expect((await canBusinessDeployAgent(fixtures["trialing"].userId)).allowed).toBe(true);
   });
 
   for (const key of ["inactive", "canceled", "null-status"]) {
     it(`${key} business → rejected with SUBSCRIPTION_REQUIRED`, async () => {
-      if (!dbAvailable) return;
+      if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
       enableEnforcement();
       const access = await canBusinessDeployAgent(fixtures[key].userId);
       expect(access.allowed).toBe(false);
@@ -245,7 +245,7 @@ describe("canBusinessDeployAgent — enforcement ENABLED", () => {
   }
 
   it("a newer unbilled placeholder business does not shadow the billed one", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableEnforcement();
     // The production bug: the old gate read only the NEWEST business row.
     const access = await canBusinessDeployAgent(fixtures["shadowed"].userId);
@@ -281,19 +281,19 @@ describe("POST /business/setup route gate", () => {
   }
 
   it("unauthenticated user → 401", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const response = await postSetup(buildApp(), null, deployBody());
     expect(response.status).toBe(401);
   });
 
   it("non-BUSINESS role → 403", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const response = await postSetup(buildApp(), architectToken, deployBody());
     expect(response.status).toBe(403);
   });
 
   it("enforcement ON + inactive business + deploy → 402 SUBSCRIPTION_REQUIRED", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableEnforcement();
     const response = await postSetup(buildApp(), fixtures["inactive"].token, deployBody());
     expect(response.status).toBe(402);
@@ -302,7 +302,7 @@ describe("POST /business/setup route gate", () => {
   });
 
   it("enforcement OFF + inactive business + deploy → passes the gate (and the reserved shared SMS sender is still rejected)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     disableEnforcement();
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })));
 
@@ -321,7 +321,7 @@ describe("POST /business/setup route gate", () => {
   });
 
   it("null subscription status + missing stripeSubscriptionId + deploy → not blocked by the gate", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     disableEnforcement();
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })));
 
@@ -336,7 +336,7 @@ describe("POST /business/setup route gate", () => {
   });
 
   it("one owner can never read another owner's business through setup", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const response = await app.request("/business/setup", {
       headers: { Authorization: `Bearer ${fixtures["no-business"].token}` }

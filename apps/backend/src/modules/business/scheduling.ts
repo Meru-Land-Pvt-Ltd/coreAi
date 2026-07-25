@@ -14,14 +14,12 @@ export const WEEKDAYS = [
 export type Weekday = (typeof WEEKDAYS)[number];
 
 export type DayHours = {
-  /** "HH:mm" 24h wall-clock in the schedule's timezone. */
   open: string;
   close: string;
   closed: boolean;
 };
 
 export type SpecialDateOverride = {
-  /** "YYYY-MM-DD" in the schedule's timezone. */
   date: string;
   closed: boolean;
   open?: string;
@@ -32,22 +30,16 @@ export type AppointmentSchedule = {
   timeZone: string;
   days: Record<Weekday, DayHours>;
   defaultDurationMinutes: number;
-  /** Normalized service name → duration minutes. */
   serviceDurations: Record<string, number>;
   bufferMinutes: number;
-  /** Distance between candidate start times. */
   slotIntervalMinutes: number;
   minNoticeMinutes: number;
   maxAdvanceDays: number;
-  /** Cap for SPOKEN suggestions only — never applied to the computation. */
   maxSpokenSuggestions: number;
   calendarId: string;
-  /** Where the hours came from — shown to the buyer for review. */
   source: "configured" | "business_hours" | "defaults";
   useBusinessHours: boolean;
-  /** Special-date overrides — only populated when useBusinessHours. */
   specialDates?: SpecialDateOverride[];
-  /** Buyer explicitly confirmed the appointment hours. */
   confirmed: boolean;
 };
 
@@ -62,9 +54,7 @@ export type DayAvailability = {
   openLabel: string | null;
   closeLabel: string | null;
   durationMinutes: number;
-  /** EVERY free slot for the day — the real availability. */
   allSlots: AvailabilitySlot[];
-  /** Balanced sample for conversation (morning/afternoon/evening spread). */
   spokenSlots: AvailabilitySlot[];
 };
 
@@ -119,7 +109,6 @@ export function normalizeServiceName(value: unknown): string {
     .trim();
 }
 
-/** Weekday of a calendar date in a timezone. */
 export function weekdayOf(date: string, timeZone: string): Weekday {
   const noon = zonedWallClockToUtc(date, 12, 0, timeZone);
   const name = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone })
@@ -203,27 +192,27 @@ export function resolveAppointmentSchedule(input: {
   const hasStructuredDays = WEEKDAYS.some((day) => record(structuredDays[day]).open !== undefined);
   const hasBusinessHours = Object.keys(fromBusinessHours).length > 0;
 
-  const structuredConfirmed = structured.confirmed === true;
-  const useStructuredDays = hasStructuredDays && (structuredConfirmed || !hasBusinessHours);
-
-  // Legacy single open/close (configJson.scheduling.openHour/closeHour) only
-  // applies when neither structured days nor business hours exist.
   const legacyOpenHour = clampInt(legacyScheduling.openHour, 9, 0, 23);
   const legacyCloseHour = clampInt(legacyScheduling.closeHour, 17, 1, 24);
 
   const days = {} as Record<Weekday, DayHours>;
   for (const day of WEEKDAYS) {
     const structuredDay = record(structuredDays[day]);
-    if (useStructuredDays) {
-      const open = parseHHmm(structuredDay.open) ? String(structuredDay.open) : DEFAULTS.open;
-      const close = parseHHmm(structuredDay.close) ? String(structuredDay.close) : DEFAULTS.close;
-      days[day] = { open, close, closed: structuredDay.closed === true };
-    } else if (hasBusinessHours) {
-      days[day] =
-        fromBusinessHours[day] ??
-        // A weekday absent from saved business hours is treated as closed —
-        // the buyer listed the days they are open.
-        { open: DEFAULTS.open, close: DEFAULTS.close, closed: true };
+    const apptDay: DayHours | undefined =
+      hasStructuredDays && structuredDay.open !== undefined
+        ? {
+            open: parseHHmm(structuredDay.open) ? String(structuredDay.open) : DEFAULTS.open,
+            close: parseHHmm(structuredDay.close) ? String(structuredDay.close) : DEFAULTS.close,
+            closed: structuredDay.closed === true
+          }
+        : undefined;
+
+    if (hasBusinessHours) {
+      const businessDay = fromBusinessHours[day] ?? { open: DEFAULTS.open, close: DEFAULTS.close, closed: true };
+      const narrowBy = structured.useBusinessHours === true ? undefined : apptDay;
+      days[day] = intersectDayHours(businessDay, narrowBy);
+    } else if (apptDay) {
+      days[day] = apptDay;
     } else {
       days[day] = {
         open: toHHmm(legacyOpenHour),
@@ -259,10 +248,25 @@ export function resolveAppointmentSchedule(input: {
       10
     ),
     calendarId: (input.calendarId ?? "").trim() || "primary",
-    source: useStructuredDays ? "configured" : hasBusinessHours ? "business_hours" : "defaults",
-    useBusinessHours: !useStructuredDays,
+    source: hasBusinessHours ? "business_hours" : hasStructuredDays ? "configured" : "defaults",
+    useBusinessHours: hasBusinessHours || !hasStructuredDays,
     confirmed: structured.confirmed === true
   };
+}
+
+function intersectDayHours(businessDay: DayHours, apptDay?: DayHours): DayHours {
+  if (businessDay.closed) return { open: businessDay.open, close: businessDay.close, closed: true };
+  if (!apptDay) return { ...businessDay };
+  if (apptDay.closed) return { open: businessDay.open, close: businessDay.close, closed: true };
+  const bOpen = parseHHmm(businessDay.open);
+  const bClose = parseHHmm(businessDay.close);
+  const aOpen = parseHHmm(apptDay.open);
+  const aClose = parseHHmm(apptDay.close);
+  if (!bOpen || !bClose || !aOpen || !aClose) return { ...businessDay };
+  const openMin = Math.max(bOpen.hour * 60 + bOpen.minute, aOpen.hour * 60 + aOpen.minute);
+  const closeMin = Math.min(bClose.hour * 60 + bClose.minute, aClose.hour * 60 + aClose.minute);
+  if (openMin >= closeMin) return { open: businessDay.open, close: businessDay.close, closed: true };
+  return { open: toHHmm(Math.floor(openMin / 60), openMin % 60), close: toHHmm(Math.floor(closeMin / 60), closeMin % 60), closed: false };
 }
 
 export function effectiveScheduleDayHours(schedule: AppointmentSchedule, date: string): DayHours {

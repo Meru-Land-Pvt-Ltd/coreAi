@@ -53,7 +53,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.emailMessage.deleteMany({
     where: { OR: [{ businessId: { in: [bizA, bizB] } }, { toEmail: { contains: RUN } }, { fromEmail: { contains: RUN } }] }
   });
@@ -66,7 +66,7 @@ afterAll(async () => {
 
 describe.sequential("email integration (dev DB, SES dry-run)", () => {
   it("claims an alias and rejects the same alias for another business (concurrent)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const [first, second] = await Promise.all([
       createOrUpdateBusinessEmailAlias({
@@ -114,7 +114,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("sends only once for a duplicate idempotency key", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const key = `${RUN}:booking:1`;
     const input = {
       businessId: bizA,
@@ -136,7 +136,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("routes the email through the business's own alias (From/Reply-To)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const message = await prisma.emailMessage.findFirst({
       where: { businessId: bizA, idempotencyKey: `${RUN}:booking:1` }
     });
@@ -146,7 +146,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("permanent bounce creates a suppression; suppressed recipients are blocked", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const victim = `${RUN}-bounce@test.local`;
 
     const result = await handleSesBounceComplaintNotification({
@@ -173,7 +173,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("complaint creates a locked (complaint-reason) suppression", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const complainer = `${RUN}-complaint@test.local`;
     await handleSesBounceComplaintNotification({
       notificationType: "Complaint",
@@ -188,7 +188,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("transient bounce does NOT suppress", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const transient = `${RUN}-transient@test.local`;
     await handleSesBounceComplaintNotification({
       notificationType: "Bounce",
@@ -200,7 +200,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("routes inbound mail to the right business and never attaches unknown aliases", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const routed = await handleSesInboundNotification({
       mail: {
@@ -243,7 +243,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("email sending never touches billable call usage", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     // Scoped to THIS business: a global count races with other test files
     // creating VapiCall rows concurrently on the shared dev database.
     const before = await prisma.vapiCall.count({ where: { businessId: bizA } });
@@ -258,7 +258,7 @@ describe.sequential("email integration (dev DB, SES dry-run)", () => {
   });
 
   it("a failing email job resolves without throwing (appointment flow stays safe)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     // Business B... use a fresh business with NO alias — permanent config failure.
     const orphan = await prisma.business.create({
       data: { ownerId: userA, name: `${RUN} Orphan`, type: "gym" }

@@ -67,7 +67,7 @@ afterAll(async () => {
 
 describe("shared SMS sender protection", () => {
   it("findBuyerPlatformNumber never returns the shared sender", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     // Force the illegal state directly to prove the read-side guard.
     await prisma.platformPhoneNumber.update({
@@ -85,7 +85,7 @@ describe("shared SMS sender protection", () => {
   });
 
   it("assignPlatformNumber refuses the shared sender with PLATFORM_SMS_SENDER_NOT_ASSIGNABLE", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const shared = await prisma.platformPhoneNumber.findUnique({ where: { phoneNumber: sharedNumber } });
     expect(shared).not.toBeNull();

@@ -243,7 +243,7 @@ describe("business workspace activation (DB)", () => {
   }
 
   it("grants BUSINESS to an ARCHITECT without duplicating the email or losing architect access", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const response = await authApp().request("/auth/business-workspace/activate", {
       method: "POST",
@@ -274,7 +274,7 @@ describe("business workspace activation (DB)", () => {
   });
 
   it("keeps architect routes open after activation", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const app = new Hono();
@@ -286,7 +286,7 @@ describe("business workspace activation (DB)", () => {
   });
 
   it("opens business routes for the dual-role account (hasRole BUSINESS, not user.role)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const app = new Hono();
@@ -298,7 +298,7 @@ describe("business workspace activation (DB)", () => {
   });
 
   it("keeps a single-role BUSINESS buyer out of architect routes", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const app = new Hono();
@@ -312,7 +312,7 @@ describe("business workspace activation (DB)", () => {
 
 describe("resolveLoginUser email-first resolution (DB)", () => {
   it("reuses the ARCHITECT row for a BUSINESS login instead of duplicating the email", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const { user, isNewUser } = await resolveLoginUser({
       email: architect.email,
@@ -330,7 +330,7 @@ describe("resolveLoginUser email-first resolution (DB)", () => {
   });
 
   it("creates exactly one row (with membership) for a brand-new email", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const email = `${RUN}-fresh@test.local`;
     const first = await resolveLoginUser({
@@ -359,7 +359,7 @@ describe("resolveLoginUser email-first resolution (DB)", () => {
 
 describe("architect self-install (DB)", () => {
   it("entitles the architect to their own APPROVED listing without a purchase", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const access = await canBusinessAccessListing({
       userId: architect.userId,
@@ -371,7 +371,7 @@ describe("architect self-install (DB)", () => {
   });
 
   it("does not entitle DRAFT listings, even to their owner", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const access = await canBusinessAccessListing({
       userId: architect.userId,
@@ -381,7 +381,7 @@ describe("architect self-install (DB)", () => {
   });
 
   it("does not entitle another buyer to the unpurchased listing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const access = await canBusinessAccessListing({
       userId: buyer.userId,
@@ -391,7 +391,7 @@ describe("architect self-install (DB)", () => {
   });
 
   it("creates a Business + ARCHITECT_SELF_TEST install, reused on repeat, with no payment/earning/payout", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const listing = await loadOwnedListing(architect.userId, approvedListingId);
     expect(listing).not.toBeNull();
@@ -444,7 +444,7 @@ describe("architect self-install (DB)", () => {
   });
 
   it("still installs normally for a paying buyer (MARKETPLACE_PURCHASE)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.payment.create({
       data: {
@@ -469,7 +469,7 @@ describe("architect self-install (DB)", () => {
 
 describe("grantRole idempotency (DB)", () => {
   it("creates at most one membership row per (user, role)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await grantRole(buyer.userId, "BUSINESS");
     await grantRole(buyer.userId, "BUSINESS");

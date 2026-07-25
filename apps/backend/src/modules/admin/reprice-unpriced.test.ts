@@ -94,7 +94,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.vapiCall.deleteMany({ where: { businessId } });
   await prisma.agentUsageExecution.deleteMany({ where: { businessId } });
   await prisma.businessUsageInvoice.deleteMany({ where: { businessId } });
@@ -105,7 +105,7 @@ afterAll(async () => {
 
 describe("repriceUnpricedExecutions", () => {
   it("dry-run reports the row as priceable but leaves it UNPRICED with no billing marks", async () => {
-    if (!dbAvailable || !pricingSeeded) return;
+    if (!dbAvailable || !pricingSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const result = await repriceUnpricedExecutions({
       dryRun: true,
@@ -128,7 +128,7 @@ describe("repriceUnpricedExecutions", () => {
   });
 
   it("apply flips UNPRICED→PRICED with line items, billingMonth from endedAt, and a clean snapshot", async () => {
-    if (!dbAvailable || !pricingSeeded) return;
+    if (!dbAvailable || !pricingSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const result = await repriceUnpricedExecutions({
       dryRun: false,
@@ -153,7 +153,7 @@ describe("repriceUnpricedExecutions", () => {
   });
 
   it("a second apply on the same id is a no-op — the row is no longer UNPRICED", async () => {
-    if (!dbAvailable || !pricingSeeded) return;
+    if (!dbAvailable || !pricingSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const before = await prisma.vapiCall.findUnique({ where: { callId: mainCallId } });
     const result = await repriceUnpricedExecutions({
@@ -172,7 +172,7 @@ describe("repriceUnpricedExecutions", () => {
   });
 
   it("PRICED rows are never selected or modified", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const pricedCallId = newCallId("already-priced");
     await prisma.vapiCall.create({
@@ -208,7 +208,7 @@ describe("repriceUnpricedExecutions", () => {
   });
 
   it("unknown pipeline mapping → skipped with UNKNOWN_USAGE_SERVICE_MAPPING, row stays UNPRICED", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const { callId } = await createUnpricedCall("unknown-pipeline", {
       pricingSnapshotJson: {
@@ -245,7 +245,7 @@ describe("repriceUnpricedExecutions", () => {
   });
 
   it("two concurrent applies on one row settle it exactly once — cost never doubles", async () => {
-    if (!dbAvailable || !pricingSeeded) return;
+    if (!dbAvailable || !pricingSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const { callId } = await createUnpricedCall("concurrent");
 

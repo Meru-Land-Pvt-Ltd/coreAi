@@ -68,7 +68,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.vapiCall.deleteMany({ where: { businessId } });
   await prisma.agentUsageExecution.deleteMany({ where: { businessId } });
   await prisma.installedAgent.deleteMany({ where: { businessId } });
@@ -79,7 +79,7 @@ afterAll(async () => {
 
 describe("recordVapiCallUsage — free installs", () => {
   it("records the recording URL and usage fields with no Payment row", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const callId = `${RUN}-call-1`;
     await prisma.vapiCall.create({
@@ -109,22 +109,22 @@ describe("recordVapiCallUsage — free installs", () => {
 
 describe("isSandboxExecutionBusiness — dual-role owners", () => {
   it("a live buyer agent's calls stay LIVE even when a sandbox agent shares the business", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await isSandboxExecutionBusiness(businessId, freeAgentId)).toBe(false);
   });
 
   it("the sandbox agent's own calls are classified as sandbox", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await isSandboxExecutionBusiness(businessId, sandboxAgentId)).toBe(true);
   });
 
   it("without an attributable agent, a mixed business is NOT a sandbox", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await isSandboxExecutionBusiness(businessId)).toBe(false);
   });
 
   it("a business with only sandbox agents is a sandbox", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const sandboxOnly = await prisma.business.create({
       data: { ownerId, name: `${RUN} sandbox biz`, type: "salon" }
     });

@@ -113,7 +113,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   for (const fixture of fixtures) {
     await prisma.installedAgent.deleteMany({ where: { id: fixture.agentId } });
     await prisma.workflowDefinition.deleteMany({ where: { id: fixture.workflowId } });
@@ -126,7 +126,7 @@ afterAll(async () => {
 
 describe("after-hours gate during a distributed-store outage (production)", () => {
   it("OPEN business on the default policy stays ungated (the Better White case)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fixture = await makeBusiness({ hoursJson: ALWAYS_OPEN, explicitPolicy: false });
     simulateProductionOutage();
 
@@ -135,7 +135,7 @@ describe("after-hours gate during a distributed-store outage (production)", () =
   }, 30000);
 
   it("UNKNOWN-hours business on the default policy stays ungated", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fixture = await makeBusiness({ hoursJson: null, explicitPolicy: false });
     simulateProductionOutage();
 
@@ -144,7 +144,7 @@ describe("after-hours gate during a distributed-store outage (production)", () =
   }, 30000);
 
   it("CLOSED business fails closed: gate active with storeUnavailable", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fixture = await makeBusiness({ hoursJson: CLOSED_NOW, explicitPolicy: false });
     simulateProductionOutage();
 
@@ -154,7 +154,7 @@ describe("after-hours gate during a distributed-store outage (production)", () =
   }, 30000);
 
   it("an EXPLICITLY saved policy with UNKNOWN hours still fails closed (opted-in screening)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fixture = await makeBusiness({ hoursJson: null, explicitPolicy: true });
     simulateProductionOutage();
 
@@ -164,7 +164,7 @@ describe("after-hours gate during a distributed-store outage (production)", () =
   }, 30000);
 
   it("outside the outage, the CLOSED default-policy flow still derives full state", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fixture = await makeBusiness({ hoursJson: CLOSED_NOW, explicitPolicy: false });
     // Non-production: memory store fallback is allowed — no outage.
     setAfterHoursProductionModeForTests(false);

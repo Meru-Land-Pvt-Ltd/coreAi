@@ -33,7 +33,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.workflowRun.deleteMany({ where: { workflowId } });
   await prisma.workflowDefinition.deleteMany({ where: { id: workflowId } });
   await prisma.user.deleteMany({ where: { id: userId } });
@@ -41,7 +41,7 @@ afterAll(async () => {
 
 describe("createWorkflowRun call linkage", () => {
   it("a retried delivery with the same CallSid throws DuplicateWorkflowRunError and keeps one row", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const callSid = `${RUN}-CA-1`;
 
@@ -73,7 +73,7 @@ describe("createWorkflowRun call linkage", () => {
   });
 
   it("two concurrent deliveries create exactly one run", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const callSid = `${RUN}-CA-2`;
     const attempt = () =>
@@ -102,7 +102,7 @@ describe("createWorkflowRun call linkage", () => {
   });
 
   it("runs without call linkage are unaffected by the unique constraint", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const first = await createWorkflowRun({ workflowId, triggeredByUserId: userId, mode: "test" });
     const second = await createWorkflowRun({ workflowId, triggeredByUserId: userId, mode: "test" });

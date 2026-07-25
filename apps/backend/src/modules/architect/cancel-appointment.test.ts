@@ -195,7 +195,7 @@ afterEach(() => {
 
 describe("caller-number verification", () => {
   it("an exact normalized caller match finds the appointment and asks for confirmation", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, service: "Cleaning" });
@@ -218,7 +218,7 @@ describe("caller-number verification", () => {
   });
 
   it("a different caller number reveals nothing about the appointment", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const storedPhone = nextPhone();
     await createAppointment({
@@ -242,7 +242,7 @@ describe("caller-number verification", () => {
   });
 
   it("the same phone under a different business is not matched", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     await createAppointment({ businessId: bizBId, phone, service: "Haircut" });
@@ -257,7 +257,7 @@ describe("caller-number verification", () => {
   });
 
   it("hidden caller ID cannot cancel", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
 
     const result = await postCancel(app, cancelPayload({ businessId: bizAId, callId: `${RUN}-c4` }));
@@ -265,7 +265,7 @@ describe("caller-number verification", () => {
   });
 
   it("anonymous/restricted/invalid caller IDs cannot cancel", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
 
     for (const [index, callerId] of ["anonymous", "Restricted", "+266696687", "12345"].entries()) {
@@ -278,7 +278,7 @@ describe("caller-number verification", () => {
   });
 
   it("a spoken/model-supplied phone number never overrides the caller ID", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const storedPhone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone: storedPhone });
@@ -306,7 +306,7 @@ describe("caller-number verification", () => {
   });
 
   it("a last-four-digit match is insufficient", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const storedPhone = "+16215550001";
     await createAppointment({ businessId: bizAId, phone: storedPhone });
@@ -324,7 +324,7 @@ describe("caller-number verification", () => {
 
 describe("confirmation flow", () => {
   it("multiple appointments are listed (service/date/time only) after verification", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     await createAppointment({ businessId: bizAId, phone, service: "Cleaning", startAt: upcoming(24) });
@@ -349,7 +349,7 @@ describe("confirmation flow", () => {
   });
 
   it("an unclear confirmation (missing or non-boolean) does not cancel", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone });
@@ -372,7 +372,7 @@ describe("confirmation flow", () => {
   });
 
   it("a clear yes cancels: DB status, audit fields, and call id are stored", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, service: "Cleaning" });
@@ -400,7 +400,7 @@ describe("confirmation flow", () => {
   });
 
   it("repeating the cancellation is idempotent, not an error", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone });
@@ -421,7 +421,7 @@ describe("confirmation flow", () => {
   });
 
   it("a completed appointment cannot be cancelled", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, status: "COMPLETED" });
@@ -446,7 +446,7 @@ describe("confirmation flow", () => {
 
 describe("Google Calendar integration", () => {
   it("deletes the linked calendar event on cancellation", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({
@@ -475,7 +475,7 @@ describe("Google Calendar integration", () => {
   });
 
   it("a calendar failure never produces a false success and leaves the appointment active", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({
@@ -512,7 +512,7 @@ describe("Google Calendar integration", () => {
 
 describe("cancellation notifications", () => {
   it("sends the cancellation SMS through the consent gate when consent exists", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, service: "Cleaning" });
@@ -547,7 +547,7 @@ describe("cancellation notifications", () => {
   });
 
   it("cancellation still succeeds when the SMS is suppressed for missing consent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone });

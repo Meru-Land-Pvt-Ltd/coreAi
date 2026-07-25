@@ -185,7 +185,7 @@ function enableVapi() {
 
 describe("startMarketplaceDemoCall (DB)", () => {
   it("lets an unpurchased buyer start a sandboxed demo", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     const captured = stubVapi();
 
@@ -217,7 +217,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
   });
 
   it("enforces the per-buyer daily demo limit", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     stubVapi();
 
@@ -232,7 +232,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
   });
 
   it("enforces the platform-wide daily cap across buyers", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     env.MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT = 2;
     stubVapi();
@@ -247,7 +247,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
   });
 
   it("rejects listings without a voice conversation", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     stubVapi();
 
@@ -258,7 +258,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
   });
 
   it("rejects unknown listings", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     stubVapi();
 
@@ -271,7 +271,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
 
 describe("startPublicMarketplaceDemoCall (DB)", () => {
   it("lets a public visitor start a 2-minute IP-limited demo", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     stubVapi();
 
@@ -283,7 +283,7 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
   });
 
   it("supports personalized business details for public demo calls", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     const calls = stubVapi();
 
@@ -309,7 +309,7 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
   });
 
   it("enforces 2 demos per IP per listing per day", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     stubVapi();
 
@@ -327,7 +327,7 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
 
 describe("POST /business/marketplace/listings/:listingId/demo-call (DB)", () => {
   it("returns a demo session for an authenticated buyer without purchase", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     enableVapi();
     stubVapi();
 

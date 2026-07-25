@@ -62,7 +62,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.businessKnowledgeFile.deleteMany({ where: { businessId } });
   await prisma.businessKnowledgeBase.deleteMany({ where: { businessId } });
   await prisma.installedAgent.deleteMany({ where: { businessId } });
@@ -73,7 +73,7 @@ afterAll(async () => {
 
 describe("setup saves preserve document knowledge", () => {
   it("replaceManualKnowledge replaces manual entries but never touches PDF chunks", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const [file] = await ingestKnowledgeFiles({
       businessId,
@@ -105,7 +105,7 @@ describe("setup saves preserve document knowledge", () => {
 
 describe("per-agent scoping", () => {
   it("two agents in one business see only their own documents", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const [fileB] = await ingestKnowledgeFiles({
       businessId,
@@ -139,7 +139,7 @@ describe("per-agent scoping", () => {
   });
 
   it("the same PDF can serve two agents with separate associations", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const bytes = Buffer.from(DOC_A);
     const [again] = await ingestKnowledgeFiles({
@@ -168,7 +168,7 @@ describe("per-agent scoping", () => {
 
 describe("truthful readiness and repair", () => {
   it("a PROCESSED file with missing chunks is not ready and repair restores it from stored bytes", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const files = await listKnowledgeFiles(businessId);
     const target = files.find((file) => file.filename === "clinic-a.txt" && file.ready)!;
@@ -203,7 +203,7 @@ describe("truthful readiness and repair", () => {
   });
 
   it("a file without stored bytes is marked re-upload required, never shown ready", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const [file] = await ingestKnowledgeFiles({
       businessId,
@@ -227,7 +227,7 @@ describe("truthful readiness and repair", () => {
   });
 
   it("reprocessing replaces stale chunks atomically", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const target = (await listKnowledgeFiles(businessId)).find(
       (file) => file.filename === "clinic-b.txt" && file.ready
@@ -259,7 +259,7 @@ describe("truthful readiness and repair", () => {
 
 describe("live sync result", () => {
   it("reports attempted=false before Go-live instead of failing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const sync = await refreshLiveAssistantKnowledge(businessId);
     expect(sync.attempted).toBe(false);

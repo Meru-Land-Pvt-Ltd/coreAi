@@ -58,31 +58,38 @@ describe("resolveAppointmentSchedule inheritance", () => {
     expect(after.days.tuesday.closed).toBe(true);
   });
 
-  it("UNCONFIRMED custom days (useBusinessHours=false, no confirmed) DEFER to confirmed Business Hours", () => {
-    // AUTHORITATIVE PRECEDENCE: confirmed BusinessProfile.hoursJson wins over an
-    // unconfirmed config/template schedule — this is the production fix (a
-    // template Saturday can no longer reopen a day the business closed).
+  it("custom days NARROW Business Hours by intersection — never widen or reopen (business is the boundary)", () => {
+    // INTERSECTION: business Monday 08:00-18:00 ∩ custom 11:00-15:00 = 11:00-15:00.
     const config = { appointmentSchedule: { useBusinessHours: false, days: CUSTOM_DAYS } };
     const schedule = resolveAppointmentSchedule({ configJson: config, hoursJson: HOURS_JSON, timeZone: TZ });
     expect(schedule.source).toBe("business_hours");
-    expect(schedule.days.monday).toEqual({ open: "08:00", close: "18:00", closed: false });
-  });
-
-  it("a buyer-CONFIRMED custom schedule (confirmed=true) still overrides Business Hours", () => {
-    const config = { appointmentSchedule: { confirmed: true, days: CUSTOM_DAYS } };
-    const schedule = resolveAppointmentSchedule({ configJson: config, hoursJson: HOURS_JSON, timeZone: TZ });
-    expect(schedule.source).toBe("configured");
     expect(schedule.days.monday).toEqual({ open: "11:00", close: "15:00", closed: false });
   });
 
-  it("legacy configs without the confirmed flag DEFER to confirmed Business Hours", () => {
+  it("even a buyer-CONFIRMED custom schedule can only NARROW, never widen, Business Hours", () => {
+    // A confirmed custom Monday 11:00-15:00 still intersects with business hours;
+    // it cannot extend the day or reopen a closed one.
+    const config = { appointmentSchedule: { confirmed: true, days: CUSTOM_DAYS } };
+    const schedule = resolveAppointmentSchedule({ configJson: config, hoursJson: HOURS_JSON, timeZone: TZ });
+    expect(schedule.source).toBe("business_hours");
+    expect(schedule.days.monday).toEqual({ open: "11:00", close: "15:00", closed: false });
+  });
+
+  it("a custom day that tries to EXTEND business hours is clamped to the business window", () => {
+    // Business Monday 08:00-18:00; custom Monday 06:00-22:00 (wider) → clamped.
+    const config = { appointmentSchedule: { days: { monday: { open: "06:00", close: "22:00", closed: false } } } };
+    const schedule = resolveAppointmentSchedule({ configJson: config, hoursJson: HOURS_JSON, timeZone: TZ });
+    expect(schedule.days.monday).toEqual({ open: "08:00", close: "18:00", closed: false });
+  });
+
+  it("legacy custom days NARROW Business Hours by intersection (business boundary wins)", () => {
     const schedule = resolveAppointmentSchedule({
       configJson: { appointmentSchedule: { days: CUSTOM_DAYS } },
       hoursJson: HOURS_JSON,
       timeZone: TZ
     });
     expect(schedule.source).toBe("business_hours");
-    expect(schedule.days.monday.open).toBe("08:00");
+    expect(schedule.days.monday.open).toBe("11:00");
   });
 
   it("no custom days at all inherits Business Hours (useBusinessHours=true)", () => {

@@ -93,7 +93,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.businessKnowledgeFile.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.businessKnowledgeBase.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.installedAgent.deleteMany({ where: { businessId } });
@@ -139,7 +139,7 @@ describe("fact intent detection", () => {
 
 describe("PDF address extraction", () => {
   it("extracts the multi-line heading/value address as ONE suggestion", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const suggestion = await extractAddressFromDocuments({ businessId, installedAgentId: agentId });
     expect(suggestion).not.toBeNull();
@@ -152,7 +152,7 @@ describe("PDF address extraction", () => {
   });
 
   it("extracts table-style addresses (heading and value collapsed by layout)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const [file] = await ingestKnowledgeFiles({
       businessId: otherBusinessId,
@@ -171,7 +171,7 @@ describe("PDF address extraction", () => {
   });
 
   it("returns null when no confident address exists — never invents one", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await prisma.businessKnowledgeBase.deleteMany({ where: { businessId: otherBusinessId } });
     expect(await extractAddressFromDocuments({ businessId: otherBusinessId })).toBeNull();
   });
@@ -179,7 +179,7 @@ describe("PDF address extraction", () => {
 
 describe("hybrid retrieval for paraphrased questions", () => {
   it("every location paraphrase retrieves the contact chunk from the brochure", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     for (const question of ADDRESS_QUESTIONS) {
       const hits = await retrieveRelevantKnowledge({
@@ -193,7 +193,7 @@ describe("hybrid retrieval for paraphrased questions", () => {
   });
 
   it("contact sections outrank unrelated review/policy chunks for location questions", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const hits = await retrieveRelevantKnowledge({
       businessId,
@@ -207,7 +207,7 @@ describe("hybrid retrieval for paraphrased questions", () => {
 
 describe("structured facts priority", () => {
   it("a confirmed structured address answers first, exactly, for every paraphrase", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.businessProfile.update({
       where: { businessId },
@@ -236,12 +236,12 @@ describe("structured facts priority", () => {
   });
 
   it("without structured data the facts lookup returns nothing (documents are the fallback)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await lookupStructuredFacts({ businessId: otherBusinessId, query: "What is your address?" })).toHaveLength(0);
   });
 
   it("businesses stay isolated — one business's address never answers for another", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const sections = await lookupStructuredFacts({ businessId: otherBusinessId, query: "Where are you located?" });
     expect(JSON.stringify(sections)).not.toContain("Summit Plaza");
   });

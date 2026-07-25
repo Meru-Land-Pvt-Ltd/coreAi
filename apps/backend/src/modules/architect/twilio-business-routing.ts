@@ -54,6 +54,7 @@ import {
   readCallContact,
   updateCallContact,
   clearCallContact,
+  CallStateUnavailableError,
   type CanonicalCallContact
 } from "./call-contact-store";
 import {
@@ -740,6 +741,20 @@ function formatSpokenAppointmentTime(iso: string, timeZone?: string | null): str
     timeLabel = "";
   }
   return spokenDateTimeInTimeZone(iso, tz, timeLabel) || formatAppointmentTime(iso, timeZone);
+}
+
+/**
+ * Spoken date for a calendar day (YYYY-MM-DD), anchored at local noon so the
+ * time zone can never shift it a day. "2026-07-25" → "Saturday, July twenty-fifth".
+ * The model MUST speak this, never the numeric date (#9).
+ */
+function spokenDateForYmd(ymd: string, timeZone?: string | null): string {
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  try {
+    return spokenDateInTimeZone(zonedWallClockToUtc(ymd, 12, 0, tz), tz);
+  } catch {
+    return spokenDateInTimeZone(`${ymd}T12:00:00Z`, tz);
+  }
 }
 
 export function resolveRequestedProvider(args: Record<string, unknown>): string | null {
@@ -2634,7 +2649,7 @@ function resolvePatientPhone(argPhone: string | undefined, callerPhone: string):
   return normalizePhoneE164(argPhone) || normalizePhoneE164(callerPhone) || callerPhone || "";
 }
 
-async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
     .filter(Boolean)
     .join(" ");
@@ -2780,10 +2795,11 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     return {
       available_slots: [],
       date,
+      spoken_date: spokenDateForYmd(date, ctx.timeZone),
       service,
       closed: true,
       calendar_status: availability.calendarStatus,
-      message: "The business is closed on that day. Offer another day."
+      message: `The business is closed on ${spokenDateForYmd(date, ctx.timeZone)}. Offer another day. When you say the date aloud, say it exactly as "${spokenDateForYmd(date, ctx.timeZone)}".`
     };
   }
 
@@ -2796,6 +2812,8 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
     available_slots: availability.spokenSlots.map((slot) => slot.label),
     total_free_slots: availability.totalFreeSlots,
     date,
+    // The model MUST speak this fully-spelled date, never the numeric date (#9).
+    spoken_date: spokenDateForYmd(date, ctx.timeZone),
     service,
     duration: `${availability.durationMinutes} minutes`,
     open_from: availability.openLabel,
@@ -2818,7 +2836,7 @@ async function runCheckAvailabilityTool(args: Record<string, unknown>, ctx: Vapi
 }
 
 /** book_appointment: validate date/time, then create a real Google Calendar event or a local record. */
-async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   console.log("[vapi-tool] book_appointment raw args", JSON.stringify(redactForLog(args)));
 
   const relativeText = [argStr(args, ["date", "when", "day", "relativeDate"]), ctx.transcript, ctx.summary]
@@ -4092,7 +4110,7 @@ export async function runUpdateAppointmentContactTool(args: Record<string, unkno
   };
 }
 
-async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { success: false, error: "business_not_resolved", consent_recorded: false };
   }
@@ -4254,7 +4272,10 @@ async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx: VapiT
         smsProviderAccepted =
           Boolean(smsOutcome.sent && smsOutcome.messageSid) ||
           Boolean(smsOutcome.alreadySent && smsOutcome.messageSid);
-        confirmationSmsSent = smsProviderAccepted || Boolean(smsOutcome.sent && smsOutcome.simulated);
+        // #5 confirmation_sms_sent=true REQUIRES a stored provider messageSid,
+        // ALWAYS. A send with no messageSid (including SIMULATED) is never
+        // "submitted" — the assistant must never claim a text was sent.
+        confirmationSmsSent = smsMessageSidPresent && smsProviderAccepted;
       }
     } catch (error) {
       console.error("[vapi-webhook] post-consent confirmation SMS failed (non-fatal)", error);
@@ -5060,6 +5081,7 @@ export async function handleVapiWebhook(c: Context) {
 
       let payload: unknown;
       let afterHoursBlocked = false;
+      let callStateUnavailable = false;
       if (!afterHoursBlock.allowed) {
         afterHoursBlocked = true;
         payload = { success: false, code: afterHoursBlock.code, message: afterHoursBlock.message };
@@ -5077,6 +5099,7 @@ export async function handleVapiWebhook(c: Context) {
         try {
           if (isConsent) payload = await runRecordSmsConsentTool(toolCall.parameters, ctx);
           else if (isLookup) payload = await runLookupKnowledgeTool(toolCall.parameters, ctx);
+          else if (isUpdateContact) payload = await runUpdateAppointmentContactTool(toolCall.parameters, ctx);
           else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
           else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
           else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
@@ -5084,6 +5107,33 @@ export async function handleVapiWebhook(c: Context) {
           else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
           else payload = { ok: true };
         } catch (error) {
+          // #8 Distributed call state unavailable → deterministic fail-closed
+          // response (never an unhandled 500). The assistant must not book,
+          // change a number, record consent, or send anything.
+          if (error instanceof CallStateUnavailableError) {
+            console.error(`[vapi-webhook] distributed call state unavailable — failing closed`, {
+              tool: toolCall.name,
+              callId
+            });
+            // This payload is already caller-safe; do NOT run it back through
+            // the per-tool AI-safe transforms, which would strip `code` and the
+            // fail-closed instructions.
+            callStateUnavailable = true;
+            payload = {
+              success: false,
+              code: "CALL_STATE_UNAVAILABLE",
+              cancelled: false,
+              rescheduled: false,
+              consent_recorded: false,
+              updated: false,
+              sms_allowed: false,
+              customerSpeechCode: "SYSTEM_UNAVAILABLE",
+              customerSafeMessage:
+                "I'm sorry, our booking system is briefly unavailable. I can't confirm or change anything right now.",
+              message:
+                "Distributed call state is unavailable. Do NOT book, update a phone number, record consent, or send any text. Apologize briefly, take the caller's name and callback number, and tell them the team will follow up."
+            };
+          } else {
           console.error(`[vapi-webhook] tool ${toolCall.name} failed (returning safe result)`, error);
           payload = isLookup
             ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
@@ -5098,9 +5148,10 @@ export async function handleVapiWebhook(c: Context) {
                     : isReschedule
                       ? { rescheduled: false, code: "RESCHEDULE_FAILED", message: RESCHEDULE_FAILED_MESSAGE }
                       : { success: false };
+          }
         }
 
-      if (payload && typeof payload === "object" && !afterHoursBlocked) {
+      if (payload && typeof payload === "object" && !afterHoursBlocked && !callStateUnavailable) {
         if (isCheck) payload = toAiSafeAvailabilityResult(payload as Record<string, unknown>);
         else if (isBook) payload = toAiSafeBookingResult(payload as Record<string, unknown>);
         else if (isCancel || isReschedule) {

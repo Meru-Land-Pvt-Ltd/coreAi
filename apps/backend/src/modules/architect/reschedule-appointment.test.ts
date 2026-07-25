@@ -208,7 +208,7 @@ afterEach(() => {
 
 describe("caller-number verification", () => {
   it("an exact normalized caller match finds the appointment and asks for the new time", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, service: "Cleaning" });
@@ -231,7 +231,7 @@ describe("caller-number verification", () => {
   });
 
   it("a different caller number reveals nothing about the appointment", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const storedPhone = nextPhone();
     await createAppointment({
@@ -254,7 +254,7 @@ describe("caller-number verification", () => {
   });
 
   it("the same phone under a different business is not matched", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     await createAppointment({ businessId: bizBId, phone, service: "Haircut" });
@@ -269,7 +269,7 @@ describe("caller-number verification", () => {
   });
 
   it("hidden caller ID cannot reschedule", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
 
     const result = await postReschedule(app, reschedulePayload({ businessId: bizAId, callId: `${RUN}-r4` }));
@@ -279,7 +279,7 @@ describe("caller-number verification", () => {
 
 describe("confirmed reschedule", () => {
   it("requires the new date and time before moving anything", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone });
@@ -302,7 +302,7 @@ describe("confirmed reschedule", () => {
   });
 
   it("moves a local appointment (no calendar event) to the new slot and records the audit note", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, service: "Cleaning" });
@@ -340,7 +340,7 @@ describe("confirmed reschedule", () => {
   });
 
   it("patches the linked Google Calendar event and keeps its id", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({
@@ -369,7 +369,7 @@ describe("confirmed reschedule", () => {
   });
 
   it("recreates the event when it was deleted from the calendar out-of-band", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     calendarPatchMock.mockResolvedValue({ updated: false, missing: true, htmlLink: null });
     const app = buildApp();
     const phone = nextPhone();
@@ -398,7 +398,7 @@ describe("confirmed reschedule", () => {
   });
 
   it("keeps the original time when the calendar move fails, and the caller hears a failure", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     calendarPatchMock.mockRejectedValue(new Error("google down"));
     const app = buildApp();
     const phone = nextPhone();
@@ -428,7 +428,7 @@ describe("confirmed reschedule", () => {
   });
 
   it("rejects a new time in the past without touching the appointment", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone });
@@ -456,7 +456,7 @@ describe("confirmed reschedule", () => {
   });
 
   it("a guessed appointment id from another caller degrades to the generic no-match reply", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const victimPhone = nextPhone();
     const victim = await createAppointment({ businessId: bizAId, phone: victimPhone, service: "Implant" });

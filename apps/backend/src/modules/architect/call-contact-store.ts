@@ -38,8 +38,18 @@ function storeKey(businessId: string, callId: string): string {
   return `call-contact:${businessId}:${callId}`;
 }
 
+// Test-only override so the production fail-closed path can be exercised
+// deterministically without setting NODE_ENV=production process-wide (#8).
+let productionModeOverride: boolean | null = null;
+function isProductionMode(): boolean {
+  return productionModeOverride ?? isProduction;
+}
+export function setCallStateProductionModeForTests(value: boolean | null): void {
+  productionModeOverride = value;
+}
+
 export function callStateAvailableForLive(): boolean {
-  if (!isProduction) return true;
+  if (!isProductionMode()) return true;
   return sharedRedisConfigured() && sharedRedisReady();
 }
 
@@ -69,14 +79,14 @@ async function readRaw(businessId: string, callId: string): Promise<CanonicalCal
     try {
       return parse(await client.get(key));
     } catch (error) {
-      if (isProduction) {
+      if (isProductionMode()) {
         throw new CallStateUnavailableError(
           `redis get failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
       // dev/test only
     }
-  } else if (isProduction) {
+  } else if (isProductionMode()) {
     throw new CallStateUnavailableError("redis not configured in production");
   }
   pruneMemory();
@@ -92,13 +102,13 @@ async function writeRaw(businessId: string, callId: string, value: CanonicalCall
       await client.set(key, JSON.stringify(value), "EX", TTL_SECONDS);
       return;
     } catch (error) {
-      if (isProduction) {
+      if (isProductionMode()) {
         throw new CallStateUnavailableError(
           `redis set failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
-  } else if (isProduction) {
+  } else if (isProductionMode()) {
     throw new CallStateUnavailableError("redis not configured in production");
   }
   pruneMemory();
@@ -172,7 +182,8 @@ export async function clearCallContact(
   memory.delete(key);
 }
 
-/** Test hook: clear the in-memory fallback. */
+/** Test hook: clear the in-memory fallback and any production-mode override. */
 export function resetCallContactStoreForTests(): void {
   memory.clear();
+  productionModeOverride = null;
 }

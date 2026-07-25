@@ -27,10 +27,11 @@ describe("record_sms_consent schema", () => {
     expect(props).not.toHaveProperty("corrected_phone");
   });
 
-  it("exposes affirmative (required) and appointment_id (optional)", () => {
+  it("requires BOTH appointment_id and affirmative", () => {
     expect(props).toHaveProperty("affirmative");
     expect(props).toHaveProperty("appointment_id");
-    expect(t.function.parameters.required).toEqual(["affirmative"]);
+    expect(t.function.parameters.required).toContain("appointment_id");
+    expect(t.function.parameters.required).toContain("affirmative");
   });
 });
 
@@ -38,10 +39,16 @@ describe("update_appointment_contact schema", () => {
   const t = tool(VOICE_TOOL_NAMES.updateAppointmentContact);
   const props = t.function.parameters.properties ?? {};
 
-  it("exposes appointment_id, corrected_phone (prepare) and confirmed (commit)", () => {
+  it("exposes appointment_id (required), corrected_phone (prepare) and confirmed (commit)", () => {
     expect(props).toHaveProperty("appointment_id");
     expect(props).toHaveProperty("corrected_phone");
     expect(props).toHaveProperty("confirmed");
+    expect(t.function.parameters.required).toContain("appointment_id");
+  });
+
+  it("does NOT accept a phone/customer_phone parameter (only corrected_phone, prepare-only)", () => {
+    expect(props).not.toHaveProperty("phone");
+    expect(props).not.toHaveProperty("customer_phone");
   });
 });
 

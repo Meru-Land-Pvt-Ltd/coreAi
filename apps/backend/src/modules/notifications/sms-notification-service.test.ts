@@ -146,7 +146,7 @@ describe("renderAppointmentConfirmationSms", () => {
 
 describe("appointment confirmation idempotency (DB)", () => {
   it("sends exactly once for the same appointment, even when re-triggered", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
 
     // Appointment confirmations are consent-gated — record the opt-in first.
@@ -198,7 +198,7 @@ describe("appointment confirmation idempotency (DB)", () => {
   });
 
   it("creates only one execution under concurrent duplicate triggers", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
     const dedupeKey = `${RUN}-concurrent`;
 
@@ -221,7 +221,7 @@ describe("appointment confirmation idempotency (DB)", () => {
   });
 
   it("records a Twilio failure as FAILED with the error code — never fake success", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioFailing(21211, "Invalid 'To' phone number");
 
     const outcome = await sendTrackedSms({
@@ -242,7 +242,7 @@ describe("appointment confirmation idempotency (DB)", () => {
   });
 
   it("SIMULATED mode records a SIMULATED execution without any provider call", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
     env.TWILIO_SMS_MODE = "SIMULATED";
     const fetchMock = vi.fn();
@@ -266,7 +266,7 @@ describe("appointment confirmation idempotency (DB)", () => {
   });
 
   it("rejects an ambiguous bare 10-digit recipient without creating an execution", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -288,7 +288,7 @@ describe("appointment confirmation idempotency (DB)", () => {
 
 describe("delivery status callbacks (DB)", () => {
   it("updates delivered state from a callback", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
 
     const outcome = await sendTrackedSms({
@@ -316,7 +316,7 @@ describe("delivery status callbacks (DB)", () => {
   });
 
   it("stores error code/message for a failed callback and is idempotent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
 
     const outcome = await sendTrackedSms({
@@ -343,7 +343,7 @@ describe("delivery status callbacks (DB)", () => {
   });
 
   it("never downgrades a delivered execution on a late 'sent' callback", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
 
     const outcome = await sendTrackedSms({
@@ -361,7 +361,7 @@ describe("delivery status callbacks (DB)", () => {
   });
 
   it("acknowledges an unknown MessageSid without creating anything", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const result = await applyTwilioMessageStatus({
       MessageSid: `SM-${RUN}-unknown`,
       MessageStatus: "delivered"

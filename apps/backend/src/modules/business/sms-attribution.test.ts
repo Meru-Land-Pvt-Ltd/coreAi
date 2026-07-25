@@ -105,7 +105,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.smsExecution.deleteMany({ where: { businessId } });
   await prisma.appointment.deleteMany({ where: { businessId } });
   await prisma.business.deleteMany({ where: { id: businessId } });
@@ -115,14 +115,14 @@ afterAll(async () => {
 
 describe("countBillableCustomerSms — attribution", () => {
   it("counts a direct vapiCallId match (SENT + messageSid)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("direct");
     await createSms({ vapiCallId: callId, status: "SENT" });
     expect(await countBillableCustomerSms(callId, null)).toBe(1);
   });
 
   it("counts a legacy send_notification:{callId}:customer dedupeKey row without vapiCallId", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("legacy");
     await createSms({
       vapiCallId: null,
@@ -133,7 +133,7 @@ describe("countBillableCustomerSms — attribution", () => {
   });
 
   it("a row matched by BOTH vapiCallId and dedupeKey is counted ONCE", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("both");
     await createSms({
       vapiCallId: callId,
@@ -144,7 +144,7 @@ describe("countBillableCustomerSms — attribution", () => {
   });
 
   it("never counts the :team dedupe leg or TEAM_NOTIFICATION rows", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("team");
     await createSms({
       vapiCallId: null,
@@ -156,14 +156,14 @@ describe("countBillableCustomerSms — attribution", () => {
   });
 
   it("bare QUEUED without messageSid is NOT billable (crash before the provider call)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("bare-queued");
     await createSms({ vapiCallId: callId, status: "QUEUED", messageSid: null });
     expect(await countBillableCustomerSms(callId, null)).toBe(0);
   });
 
   it("QUEUED with messageSid and UNDELIVERED are billable; FAILED/SUPPRESSED/SIMULATED never are", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const queuedCall = callRef("queued-sid");
     await createSms({ vapiCallId: queuedCall, status: "QUEUED" });
     expect(await countBillableCustomerSms(queuedCall, null)).toBe(1);
@@ -180,7 +180,7 @@ describe("countBillableCustomerSms — attribution", () => {
   });
 
   it("counts appointment confirmations via the conversation, but never one owned by a DIFFERENT call", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("confirm");
     const otherCallId = callRef("confirm-other");
 
@@ -207,7 +207,7 @@ describe("countBillableCustomerSms — attribution", () => {
   });
 
   it("the dedupeKey unique constraint blocks double-billing: duplicate create → P2002, count stays 1", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = callRef("dupe");
     const dedupeKey = `send_notification:${callId}:customer`;
     await createSms({ vapiCallId: null, dedupeKey, status: "SENT" });
@@ -231,7 +231,7 @@ describe("countStandaloneBillableSms", () => {
   const inWindow = new Date("2026-05-01T12:00:00.000Z");
 
   it("counts provider-accepted period SMS with no call/appointment link; call-linked and send_notification rows are excluded", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     // Standalone provider-accepted → counted.
     await createSms({ status: "SENT", createdAt: inWindow });
@@ -254,7 +254,7 @@ describe("countStandaloneBillableSms", () => {
 
 describe("providerAcceptedSmsWhere", () => {
   it("admits provider-reported/sid-carrying rows only — bare QUEUED and terminal non-billables are out", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const marker = `${RUN}-where-probe`;
     const accepted = await createSms({ status: "ACCEPTED", messageSid: null, dedupeKey: `${marker}-1` });
     const bareQueued = await createSms({ status: "QUEUED", messageSid: null, dedupeKey: `${marker}-2` });

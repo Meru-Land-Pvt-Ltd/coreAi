@@ -59,7 +59,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.phoneProvisioningRequest.deleteMany({ where: { businessId: { in: [businessId, emptyBusinessId] } } });
   await prisma.platformPhoneNumber.deleteMany({ where: { phoneNumber: { in: [heldNumber, secondNumber] } } });
   await prisma.business.deleteMany({ where: { id: { in: [businessId, emptyBusinessId] } } });
@@ -68,7 +68,7 @@ afterAll(async () => {
 
 describe("GET assignment shape", () => {
   it("returns the active assignment without any provider cost fields", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const assignment = await getBusinessPhoneAssignment(businessId);
     expect(assignment).not.toBeNull();
@@ -85,14 +85,14 @@ describe("GET assignment shape", () => {
   });
 
   it("returns null when the business holds no number", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await getBusinessPhoneAssignment(emptyBusinessId)).toBeNull();
   });
 });
 
 describe("search with an active number", () => {
   it("returns the existing assignment and never purchasable inventory", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const outcome = await searchNumbersForBusiness({
       businessId,
@@ -113,7 +113,7 @@ describe("search with an active number", () => {
 
 describe("purchase with an active number", () => {
   it("returns PHONE_NUMBER_ALREADY_ASSIGNED with the existing number and creates nothing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const outcome = await purchaseNumberForBusiness({
       businessId,
@@ -137,7 +137,7 @@ describe("purchase with an active number", () => {
   });
 
   it("two concurrent attempts both return the existing assignment and create zero requests", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const [first, second] = await Promise.all([
       purchaseNumberForBusiness({
@@ -174,7 +174,7 @@ describe("purchase with an active number", () => {
 
 describe("in-flight provisioning guard", () => {
   it("rejects a second purchase while another request is still provisioning", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.phoneProvisioningRequest.create({
       data: {
@@ -205,7 +205,7 @@ describe("in-flight provisioning guard", () => {
 
 describe("database constraint", () => {
   it("refuses a second ASSIGNED platform number for the same business", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await expect(
       prisma.platformPhoneNumber.create({

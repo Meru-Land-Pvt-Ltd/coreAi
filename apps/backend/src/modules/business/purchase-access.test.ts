@@ -201,13 +201,13 @@ describe("resolveActivePayment", () => {
 
 describe("canBusinessAccessListing (DB)", () => {
   it("denies a buyer with no purchase", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const access = await canBusinessAccessListing({ userId: buyerA.userId, listingId: paidListingId });
     expect(access.allowed).toBe(false);
   });
 
   it("denies PENDING and FAILED payments", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await payment(buyerA.userId, paidListingId, "PENDING");
     expect((await canBusinessAccessListing({ userId: buyerA.userId, listingId: paidListingId })).allowed).toBe(false);
 
@@ -216,7 +216,7 @@ describe("canBusinessAccessListing (DB)", () => {
   });
 
   it("allows SUCCEEDED payments (paid and free listings)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await payment(buyerA.userId, paidListingId, "SUCCEEDED");
     expect((await canBusinessAccessListing({ userId: buyerA.userId, listingId: paidListingId })).allowed).toBe(true);
 
@@ -225,7 +225,7 @@ describe("canBusinessAccessListing (DB)", () => {
   });
 
   it("does not let buyer A ride on buyer B's purchase or install", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await payment(buyerB.userId, paidListingId, "SUCCEEDED");
     await prisma.installedAgent.create({
       data: { businessId: buyerB.businessId, workflowId, listingId: paidListingId, name: "B install" }
@@ -236,7 +236,7 @@ describe("canBusinessAccessListing (DB)", () => {
   });
 
   it("grandfathers an existing install without a payment record (legacy)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await prisma.installedAgent.create({
       data: { businessId: buyerA.businessId, workflowId, listingId: paidListingId, name: "legacy install" }
     });
@@ -249,7 +249,7 @@ describe("canBusinessAccessListing (DB)", () => {
 
 describe("canBusinessRunSetup (DB)", () => {
   it("denies an unpurchased listing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const result = await canBusinessRunSetup({
       userId: buyerA.userId,
       requestedListingId: paidListingId
@@ -258,7 +258,7 @@ describe("canBusinessRunSetup (DB)", () => {
   });
 
   it("denies a raw workflow id that is not sold through a purchased listing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const result = await canBusinessRunSetup({
       userId: buyerA.userId,
       requestedWorkflowId: unsoldWorkflowId
@@ -267,7 +267,7 @@ describe("canBusinessRunSetup (DB)", () => {
   });
 
   it("allows a raw workflow id when a purchased listing sells that workflow", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await payment(buyerA.userId, paidListingId, "SUCCEEDED");
     const result = await canBusinessRunSetup({
       userId: buyerA.userId,
@@ -277,7 +277,7 @@ describe("canBusinessRunSetup (DB)", () => {
   });
 
   it("allows managing an already-installed agent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const result = await canBusinessRunSetup({
       userId: buyerA.userId,
       requestedListingId: paidListingId,
@@ -295,7 +295,7 @@ describe("POST /business/setup purchase gate (DB)", () => {
   }
 
   it("rejects an unpurchased listing with PURCHASE_REQUIRED before any deploy work", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const response = await setupApp().request("/business/setup", {
@@ -337,7 +337,7 @@ describe("architect browser-test endpoints (DB)", () => {
   }
 
   it("rejects BUSINESS tokens with ARCHITECT_ACCESS_REQUIRED", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const response = await startBrowserTest(buyerA.token, workflowId);
@@ -347,7 +347,7 @@ describe("architect browser-test endpoints (DB)", () => {
   });
 
   it("rejects a different architect testing someone else's workflow", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const response = await startBrowserTest(architectOther.token, workflowId);
@@ -355,7 +355,7 @@ describe("architect browser-test endpoints (DB)", () => {
   });
 
   it("lets the owning architect past the ownership check", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     // The fixture workflow has no voice node, so passing ownership surfaces
@@ -369,7 +369,7 @@ describe("architect browser-test endpoints (DB)", () => {
 
 describe("duplicate installation protection (DB)", () => {
   it("blocks a second InstalledAgent for the same business + listing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.installedAgent.create({
       data: { businessId: buyerA.businessId, workflowId, listingId: paidListingId, name: "first" }
@@ -385,7 +385,7 @@ describe("duplicate installation protection (DB)", () => {
   });
 
   it("still allows multiple NULL-listing sandbox agents per business", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.installedAgent.create({
       data: { businessId: buyerA.businessId, workflowId, name: "sandbox 1" }
@@ -400,18 +400,18 @@ describe("duplicate installation protection (DB)", () => {
 
 describe("setup test tools require an acquisition (DB)", () => {
   it("hasAnyAgentAcquisition is false without purchase/install/subscription", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await hasAnyAgentAcquisition(buyerA.userId)).toBe(false);
   });
 
   it("hasAnyAgentAcquisition turns true with a SUCCEEDED payment", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await payment(buyerA.userId, paidListingId, "SUCCEEDED");
     expect(await hasAnyAgentAcquisition(buyerA.userId)).toBe(true);
   });
 
   it("blocks the platform test-SMS sender for unpurchased buyers", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     const app = new Hono();
@@ -440,7 +440,7 @@ describe("POST /payments/purchase duplicate protection (DB)", () => {
   }
 
   it("returns the existing purchase instead of charging again (free listing)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
     await prisma.payment.create({

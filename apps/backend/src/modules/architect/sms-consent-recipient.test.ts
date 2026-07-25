@@ -206,12 +206,12 @@ describe("post-booking SMS consent recipient consistency", () => {
     expect(appointment.customerPhone).toBe(INDIA_PHONE);
     expect(appointment.bookingCallId).toBe(callId);
 
-    // Booking attempted the confirmation and the consent gate SUPPRESSED it.
-    const suppressed = await prisma.smsExecution.findFirst({
-      where: { businessId: fixture.businessId, status: "SUPPRESSED", errorCode: "SMS_CONSENT_REQUIRED" }
+    // Booking DEFERS the confirmation until consent — it creates NO execution
+    // (not even a suppressed one) and makes no provider send (#4).
+    const afterBooking = await prisma.smsExecution.findMany({
+      where: { businessId: fixture.businessId }
     });
-    expect(suppressed).not.toBeNull();
-    expect(suppressed?.dedupeKey).toBeNull();
+    expect(afterBooking).toHaveLength(0);
     expect(sendTwilioSmsMock).not.toHaveBeenCalled();
 
     // Verbal consent on the same call.
@@ -220,7 +220,7 @@ describe("post-booking SMS consent recipient consistency", () => {
     expect(consent.consent_recorded).toBe(true);
     expect(consent.sms_allowed).toBe(true);
     expect(consent.confirmation_sms_sent).toBe(true);
-    expect(consent.recipient_ending).toBe(INDIA_PHONE.slice(-4));
+    expect(String(consent.masked_recipient)).toContain(INDIA_PHONE.slice(-4));
     expect(String(consent.message)).toContain("has been submitted");
 
     // Canonical recipient identity across all three records.
@@ -252,20 +252,22 @@ describe("post-booking SMS consent recipient consistency", () => {
 
     await bookAppointment(fixture, callId, INDIA_PHONE);
 
-    const mismatch = await postTool(
+    const consent = await postTool(
       fixture,
       callId,
       "record_sms_consent",
       { affirmative: true, customer_phone: "+16396039675" },
       { withDisclosure: true }
     );
-    expect(mismatch.success).toBe(false);
-    expect(mismatch.error).toBe("RECIPIENT_MISMATCH");
-    expect(mismatch.consent_recorded).toBe(false);
+    // The model-injected number is IGNORED (#3): consent binds ONLY to the
+    // appointment's canonical recipient, never to a number the model supplied.
+    expect(consent.consent_recorded).toBe(true);
 
-    // No consent row for either number, and no send happened.
-    expect(await prisma.smsConsent.count({ where: { businessId: fixture.businessId } })).toBe(0);
-    expect(sendTwilioSmsMock).not.toHaveBeenCalled();
+    const consentRows = await prisma.smsConsent.findMany({ where: { businessId: fixture.businessId } });
+    expect(consentRows).toHaveLength(1);
+    expect(consentRows[0]?.phoneNumber).toBe(INDIA_PHONE);
+    // The different full number the model tried to inject NEVER received consent.
+    expect(consentRows.some((row) => row.phoneNumber === "+16396039675")).toBe(false);
   }, 40000);
 
   it("provider failure is reported honestly — no false 'sent' without a messageSid", async () => {

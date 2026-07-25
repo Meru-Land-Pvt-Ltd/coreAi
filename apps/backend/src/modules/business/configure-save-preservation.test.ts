@@ -135,7 +135,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.installedAgent.deleteMany({ where: { businessId } });
   await prisma.workflowDefinition.deleteMany({ where: { id: workflowId } });
   await prisma.businessKnowledgeBase.deleteMany({ where: { businessId } });
@@ -147,7 +147,7 @@ afterAll(async () => {
 
 describe("setup save preserves everything it doesn't own", () => {
   it("a minimal save keeps schedule, routing extras, recipients, custom fields, and deploy ids", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const res = await postSetup({});
     expect(res.status).toBe(200);
@@ -180,7 +180,7 @@ describe("setup save preserves everything it doesn't own", () => {
   });
 
   it("AI Call Coverage persists without clobbering mode or the custom schedule", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const res = await postSetup({ aiCallCoverage: { kind: "business_hours" } });
     expect(res.status).toBe(200);
@@ -207,7 +207,7 @@ describe("setup save preserves everything it doesn't own", () => {
   });
 
   it("GET /business/setup reports coverage and the advisory Business Hours checklist item", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const res = await getSetup();
     expect(res.status).toBe(200);
@@ -224,7 +224,7 @@ describe("setup save preserves everything it doesn't own", () => {
   });
 
   it("saving an inherited appointment schedule keeps custom day rows for later", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const res = await postSetup({
       appointmentSchedule: {
@@ -252,7 +252,7 @@ describe("setup save preserves everything it doesn't own", () => {
   });
 
   it("legacy CUSTOM_HOURS mode reads back as coverage 'custom'", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.installedAgent.update({
       where: { id: agentId },
@@ -271,7 +271,7 @@ describe("setup save preserves everything it doesn't own", () => {
   });
 
   it("a save WITH afterHoursPolicy replaces it (normalized) and it reads back on GET /business/setup", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const res = await postSetup({
       afterHoursPolicy: {

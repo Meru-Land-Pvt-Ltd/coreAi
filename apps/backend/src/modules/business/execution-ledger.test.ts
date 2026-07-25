@@ -191,7 +191,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.vapiCall.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.workflowRun.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.lead.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
@@ -219,7 +219,7 @@ function stubFetchOffline() {
 
 describe("countable rule", () => {
   it("counts distinct LIVE provider executions only — test modes and leads excluded, several usage components still one execution", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const activeCount = await countDistinctExecutions({ installedAgentIds: [agentActiveId] });
     expect(activeCount).toBe(2); // live-1 + live-2; BUSINESS_TEST/ARCHITECT_DRY_RUN/lead excluded
 
@@ -231,7 +231,7 @@ describe("countable rule", () => {
 
 describe("architect metrics", () => {
   it("active metric excludes paused installs; lifetime keeps their history; ownership never leaks", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const metricsA = await buildArchitectExecutionMetrics({ architectUserId: architectAId });
     // Lifetime: live-1, live-2 (active install) + paused-hist-1 (paused install history).
     expect(metricsA.lifetimeExecutionCount).toBe(3);
@@ -250,7 +250,7 @@ describe("architect metrics", () => {
 
 describe("idempotent usage recording", () => {
   it("records once; a retried end-of-call re-delivery never duplicates cost or moves billingMonth", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubFetchOffline();
     const callId = `${RUN}-usage-1`;
     const body = endOfCallBody(callId, { durationSeconds: 120 });
@@ -289,7 +289,7 @@ describe("idempotent usage recording", () => {
   });
 
   it("concurrent duplicate deliveries stay idempotent (one row, single-call cost)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubFetchOffline();
 
     // Baseline: an identical call settled serially, once.
@@ -315,7 +315,7 @@ describe("idempotent usage recording", () => {
   });
 
   it("failed executions with real metered usage store the actual usage; test modes never bill", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubFetchOffline();
     const callId = `${RUN}-usage-failed`;
     await prisma.vapiCall.create({
@@ -342,7 +342,7 @@ describe("idempotent usage recording", () => {
 
 describe("pause semantics", () => {
   it("a NEW attempt against a paused agent creates no execution row, no usage, no count — and returns AGENT_PAUSED", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubFetchOffline();
     await prisma.installedAgent.update({
       where: { id: agentActiveId },
@@ -376,7 +376,7 @@ describe("pause semantics", () => {
   });
 
   it("an execution started BEFORE pause settles its actual metered usage; history survives pause", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubFetchOffline();
     const callId = `${RUN}-inflight-1`;
     await prisma.vapiCall.create({
@@ -405,7 +405,7 @@ describe("pause semantics", () => {
   });
 
   it("pause/resume endpoints: CAS transitions with pausedAt, idempotent replays, resume restores execution", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = businessApp();
     const headers = { "Content-Type": "application/json", Authorization: `Bearer ${buyerToken}` };
 

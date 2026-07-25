@@ -43,6 +43,10 @@ function stringList(value: unknown): string[] {
 export function toAiSafeAvailabilityResult(internal: InternalCalendarResult): AiSafeAvailabilityResult {
   const parts: string[] = [];
 
+  // #9 The spoken, fully-spelled date the model MUST say aloud (never numeric).
+  const spokenDate = str(internal.spoken_date);
+  if (spokenDate) parts.push(`For ${spokenDate}:`);
+
   const requested = str(internal.requested_time);
   const verdict = str(internal.verdict);
   if (requested && verdict) {
@@ -77,6 +81,7 @@ export function toAiSafeAvailabilityResult(internal: InternalCalendarResult): Ai
   return {
     success: !failed,
     ...(str(internal.date) ? { date: str(internal.date) } : {}),
+    ...(spokenDate ? { spokenDate } : {}),
     availableTimes,
     message: parts.join(" ") || "Availability was checked."
   };
@@ -121,6 +126,25 @@ export function toAiSafeBookingResult(internal: InternalCalendarResult): AiSafeB
     } else if (smsRecord.attempted === true || smsRecord.blocked_reason) {
       customerSafeMessage = "Your appointment is booked, but I couldn't send the confirmation text.";
       parts.push(`No confirmation text was sent. Tell the caller EXACTLY: "${customerSafeMessage}" Never claim a text was sent.`);
+    }
+  }
+
+  // Booking now DEFERS the confirmation text until consent is captured, so there
+  // is no blocked SMS record to key off — surface the consent guidance from the
+  // canonical consent_status instead, so the assistant still knows to read the
+  // disclosure (none) or never re-ask (declined).
+  const consentStatus = str(internal.consent_status);
+  if (!customerSafeMessage) {
+    if (consentStatus === "none") {
+      customerSafeMessage = "Your appointment is booked. I can send a text confirmation if you'd like.";
+      parts.push(
+        "No text has been sent — the caller has NOT consented to SMS yet. Read the SMS consent disclosure in requiredDisclosure to them WORD-FOR-WORD (never paraphrase, shorten, or summarize it), wait for their yes or no, then call record_sms_consent."
+      );
+    } else if (consentStatus === "declined") {
+      customerSafeMessage = "Your appointment is booked, but I couldn't send the confirmation text.";
+      parts.push(
+        `The caller previously DECLINED texts. Do NOT ask for SMS consent again on this call and never send or promise a text. If asked, say: "${customerSafeMessage}"`
+      );
     }
   }
 

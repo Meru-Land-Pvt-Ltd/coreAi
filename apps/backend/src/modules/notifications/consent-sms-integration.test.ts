@@ -79,7 +79,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   env.TWILIO_SMS_MODE = savedSmsMode;
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.smsExecution.deleteMany({ where: { businessId } });
   await prisma.smsConsent.deleteMany({ where: { businessId } });
   await prisma.appointment.deleteMany({ where: { businessId } });
@@ -103,27 +103,38 @@ const confirmationArgs = () => ({
 
 describe("#5 consent + SMS integration", () => {
   it("T13: BUSINESS_TEST / ARCHITECT_DRY_RUN + SIMULATED never makes a real provider send", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const outcome = await sendAppointmentConfirmationSms(confirmationArgs());
     // Either suppressed (no consent yet) or simulated — either way no real sid.
     expect(outcome.messageSid).toBeNull();
   });
 
   it("T7: a pre-consent confirmation is SUPPRESSED — never a successful customer execution", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     // Fresh appointment so no prior execution/consent interferes.
     const apptId = await makeAppointment(PHONE_A);
     const outcome = await sendAppointmentConfirmationSms({ ...confirmationArgs(), appointmentId: apptId });
     expect(outcome.sent).toBe(false);
     expect(outcome.suppressed).toBe(true);
     expect(outcome.errorCode).toBe("SMS_CONSENT_REQUIRED");
-    const exec = await prisma.smsExecution.findUnique({ where: { dedupeKey: appointmentConfirmationDedupeKey(apptId) } });
+    // A suppression is an audit record, NOT the confirmation send: it must leave
+    // the dedupe key UNCONSUMED so the eventual consented send can still go out
+    // exactly once (#5). So it is keyed by appointment, never by dedupeKey.
+    const exec = await prisma.smsExecution.findFirst({
+      where: { appointmentId: apptId, messageType: "APPOINTMENT_CONFIRMATION" }
+    });
     expect(exec?.status).toBe("SUPPRESSED");
     expect(exec?.messageSid).toBeNull();
+    expect(exec?.dedupeKey).toBeNull();
+    // The dedupe key is still free — no send has consumed it yet.
+    const keyed = await prisma.smsExecution.findUnique({
+      where: { dedupeKey: appointmentConfirmationDedupeKey(apptId) }
+    });
+    expect(keyed).toBeNull();
   });
 
   it("T4/T16: consent persists the appointment's canonical recipient + installedAgentId + vapiCallId", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const result = await recordVerbalSmsConsent({
       businessId,
       installedAgentId,
@@ -146,7 +157,7 @@ describe("#5 consent + SMS integration", () => {
   });
 
   it("T3/T6: consent for PHONE_A does NOT authorize PHONE_B (same last-4, different full number)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(PHONE_A.slice(-4)).toBe(PHONE_B.slice(-4)); // last-4 collide…
     expect(PHONE_A).not.toBe(PHONE_B); // …but they are different numbers.
     expect(await getSmsConsentStatusLabel(businessId, PHONE_A)).toBe("granted");
@@ -154,7 +165,7 @@ describe("#5 consent + SMS integration", () => {
   });
 
   it("T8/T5: affirmative consent produces exactly ONE confirmation execution whose recipient equals the appointment", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const outcome = await sendAppointmentConfirmationSms(confirmationArgs());
     expect(outcome.suppressed).toBe(false);
     const execs = await prisma.smsExecution.findMany({
@@ -168,7 +179,7 @@ describe("#5 consent + SMS integration", () => {
   });
 
   it("T9: a duplicate retry (same dedupeKey) creates NO second SMS", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await sendAppointmentConfirmationSms(confirmationArgs());
     await sendAppointmentConfirmationSms(confirmationArgs());
     const execs = await prisma.smsExecution.findMany({
@@ -182,7 +193,7 @@ describe("#5 consent + SMS integration", () => {
   });
 
   it("T-atomic/T2: update_appointment_contact commit atomically moves the recipient + unbinds old-number consent (never transfers)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const apptId = await makeAppointment(PHONE_A);
     // Consent granted on the OLD number, bound to this appointment.
     await recordVerbalSmsConsent({

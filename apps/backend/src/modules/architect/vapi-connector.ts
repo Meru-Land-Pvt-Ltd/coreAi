@@ -908,12 +908,12 @@ export function genericAssistantTools() {
             appointment_id: {
               type: "string",
               description:
-                "Optional internal appointment id from the booking in THIS call. The appointment is resolved server-side if omitted."
+                "REQUIRED. The internal appointment id (appointment_ref) of the booking to correct in THIS call."
             },
             corrected_phone: {
               type: "string",
               description:
-                "PREPARE step only: the corrected full phone number in E.164 with country code (e.g. +16505551234). Omit on the confirmed=true commit call."
+                "REQUIRED on the PREPARE step: the corrected full phone number in E.164 with country code (e.g. +16505551234). Omit on the confirmed=true commit call — the validated number is loaded server-side from distributed pending state, never re-trusted from the model."
             },
             confirmed: {
               type: "boolean",
@@ -921,7 +921,7 @@ export function genericAssistantTools() {
                 "COMMIT step: true ONLY after the caller clearly confirmed the masked number read back in the prepare step. Omit/false on the prepare call."
             }
           },
-          required: []
+          required: ["appointment_id"]
         }
       }
     },
@@ -943,10 +943,10 @@ export function genericAssistantTools() {
             appointment_id: {
               type: "string",
               description:
-                "Optional internal appointment id from the booking in THIS call. The recipient is resolved server-side from the booking and verified caller ID — do NOT pass a spoken phone number. If the caller wants a different number, use update_appointment_contact first."
+                "REQUIRED. The internal appointment id (appointment_ref) returned by book_appointment in THIS call. The recipient is resolved server-side from that appointment and verified caller ID — do NOT pass a spoken phone number. If the caller wants a different number, use update_appointment_contact first."
             }
           },
-          required: ["affirmative"]
+          required: ["appointment_id", "affirmative"]
         }
       }
     },
