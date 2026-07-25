@@ -214,6 +214,58 @@ export function getAdminContactSubmissions(
   return apiGet<AdminPaged<AdminContactSubmission>>(`/admin/contact-submissions${query(params)}`);
 }
 
+/* ------------------------- "Need Help" support issues ------------------------- */
+
+export type AdminSupportIssueStatus = "OPEN" | "RESOLVED";
+
+export type AdminSupportIssue = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  issue: string;
+  status: string;
+  documentName: string | null;
+  documentMimeType: string | null;
+  documentSizeBytes: number | null;
+  voiceName: string | null;
+  voiceMimeType: string | null;
+  voiceDurationSec: number | null;
+  voiceSizeBytes: number | null;
+  createdAt: string;
+};
+
+export function getAdminSupportIssues(
+  params: { search?: string; status?: string; page?: number; limit?: number } = {}
+) {
+  return apiGet<AdminPaged<AdminSupportIssue>>(`/admin/support-issues${query(params)}`);
+}
+
+export function updateAdminSupportIssueStatus(id: string, status: AdminSupportIssueStatus) {
+  return apiPatch<{ issue: { id: string; status: string } }>(`/admin/support-issues/${id}`, { status });
+}
+
+// The document/voice bytes are behind an ADMIN-guarded endpoint, so they must be
+// fetched with the bearer token and handed to the browser as an object URL.
+export async function fetchAdminSupportIssueBlobUrl(
+  id: string,
+  kind: "document" | "voice"
+): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+  const token = localStorage.getItem("coreai-token");
+
+  try {
+    const response = await fetch(`${baseUrl}/admin/support-issues/${id}/${kind}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined
+    });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch {
+    return null;
+  }
+}
+
 export type AdminPayoutSummary = {
   pendingSalesCount: number;
   pendingEarningsCents: number;

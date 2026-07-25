@@ -615,6 +615,143 @@ adminRoutes.get("/contact-submissions", async (c) => {
   return successResponse(c, { items: submissions, total, page, limit });
 });
 
+/* ---- "Need Help" support issues (public landing-page submissions) ---- */
+
+const supportIssueListQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  status: z.string().trim().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional()
+});
+
+// GET /admin/support-issues — list "Need Help" submissions (metadata only, no file bytes)
+adminRoutes.get("/support-issues", async (c) => {
+  const parsed = supportIssueListQuerySchema.safeParse({
+    search: c.req.query("search"),
+    status: c.req.query("status"),
+    page: c.req.query("page"),
+    limit: c.req.query("limit")
+  });
+
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid query", 422, "VALIDATION_ERROR");
+  }
+
+  const { page, limit, skip } = parsePagination(c);
+  const search = (parsed.data.search ?? "").trim();
+  const status = (parsed.data.status ?? "").trim().toUpperCase();
+
+  const where: Prisma.SupportIssueWhereInput = {};
+  if (status) {
+    where.status = status;
+  }
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+      { issue: { contains: search, mode: "insensitive" } }
+    ];
+  }
+
+  const [total, issues] = await Promise.all([
+    prisma.supportIssue.count({ where }),
+    prisma.supportIssue.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        issue: true,
+        status: true,
+        documentName: true,
+        documentMimeType: true,
+        documentSizeBytes: true,
+        voiceName: true,
+        voiceMimeType: true,
+        voiceDurationSec: true,
+        voiceSizeBytes: true,
+        createdAt: true
+      }
+    })
+  ]);
+
+  return successResponse(c, { items: issues, total, page, limit });
+});
+
+// GET /admin/support-issues/:id/document — stream the uploaded document bytes
+adminRoutes.get("/support-issues/:id/document", async (c) => {
+  const id = c.req.param("id");
+  const row = await prisma.supportIssue.findUnique({
+    where: { id },
+    select: { documentBytes: true, documentMimeType: true, documentName: true }
+  });
+
+  if (!row?.documentBytes) {
+    return errorResponse(c, "Document not found", 404, "DOCUMENT_NOT_FOUND");
+  }
+
+  const bytes = new Uint8Array(row.documentBytes);
+  const filename = (row.documentName ?? "document").replace(/"/g, "");
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": row.documentMimeType ?? "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": String(bytes.byteLength)
+    }
+  });
+});
+
+// GET /admin/support-issues/:id/voice — stream the recorded voice message for playback
+adminRoutes.get("/support-issues/:id/voice", async (c) => {
+  const id = c.req.param("id");
+  const row = await prisma.supportIssue.findUnique({
+    where: { id },
+    select: { voiceBytes: true, voiceMimeType: true }
+  });
+
+  if (!row?.voiceBytes) {
+    return errorResponse(c, "Voice message not found", 404, "VOICE_NOT_FOUND");
+  }
+
+  const bytes = new Uint8Array(row.voiceBytes);
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": row.voiceMimeType ?? "audio/webm",
+      "Content-Length": String(bytes.byteLength)
+    }
+  });
+});
+
+const supportIssueStatusSchema = z.object({
+  status: z.enum(["OPEN", "RESOLVED"])
+});
+
+// PATCH /admin/support-issues/:id — update the triage status (OPEN | RESOLVED)
+adminRoutes.patch("/support-issues/:id", async (c) => {
+  const id = c.req.param("id");
+  const parsed = supportIssueStatusSchema.safeParse(await c.req.json().catch(() => ({})));
+
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid status", 422, "VALIDATION_ERROR");
+  }
+
+  const existing = await prisma.supportIssue.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) {
+    return errorResponse(c, "Support issue not found", 404, "SUPPORT_ISSUE_NOT_FOUND");
+  }
+
+  const updated = await prisma.supportIssue.update({
+    where: { id },
+    data: { status: parsed.data.status },
+    select: { id: true, status: true }
+  });
+
+  return successResponse(c, { issue: updated });
+});
+
 /* ---- Proxy email alias administration (reply.triven.ai) ---- */
 
 adminRoutes.get("/email-aliases", async (c) => {

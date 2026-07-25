@@ -758,6 +758,34 @@ model ContactSubmission {
   @@index([createdAt])
 }
 
+model SupportIssue {
+  id       String @id @default(cuid())
+  name     String?
+  email    String?
+  /// The written issue description ("" when the user only sent a document/voice).
+  issue    String @default("")
+
+  documentName      String?
+  documentMimeType  String?
+  documentSizeBytes Int?
+  documentBytes     Bytes?
+
+  voiceName        String?
+  voiceMimeType    String?
+  voiceDurationSec Int?
+  voiceSizeBytes   Int?
+  voiceBytes       Bytes?
+
+  /// OPEN | RESOLVED — free-text status (matches BusinessKnowledgeFile style).
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([email])
+  @@index([createdAt])
+}
+
 model Country {
   id          String   @id @default(cuid())
   name        String
