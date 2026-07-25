@@ -12,6 +12,12 @@ export const DEMO_MAX_DURATION_SECONDS = 180;
 /** Demo starts allowed per buyer per listing per day. */
 export const DEMO_DAILY_LIMIT = 3;
 
+/** Public (logged-out) visitors: shorter calls and fewer of them, keyed by IP. */
+export const PUBLIC_DEMO_MAX_DURATION_SECONDS = 120;
+
+/** Public demo starts allowed per IP per listing per day. */
+export const PUBLIC_DEMO_DAILY_LIMIT = 2;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class MarketplaceDemoError extends Error {
@@ -229,10 +235,42 @@ function buildDemoSystemPrompt(params: {
 // ---------------------------------------------------------------------------
 // Start a demo call
 // ---------------------------------------------------------------------------
+
+/** Authenticated buyer demo: keyed by user id, 3/day, 3-minute cap. */
 export async function startMarketplaceDemoCall(
   userId: string,
   listingId: string
 ): Promise<MarketplaceDemoSession> {
+  return startDemoCallInternal({
+    scopeKey: `user:${userId}`,
+    listingId,
+    dailyLimit: DEMO_DAILY_LIMIT,
+    maxDurationSeconds: DEMO_MAX_DURATION_SECONDS
+  });
+}
+
+/** Public (logged-out) visitor demo: keyed by client IP, 2/day, 2-minute cap. */
+export async function startPublicMarketplaceDemoCall(
+  clientIp: string,
+  listingId: string
+): Promise<MarketplaceDemoSession> {
+  const ip = clientIp.trim() || "unknown";
+  return startDemoCallInternal({
+    scopeKey: `ip:${ip}`,
+    listingId,
+    dailyLimit: PUBLIC_DEMO_DAILY_LIMIT,
+    maxDurationSeconds: PUBLIC_DEMO_MAX_DURATION_SECONDS
+  });
+}
+
+async function startDemoCallInternal(params: {
+  scopeKey: string;
+  listingId: string;
+  dailyLimit: number;
+  maxDurationSeconds: number;
+}): Promise<MarketplaceDemoSession> {
+  const { scopeKey, listingId, dailyLimit, maxDurationSeconds } = params;
+
   if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
     throw new MarketplaceDemoError(
       "Live demos are not configured on the server.",
@@ -269,11 +307,11 @@ export async function startMarketplaceDemoCall(
   }
 
   const bucket = dayBucket();
-  const userKey = `demo:user:${userId}:${listingId}:${bucket}`;
+  const userKey = `demo:${scopeKey}:${listingId}:${bucket}`;
   const globalKey = `demo:global:${bucket}`;
   const counts = await readDemoCounts(userKey, globalKey);
 
-  if (counts.user >= DEMO_DAILY_LIMIT) {
+  if (counts.user >= dailyLimit) {
     throw new MarketplaceDemoError(
       "Demo limit reached for today. Buy the agent to keep testing with your own business details.",
       429,
@@ -329,7 +367,7 @@ export async function startMarketplaceDemoCall(
     // The demo converses only: no booking, no SMS, no notifications.
     includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false, knowledgeLookup: false },
     silenceTimeoutSeconds: 30,
-    maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
+    maxDurationSeconds,
     recordingEnabled: false
   });
 
@@ -337,12 +375,12 @@ export async function startMarketplaceDemoCall(
 
   // Consume the allowance only after the assistant deployed successfully.
   await recordDemoStart(userKey, globalKey);
-  const remainingToday = Math.max(0, DEMO_DAILY_LIMIT - (counts.user + 1));
+  const remainingToday = Math.max(0, dailyLimit - (counts.user + 1));
 
   console.log("[marketplace-demo] session ready", {
     listingId: listing.id,
     assistantId: assistant.id,
-    userId,
+    scopeKey,
     remainingToday
   });
 
@@ -353,7 +391,7 @@ export async function startMarketplaceDemoCall(
     listingName: listing.name,
     assistantName,
     demoBusinessName,
-    maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
+    maxDurationSeconds,
     remainingDemosToday: remainingToday,
     demo: true
   };

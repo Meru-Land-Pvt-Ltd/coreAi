@@ -9,8 +9,11 @@ import {
   DEMO_DAILY_LIMIT,
   DEMO_MAX_DURATION_SECONDS,
   MARKETPLACE_DEMO_PURPOSE,
+  PUBLIC_DEMO_DAILY_LIMIT,
+  PUBLIC_DEMO_MAX_DURATION_SECONDS,
   resetMarketplaceDemoLimits,
-  startMarketplaceDemoCall
+  startMarketplaceDemoCall,
+  startPublicMarketplaceDemoCall
 } from "./marketplace-demo";
 
 /**
@@ -262,6 +265,36 @@ describe("startMarketplaceDemoCall (DB)", () => {
     await expect(startMarketplaceDemoCall(buyer.userId, "nonexistent-listing")).rejects.toMatchObject({
       status: 404,
       code: "LISTING_NOT_FOUND"
+    });
+  });
+});
+
+describe("startPublicMarketplaceDemoCall (DB)", () => {
+  it("lets a public visitor start a 2-minute IP-limited demo", async () => {
+    if (!dbAvailable) return;
+    enableVapi();
+    stubVapi();
+
+    const session = await startPublicMarketplaceDemoCall("203.0.113.50", demoListingId);
+
+    expect(session.demo).toBe(true);
+    expect(session.maxDurationSeconds).toBe(PUBLIC_DEMO_MAX_DURATION_SECONDS);
+    expect(session.remainingDemosToday).toBe(PUBLIC_DEMO_DAILY_LIMIT - 1);
+  });
+
+  it("enforces 2 demos per IP per listing per day", async () => {
+    if (!dbAvailable) return;
+    enableVapi();
+    stubVapi();
+
+    const ip = "203.0.113.91";
+    for (let index = 0; index < PUBLIC_DEMO_DAILY_LIMIT; index += 1) {
+      await startPublicMarketplaceDemoCall(ip, demoListingId);
+    }
+
+    await expect(startPublicMarketplaceDemoCall(ip, demoListingId)).rejects.toMatchObject({
+      status: 429,
+      code: "DEMO_LIMIT_REACHED"
     });
   });
 });

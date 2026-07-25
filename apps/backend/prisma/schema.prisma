@@ -1676,6 +1676,7 @@ model SmsExecution {
   @@index([status])
   @@index([createdAt])
   @@index([toPhone, createdAt])
+  @@index([vapiCallId])
 }
 
 enum SmsConsentStatus {

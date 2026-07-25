@@ -215,7 +215,8 @@ function buildActivityChartDays(params: {
   for (const appointment of params.appointments) {
     const bucket = buckets.get(dayKey(appointment.createdAt));
     if (bucket) {
-      bucket.executions += 1;
+      // A booking happens during a call that is already counted as one
+      // execution below — count it only as a booking, never a second run.
       bucket.bookings += 1;
     }
   }

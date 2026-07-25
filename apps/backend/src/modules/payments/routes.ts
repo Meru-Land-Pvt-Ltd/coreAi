@@ -38,6 +38,7 @@ import { resolvePrimaryBusinessId } from "../business/primary-business";
 import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscription } from "../business/purchase-access";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import { restoreBusinessAfterBillingPayment } from "../business/billing-cycle";
+import { createSettlementForPayment } from "../payouts/settlements";
 
 export const paymentRoutes = new Hono();
 
@@ -1491,6 +1492,14 @@ paymentRoutes.post("/invoices/:id/pay", async (c) => {
         stripeSessionId: intent.id
       }
     });
+    try {
+      await createSettlementForPayment(paid.id);
+    } catch (error) {
+      console.error("[payments] renewal settlement creation failed (reconcile will backfill)", {
+        paymentId: paid.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     const servicesRestored = paid.businessId
       ? await restoreBusinessAfterBillingPayment(paid.businessId)
       : false;
@@ -2072,10 +2081,23 @@ paymentRoutes.post("/cancel-agent/:listingId", async (c) => {
     return errorResponse(c, "No active access found for this agent", 404, "ACTIVE_ACCESS_NOT_FOUND");
   }
 
+  const now = new Date();
   await prisma.$transaction([
     prisma.payment.update({
       where: { id: activePayment.id },
-      data: { status: "CANCELED" }
+      data:
+        activePayment.status === "SUCCEEDED"
+          ? { canceledAt: now }
+          : { status: "CANCELED", canceledAt: now }
+    }),
+    prisma.payment.updateMany({
+      where: {
+        userId: authUser.id,
+        listingId,
+        invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] },
+        status: { in: ["PENDING", "OVERDUE"] }
+      },
+      data: { status: "CANCELED", canceledAt: now }
     }),
     prisma.installedAgent.updateMany({
       where: {
@@ -2083,7 +2105,7 @@ paymentRoutes.post("/cancel-agent/:listingId", async (c) => {
         listingId
       },
       data: {
-        status: "INACTIVE"
+        status: "CANCELED"
       }
     })
   ]);

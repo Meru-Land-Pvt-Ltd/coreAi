@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { sendArchitectNewSaleEmail } from "../../lib/mailer";
-import { ARCHITECT_SHARE } from "./payout-earnings";
+import { architectShareCents } from "./payout-earnings";
 
 const DEFAULT_NEW_SALE_EMAIL = true;
 
@@ -13,13 +13,6 @@ function newSaleEmailEnabled(notificationPrefs: unknown): boolean {
   return typeof email === "boolean" ? email : DEFAULT_NEW_SALE_EMAIL;
 }
 
-/**
- * Emails the architect that another buyer is now using one of their agents,
- * but only when that architect has the "New sale" email notification enabled.
- *
- * Best-effort and self-contained: any failure is swallowed so it can never
- * break the buyer's purchase flow.
- */
 export async function notifyArchitectOfNewSale(params: {
   listingId: string;
   agentPriceCents?: number | null;
@@ -44,7 +37,7 @@ export async function notifyArchitectOfNewSale(params: {
     if (!newSaleEmailEnabled(listing.architect.architectProfile?.notificationPrefs)) return;
 
     const grossCents = params.agentPriceCents ?? listing.priceCents ?? 0;
-    const earningsCents = grossCents > 0 ? Math.round(grossCents * ARCHITECT_SHARE) : null;
+    const earningsCents = grossCents > 0 ? architectShareCents(grossCents) : null;
 
     await sendArchitectNewSaleEmail({
       to: listing.architect.email,

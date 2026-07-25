@@ -137,6 +137,26 @@ export function twilioSmsStatusCallbackUrl(): string {
 const TWILIO_TEST_FROM_NUMBER = "+15005550006";
 
 /**
+ * Region-aware live sender selection. EVERY live SMS goes through the shared
+ * Messaging Service. US (+1) destinations additionally pin the configured US
+ * long code (TWILIO_US_SMS_FROM) as the From. International destinations (e.g.
+ * India +91) send with the Messaging Service ALONE — no From — so Twilio can
+ * select the correct regional route (a US From to +91 is filtered by the
+ * destination carrier). Nothing here is hardcoded: the service SID and US
+ * sender both come from env.
+ */
+export function resolveLiveSmsSender(
+  to: string,
+  messagingServiceSid: string
+): { messagingServiceSid: string; from?: string } {
+  const usFrom = env.TWILIO_US_SMS_FROM?.trim();
+  if (to.startsWith("+1") && usFrom) {
+    return { messagingServiceSid, from: usFrom };
+  }
+  return { messagingServiceSid };
+}
+
+/**
  * The active SMS mode. Explicit TWILIO_SMS_MODE wins. The deprecated
  * TWILIO_TEST_MODE=true maps to SIMULATED — it must never trigger a Twilio
  * request with production credentials. Default is LIVE.
@@ -181,6 +201,14 @@ export async function sendTwilioSms({
   statusCallbackUrl,
   metadata
 }: SendTwilioSmsInput): Promise<TwilioSmsResult> {
+  // Reject invalid recipients BEFORE any provider request — the centralized
+  // sender is the last line of defense even if a caller skipped validation.
+  const recipient = validateSmsRecipientE164(to);
+  if (!recipient.ok) {
+    throw new TwilioSmsError(recipient.error, { httpStatus: 400, twilioCode: null });
+  }
+  to = recipient.e164;
+
   const mode = resolveTwilioSmsMode();
 
   if (mode === "SIMULATED") {
@@ -250,9 +278,12 @@ export async function sendTwilioSms({
   });
 
   if (messagingServiceSid) {
-    // Shared live mode: MessagingServiceSid only — Twilio selects the shared
-    // Triven sender. Never combined with a From number.
-    bodyParams.set("MessagingServiceSid", messagingServiceSid);
+    // Shared live mode: always the Messaging Service. US (+1) destinations
+    // also pin the configured US sender; international (+91, …) send with the
+    // service alone so Twilio picks the correct regional route.
+    const sender = resolveLiveSmsSender(to, messagingServiceSid);
+    bodyParams.set("MessagingServiceSid", sender.messagingServiceSid);
+    if (sender.from) bodyParams.set("From", sender.from);
     const callback = statusCallbackUrl ?? twilioSmsStatusCallbackUrl();
     if (callback && callback.startsWith("https://")) {
       bodyParams.set("StatusCallback", callback);

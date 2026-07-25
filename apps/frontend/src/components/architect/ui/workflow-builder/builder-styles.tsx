@@ -108,7 +108,7 @@ export function WorkflowBuilderStyles() {
       .configure-step-enter { animation: configureStepIn .42s cubic-bezier(.16,1,.3,1) both; }
       @keyframes configureStepIn { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: translateX(0); } }
 
-      .phone-shell { box-shadow: 0 40px 80px -20px rgba(15,23,42,.45), 0 0 0 1px rgba(15,23,42,.06); }
+      .phone-shell { box-shadow: none; border: 2px solid #f59e0b; }
       .workflow-modal-card { animation: modalIn .3s cubic-bezier(.2,.85,.25,1) both; }
       @keyframes modalIn { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

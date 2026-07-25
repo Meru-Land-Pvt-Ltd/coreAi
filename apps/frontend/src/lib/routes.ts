@@ -60,7 +60,7 @@ export function resolveBusinessLoginReturnPath(next: string | null | undefined):
   return next as Route;
 }
 
-// Owned-agent detail page under My Agents (/business/agents/[agentId]).
+/** Business profile agent description page (/business/agents/[agentId]). */
 export function businessAgentDetailPath(agentId: string): Route {
   return `/business/agents/${agentId}` as Route;
 }

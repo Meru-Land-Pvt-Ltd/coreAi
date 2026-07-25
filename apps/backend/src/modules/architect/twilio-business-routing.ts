@@ -974,6 +974,11 @@ async function maybeStartVapiAfterMissedCall({
       },
       create: {
         businessId: agent.business.businessId,
+        // Attribute the outbound AI callback to its agent at creation. Without
+        // this the row is billing-orphaned: the reconciler requires a non-null
+        // installedAgentId, so a lost end-of-call webhook would strand the call
+        // in pricingState PENDING forever, unbillable and inflating run counts.
+        installedAgentId: agent.business.installedAgentId ?? undefined,
         conversationId: conversationId ?? undefined,
         callId: call.id,
         customerPhone: callerNumber,
@@ -1690,6 +1695,10 @@ export async function handleTwilioInboundSms(c: Context) {
   const customerPhone = readBodyString(body, ["From", "from"]);
   const incomingBody = readBodyString(body, ["Body", "body"]);
   const optOutType = readBodyString(body, ["OptOutType", "optOutType"]);
+  // Twilio retries the same inbound webhook (identical MessageSid) on timeout;
+  // keying the AI reply on it makes the reply send — and its billable ledger
+  // row — idempotent instead of duplicating on every retry.
+  const inboundMessageSid = readBodyString(body, ["MessageSid", "SmsSid"]);
 
   const sharedSender = normalizePhoneE164(env.TWILIO_SHARED_SMS_NUMBER ?? "");
   if (sharedSender && normalizePhoneE164(businessNumber) === sharedSender) {
@@ -1863,7 +1872,11 @@ export async function handleTwilioInboundSms(c: Context) {
     smsPurpose: bookedAppointmentId ? "APPOINTMENT_CONFIRMATION" : "SUPPORT_RESPONSE",
     installedAgentId: agent.business?.installedAgentId ?? null,
     appointmentId: bookedAppointmentId,
-    dedupeKey: bookedAppointmentId ? `appointment-confirmation:${bookedAppointmentId}` : null
+    dedupeKey: bookedAppointmentId
+      ? `appointment-confirmation:${bookedAppointmentId}`
+      : inboundMessageSid
+        ? `inbound-reply:${inboundMessageSid}`
+        : null
   });
 
   await upsertConversation({
@@ -3340,7 +3353,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
     return { cancelled: false, code: "BUSINESS_NOT_RESOLVED", message: CANCEL_FAILED_MESSAGE };
   }
 
-  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST" || ctx.executionMode === "ARCHITECT_DRY_RUN") {
     return {
       cancelled: false,
       dry_run: true,
@@ -3573,7 +3586,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     return { rescheduled: false, code: "BUSINESS_NOT_RESOLVED", message: RESCHEDULE_FAILED_MESSAGE };
   }
 
-  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST" || ctx.executionMode === "ARCHITECT_DRY_RUN") {
     return {
       rescheduled: false,
       dry_run: true,
@@ -4143,7 +4156,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
 
   const urgencyRaw = (argStr(args, ["urgency"]) || "").toLowerCase();
   const urgency = urgencyRaw === "urgent" || urgencyRaw === "emergency" ? urgencyRaw : null;
-  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST") {
+  if (ctx.dental?.dryRun || ctx.executionMode === "BUSINESS_TEST" || ctx.executionMode === "ARCHITECT_DRY_RUN") {
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
     const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
     const preview = applyBracketTemplate(

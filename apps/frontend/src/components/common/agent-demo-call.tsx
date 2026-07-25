@@ -55,7 +55,16 @@ async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
 
 type DemoState = "idle" | "starting" | "live" | "ended";
 
-export function AgentDemoCall({ listingId, listingName }: { listingId: string; listingName: string }) {
+export function AgentDemoCall({
+    listingId,
+    listingName,
+    /** Public visitors are IP-limited (2 × 2 min). Authenticated buyers use the business route. */
+    mode = "public"
+}: {
+    listingId: string;
+    listingName: string;
+    mode?: "public" | "authenticated";
+}) {
     const [state, setState] = useState<DemoState>("idle");
     const [message, setMessage] = useState("");
     const [secondsLeft, setSecondsLeft] = useState(0);
@@ -106,10 +115,12 @@ export function AgentDemoCall({ listingId, listingName }: { listingId: string; l
         setState("starting");
 
         try {
-            const res = await apiPost<{ session: DemoSession }>(
-                `/business/marketplace/listings/${encodeURIComponent(listingId)}/demo-call`,
-                {}
-            );
+            const endpoint =
+                mode === "authenticated"
+                    ? `/business/marketplace/listings/${encodeURIComponent(listingId)}/demo-call`
+                    : `/architect/listings/public/${encodeURIComponent(listingId)}/demo-call`;
+
+            const res = await apiPost<{ session: DemoSession }>(endpoint, {});
 
             if (!res.success || !res.data?.session) {
                 setState("idle");
@@ -206,7 +217,9 @@ export function AgentDemoCall({ listingId, listingName }: { listingId: string; l
                         Try a live demo
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                        Talk to a 3-minute sample of {listingName} — demo data only, your real setup comes after purchase.
+                        {mode === "public"
+                            ? `Talk to a 2-minute sample of ${listingName} — up to 2 demos per day from your network. Demo data only; your real setup comes after purchase.`
+                            : `Talk to a live sample of ${listingName} — demo data only; your real setup comes after purchase.`}
                     </p>
                 </div>
 

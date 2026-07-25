@@ -4,6 +4,7 @@ import { calendarEventTitleForMode, normalizeAgentConfigure, requiredConnectorKe
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
+import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
   createGmailOAuthUrl,
@@ -310,6 +311,32 @@ async function listCompletedMarketplaceListings(c: Context) {
 architectRoutes.get("/listings/public", listPublicMarketplaceListings);
 architectRoutes.get("/listings/public/:id", getPublicMarketplaceListingById);
 architectRoutes.get("/listings/completed", requireAuth, listCompletedMarketplaceListings);
+
+architectRoutes.post("/listings/public/:id/demo-call", async (c) => {
+  const listingId = c.req.param("id");
+
+  if (!listingId) {
+    return errorResponse(c, "Listing id is required", 422, "LISTING_ID_REQUIRED");
+  }
+
+  const forwarded = c.req.header("x-forwarded-for");
+  const clientIp =
+    forwarded?.split(",")[0]?.trim() ||
+    c.req.header("x-real-ip") ||
+    c.req.header("cf-connecting-ip") ||
+    "127.0.0.1";
+
+  try {
+    const session = await startPublicMarketplaceDemoCall(clientIp, listingId);
+    return successResponse(c, { session }, "Demo call ready");
+  } catch (error) {
+    if (error instanceof MarketplaceDemoError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    console.error("[marketplace-demo] public demo failed", error);
+    return errorResponse(c, "Could not start the demo call.", 500, "DEMO_FAILED");
+  }
+});
 
 architectRoutes.get("/listings/public/:id/similar", async (c) => {
   const id = c.req.param("id");

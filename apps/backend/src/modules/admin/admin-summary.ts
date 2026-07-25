@@ -208,7 +208,8 @@ export async function getAdminLiveSummaryData(now = new Date()) {
     performanceExecutionSources,
     submittedListings,
     recentPayments,
-    recentExecutions
+    recentExecutions,
+    usageRevenueByCurrency
   ] = await Promise.all([
     prisma.user.findMany({
       where: {
@@ -238,19 +239,16 @@ export async function getAdminLiveSummaryData(now = new Date()) {
       where: { status: "SUCCEEDED", createdAt: { gte: previousPeriodStart } },
       select: { createdAt: true, amountCents: true, currency: true }
     }),
-    // Keep the platform execution definition aligned with the Business
-    // dashboard: one live booking, missed-call capture, or AI call is one
-    // execution. WorkflowRun alone does not contain every live agent event.
+    // Canonical run definition, shared with the Business dashboard and My
+    // Agents: one run = a LIVE AI call or a missed-call capture. Appointments
+    // are NOT counted — a booking happens during a call that is already one
+    // run, so adding it would double-count. WorkflowRun alone misses missed
+    // calls, hence the LIVE VapiCall + missed-lead pair.
     Promise.all([
-      prisma.appointment.count({ where: { executionMode: "LIVE" } }),
       prisma.lead.count({ where: { source: { contains: "MISSED_CALL" } } }),
       prisma.vapiCall.count({ where: { executionMode: "LIVE" } })
     ]),
     Promise.all([
-      prisma.appointment.findMany({
-        where: { executionMode: "LIVE", createdAt: { gte: performanceStart } },
-        select: { createdAt: true }
-      }),
       prisma.lead.findMany({
         where: { source: { contains: "MISSED_CALL" }, createdAt: { gte: performanceStart } },
         select: { createdAt: true }
@@ -298,6 +296,14 @@ export async function getAdminLiveSummaryData(now = new Date()) {
         triggeredBy: { select: { email: true, fullName: true } },
         business: { select: { name: true, owner: { select: { email: true, fullName: true } } } }
       }
+    }),
+    // Metered execution revenue is charged via paid BusinessUsageInvoices,
+    // which never create Payment rows — without this, admin revenue silently
+    // omits all usage billing.
+    prisma.businessUsageInvoice.groupBy({
+      by: ["currency"],
+      where: { status: "PAID" },
+      _sum: { totalMicroUsd: true }
     })
   ]);
 
@@ -311,12 +317,18 @@ export async function getAdminLiveSummaryData(now = new Date()) {
   const performanceUsers = marketplaceUsers.filter((user) => user.createdAt >= performanceStart);
   const recentUsers = marketplaceUsers.slice(0, 12);
 
-  const lifetimeRevenue = summarizeAdminRevenue(
-    lifetimeRevenueByCurrency.map((row) => ({
+  const lifetimeRevenue = summarizeAdminRevenue([
+    ...lifetimeRevenueByCurrency.map((row) => ({
       currency: row.currency,
       amountCents: row._sum.amountCents ?? 0
+    })),
+    // Metered usage revenue (micro-USD → cents) folded into the same currency
+    // buckets so purchases and usage are one revenue figure.
+    ...usageRevenueByCurrency.map((row) => ({
+      currency: row.currency,
+      amountCents: Math.round((row._sum.totalMicroUsd ?? 0) / 10_000)
     }))
-  );
+  ]);
   const recentRevenue = summarizeAdminRevenue(recentRevenuePayments);
 
   const currentPeriodRevenueCents = recentRevenuePayments
