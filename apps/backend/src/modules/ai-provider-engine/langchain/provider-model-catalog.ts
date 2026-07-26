@@ -10,7 +10,7 @@
 export type ProviderCatalogEntry = {
   id: string;
   displayName: string;
-  envKey: "OPENAI_API_KEY" | "ANTHROPIC_API_KEY" | "GOOGLE_AI_API_KEY";
+  envKey: "OPENAI_API_KEY" | "ANTHROPIC_API_KEY" | "GEMINI_API_KEY";
   defaultModelEnvKey: "OPENAI_DEFAULT_MODEL" | "ANTHROPIC_DEFAULT_MODEL" | "GEMINI_DEFAULT_MODEL";
   models: string[];
 };
@@ -40,7 +40,7 @@ export const PROVIDER_MODEL_CATALOG: ProviderCatalogEntry[] = [
   {
     id: "gemini",
     displayName: "Google Gemini",
-    envKey: "GOOGLE_AI_API_KEY",
+    envKey: "GEMINI_API_KEY",
     defaultModelEnvKey: "GEMINI_DEFAULT_MODEL",
     models: [
       "gemini-3.1-flash-lite",

@@ -42,7 +42,7 @@ function resolveApiKey(providerId: string): string {
     case "claude":
       return env.ANTHROPIC_API_KEY?.trim() ?? "";
     case "gemini":
-      return env.GOOGLE_AI_API_KEY?.trim() ?? "";
+      return env.GEMINI_API_KEY?.trim() ?? "";
     default:
       return "";
   }
