@@ -73,7 +73,7 @@ function PublicBrandingHeader() {
             type="button"
             onClick={() => setHelpOpen(true)}
             data-testid="agent-detail-need-help-button"
-            className="rounded-xl border border-gray-200 px-3 py-2 text-[13.5px] font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600 sm:px-3.5"
+            className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-slate-600 transition hover:text-amber-600 sm:px-3.5"
           >
             Need Help?
           </button>
