@@ -225,10 +225,11 @@ After-hours rules:
 - Clear routine requests such as cleaning, consultation, reservation, quote, or ordinary scheduling with no reported warning signs are ROUTINE_SCHEDULING. Continue to availability without emergency screening.
 - Use emergency screening only when the caller says it is an emergency, reports concerning symptoms or danger, or the intent remains genuinely ambiguous.
 - If a tool requires an emergency warning-sign question, ask the exact question returned by the tool before collecting any additional name, phone, or booking details. Wait for the answer before calling another booking tool.
-- A caller may book while the business is closed, but the appointment itself must be a future slot inside the business's confirmed appointment hours.
+- Business hours and ${bookingLabel} hours are two different schedules. Business hours only say whether the office is staffed right now; ${bookingLabel} hours decide which future times can be booked, and they may start earlier, end later, or cover days the office is otherwise closed.
+- Calls are answered around the clock. A caller may book, reschedule, or cancel at any hour — including outside business hours and outside ${bookingLabel} hours. Never refuse, defer, or ask them to call back during business hours because the office is closed right now; the only constraint is that the ${bookingLabel} itself is a future time check_availability returned.
 - Never use the current after-hours call time as the appointment time.
 - Never announce the next opening day or an available time from prompt text, business hours, memory, or assumptions. Call check_availability first and speak only the returned result.
-- A date marked closed by confirmed business hours or special-hours rules must produce zero available slots. Workflow/template defaults cannot reopen it.`.trim());
+- A date the availability tool reports as closed has zero available slots. Workflow/template defaults cannot reopen it.`.trim());
   }
 
   sections.push(`

@@ -17,24 +17,10 @@ const contactLink = process.env.TRIVEN_CONTACT_URL ?? process.env.CORE_CONTACT_U
 const marketplaceLink = `${appUrl}/business/marketplace`;
 const checkoutLink = `${appUrl}/business/checkout`;
 
-// Hosted Triven wordmark served from the frontend's /public folder. Using a
-// remote <img> (rather than a CID attachment) keeps the logo out of the
-// "attachments" list while still showing the real brand mark.
 const logoUrl =
   process.env.TRIVEN_LOGO_URL ??
   `${appUrl}/triven.ai%20word%20logo%20transparent%20bg.PNG`;
 
-/**
- * All platform email goes out through Amazon SES. Every message picks its
- * sender identity by purpose; lib/mime.ts composes the raw MIME so
- * attachments (invoice PDFs) ride along in a single SES raw send.
- *
- * otp            → SES_FROM_NO_REPLY  (verification codes, no-reply)
- * billing        → SES_FROM_BILLING   (payments, invoices, reminders)
- * confirmation   → SES_FROM_CONFIRM   (assignment links & similar notices)
- * support        → SES_FROM_SUPPORT   (support conversations)
- * notification   → SES_FROM_NO_REPLY  (lifecycle mail: welcome, tips, ROI)
- */
 export type PlatformEmailPurpose = "otp" | "billing" | "confirmation" | "support" | "notification";
 
 type PlatformEmailAttachment = {
@@ -132,22 +118,38 @@ type SendVerificationEmailInput = {
   code: string;
   role: "BUSINESS" | "ARCHITECT";
   purpose?: VerificationEmailPurpose;
+  /** One-click sign-in link. Present for sign_in mail only. */
+  magicLinkUrl?: string;
 };
+
+export function buildMagicLinkUrl(token: string): string {
+  return `${appUrl}/magic-link?token=${encodeURIComponent(token)}`;
+}
 
 function verificationEmailCopy({
   purpose,
   roleLabel,
-  expirationMinutes
+  expirationMinutes,
+  magicLinkUrl
 }: {
   purpose: VerificationEmailPurpose;
   roleLabel: string;
   expirationMinutes: number;
+  magicLinkUrl?: string;
 }) {
   if (purpose === "email_update") {
     return {
       subject: `Confirm your new ${brandName} email: verification code`,
       previewText: `Confirm your new email address. This code expires in ${expirationMinutes} minutes.`,
       bodyText: `Your ${brandName} verification code is {code}. Use this code to confirm your new email address for your ${roleLabel} account. This code expires in ${expirationMinutes} minutes. ${brandName} will never ask you for this code. Do not share it with anyone.`
+    };
+  }
+
+  if (magicLinkUrl) {
+    return {
+      subject: `Sign in to ${brandName}`,
+      previewText: `Your secure sign-in link expires in ${expirationMinutes} minutes.`,
+      bodyText: `Sign in to ${brandName} as ${roleLabel} by opening this link:\n\n${magicLinkUrl}\n\nThe link expires in ${expirationMinutes} minutes and can be used once. If you're signing in on another device, open the link and it will show you a 6-digit code to enter there. If you didn't request this, you can ignore this email.`
     };
   }
 
@@ -162,13 +164,15 @@ export async function sendVerificationEmail({
   to,
   code,
   role,
-  purpose = "sign_in"
+  purpose = "sign_in",
+  magicLinkUrl
 }: SendVerificationEmailInput) {
   const roleLabel = role === "BUSINESS" ? "Business Owner" : "AI Architect";
   const copy = verificationEmailCopy({
     purpose,
     roleLabel,
-    expirationMinutes: verificationCodeExpirationMinutes
+    expirationMinutes: verificationCodeExpirationMinutes,
+    magicLinkUrl
   });
   const subject = copy.subject.replace("{code}", code);
   const text = copy.bodyText.replace("{code}", code);
@@ -177,6 +181,10 @@ export async function sendVerificationEmail({
     console.warn(
       `[mailer] SES is not configured. ${purpose === "email_update" ? "Email update" : "Sign-in"} verification code for ${to} (${roleLabel}): ${code}`
     );
+
+    if (magicLinkUrl) {
+      console.warn(`[mailer] Magic sign-in link for ${to}: ${magicLinkUrl}`);
+    }
 
     if (isProduction) {
       throw new Error("Email delivery is not configured on the server");
@@ -194,7 +202,8 @@ export async function sendVerificationEmail({
       code,
       roleLabel,
       expirationMinutes: verificationCodeExpirationMinutes,
-      purpose
+      purpose,
+      magicLinkUrl
     })
   });
 }
@@ -203,14 +212,16 @@ function buildVerificationEmailHtml({
   code,
   roleLabel,
   expirationMinutes,
-  purpose = "sign_in"
+  purpose = "sign_in",
+  magicLinkUrl
 }: {
   code: string;
   roleLabel: string;
   expirationMinutes: number;
   purpose?: VerificationEmailPurpose;
+  magicLinkUrl?: string;
 }) {
-  const copy = verificationEmailCopy({ purpose, roleLabel, expirationMinutes });
+  const copy = verificationEmailCopy({ purpose, roleLabel, expirationMinutes, magicLinkUrl });
   const safeCode = escapeHtml(code);
   const safeRoleLabel = escapeHtml(roleLabel);
   const safeExpirationMinutes = escapeHtml(String(expirationMinutes));
@@ -220,7 +231,70 @@ function buildVerificationEmailHtml({
   const safeBodyHtml =
     purpose === "email_update"
       ? `Use this code to confirm your new email address for your ${brandName} account as <strong>${safeRoleLabel}</strong>.`
-      : `Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.`;
+      : magicLinkUrl
+        ? `Click below to sign in to ${brandName} as <strong>${safeRoleLabel}</strong>. No password needed.`
+        : `Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.`;
+
+  const safeMagicLinkUrl = magicLinkUrl ? escapeHtml(magicLinkUrl) : "";
+
+  // Passwordless sign-in mail is link-only — the 6-digit fallback code is never
+  // printed here, it is revealed by the link's landing page. Everything else
+  // (email-change confirmations) keeps the original code block.
+  const bodyBlockHtml = magicLinkUrl
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
+<tr>
+<td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" bgcolor="#f59e0b" style="border-radius:10px;background-image:linear-gradient(90deg,#f59e0b,#d97706);">
+<a href="${safeMagicLinkUrl}" target="_blank" style="display:inline-block;padding:15px 38px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:10px;">Sign in to ${brandName}</a>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+
+<p style="margin:0 0 6px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
+Button not working? Paste this into your browser:
+</p>
+
+<p style="margin:0 0 14px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;word-break:break-all;">
+<a href="${safeMagicLinkUrl}" target="_blank" style="color:#d97706;text-decoration:none;">${safeMagicLinkUrl}</a>
+</p>
+
+<p style="margin:0 0 12px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
+This link expires in ${safeExpirationMinutes} minutes and can be used once. Signing in on a different device? Open the link and it will show you a 6-digit code to enter there.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr>
+<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
+<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
+${brandName} will never ask you to forward this link. Don't share it with anyone.
+</td>
+</tr>
+</table>`
+    : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
+<tr>
+<td align="center" style="padding:20px;background-color:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;">
+<span style="font-family:'Courier New',Courier,monospace;font-size:34px;font-weight:700;letter-spacing:8px;color:#111827;">${safeCode}</span>
+</td>
+</tr>
+</table>
+
+<p style="margin:0 0 12px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
+This code expires in ${safeExpirationMinutes} minutes.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr>
+<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
+<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
+${brandName} will never ask you for this code. Don't share it with anyone.
+</td>
+</tr>
+</table>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -257,26 +331,7 @@ ${emailLogoMarkup()}
 ${safeBodyHtml}
 </p>
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
-<tr>
-<td align="center" style="padding:20px;background-color:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;">
-<span style="font-family:'Courier New',Courier,monospace;font-size:34px;font-weight:700;letter-spacing:8px;color:#111827;">${safeCode}</span>
-</td>
-</tr>
-</table>
-
-<p style="margin:0 0 12px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
-This code expires in ${safeExpirationMinutes} minutes.
-</p>
-
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
-<tr>
-<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
-<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
-${brandName} will never ask you for this code. Don't share it with anyone.
-</td>
-</tr>
-</table>
+${bodyBlockHtml}
 </td>
 </tr>
 
@@ -310,10 +365,6 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-// Real Triven wordmark rendered inline in the email header. Referenced by URL
-// (not a CID attachment) so it never shows up as an email attachment. The alt
-// text falls back to the brand name if the recipient blocks remote images.
-
 function emailLogoMarkup() {
   return `<img src="${logoUrl}" alt="${brandName}" height="30" style="display:inline-block;height:30px;width:auto;border:0;outline:none;text-decoration:none;" />`;
 }
@@ -332,8 +383,6 @@ ${emailLogoMarkup()}
 </tr>`;
 }
 
-// Minimal footer: brand name + Privacy / Help links only. No mailing address,
-// no unsubscribe link, no "AI Agent Platform" tagline.
 function buildEmailFooterRow() {
   return `<tr>
 <td style="padding:10px 32px 30px 32px;">

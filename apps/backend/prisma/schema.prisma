@@ -217,15 +217,18 @@ model ConnectorCredential {
 }
 
 model EmailVerificationCode {
-  id         String    @id @default(cuid())
-  email      String
-  role       UserRole
-  codeHash   String
-  attempts   Int       @default(0)
-  expiresAt  DateTime
-  consumedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  email            String
+  role             UserRole
+  codeHash         String
+  attempts         Int       @default(0)
+  expiresAt        DateTime
+  consumedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  codeCipher       String?
+  linkTokenHash    String?   @unique
+  originDeviceHash String?
 
   @@index([email, role])
   @@index([expiresAt])

@@ -192,6 +192,8 @@ export function resolveAppointmentSchedule(input: {
   const hasStructuredDays = WEEKDAYS.some((day) => record(structuredDays[day]).open !== undefined);
   const hasBusinessHours = Object.keys(fromBusinessHours).length > 0;
 
+  const buyerOwnsAppointmentHours = hasStructuredDays && structured.useBusinessHours === false;
+
   const legacyOpenHour = clampInt(legacyScheduling.openHour, 9, 0, 23);
   const legacyCloseHour = clampInt(legacyScheduling.closeHour, 17, 1, 24);
 
@@ -199,7 +201,7 @@ export function resolveAppointmentSchedule(input: {
   for (const day of WEEKDAYS) {
     const structuredDay = record(structuredDays[day]);
     const apptDay: DayHours | undefined =
-      hasStructuredDays && structuredDay.open !== undefined
+      structuredDay.open !== undefined
         ? {
             open: parseHHmm(structuredDay.open) ? String(structuredDay.open) : DEFAULTS.open,
             close: parseHHmm(structuredDay.close) ? String(structuredDay.close) : DEFAULTS.close,
@@ -207,7 +209,9 @@ export function resolveAppointmentSchedule(input: {
           }
         : undefined;
 
-    if (hasBusinessHours) {
+    if (buyerOwnsAppointmentHours) {
+      days[day] = apptDay ?? { open: DEFAULTS.open, close: DEFAULTS.close, closed: true };
+    } else if (hasBusinessHours) {
       const businessDay = fromBusinessHours[day] ?? { open: DEFAULTS.open, close: DEFAULTS.close, closed: true };
       const narrowBy = structured.useBusinessHours === true ? undefined : apptDay;
       days[day] = intersectDayHours(businessDay, narrowBy);
@@ -248,12 +252,19 @@ export function resolveAppointmentSchedule(input: {
       10
     ),
     calendarId: (input.calendarId ?? "").trim() || "primary",
-    source: hasBusinessHours ? "business_hours" : hasStructuredDays ? "configured" : "defaults",
-    useBusinessHours: hasBusinessHours || !hasStructuredDays,
+    source: buyerOwnsAppointmentHours
+      ? "configured"
+      : hasBusinessHours
+        ? "business_hours"
+        : hasStructuredDays
+          ? "configured"
+          : "defaults",
+    useBusinessHours: !buyerOwnsAppointmentHours && (hasBusinessHours || !hasStructuredDays),
     confirmed: structured.confirmed === true
   };
 }
 
+/** Business hours as the outer boundary — used only for unconfirmed template days. */
 function intersectDayHours(businessDay: DayHours, apptDay?: DayHours): DayHours {
   if (businessDay.closed) return { open: businessDay.open, close: businessDay.close, closed: true };
   if (!apptDay) return { ...businessDay };
@@ -266,7 +277,11 @@ function intersectDayHours(businessDay: DayHours, apptDay?: DayHours): DayHours 
   const openMin = Math.max(bOpen.hour * 60 + bOpen.minute, aOpen.hour * 60 + aOpen.minute);
   const closeMin = Math.min(bClose.hour * 60 + bClose.minute, aClose.hour * 60 + aClose.minute);
   if (openMin >= closeMin) return { open: businessDay.open, close: businessDay.close, closed: true };
-  return { open: toHHmm(Math.floor(openMin / 60), openMin % 60), close: toHHmm(Math.floor(closeMin / 60), closeMin % 60), closed: false };
+  return {
+    open: toHHmm(Math.floor(openMin / 60), openMin % 60),
+    close: toHHmm(Math.floor(closeMin / 60), closeMin % 60),
+    closed: false
+  };
 }
 
 export function effectiveScheduleDayHours(schedule: AppointmentSchedule, date: string): DayHours {
@@ -274,6 +289,7 @@ export function effectiveScheduleDayHours(schedule: AppointmentSchedule, date: s
   const special = schedule.specialDates?.find((entry) => entry.date === date);
   if (!special) return base;
   if (special.closed) return { ...base, closed: true };
+  if (!schedule.useBusinessHours) return base;
   return {
     open: special.open ?? base.open,
     close: special.close ?? base.close,
@@ -499,27 +515,24 @@ export async function resolveScheduleForBusiness(input: {
     timeZone: business?.profile?.timeZone ?? null,
     calendarId: business?.profile?.calendarId ?? null
   });
-
-  if (schedule.useBusinessHours) {
-    const specialRows = await prisma.businessSpecialHours.findMany({
-      where: { businessId: input.businessId },
-      select: { date: true, closed: true, periodsJson: true }
+  const specialRows = await prisma.businessSpecialHours.findMany({
+    where: { businessId: input.businessId },
+    select: { date: true, closed: true, periodsJson: true }
+  });
+  if (specialRows.length > 0) {
+    schedule.specialDates = specialRows.map((row) => {
+      const periods = Array.isArray(row.periodsJson)
+        ? (row.periodsJson as Array<{ open?: unknown; close?: unknown }>)
+        : [];
+      const first = periods[0];
+      const last = periods[periods.length - 1];
+      return {
+        date: row.date,
+        closed: row.closed,
+        ...(!row.closed && parseHHmm(first?.open) ? { open: String(first!.open) } : {}),
+        ...(!row.closed && parseHHmm(last?.close) ? { close: String(last!.close) } : {})
+      };
     });
-    if (specialRows.length > 0) {
-      schedule.specialDates = specialRows.map((row) => {
-        const periods = Array.isArray(row.periodsJson)
-          ? (row.periodsJson as Array<{ open?: unknown; close?: unknown }>)
-          : [];
-        const first = periods[0];
-        const last = periods[periods.length - 1];
-        return {
-          date: row.date,
-          closed: row.closed,
-          ...(!row.closed && parseHHmm(first?.open) ? { open: String(first!.open) } : {}),
-          ...(!row.closed && parseHHmm(last?.close) ? { close: String(last!.close) } : {})
-        };
-      });
-    }
   }
 
   return { schedule, installedAgentId: agent?.id ?? null, ownerUserId: business?.ownerId ?? null };

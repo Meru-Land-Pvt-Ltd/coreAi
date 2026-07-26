@@ -196,7 +196,7 @@ export function afterHoursStateStoreAvailableForLive(): boolean {
     return true;
   }
 
-  return afterHoursCallStateStoreIsDistributed() && afterHoursStateStoreReady();
+  return afterHoursCallStateStoreIsDistributed();
 }
 
 const memoryStore = new Map<

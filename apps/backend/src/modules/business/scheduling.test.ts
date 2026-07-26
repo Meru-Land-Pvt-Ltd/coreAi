@@ -60,10 +60,11 @@ describe("schedule resolution", () => {
     expect(schedule.days.sunday.closed).toBe(true);
   });
 
-  it("structured appointmentSchedule NARROWS business hours by intersection; defaults safe for unconfigured agents", () => {
+  it("structured appointmentSchedule is its OWN schedule, not a narrowing of business hours", () => {
     const structured = resolveAppointmentSchedule({
       configJson: {
         appointmentSchedule: {
+          useBusinessHours: false,
           days: { monday: { open: "10:00", close: "16:00", closed: false } },
           confirmed: true
         }
@@ -71,9 +72,10 @@ describe("schedule resolution", () => {
       hoursJson: CLINIC_HOURS,
       timeZone: TZ
     });
-    // Business Monday 08:00-18:00 ∩ appointment 10:00-16:00 = 10:00-16:00.
-    // Business hours are the authoritative boundary → source is business_hours.
-    expect(structured.source).toBe("business_hours");
+    // Appointment hours decide what is bookable; business hours (Monday
+    // 08:00-18:00) only decide whether the office is open right now.
+    expect(structured.source).toBe("configured");
+    expect(structured.useBusinessHours).toBe(false);
     expect(structured.confirmed).toBe(true);
     expect(structured.days.monday.open).toBe("10:00");
     expect(structured.days.monday.close).toBe("16:00");
@@ -264,7 +266,13 @@ beforeAll(async () => {
         businessId,
         workflowId,
         name: `${RUN} A2`,
-        configJson: { appointmentSchedule: { days: { monday: { open: "12:00", close: "20:00", closed: false } }, confirmed: true } }
+        configJson: {
+          appointmentSchedule: {
+            useBusinessHours: false,
+            days: { monday: { open: "12:00", close: "20:00", closed: false } },
+            confirmed: true
+          }
+        }
       }
     })
   ).id;
@@ -289,10 +297,11 @@ describe("per-agent and per-business isolation", () => {
 
     expect(a.schedule.days.monday.open).toBe("08:00");
     expect(b.schedule.days.monday.open).toBe("12:00");
-    // Agent B configured 12:00–20:00, but the business hours (08:00–18:00) are
-    // the authoritative outer boundary, so B's close is capped to 18:00 by
-    // intersection — an appointment schedule may narrow, never extend (#1).
-    expect(b.schedule.days.monday.close).toBe("18:00");
+    // Agent B configured appointment hours 12:00–20:00. Appointment hours are
+    // a separate schedule from business hours (08:00–18:00), so B keeps its
+    // own 20:00 close — callers can book an evening slot even though the
+    // storefront is closed by then.
+    expect(b.schedule.days.monday.close).toBe("20:00");
   });
 
   it("a different business never inherits this business's schedule", async () => {

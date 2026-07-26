@@ -254,6 +254,32 @@ describe("routine-scheduling backstop (requirement A) — clear routine intent b
     ]);
     expect(route).not.toBe("STANDARD_BOOKING");
   });
+
+  it("J1: routine wording WITHOUT the words appointment/book/schedule also bypasses", () => {
+    // Callers outside business hours routinely ask for a time without ever
+    // using a scheduling keyword; they must not be stonewalled by screening.
+    for (const message of [
+      "do you have any openings tomorrow",
+      "what is your earliest available slot",
+      "I'd like to come in on Friday",
+      "are there any free times this week"
+    ]) {
+      const { route, check } = allowsBooking([bot(GREETING), user(message)]);
+      expect(route, message).toBe("STANDARD_BOOKING");
+      expect(check.allowed, message).toBe(true);
+    }
+  });
+
+  it("J2: the same routine wording carrying a symptom still routes to screening", () => {
+    for (const message of [
+      "do you have any openings tomorrow, my tooth is really sore",
+      "I need to come in, I'm in pain",
+      "any slots today? it's urgent"
+    ]) {
+      const { route } = allowsBooking([bot(GREETING), user(message)]);
+      expect(route, message).not.toBe("STANDARD_BOOKING");
+    }
+  });
 });
 
 describe("emergency-instruction verification (assistant-spoken only)", () => {

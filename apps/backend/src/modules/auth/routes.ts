@@ -6,8 +6,10 @@ import { createAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { requireAuth } from "../../middleware/auth";
 import {
+  consumeMagicLinkCode,
   issueEmailVerificationCode,
   isOtpError,
+  resolveMagicLinkToken,
   verifyEmailVerificationCode
 } from "../../lib/email-otp";
 import { sendBuyerWelcomeEmail } from "../../lib/mailer";
@@ -15,6 +17,7 @@ import { getFirebaseAdminAuth } from "../../lib/firebase-admin";
 import { issueAuthSession } from "../../lib/user-session";
 import {
   loginSchema,
+  magicLinkCompleteSchema,
   sendVerificationCodeSchema,
   verifyCodeSchema,
   firebaseLoginSchema
@@ -36,8 +39,6 @@ function getNameFromEmail(email: string) {
   return formattedName || "User";
 }
 
-// Fire-and-forget welcome email for a buyer's very first login. Failures are
-// logged but never block the auth response.
 function sendWelcomeEmailIfNewBuyer(
   user: { email: string; fullName: string | null; role: unknown },
   isNewUser: boolean
@@ -113,7 +114,9 @@ authRoutes.post("/send-verification-code", async (c) => {
       );
     }
 
-    await issueEmailVerificationCode(input.email, input.role);
+    await issueEmailVerificationCode(input.email, input.role, "sign_in", {
+      deviceId: input.deviceId
+    });
 
     return successResponse(
       c,
@@ -147,6 +150,67 @@ authRoutes.post("/send-verification-code", async (c) => {
   }
 });
 
+type LoginSession = {
+  token: string;
+  user: ReturnType<typeof toSafeUser> & { architectProfile?: unknown };
+  isNewUser: boolean;
+};
+
+type LoginOutcome =
+  | { ok: true; session: LoginSession }
+  | { ok: false; message: string; status: 403 | 500; code: string };
+
+async function establishEmailLogin(
+  c: Parameters<typeof issueAuthSession>[1],
+  email: string,
+  role: "BUSINESS" | "ARCHITECT",
+  failureCode: string
+): Promise<LoginOutcome> {
+const { user, isNewUser } = await resolveLoginUser({
+    email,
+    role,
+    fallbackFullName: getNameFromEmail(email),
+    allowCreate: true
+  });
+
+  if (!user) {
+    return { ok: false, message: "Verification failed", status: 500, code: failureCode };
+  }
+
+  if (user.isSuspended) {
+    return {
+      ok: false,
+      message: "Your account is suspended",
+      status: 403,
+      code: "ACCOUNT_SUSPENDED"
+    };
+  }
+
+  sendWelcomeEmailIfNewBuyer(user, isNewUser);
+
+  const { tokenSid } = await issueAuthSession(user.id, c);
+  const token = await createAuthToken(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role as JwtUserRole
+    },
+    tokenSid
+  );
+
+  return {
+    ok: true,
+    session: {
+      token,
+      user: {
+        ...toSafeUser(user),
+        architectProfile: user.architectProfile
+      },
+      isNewUser
+    }
+  };
+}
+
 authRoutes.post("/verify-code", async (c) => {
   try {
     const input = verifyCodeSchema.parse(await c.req.json());
@@ -156,55 +220,13 @@ authRoutes.post("/verify-code", async (c) => {
       return errorResponse(c, verification.message, verification.status, verification.code);
     }
 
-    // Email-first resolution: an existing account (any role) is reused and
-    // granted the requested role as a membership — the same email is never
-    // duplicated into a second User row.
-    const { user, isNewUser } = await resolveLoginUser({
-      email: input.email,
-      role: input.role,
-      fallbackFullName: getNameFromEmail(input.email),
-      allowCreate: true
-    });
+    const outcome = await establishEmailLogin(c, input.email, input.role, "VERIFY_CODE_FAILED");
 
-    if (!user) {
-      return errorResponse(c, "Verification failed", 500, "VERIFY_CODE_FAILED");
+    if (!outcome.ok) {
+      return errorResponse(c, outcome.message, outcome.status, outcome.code);
     }
 
-    if (user.isSuspended) {
-      return errorResponse(
-        c,
-        "Your account is suspended",
-        403,
-        "ACCOUNT_SUSPENDED"
-      );
-    }
-
-    sendWelcomeEmailIfNewBuyer(user, isNewUser);
-
-    const safeUser = {
-      ...toSafeUser(user),
-      architectProfile: user.architectProfile
-    };
-
-    const { tokenSid } = await issueAuthSession(user.id, c);
-    const token = await createAuthToken(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role as JwtUserRole
-      },
-      tokenSid
-    );
-
-    return successResponse(
-      c,
-      {
-        token,
-        user: safeUser,
-        isNewUser
-      },
-      "Email verified successfully"
-    );
+    return successResponse(c, outcome.session, "Email verified successfully");
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(
@@ -216,6 +238,77 @@ authRoutes.post("/verify-code", async (c) => {
     }
 
     return errorResponse(c, "Verification failed", 500, "VERIFY_CODE_FAILED");
+  }
+});
+
+authRoutes.post("/magic-link/complete", async (c) => {
+  try {
+    const input = magicLinkCompleteSchema.parse(await c.req.json());
+
+    const resolution = await resolveMagicLinkToken(input.token, input.deviceId);
+
+    if (!resolution.ok) {
+      return errorResponse(c, resolution.message, resolution.status, resolution.code);
+    }
+
+    if (!resolution.isOriginDevice && !input.signInHere) {
+      return successResponse(
+        c,
+        {
+          mode: "show_code" as const,
+          email: resolution.email,
+          role: resolution.role,
+          code: resolution.code,
+          expiresAt: resolution.expiresAt.toISOString()
+        },
+        "Sign-in link verified"
+      );
+    }
+
+    const consumed = await consumeMagicLinkCode(resolution.id);
+
+    if (!consumed) {
+      return errorResponse(
+        c,
+        "This sign-in link has already been used. Request a new one to sign in.",
+        410,
+        "MAGIC_LINK_ALREADY_USED"
+      );
+    }
+
+    const outcome = await establishEmailLogin(
+      c,
+      resolution.email,
+      resolution.role,
+      "MAGIC_LINK_SIGN_IN_FAILED"
+    );
+
+    if (!outcome.ok) {
+      return errorResponse(c, outcome.message, outcome.status, outcome.code);
+    }
+
+    return successResponse(
+      c,
+      { mode: "signed_in" as const, ...outcome.session },
+      "Signed in successfully"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        "This sign-in link is invalid. Request a new one to sign in.",
+        401,
+        "MAGIC_LINK_INVALID"
+      );
+    }
+
+    console.error("Magic link sign-in failed", error);
+    return errorResponse(
+      c,
+      "We couldn't open this sign-in link. Please try again.",
+      500,
+      "MAGIC_LINK_SIGN_IN_FAILED"
+    );
   }
 });
 

@@ -21,15 +21,36 @@ export const loginSchema = z.object({
   role: authRoleSchema
 });
 
+const deviceIdSchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(100)
+  .regex(/^[A-Za-z0-9_-]+$/, "Invalid device id");
+
 export const sendVerificationCodeSchema = z.object({
   email: z.string().trim().toLowerCase().email("Valid email is required"),
-  role: otpAuthRoleSchema
+  role: otpAuthRoleSchema,
+  deviceId: deviceIdSchema.optional()
 });
 
 export const verifyCodeSchema = z.object({
   email: z.string().trim().toLowerCase().email("Valid email is required"),
   role: otpAuthRoleSchema,
   code: z.string().trim().regex(/^\d{6}$/, "Valid 6-digit code is required")
+});
+
+// Token from the emailed sign-in link. base64url of 32 random bytes → 43 chars.
+export const magicLinkCompleteSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(20, "Sign-in link token is required")
+    .max(200, "Sign-in link token is invalid")
+    .regex(/^[A-Za-z0-9_-]+$/, "Sign-in link token is invalid"),
+  deviceId: deviceIdSchema.optional(),
+  /** Visitor on a second device chose to finish the login there instead. */
+  signInHere: z.boolean().optional()
 });
 
 export const firebaseLoginSchema = z.object({

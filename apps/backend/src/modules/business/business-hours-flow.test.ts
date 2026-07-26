@@ -241,6 +241,7 @@ describe("separation of schedules (DB)", () => {
         configJson: {
           ...((agent!.configJson as Record<string, unknown>) ?? {}),
           appointmentSchedule: {
+            useBusinessHours: false,
             days: Object.fromEntries(
               ["monday", "tuesday", "wednesday", "thursday", "friday"].map((day) => [
                 day,
@@ -267,10 +268,10 @@ describe("separation of schedules (DB)", () => {
       hoursJson: profile!.hoursJson,
       timeZone: profile!.timeZone
     });
-    // Business hours are the AUTHORITATIVE outer boundary (#1): the appointment
-    // schedule (10:00–17:00) only NARROWS within business 09:00–18:00, so the
-    // effective open moves to 10:00 while the source stays business_hours.
-    expect(schedule.source).toBe("business_hours");
+    // Two separate schedules (#1): the appointment schedule (10:00–17:00) is
+    // what governs bookings and is reported as its own source; business hours
+    // (09:00–18:00) stay untouched and only describe when the office is open.
+    expect(schedule.source).toBe("configured");
     expect(schedule.days.monday.open).toBe("10:00");
     expect(schedule.days.monday.close).toBe("17:00");
 
