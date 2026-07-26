@@ -1,12 +1,3 @@
-/**
- * Server-side proof that the SMS consent disclosure was actually SPOKEN by the
- * assistant before the caller answered. The model's claim is never trusted;
- * Vapi's running transcript is parsed into role-attributed segments and only
- * ASSISTANT-authored text can satisfy the disclosure — a caller repeating the
- * disclosure language can never create OFFERED state, and partial disclosures
- * fail closed.
- */
-
 export type TranscriptSegment = {
   role: "assistant" | "user" | "unknown";
   text: string;
@@ -46,11 +37,6 @@ function normalize(text: string): string {
     .trim();
 }
 
-/**
- * Every element the verified campaign's disclosure must contain, checked
- * against the ASSISTANT segment's normalized text. All must be present —
- * a partial disclosure never satisfies the gate.
- */
 function assistantSegmentContainsFullDisclosure(segmentText: string, businessName: string): boolean {
   const text = normalize(segmentText);
   const business = normalize(businessName);
@@ -67,30 +53,40 @@ function assistantSegmentContainsFullDisclosure(segmentText: string, businessNam
   return true;
 }
 
-/**
- * True only when an ASSISTANT-authored segment contains the COMPLETE
- * disclosure (including the identified business's name) AND at least one
- * caller/user segment follows it — i.e. the disclosure was spoken before the
- * caller's answer. Combined/unattributed text and user-authored text never
- * qualify.
- */
-export function transcriptShowsCompleteSmsDisclosure(
-  transcript: string,
-  businessName: string
-): boolean {
-  if (!transcript.trim() || !businessName.trim()) return false;
+export type SmsDisclosureState = "ANSWERED" | "AWAITING_ANSWER" | "NOT_PRESENTED";
 
-  const segments = parseTranscriptSegments(transcript);
+export function segmentsSmsDisclosureState(
+  segments: TranscriptSegment[],
+  businessName: string
+): SmsDisclosureState {
+  if (!businessName.trim()) return "NOT_PRESENTED";
+
+  let presented = false;
 
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     if (segment.role !== "assistant") continue;
     if (!assistantSegmentContainsFullDisclosure(segment.text, businessName)) continue;
 
+    presented = true;
     // The caller must have answered AFTER the disclosure was spoken.
-    const answered = segments.slice(index + 1).some((later) => later.role === "user");
-    if (answered) return true;
+    if (segments.slice(index + 1).some((later) => later.role === "user")) return "ANSWERED";
   }
 
-  return false;
+  return presented ? "AWAITING_ANSWER" : "NOT_PRESENTED";
+}
+
+export function transcriptSmsDisclosureState(
+  transcript: string,
+  businessName: string
+): SmsDisclosureState {
+  if (!transcript.trim() || !businessName.trim()) return "NOT_PRESENTED";
+  return segmentsSmsDisclosureState(parseTranscriptSegments(transcript), businessName);
+}
+
+export function transcriptShowsCompleteSmsDisclosure(
+  transcript: string,
+  businessName: string
+): boolean {
+  return transcriptSmsDisclosureState(transcript, businessName) === "ANSWERED";
 }

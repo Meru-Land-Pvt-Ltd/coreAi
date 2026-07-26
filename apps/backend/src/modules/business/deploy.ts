@@ -225,8 +225,6 @@ function readCustomFields(configJson: unknown): Array<{ label: string; value: st
       const record = recordOf(item);
       return {
         label: cleanString(record.label) ?? cleanString(record.key) ?? "",
-        // Answers may be text, string arrays (multiselect), booleans, or
-        // numbers — rendered human-readable ("a, b", "Yes"/"No") for the prompt.
         value: formatBuyerAnswerValue(record.value)
       };
     })
@@ -307,9 +305,6 @@ async function buildInstalledAgentAssistantPlan(
   options?: {
     extraSections?: string[];
     installedAgentId?: string;
-    /** How the after-hours prompt section is rendered: "liquid" (live calls —
-     * {{businessOpenState}} substituted per call) or a literal snapshot
-     * (browser preview calls, where no per-call variables exist). */
     afterHoursRender?: { kind: "liquid" } | { kind: "literal"; snapshot: AfterHoursSnapshot };
   }
 ): Promise<InstalledAgentAssistantPlan | null> {
@@ -319,9 +314,6 @@ async function buildInstalledAgentAssistantPlan(
       profile: true,
       knowledgeBases: true,
       installedAgents: {
-        /* Setup deploys the exact row it just saved while it is still
-           PROVISIONING. Other callers retain the runtime-safe default of the
-           latest ACTIVE agent. */
         where: options?.installedAgentId
           ? { id: options.installedAgentId }
           : { status: "ACTIVE" },
@@ -353,15 +345,11 @@ async function buildInstalledAgentAssistantPlan(
   const profileFaqs = faqStrings(business.profile?.faqsJson);
   const faqs = buyer.faqs.length ? buyer.faqs : profileFaqs;
 
-  // Shared knowledge source of truth: manual entries + document chunks, in
-  // the same order and format every other agent runtime uses.
   const { knowledge } = await loadBusinessAgentKnowledge({
     businessId: business.id,
     installedAgentId: installedAgent.id
   });
 
-  // Foundational verified facts (address, phone, website) live directly in
-  // the prompt — short critical answers never depend on a document lookup.
   const facts = await loadBusinessFacts(business.id);
   const factsSection =
     facts && facts.promptLines.length > 0
@@ -374,9 +362,6 @@ async function buildInstalledAgentAssistantPlan(
     ""
   ).trim();
 
-  /* Structured Business Hours (weekly + special dates) are the source of
-     truth; when unconfigured the prompt carries an explicit never-guess
-     instruction instead of hardcoded/invented hours. */
   const hoursState = await loadBusinessHoursState(businessId);
   const businessHours = hoursState.configured
     ? buildHoursPromptLines(hoursState).join("\n  ")
@@ -384,15 +369,10 @@ async function buildInstalledAgentAssistantPlan(
   const silencePolicy = buildSilencePolicy(buyer.silence);
   const capabilities = workflowCapabilities(installedAgent.workflow.workflowJson);
 
-  /* Architect template instructions run before buyer custom instructions in
-     the prompt, so buyer-specific config always has the last word. */
   const nodeInstructions = architectNodeInstructions(voiceNode);
   const customFields = readCustomFields(installedAgent.configJson);
   const bookingLabel = readBookingLabel(installedAgent.configJson);
 
-  /* After-hours policy: buyer configJson first, architect node second, and the
-     platform default LAST — derived from the business type so a salon is never
-     asked about a dental emergency. */
   const afterHoursPolicy = resolveAfterHoursPolicy({
     configJson: installedAgent.configJson,
     workflowJson: installedAgent.workflow.workflowJson,
@@ -420,10 +400,6 @@ async function buildInstalledAgentAssistantPlan(
       })
     : "";
 
-  // Architect-written {{variables}} (any spelling — {{business.name}},
-  // {{Business Name}}, {{business_name}}…): fill what is known at deploy
-  // time, rewrite live runtime variables to Vapi's exact names, and strip the
-  // rest so unknown Liquid can never blank text or break a live call.
   const deployTokenValues: Record<string, string> = {
     assistantName,
     businessName,
@@ -443,11 +419,27 @@ async function buildInstalledAgentAssistantPlan(
       stripUnresolved: true
     });
 
+  /* Built BEFORE the system prompt so the prompt can quote the exact opening
+     line and forbid repeating it — otherwise the model greets a second time. */
+  const firstMessage = buildAgentFirstMessage({
+    assistantName,
+    businessName,
+    customFirstMessage: buyer.firstMessage
+      ? fillDeployTemplate(
+          sanitizeLegacyFallbacks(
+            resolveNodeTemplateVariables(buyer.firstMessage, installedAgent.workflow.workflowJson, { assistantName, businessName }),
+            { assistantName, businessName }
+          )
+        )
+      : undefined
+  });
+
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
     businessName,
     businessType,
     contactName,
+    openingLine: firstMessage,
     services,
     faqs: faqs.length ? faqs : [],
     knowledge,
@@ -484,19 +476,6 @@ async function buildInstalledAgentAssistantPlan(
       ...(afterHoursSection ? [afterHoursSection] : []),
       ...(options?.extraSections ?? [LIVE_TOOL_NOTES])
     ]
-  });
-
-  const firstMessage = buildAgentFirstMessage({
-    assistantName,
-    businessName,
-    customFirstMessage: buyer.firstMessage
-      ? fillDeployTemplate(
-          sanitizeLegacyFallbacks(
-            resolveNodeTemplateVariables(buyer.firstMessage, installedAgent.workflow.workflowJson, { assistantName, businessName }),
-            { assistantName, businessName }
-          )
-        )
-      : undefined
   });
 
   console.log("[deploy] resolved agent identity", {
@@ -761,8 +740,6 @@ export async function refreshLiveAssistantKnowledge(businessId: string): Promise
 export async function startInstalledAgentPreviewCall(
   businessId: string,
   options?: {
-    /** Buyer test override: force the preview to behave as open/closed.
-     * Applies to BUSINESS_TEST previews only — never to live calls. */
     simulateBusinessHoursState?: "open" | "closed" | null;
   }
 ): Promise<SetupPreviewCallSession> {
@@ -772,9 +749,6 @@ export async function startInstalledAgentPreviewCall(
 
   const previewAgent = await findLatestTestableInstalledAgent(businessId);
 
-  // Browser web calls get no per-call variables, so the preview assistant
-  // bakes a literal hours snapshot (real configured hours, or the buyer's
-  // simulate-open/closed override) into the prompt at session start.
   const simulateHours = resolveSimulatedHoursState("BUSINESS_TEST", options?.simulateBusinessHoursState);
   const previewSnapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: simulateHours });
 
@@ -792,8 +766,6 @@ export async function startInstalledAgentPreviewCall(
     );
   }
 
-  // Closed (real or simulated) → the preview greets with the after-hours
-  // opening, exactly like a live closed-hours call would.
   const previewFirstMessage =
     plan.afterHoursPolicy?.enabled && previewSnapshot.state === "CLOSED"
       ? resolveAfterHoursGreeting({ policy: plan.afterHoursPolicy, businessName: plan.businessName })

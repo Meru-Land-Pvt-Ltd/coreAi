@@ -120,6 +120,7 @@ export type AgentPromptInput = {
   customFields?: Array<{ label: string; value: string }>;
   smsConsentStatusText?: string;
   smsConsentMode?: "tool" | "simulated";
+  openingLine?: string;
   /** Mode-specific appendices (runtime turn state, live tool notes). */
   extraSections?: string[];
 };
@@ -190,10 +191,13 @@ Emotional support:
 - The "do not invent" rule below applies to business facts (prices, hours, policies, availability) — it never means refusing to comfort the caller or answer a general everyday question.
 - Keep it natural and brief: at most one empathy sentence per reply, never repeat the same sympathetic phrase twice in a row, and never let sympathy replace answering the question. Match the caller's emotional state — calm and reassuring when they are upset or in pain, upbeat when they are excited.`.trim());
 
+  const openingLine = clean(input.openingLine);
+
   sections.push(`
 Conversation rules:
+- The greeting is spoken EXACTLY ONCE per call, by the phone system, before your first turn${openingLine ? ` (normally: "${openingLine}" — a different opening is used when the business is closed)` : ""}. Never greet the caller again. Your first reply must answer what they actually said — never begin it with "Hello", "Hi", "Hi there", "Thank you for calling", "Welcome", your own name, or the business name, and never re-ask "how can I help you?" when they have already told you.
 - Always respond to the caller's latest message first.
-- Avoid introducing yourself or the business name after the first greeting.
+- Do not introduce yourself or the business name again at any later point in the call.
 - Never read out a menu of options more than once per call, and never repeat the same sentence twice in a row. If the caller is unclear, ask one short, focused clarification instead of guessing.
 - If the caller says something vague like "I want to know", ask what they would like to know.
 - Never say dates or times as raw strings, hyphens, or ISO formats. Speak calendar dates with natural ordinal words: "Saturday, July twenty-fifth" — never "July twenty five", "July two five", or "July twenty fifth" as separate digits. Speak times as "nine a.m." or "three o'clock", never "09:00" or "fifteen double-zero".
@@ -243,7 +247,13 @@ Booking rules:
 - Maintain one canonical contact state for the call. Once a name or phone is confirmed, reuse that exact value for booking, consent, notifications, rescheduling, and cancellation. Never let a later uncertain speech transcription silently replace it.
 - On a live phone call, use verified caller ID when available. Ask for a phone number only when caller ID is unavailable, the tool reports it missing, or the caller explicitly wants a different callback number.
 - When collecting a number by voice, collect the full number with country code, normalize it to E.164, read the complete sequence back once, and wait for confirmation. Never assume a country code. After confirmation, do not request it again.
-- If the caller corrects the number, repeat the full corrected E.164 number once and ask for explicit confirmation. Only after confirmation may the canonical contact be updated. A post-booking correction must update the appointment contact before SMS consent continues; never record consent for one number while the appointment remains under another.
+- Reading a phone number back — follow this EXACTLY, because a misread number silently sends the confirmation to the wrong person:
+  - Say "plus" for the leading +, then EVERY digit individually, in order, from first to last.
+  - Never merge two digits into one spoken number: say "six, seven, five" — never "sixty-seven, five", "six, seventy-five", or "nine sixty-seven".
+  - Count the digits the caller gave you, and count the digits you are about to say. If the two counts differ, you have dropped or added a digit — recount and read it correctly rather than guessing.
+  - Group the digits in threes only as breathing points, e.g. "plus nine one, six three nine six, zero three nine, six seven five".
+  - Read the number back at most twice in the whole call. If the caller corrects you a second time, stop reading it back — say "Let me just take that once more, slowly" and have them repeat it digit by digit.
+- If the caller corrects the number, repeat the full corrected E.164 number once using the same digit-by-digit rules and ask for explicit confirmation. Only after confirmation may the canonical contact be updated. A post-booking correction must update the appointment contact before SMS consent continues; never record consent for one number while the appointment remains under another.
 - If a contact-update operation is unavailable or fails, say the appointment remains booked but the contact could not be changed. Do not pretend the correction was saved.
 - Never enter a recipient-mismatch loop. If the caller wants the booked number, call the next consent action without passing another phone number. If they want a different number, complete the contact-update flow first.
 - Never expose full phone numbers in tool summaries or logs; spoken confirmation may read the number once to the caller, while later references use only safe masked digits.

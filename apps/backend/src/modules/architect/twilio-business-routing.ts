@@ -6,7 +6,12 @@ import {
   wasConsentOffered,
   type ConsentOfferKey
 } from "../notifications/consent-offer-store";
-import { parseTranscriptSegments, transcriptShowsCompleteSmsDisclosure } from "../notifications/sms-disclosure";
+import {
+  parseTranscriptSegments,
+  segmentsSmsDisclosureState,
+  transcriptSmsDisclosureState,
+  type SmsDisclosureState
+} from "../notifications/sms-disclosure";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import {
   appointmentAiRef,
@@ -49,7 +54,14 @@ import {
   type LiveAfterHoursGateContext
 } from "./after-hours-live-gate";
 import { updateAfterHoursStaffNotificationStatus } from "../business/after-hours-call-state";
-import { buildRedFlagStaffAlert, buildUrgentStaffAlert, verbalSmsConsentDisclosure, spokenDateTimeInTimeZone, spokenDateInTimeZone } from "@coreai/shared";
+import {
+  buildRedFlagStaffAlert,
+  buildUrgentStaffAlert,
+  verbalSmsConsentDisclosure,
+  spokenDateTimeInTimeZone,
+  spokenDateInTimeZone,
+  type AfterHoursCallTurn
+} from "@coreai/shared";
 import {
   readCallContact,
   updateCallContact,
@@ -2516,6 +2528,7 @@ type VapiToolContext = {
   installedAgentId?: string;
   /** Server-side after-hours gate state for this LIVE call (undefined = inactive). */
   afterHours?: LiveAfterHoursGateContext;
+  callTurns?: AfterHoursCallTurn[];
   /** The deployed assistant's ACTUAL provider pipeline (stored at deploy). */
   voicePipeline?: ResolvedVoicePipeline | null;
 };
@@ -2529,14 +2542,40 @@ function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
   };
 }
 
-async function smsDisclosureOffered(ctx: VapiToolContext): Promise<boolean> {
+/**
+ * Whether the assistant has provably spoken the complete disclosure, and
+ * whether the caller has answered it yet.
+ *
+ * Both transcript sources are consulted and the STRONGER result wins. The flat
+ * `message.transcript` string is Vapi's running transcriber output and lags —
+ * the caller's "yes" that triggered this very tool call is routinely missing
+ * from it — while `artifact.messages` is the model's own role-tagged context
+ * and therefore contains that turn. Reading only the flat transcript made the
+ * gate a full turn late, so a correctly-read disclosure was rejected and the
+ * caller had to sit through it a second time.
+ */
+async function smsDisclosureState(ctx: VapiToolContext): Promise<SmsDisclosureState> {
   const key = consentOfferKey(ctx);
-  if (key && (await wasConsentOffered(key))) return true;
-  if (transcriptShowsCompleteSmsDisclosure(ctx.transcript ?? "", ctx.business?.businessName ?? "")) {
-    if (key) await markConsentOffered(key);
-    return true;
-  }
-  return false;
+  if (key && (await wasConsentOffered(key))) return "ANSWERED";
+
+  const businessName = ctx.business?.businessName ?? "";
+  const structured = segmentsSmsDisclosureState(
+    (ctx.callTurns ?? []).map((turn) => ({ role: turn.role, text: turn.content })),
+    businessName
+  );
+  const flat = transcriptSmsDisclosureState(ctx.transcript ?? "", businessName);
+
+  const state: SmsDisclosureState =
+    structured === "ANSWERED" || flat === "ANSWERED"
+      ? "ANSWERED"
+      : structured === "AWAITING_ANSWER" || flat === "AWAITING_ANSWER"
+        ? "AWAITING_ANSWER"
+        : "NOT_PRESENTED";
+
+  /* Only a fully answered disclosure is persisted. AWAITING_ANSWER is never
+     latched, so consent can never be recorded without a caller turn. */
+  if (state === "ANSWERED" && key) await markConsentOffered(key);
+  return state;
 }
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -4132,7 +4171,27 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
     };
   }
 
-  if (!(await smsDisclosureOffered(ctx))) {
+  const disclosureState = await smsDisclosureState(ctx);
+
+  if (disclosureState === "AWAITING_ANSWER") {
+    // The disclosure WAS read in full. Re-reading it is the wrong correction —
+    // the assistant only has to wait for the caller's yes or no.
+    console.warn("[vapi-webhook] record_sms_consent deferred — disclosure read, answer not yet in transcript", {
+      callId: ctx.callId ?? null,
+      executionMode: ctx.executionMode ?? "LIVE"
+    });
+    return {
+      success: false,
+      error: "DISCLOSURE_AWAITING_ANSWER",
+      consent_recorded: false,
+      sms_allowed: false,
+      customerSpeechCode: "NONE" as const,
+      message:
+        "Consent was NOT saved yet. You have ALREADY read the disclosure in full on this call — do NOT read it again and do not apologize or re-explain. Simply wait for the caller's yes or no, then call record_sms_consent again with their answer. Say nothing to the caller about this."
+    };
+  }
+
+  if (disclosureState === "NOT_PRESENTED") {
     console.warn("[vapi-webhook] record_sms_consent blocked — disclosure not presented", {
       callId: ctx.callId ?? null,
       executionMode: ctx.executionMode ?? "LIVE"
@@ -5054,6 +5113,7 @@ export async function handleVapiWebhook(c: Context) {
       executionMode,
       installedAgentId: metadataInstalledAgentId,
       afterHours: afterHoursGate,
+      callTurns: extractStructuredCallTurns(body),
       voicePipeline: metadataInstalledAgentId
         ? await prisma.installedAgent
           .findUnique({ where: { id: metadataInstalledAgentId }, select: { configJson: true } })

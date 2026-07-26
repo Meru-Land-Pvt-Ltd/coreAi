@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseTranscriptSegments, transcriptShowsCompleteSmsDisclosure } from "./sms-disclosure";
+import {
+  parseTranscriptSegments,
+  segmentsSmsDisclosureState,
+  transcriptShowsCompleteSmsDisclosure,
+  transcriptSmsDisclosureState,
+  type TranscriptSegment
+} from "./sms-disclosure";
 
 const BUSINESS = "Bright Smile Dental";
 
@@ -84,5 +90,48 @@ describe("transcriptShowsCompleteSmsDisclosure", () => {
   it("empty transcript or missing business name fails closed", () => {
     expect(transcriptShowsCompleteSmsDisclosure("", BUSINESS)).toBe(false);
     expect(transcriptShowsCompleteSmsDisclosure(`AI: ${FULL_DISCLOSURE}\nUser: yes`, "")).toBe(false);
+  });
+});
+
+describe("SmsDisclosureState — distinguishing 'never read' from 'read, awaiting the answer'", () => {
+  it("AWAITING_ANSWER when the assistant read it in full but no caller turn has landed yet", () => {
+    // The live failure this fixes: the caller HAS answered, but Vapi's running
+    // transcript is a turn behind, so the answer is not in the string yet.
+    expect(transcriptSmsDisclosureState(`User: hello\nAI: ${FULL_DISCLOSURE}`, BUSINESS)).toBe(
+      "AWAITING_ANSWER"
+    );
+  });
+
+  it("ANSWERED once a caller turn follows the complete disclosure", () => {
+    expect(transcriptSmsDisclosureState(`AI: ${FULL_DISCLOSURE}\nUser: yes`, BUSINESS)).toBe("ANSWERED");
+  });
+
+  it("NOT_PRESENTED for a partial disclosure — a re-read is genuinely required", () => {
+    const partial = FULL_DISCLOSURE.replace("Message frequency varies. ", "").replace(
+      "Please say yes or no.",
+      ""
+    );
+    expect(transcriptSmsDisclosureState(`AI: ${partial}\nUser: yes`, BUSINESS)).toBe("NOT_PRESENTED");
+  });
+
+  it("caller-spoken disclosure text never reaches AWAITING_ANSWER either", () => {
+    expect(transcriptSmsDisclosureState(`User: ${FULL_DISCLOSURE}`, BUSINESS)).toBe("NOT_PRESENTED");
+  });
+
+  it("structured role-tagged turns resolve ANSWERED when the flat transcript would lag", () => {
+    // artifact.messages carries the caller turn that triggered the tool call.
+    const segments: TranscriptSegment[] = [
+      { role: "assistant", text: FULL_DISCLOSURE },
+      { role: "user", text: "yes" }
+    ];
+    expect(segmentsSmsDisclosureState(segments, BUSINESS)).toBe("ANSWERED");
+    // …while the lagging flat transcript alone only reaches AWAITING_ANSWER.
+    expect(transcriptSmsDisclosureState(`AI: ${FULL_DISCLOSURE}`, BUSINESS)).toBe("AWAITING_ANSWER");
+  });
+
+  it("empty input stays NOT_PRESENTED", () => {
+    expect(transcriptSmsDisclosureState("", BUSINESS)).toBe("NOT_PRESENTED");
+    expect(transcriptSmsDisclosureState(`AI: ${FULL_DISCLOSURE}\nUser: yes`, "")).toBe("NOT_PRESENTED");
+    expect(segmentsSmsDisclosureState([], BUSINESS)).toBe("NOT_PRESENTED");
   });
 });
