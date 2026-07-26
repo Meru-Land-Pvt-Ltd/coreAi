@@ -63,13 +63,6 @@ function PublicBrandingHeader() {
 
         <nav className="ml-auto flex shrink-0 items-center gap-2">
           <Link
-            href={ARCHITECT_LOGIN_PATH}
-            data-testid="agent-detail-for-architects-link"
-            className="hidden rounded-lg px-3 py-2 text-[13.5px] font-semibold text-slate-600 transition hover:text-slate-900 sm:block"
-          >
-            For Architects
-          </Link>
-          <Link
             href={BUSINESS_LOGIN_PATH}
             data-testid="agent-detail-login-link"
             className="rounded-xl border border-amber-500 px-3.5 py-2 text-[13.5px] font-semibold text-amber-600 transition hover:bg-amber-50 sm:px-4"
