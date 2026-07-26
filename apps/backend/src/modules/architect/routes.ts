@@ -509,14 +509,26 @@ architectRoutes.get("/ai/providers", async (c) => {
 });
 
 architectRoutes.post("/media/upload", async (c) => {
+  const form = await c.req.parseBody().catch(() => null);
+  const file = form?.["file"];
+  const kindRaw = typeof form?.["kind"] === "string" ? (form["kind"] as string) : "icon";
+
+  // Icons no longer use object storage — the builder inlines them as a data
+  // URL on the listing. Only screenshots are uploaded.
+  if (kindRaw !== "screenshot") {
+    return errorResponse(
+      c,
+      "Agent icons are stored with the listing, not uploaded.",
+      400,
+      "ICON_UPLOAD_NOT_SUPPORTED"
+    );
+  }
+
   if (!isImageUploadConfigured()) {
     return errorResponse(c, "Image storage is not configured.", 503, "STORAGE_NOT_CONFIGURED");
   }
 
-  const form = await c.req.parseBody().catch(() => null);
-  const file = form?.["file"];
-  const kindRaw = typeof form?.["kind"] === "string" ? (form["kind"] as string) : "icon";
-  const kind: ImageUploadKind = kindRaw === "screenshot" ? "screenshot" : "icon";
+  const kind: ImageUploadKind = "screenshot";
 
   if (!(file instanceof File)) {
     return errorResponse(c, "No file was provided.", 400, "FILE_REQUIRED");

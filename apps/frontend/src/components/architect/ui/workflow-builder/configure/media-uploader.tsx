@@ -16,6 +16,8 @@ function readAsDataUrl(file: File): Promise<string> {
 }
 
 async function storeImage(file: File, kind: "icon" | "screenshot"): Promise<string> {
+  if (kind === "icon") return readAsDataUrl(file);
+
   const form = new FormData();
   form.append("file", file);
   form.append("kind", kind);
