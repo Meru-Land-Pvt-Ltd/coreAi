@@ -15,8 +15,8 @@ export type CalendarAppointmentInput = {
   startAt: string | Date;
   endAt?: string | Date | null;
   description?: string | null;
-  /** Exact event title (test events use mode-prefixed titles); default is "{service} - {name}". */
   summaryOverride?: string | null;
+  reminderMinutes?: number | null;
 };
 
 export function buildAppointmentEventContent(input: {
@@ -48,6 +48,30 @@ export function buildAppointmentEventContent(input: {
       .join("\n");
 
   return { summary, description };
+}
+
+/** Google rejects reminders further out than 4 weeks. */
+const MAX_REMINDER_MINUTES = 40320;
+
+export type CalendarReminders = {
+  reminders?: { useDefault: false; overrides: Array<{ method: "popup" | "email"; minutes: number }> };
+};
+
+export function buildEventReminders(reminderMinutes?: number | null): CalendarReminders {
+  if (typeof reminderMinutes !== "number" || !Number.isFinite(reminderMinutes) || reminderMinutes < 0) {
+    return {};
+  }
+
+  const minutes = Math.min(Math.round(reminderMinutes), MAX_REMINDER_MINUTES);
+  return {
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: "popup", minutes },
+        { method: "email", minutes }
+      ]
+    }
+  };
 }
 
 function asDate(value: string | Date) {
@@ -199,7 +223,8 @@ export async function createGoogleCalendarAppointment({
   startAt,
   endAt,
   description,
-  summaryOverride
+  summaryOverride,
+  reminderMinutes
 }: CalendarAppointmentInput) {
   const auth = await createAuthorizedGoogleOAuthClient(userId);
   const calendar = google.calendar({ version: "v3", auth });
@@ -230,7 +255,8 @@ export async function createGoogleCalendarAppointment({
       end: {
         dateTime: endDate.toISOString(),
         timeZone: safeTimeZone
-      }
+      },
+      ...buildEventReminders(reminderMinutes)
     }
   });
 
@@ -251,11 +277,6 @@ function googleApiStatus(error: unknown): number | null {
   return typeof code === "number" ? code : Number.isFinite(Number(code)) ? Number(code) : null;
 }
 
-/**
- * Move an existing event to a new start/end. 404/410 report the event as
- * missing (deleted from the calendar) instead of throwing, so callers can
- * recreate it rather than fail the reschedule.
- */
 export async function rescheduleGoogleCalendarAppointment({
   userId,
   calendarId,

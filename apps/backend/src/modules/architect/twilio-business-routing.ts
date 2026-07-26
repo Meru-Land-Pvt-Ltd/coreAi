@@ -55,6 +55,7 @@ import {
 } from "./after-hours-live-gate";
 import { updateAfterHoursStaffNotificationStatus } from "../business/after-hours-call-state";
 import {
+  VOICE_NODE_TYPES,
   buildRedFlagStaffAlert,
   buildUrgentStaffAlert,
   verbalSmsConsentDisclosure,
@@ -757,11 +758,6 @@ function formatSpokenAppointmentTime(iso: string, timeZone?: string | null): str
   return spokenDateTimeInTimeZone(iso, tz, timeLabel) || formatAppointmentTime(iso, timeZone);
 }
 
-/**
- * Spoken date for a calendar day (YYYY-MM-DD), anchored at local noon so the
- * time zone can never shift it a day. "2026-07-25" → "Saturday, July twenty-fifth".
- * The model MUST speak this, never the numeric date (#9).
- */
 function spokenDateForYmd(ymd: string, timeZone?: string | null): string {
   const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
   try {
@@ -804,6 +800,8 @@ async function createBusinessAppointment({
   endAt,
   conversationId,
   description,
+  titleOverride,
+  reminderMinutes,
   notes
 }: {
   business: BusinessRuntimeContext;
@@ -816,14 +814,14 @@ async function createBusinessAppointment({
   endAt: Date | string;
   conversationId?: string | null;
   description?: string | null;
+  titleOverride?: string | null;
+  reminderMinutes?: number | null;
   notes?: string | null;
 }) {
   if (!business.businessId || !business.ownerId) {
     throw new Error("Business is not fully configured for calendar booking.");
   }
 
-  // Test-mode agents (architect sandbox) create clearly-marked events and rows
-  // so nothing test-generated is mistaken for a real customer booking.
   const executionMode = business.executionMode ?? "LIVE";
   const isTestMode = executionMode !== "LIVE";
 
@@ -838,7 +836,10 @@ async function createBusinessAppointment({
     providerName,
     startAt,
     endAt,
-    summaryOverride: isTestMode ? calendarEventTitleForMode(executionMode, service) : undefined,
+    summaryOverride: isTestMode
+      ? calendarEventTitleForMode(executionMode, service)
+      : titleOverride?.trim() || undefined,
+    reminderMinutes: reminderMinutes ?? null,
     description: isTestMode
       ? [
         executionMode === "ARCHITECT_DRY_RUN"
@@ -2154,8 +2155,6 @@ type DentalToolConfig = {
   useTestCalendar: boolean;
   testSessionId: string | null;
   architectUserId: string | null;
-  /** Browser-test agents only: the architect-selected test timezone. Live
-   * agents always use the business profile timezone instead. */
   testTimeZone: string | null;
   bufferMinutes: number;
   slotsToOffer: number;
@@ -2170,10 +2169,58 @@ type DentalToolConfig = {
   dentistTemplate: string;
   confirmationMessage: string;
   bookingLabel: string;
+  eventTitleFormat: string;
+  eventDescription: string;
+  reminderMinutes: number | null;
   emailNode: SendEmailNodeConfig | null;
 };
 
-async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
+export function workflowNodeDefaults(workflowJson: unknown): Record<string, unknown> {
+  const nodes = (workflowJson as { nodes?: Array<{ data?: Record<string, unknown> }> } | null)?.nodes;
+  if (!Array.isArray(nodes)) return {};
+
+  const dataFor = (type: string): Record<string, unknown> =>
+    nodes.find((node) => (node?.data?.type as string) === type)?.data ?? {};
+
+  const booking = dataFor(VOICE_NODE_TYPES.bookAppointment);
+  const sms = dataFor(VOICE_NODE_TYPES.sendSms);
+
+  const pick = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value : undefined;
+
+  return {
+    ...(pick(booking.eventTitleFormat) ? { eventTitleFormat: booking.eventTitleFormat } : {}),
+    ...(pick(booking.eventDescription) ? { eventDescription: booking.eventDescription } : {}),
+    ...(booking.reminderEnabled !== undefined ? { reminderEnabled: booking.reminderEnabled } : {}),
+    ...(booking.reminderTiming !== undefined ? { reminderTiming: booking.reminderTiming } : {}),
+    ...(pick(booking.confirmationMessage) ? { confirmationMessage: booking.confirmationMessage } : {}),
+    ...(pick(sms.customerTemplate ?? sms.patientTemplate)
+      ? { patientTemplate: sms.customerTemplate ?? sms.patientTemplate }
+      : {}),
+    ...(pick(sms.teamTemplate ?? sms.dentistTemplate)
+      ? { dentistTemplate: sms.teamTemplate ?? sms.dentistTemplate }
+      : {}),
+    ...((sms.sendToTeam ?? sms.sendToDentist) !== undefined
+      ? { sendToDentist: sms.sendToTeam ?? sms.sendToDentist }
+      : {}),
+    ...((sms.sendToCustomer ?? sms.sendToPatient) !== undefined
+      ? { sendToPatient: sms.sendToCustomer ?? sms.sendToPatient }
+      : {})
+  };
+}
+
+/** "true"/true → true, "false"/false → false, anything else → undefined. */
+function optionalFlag(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return undefined;
+}
+
+export async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
 
   const agent =
     (await prisma.installedAgent.findFirst({
@@ -2193,7 +2240,7 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
   );
   const legacy = (configJson.dentalConfig ?? {}) as Record<string, unknown>;
   const scheduling = (configJson.scheduling ?? {}) as Record<string, unknown>;
-  const cfg = { ...legacy, ...scheduling };
+  const cfg = { ...workflowNodeDefaults(agent?.workflow?.workflowJson ?? null), ...legacy, ...scheduling };
   const dryRun = configJson.testDryRun === true;
   const num = (value: unknown, fallback: number) => {
     const parsed = Number(value);
@@ -2215,8 +2262,8 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
     closeHour: num(cfg.closeHour, 17),
     defaultDurationMinutes: num(cfg.serviceDurationMinutes ?? cfg.defaultDurationMinutes, 30),
     doctorName: str(cfg.providerName ?? cfg.teamName ?? cfg.doctorName),
-    sendToPatient: (cfg.sendToCustomer ?? cfg.sendToPatient) !== false,
-    sendToDentist: (cfg.sendToTeam ?? cfg.sendToDentist) !== false,
+    sendToPatient: optionalFlag(cfg.sendToCustomer ?? cfg.sendToPatient) ?? true,
+    sendToDentist: optionalFlag(cfg.sendToTeam ?? cfg.sendToDentist) ?? false,
     dentistPhone: normalizePhoneNumber(str(cfg.teamPhone ?? cfg.dentistPhone)),
     patientTemplate: strOr(
       cfg.customerTemplate ?? cfg.patientTemplate,
@@ -2228,6 +2275,11 @@ async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfi
     ),
     confirmationMessage: str(cfg.confirmationMessage),
     bookingLabel: strOr(cfg.bookingLabel ?? cfg.bookingType ?? customBookingLabelOf(configJson), "appointment"),
+    eventTitleFormat: str(cfg.eventTitleFormat),
+    eventDescription: str(cfg.eventDescription),
+    /* Reminder OFF is explicit; otherwise a positive timing sets the override
+       and anything else leaves the calendar's own defaults alone. */
+    reminderMinutes: optionalFlag(cfg.reminderEnabled) === false ? null : num(cfg.reminderTiming, 0) || null,
     emailNode
   };
 }
@@ -2993,17 +3045,34 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
     : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
 
   const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
-  const eventDescription = [
-    ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
-    `Customer: ${patientName}`,
-    `Phone: ${patientPhone || "not provided"}`,
-    ...(providerName ? [`With: ${providerName}`] : []),
-    `Service: ${service}`,
-    "Source: Triven AI voice receptionist",
-    ctx.callId ? `Call ID: ${ctx.callId}` : null
-  ]
-    .filter(Boolean)
-    .join("\n");
+
+  const eventTemplateValues = bracketTemplateValues({
+    service,
+    customerName: patientName,
+    customerPhone: patientPhone || "not provided",
+    teamName,
+    providerName,
+    date: whenLabel,
+    time: whenLabel
+  });
+
+  const eventTitleOverride = ctx.dental?.eventTitleFormat
+    ? applyBracketTemplate(ctx.dental.eventTitleFormat, eventTemplateValues).trim()
+    : "";
+
+  const eventDescription = ctx.dental?.eventDescription
+    ? applyBracketTemplate(ctx.dental.eventDescription, eventTemplateValues)
+    : [
+      ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
+      `Customer: ${patientName}`,
+      `Phone: ${patientPhone || "not provided"}`,
+      ...(providerName ? [`With: ${providerName}`] : []),
+      `Service: ${service}`,
+      "Source: Triven AI voice receptionist",
+      ctx.callId ? `Call ID: ${ctx.callId}` : null
+    ]
+      .filter(Boolean)
+      .join("\n");
 
   if (ctx.dental?.dryRun) {
     const architectUserId = ctx.dental.architectUserId ?? ctx.business?.ownerId ?? null;
@@ -3322,6 +3391,8 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
             endAt,
             conversationId: ctx.conversationId,
             description: eventDescription,
+            titleOverride: eventTitleOverride || null,
+            reminderMinutes: ctx.dental?.reminderMinutes ?? null,
             notes: ctx.summary || ctx.transcript || null
           })
       });
