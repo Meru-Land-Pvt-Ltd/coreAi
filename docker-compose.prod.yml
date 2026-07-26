@@ -41,9 +41,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8787
-
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       FRONTEND_URL: ${FRONTEND_URL}
       BACKEND_URL: ${BACKEND_URL}
 
@@ -81,14 +80,13 @@ services:
       dockerfile: apps/backend/Dockerfile
     container_name: coreai-email-worker
     restart: unless-stopped
-    # Same image as backend; only the entrypoint differs.
     command: ["node", "dist/email-worker.js"]
     env_file:
       - apps/backend/.env.production
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       FRONTEND_URL: ${FRONTEND_URL}
       BACKEND_URL: ${BACKEND_URL}
       VAPI_API_KEY: ${VAPI_API_KEY}
