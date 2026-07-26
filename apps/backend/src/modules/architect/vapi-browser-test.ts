@@ -330,12 +330,29 @@ const currentDate = dateInZone(now, timeZone);
         })
       : "";
 
+  const customFirstMessageRaw = fillNodeTokens(str(ai, "firstMessage"), tokens);
+  const customFirstMessageResolved = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, {
+    assistantName,
+    businessName
+  });
+  const customFirstMessage = stripLeftoverTokens(customFirstMessageResolved);
+
+  const firstMessage =
+    afterHoursPolicy?.enabled && afterHoursSnapshot?.state === "CLOSED"
+      ? resolveAfterHoursGreeting({ policy: afterHoursPolicy, businessName })
+      : buildAgentFirstMessage({
+          assistantName,
+          businessName,
+          customFirstMessage
+        });
+
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
     businessName,
     businessType,
     services,
     faqs,
+    openingLine: firstMessage,
     timezoneText: timeZone,
     currentDateTimeText: tokens.currentDateTime ?? "",
     currentDateText: tokens.currentDate ?? "",
@@ -357,24 +374,6 @@ Live call handling:
 `.trim()
     ]
   });
-
-  const customFirstMessageRaw = fillNodeTokens(str(ai, "firstMessage"), tokens);
-  const customFirstMessageResolved = resolveNodeTemplateVariables(customFirstMessageRaw, workflow.workflowJson, {
-    assistantName,
-    businessName
-  });
-  const customFirstMessage = stripLeftoverTokens(customFirstMessageResolved);
-
-  // Simulated closed hours greet with the after-hours opening, exactly like a
-  // live closed-hours call would.
-  const firstMessage =
-    afterHoursPolicy?.enabled && afterHoursSnapshot?.state === "CLOSED"
-      ? resolveAfterHoursGreeting({ policy: afterHoursPolicy, businessName })
-      : buildAgentFirstMessage({
-          assistantName,
-          businessName,
-          customFirstMessage
-        });
 
   const unresolvedVariables = Array.from(
     new Set([
