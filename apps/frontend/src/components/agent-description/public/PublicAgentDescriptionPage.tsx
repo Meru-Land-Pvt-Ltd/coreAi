@@ -27,12 +27,20 @@ import {
   getListingTags,
   getWorkflowFeatures,
   type ApiListing,
-  type ListingApiResponse
+  type ListingApiResponse,
+  type SimilarListing
 } from "@/components/agent-description/shared/agent-listing";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
+
+/**
+ * "More agents businesses love" is intentionally absent from the public share
+ * page — the shared view hides that section when the list is empty. The
+ * logged-in business page still passes real listings and keeps showing it.
+ */
+const NO_SIMILAR_AGENTS: SimilarListing[] = [];
 
 const LOADING_STYLES = `
 .agent-detail-root { font-family: 'Inter', system-ui, -apple-system, sans-serif; background-color: #ffffff; }
@@ -253,10 +261,7 @@ export default function PublicAgentDescriptionPage() {
       primaryCtaLabel={primaryCtaLabel}
       primaryCtaTestId={primaryCtaTestId}
       howItWorksSteps={howItWorksSteps}
-      // "More agents businesses love" is intentionally absent from the public
-      // share page — an empty list hides the section. The logged-in business
-      // page still passes real listings and keeps showing it.
-      similar={[]}
+      similar={NO_SIMILAR_AGENTS}
       similarHref={(id) => publicAgentPath(id)}
       showDemo
       demoMode="public"
