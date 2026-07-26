@@ -23,18 +23,18 @@ import {
 
 // Pricing per 1M tokens — https://ai.google.dev/pricing
 const PRICING: PricingTable = {
-  "gemini-3.5-flash":      { input: 0.075,  output: 0.30  },
-  "gemini-2.0-flash":      { input: 0.075,  output: 0.30  },
-  "gemini-2.0-flash-lite": { input: 0.0375, output: 0.15  },
-  "gemini-1.5-pro":        { input: 1.25,   output: 5.00  },
-  "gemini-1.5-flash":      { input: 0.075,  output: 0.30  },
-  "gemini-1.0-pro":        { input: 0.50,   output: 1.50  },
+  "gemini-3.5-flash": { input: 0.075, output: 0.30 },
+  "gemini-2.0-flash": { input: 0.075, output: 0.30 },
+  "gemini-2.0-flash-lite": { input: 0.0375, output: 0.15 },
+  "gemini-1.5-pro": { input: 1.25, output: 5.00 },
+  "gemini-1.5-flash": { input: 0.075, output: 0.30 },
+  "gemini-1.0-pro": { input: 0.50, output: 1.50 },
 };
 
 /** Lazily import the ESM-only @google/genai package */
 async function getClient() {
   const { GoogleGenAI } = await import("@google/genai");
-  return new GoogleGenAI({ apiKey: env.GOOGLE_AI_API_KEY });
+  return new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 }
 
 class GeminiAdapter implements AIProviderAdapter {
@@ -51,7 +51,7 @@ class GeminiAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    return checkEnvKey("GOOGLE_AI_API_KEY");
+    return checkEnvKey("GEMINI_API_KEY");
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {
