@@ -69,15 +69,6 @@ function PublicBrandingHeader() {
           >
             For Architects
           </Link>
-          <button
-            type="button"
-            onClick={() => setHelpOpen(true)}
-            data-testid="agent-detail-need-help-button"
-            className="rounded-lg px-3 py-2 text-[13.5px] font-semibold text-slate-600 transition hover:text-amber-600 sm:px-3.5"
-          >
-            Need Help?
-          </button>
-
           <Link
             href={BUSINESS_LOGIN_PATH}
             data-testid="agent-detail-login-link"
@@ -92,6 +83,14 @@ function PublicBrandingHeader() {
           >
             Get started
           </Link>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            data-testid="agent-detail-need-help-button"
+            className="text-sm font-semibold text-amber-600 hover:text-amber-700 transition-colors"
+          >
+            Need help?
+          </button>
         </nav>
       </div>
       <NeedHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
