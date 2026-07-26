@@ -319,9 +319,9 @@ async function buildInstalledAgentAssistantPlan(
       profile: true,
       knowledgeBases: true,
       installedAgents: {
-        // Setup deploys the exact row it just saved while it is still
-        // PROVISIONING. Other callers retain the runtime-safe default of the
-        // latest ACTIVE agent.
+        /* Setup deploys the exact row it just saved while it is still
+           PROVISIONING. Other callers retain the runtime-safe default of the
+           latest ACTIVE agent. */
         where: options?.installedAgentId
           ? { id: options.installedAgentId }
           : { status: "ACTIVE" },
@@ -374,9 +374,9 @@ async function buildInstalledAgentAssistantPlan(
     ""
   ).trim();
 
-  // Structured Business Hours (weekly + special dates) are the source of
-  // truth; when unconfigured the prompt carries an explicit never-guess
-  // instruction instead of hardcoded/invented hours.
+  /* Structured Business Hours (weekly + special dates) are the source of
+     truth; when unconfigured the prompt carries an explicit never-guess
+     instruction instead of hardcoded/invented hours. */
   const hoursState = await loadBusinessHoursState(businessId);
   const businessHours = hoursState.configured
     ? buildHoursPromptLines(hoursState).join("\n  ")
@@ -384,16 +384,19 @@ async function buildInstalledAgentAssistantPlan(
   const silencePolicy = buildSilencePolicy(buyer.silence);
   const capabilities = workflowCapabilities(installedAgent.workflow.workflowJson);
 
-  // Architect template instructions run before buyer custom instructions in
-  // the prompt, so buyer-specific config always has the last word.
+  /* Architect template instructions run before buyer custom instructions in
+     the prompt, so buyer-specific config always has the last word. */
   const nodeInstructions = architectNodeInstructions(voiceNode);
   const customFields = readCustomFields(installedAgent.configJson);
   const bookingLabel = readBookingLabel(installedAgent.configJson);
 
-  // After-hours policy: buyer configJson first, architect node default second.
+  /* After-hours policy: buyer configJson first, architect node second, and the
+     platform default LAST — derived from the business type so a salon is never
+     asked about a dental emergency. */
   const afterHoursPolicy = resolveAfterHoursPolicy({
     configJson: installedAgent.configJson,
-    workflowJson: installedAgent.workflow.workflowJson
+    workflowJson: installedAgent.workflow.workflowJson,
+    businessType
   });
   const afterHoursSection = afterHoursPolicy?.enabled
     ? buildAfterHoursPromptSection({
@@ -648,7 +651,8 @@ export async function buildInstalledAgentChatTestSetup(
     workflowJson: installedAgent.workflow.workflowJson,
     afterHoursPolicy: resolveAfterHoursPolicy({
       configJson: installedAgent.configJson,
-      workflowJson: installedAgent.workflow.workflowJson
+      workflowJson: installedAgent.workflow.workflowJson,
+      businessType: firstString(buyer.businessType, business.type) ?? null
     }),
     context: {
       businessName: resolveBusinessName(buyer.businessName, business.name),

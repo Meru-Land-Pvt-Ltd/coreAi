@@ -232,7 +232,11 @@ export async function runArchitectConversationTest({
   let afterHours = testContext?.afterHours;
 
   if (!afterHours) {
-    const nodePolicy = resolveAfterHoursPolicy({ configJson: null, workflowJson });
+    const nodePolicy = resolveAfterHoursPolicy({
+      configJson: null,
+      workflowJson,
+      businessType: testContext?.businessType ?? null
+    });
     if (nodePolicy?.enabled && simulateHours) {
       afterHours = {
         policy: nodePolicy,

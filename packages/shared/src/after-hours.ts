@@ -88,21 +88,89 @@ export function normalizeAfterHoursPolicy(raw: unknown): AfterHoursPolicy | null
   };
 }
 
-export const DEFAULT_DENTAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+const PLATFORM_DEFAULT_BASE = {
   enabled: true,
-  emergencyScreeningEnabled: true,
-  emergencyCategory: "DENTAL",
   emergencyContactMethod: "SMS",
   offerAppointmentBooking: true,
   preferEarliestAvailableSlot: true,
   allowUrgentCallbackRequest: true,
   includeCallbackInStaffAlert: true
+} as const;
+
+export const DEFAULT_DENTAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  ...PLATFORM_DEFAULT_BASE,
+  emergencyScreeningEnabled: true,
+  emergencyCategory: "DENTAL"
 });
+
+export const DEFAULT_MEDICAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  ...PLATFORM_DEFAULT_BASE,
+  emergencyScreeningEnabled: true,
+  emergencyCategory: "MEDICAL"
+});
+
+export const DEFAULT_GENERAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  ...PLATFORM_DEFAULT_BASE,
+  emergencyScreeningEnabled: false,
+  emergencyCategory: "NONE"
+});
+
+const PLATFORM_DEFAULT_POLICIES: readonly AfterHoursPolicy[] = Object.freeze([
+  DEFAULT_DENTAL_AFTER_HOURS_POLICY,
+  DEFAULT_MEDICAL_AFTER_HOURS_POLICY,
+  DEFAULT_GENERAL_AFTER_HOURS_POLICY
+]);
 
 export function isPlatformDefaultAfterHoursPolicy(
   policy: AfterHoursPolicy | null | undefined
 ): boolean {
-  return policy === DEFAULT_DENTAL_AFTER_HOURS_POLICY;
+  return Boolean(policy) && PLATFORM_DEFAULT_POLICIES.includes(policy as AfterHoursPolicy);
+}
+
+const DENTAL_BUSINESS_TYPE =
+  /\b(dental|dentist\w*|dentistry|orthodont\w*|endodont\w*|periodont\w*|prosthodont\w*|oral surg\w*|oral health)\b/;
+
+const MEDICAL_BUSINESS_TYPE =
+  /\b(medical|medicine|clinic|clinical|doctor\w*|physician\w*|surgeon\w*|surgery|hospital|urgent care|health care|healthcare|pediatric\w*|paediatric\w*|dermatolog\w*|cardiolog\w*|neurolog\w*|oncolog\w*|ophthalmolog\w*|optometr\w*|chiropract\w*|physiotherap\w*|physical therapy|podiatr\w*|gynecolog\w*|gynaecolog\w*|obstetric\w*|psychiatr\w*|urology|urologist|nurse|nursing|midwif\w*|midwives)\b/;
+
+/**
+ * Animal care is excluded from clinical screening even though "veterinary
+ * clinic" reads as medical: the screening script directs callers to 911 and the
+ * nearest emergency department, which is the wrong instruction for a pet.
+ */
+const ANIMAL_CARE_BUSINESS_TYPE =
+  /\b(vet|vets|veterinar\w*|animal|animals|pet|pets|equine|canine|feline|kennel|grooming)\b/;
+
+/**
+ * Which emergency category a business type warrants BEFORE anyone configures a
+ * policy. Only human clinical practices get proactive screening; everything
+ * else falls to NONE.
+ */
+export function emergencyCategoryForBusinessType(
+  businessType: string | null | undefined
+): AfterHoursEmergencyCategory {
+  const value = ` ${String(businessType ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()} `;
+  if (!value.trim()) return "NONE";
+  if (ANIMAL_CARE_BUSINESS_TYPE.test(value)) return "NONE";
+  if (DENTAL_BUSINESS_TYPE.test(value)) return "DENTAL";
+  if (MEDICAL_BUSINESS_TYPE.test(value)) return "MEDICAL";
+  return "NONE";
+}
+
+export function platformDefaultAfterHoursPolicy(
+  businessType?: string | null
+): AfterHoursPolicy {
+  switch (emergencyCategoryForBusinessType(businessType)) {
+    case "DENTAL":
+      return DEFAULT_DENTAL_AFTER_HOURS_POLICY;
+    case "MEDICAL":
+      return DEFAULT_MEDICAL_AFTER_HOURS_POLICY;
+    default:
+      return DEFAULT_GENERAL_AFTER_HOURS_POLICY;
+  }
 }
 
 export function policyScreensForEmergencies(policy: AfterHoursPolicy | null | undefined): boolean {

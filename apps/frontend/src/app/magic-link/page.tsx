@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiPost } from "@/lib/api";
-import { saveAuthSession, type AuthUser } from "@/lib/auth";
+import { getAuthToken, getAuthUser, saveAuthSession, type AuthUser } from "@/lib/auth";
 import { getLoginDeviceId, takePendingLoginNext } from "@/lib/login-device";
 import {
   ARCHITECT_LOGIN_PATH,
@@ -63,17 +63,17 @@ export default function MagicLinkPage() {
 function MagicLinkInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
 
   const [status, setStatus] = useState<"loading" | "signed_in" | "show_code" | "error">("loading");
   const [codeResult, setCodeResult] = useState<ShowCodeResult | null>(null);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [copied, setCopied] = useState(false);
   const [isSigningInHere, setIsSigningInHere] = useState(false);
 
-  // The token is stripped from the URL after the first exchange, so keep it for
-  // the optional "sign in here instead" follow-up.
-  const tokenRef = useRef<string | null>(null);
+  const tokenRef = useRef<string | null>(searchParams.get("token"));
+
+  const exchangeStartedRef = useRef(false);
 
   const finishSignIn = useCallback(
     (data: SignedInResult) => {
@@ -91,56 +91,72 @@ function MagicLinkInner() {
             : roleDashboardPath[role];
 
       window.setTimeout(() => {
-        router.push(destination);
+        // replace, not push — the spent link must not sit in the back stack.
+        router.replace(destination);
       }, 700);
     },
     [router]
   );
 
-  useEffect(() => {
-    let cancelled = false;
+  const redirectIfAlreadySignedIn = useCallback((): boolean => {
+    const user = getAuthUser();
+    if (!user || !getAuthToken()) return false;
 
-    async function openLink() {
-      if (!token) {
-        setError("This sign-in link is incomplete. Request a new one to sign in.");
-        setStatus("error");
-        return;
-      }
+    const role: MagicLinkRole = user.role === "ARCHITECT" ? "ARCHITECT" : "BUSINESS";
+    const returnPath = resolveBusinessLoginReturnPath(takePendingLoginNext());
 
-      tokenRef.current = token;
+    setStatus("signed_in");
+    window.setTimeout(() => {
+      router.replace(role === "BUSINESS" && returnPath ? returnPath : roleDashboardPath[role]);
+    }, 700);
 
-      const result = await apiPost<MagicLinkResult>("/auth/magic-link/complete", {
-        token,
-        deviceId: getLoginDeviceId() ?? undefined
-      });
+    return true;
+  }, [router]);
 
-      if (cancelled) return;
+  const openLink = useCallback(async () => {
+    const token = tokenRef.current;
 
-      if (!result.success || !result.data) {
-        setError(result.error ?? "This sign-in link is invalid. Request a new one to sign in.");
-        setStatus("error");
-        return;
-      }
+    if (!token) {
+      if (redirectIfAlreadySignedIn()) return;
+      setErrorCode("MAGIC_LINK_INCOMPLETE");
+      setError("This sign-in link is incomplete. Request a new one to sign in.");
+      setStatus("error");
+      return;
+    }
 
-      // Drop the token from the address bar once exchanged, so it is not
-      // re-usable from history or a shared/screenshotted URL.
-      window.history.replaceState(null, "", window.location.pathname);
+    setStatus("loading");
 
-      if (result.data.mode === "signed_in") {
-        finishSignIn(result.data);
-        return;
-      }
+    const result = await apiPost<MagicLinkResult>("/auth/magic-link/complete", {
+      token,
+      deviceId: getLoginDeviceId() ?? undefined
+    });
 
+    if (!result.success || !result.data) {
+      if (redirectIfAlreadySignedIn()) return;
+      setErrorCode(result.code ?? "API_ERROR");
+      setError(result.error ?? "This sign-in link is invalid. Request a new one to sign in.");
+      setStatus("error");
+      return;
+    }
+
+    if (result.data.mode === "signed_in") {
+      finishSignIn(result.data);
+    } else {
       setCodeResult(result.data);
       setStatus("show_code");
     }
+    
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [finishSignIn, redirectIfAlreadySignedIn]);
+
+  useEffect(() => {
+    // Empty dep list on purpose: openLink() reads the token from a ref, so no
+    // dependency can churn and re-fire a single-use exchange. Do not add deps.
+    if (exchangeStartedRef.current) return;
+    exchangeStartedRef.current = true;
 
     void openLink();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, finishSignIn]);
+  }, []);
 
   const handleCopy = useCallback(async () => {
     if (!codeResult) return;
@@ -177,6 +193,24 @@ function MagicLinkInner() {
 
     finishSignIn(result.data);
   }, [finishSignIn, isSigningInHere]);
+
+  // A dead link and an unreachable server need different words and different
+  // actions — "Link no longer works" is wrong and alarming when the real problem
+  // was a dropped request.
+  const isRetryableError =
+    status === "error" &&
+    !["MAGIC_LINK_INVALID", "MAGIC_LINK_EXPIRED", "MAGIC_LINK_ALREADY_USED", "MAGIC_LINK_INCOMPLETE"].includes(
+      errorCode
+    );
+
+  const errorHeading =
+    errorCode === "MAGIC_LINK_EXPIRED"
+      ? "This link has expired"
+      : errorCode === "MAGIC_LINK_ALREADY_USED"
+        ? "This link was already used"
+        : isRetryableError
+          ? "Couldn't reach Triven"
+          : "Link no longer works";
 
   return (
     <MagicLinkShell>
@@ -248,7 +282,7 @@ function MagicLinkInner() {
             className="mt-5 text-xl font-extrabold text-slate-900"
             data-testid="magic-link-error-heading"
           >
-            Link no longer works
+            {errorHeading}
           </h1>
 
           <p
@@ -259,12 +293,29 @@ function MagicLinkInner() {
             {error}
           </p>
 
+          {/* A transient failure means the server may never have seen the token,
+              so the link can still be live — offer a retry before burning it. */}
+          {isRetryableError ? (
+            <button
+              type="button"
+              onClick={() => void openLink()}
+              className="mt-6 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200"
+              data-testid="magic-link-retry-button"
+            >
+              Try again
+            </button>
+          ) : null}
+
           <Link
             href={BUSINESS_LOGIN_PATH}
-            className="mt-6 inline-block w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200"
+            className={
+              isRetryableError
+                ? "mt-3 block text-center text-sm text-slate-400 hover:text-slate-600 transition-colors duration-200"
+                : "mt-6 inline-block w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200"
+            }
             data-testid="magic-link-error-login-link"
           >
-            Back to login
+            {isRetryableError ? "Back to login" : "Send me a new link"}
           </Link>
         </div>
       ) : null}
