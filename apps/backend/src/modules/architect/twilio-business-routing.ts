@@ -825,7 +825,7 @@ async function createBusinessAppointment({
   conversationId?: string | null;
   description?: string | null;
   titleOverride?: string | null;
-  reminderMinutes?: number | null;
+  reminderMinutes?: number | null | "off";
   notes?: string | null;
 }) {
   if (!business.businessId || !business.ownerId) {
@@ -2181,7 +2181,7 @@ type DentalToolConfig = {
   bookingLabel: string;
   eventTitleFormat: string;
   eventDescription: string;
-  reminderMinutes: number | null;
+  reminderMinutes: number | null | "off";
   emailNode: SendEmailNodeConfig | null;
 };
 
@@ -2289,7 +2289,7 @@ export async function loadDentalToolConfig(businessId: string): Promise<DentalTo
     eventDescription: str(cfg.eventDescription),
     /* Reminder OFF is explicit; otherwise a positive timing sets the override
        and anything else leaves the calendar's own defaults alone. */
-    reminderMinutes: optionalFlag(cfg.reminderEnabled) === false ? null : num(cfg.reminderTiming, 0) || null,
+    reminderMinutes: optionalFlag(cfg.reminderEnabled) === false ? "off" : num(cfg.reminderTiming, 0) || null,
     emailNode
   };
 }

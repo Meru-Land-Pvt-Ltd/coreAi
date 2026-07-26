@@ -48,6 +48,7 @@ type CheckoutWorkflow = {
 type CheckoutListing = {
     id: string;
     name: string;
+    iconUrl?: string | null;
     priceCents?: number | null;
     requiredConnectors?: string[];
     supportedLlms?: string[];
@@ -822,6 +823,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [authReady, setAuthReady] = useState(false);
     const [email, setEmail] = useState("");
     const [listingName, setListingName] = useState("");
+    const [listingIconUrl, setListingIconUrl] = useState("");
     const [listingAuthor, setListingAuthor] = useState("");
     const [basePrice, setBasePrice] = useState(0);
     const [includedItems, setIncludedItems] = useState<string[]>([]);
@@ -1132,6 +1134,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
 
             if (response.success && listing) {
                 setListingName(listing.name);
+                setListingIconUrl(listing.iconUrl ?? "");
                 setListingAuthor(
                     listing.architect?.fullName ||
                     listing.architect?.architectProfile?.title ||
@@ -1595,7 +1598,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                             ? "This agent is free. No charge will be applied."
                                             : isPurchaseMode
                                                 ? "Your card will be charged today for this agent."
-                                                : `You won&apos;t be charged until your ${trialDays}-day trial ends.`}
+                                                : `You won't be charged until your ${trialDays}-day trial ends.`}
                                     </p>
 
                                     {!isFree ? (
@@ -2015,6 +2018,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                         includedItems={includedItems}
                                         futureAmount={futureAmount}
                                         agentName={listingName}
+                                        agentIconUrl={listingIconUrl}
                                         agentAuthor={listingAuthor}
                                         price={basePrice}
                                         isPurchaseMode={isPurchaseMode}
@@ -2315,6 +2319,7 @@ function OrderSummary({
     includedItems,
     futureAmount,
     agentName,
+    agentIconUrl = "",
     agentAuthor,
     price,
     isPurchaseMode = false,
@@ -2334,6 +2339,8 @@ function OrderSummary({
     includedItems: string[];
     futureAmount: number;
     agentName: string;
+    /** The listing's own icon; falls back to the generic tile when absent. */
+    agentIconUrl?: string;
     agentAuthor: string;
     price: number;
     isPurchaseMode?: boolean;
@@ -2364,7 +2371,16 @@ function OrderSummary({
 
                 <div className="flex gap-4 border-b border-gray-50 px-6 py-5">
                     <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
-                        <ChatIcon className="h-7 w-7" />
+                        {agentIconUrl ? (
+                            <img
+                                src={agentIconUrl}
+                                alt=""
+                                data-testid="business-protected-checkout-agent-icon"
+                                className="h-full w-full rounded-xl object-cover"
+                            />
+                        ) : (
+                            <ChatIcon className="h-7 w-7" />
+                        )}
                     </span>
 
                     <div className="min-w-0">

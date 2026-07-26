@@ -167,3 +167,18 @@ describe("buildEventReminders", () => {
     expect(buildEventReminders(0).reminders?.overrides[0]?.minutes).toBe(0);
   });
 });
+
+describe("reminder OFF is distinct from reminder UNCONFIGURED", () => {
+  it('"off" suppresses the event reminders instead of falling back to calendar defaults', () => {
+    // The bug this guards: mapping reminderEnabled=false to null made Google
+    // apply the buyer calendar's own defaults, so switching reminders off in
+    // the builder still produced reminders.
+    expect(buildEventReminders("off")).toEqual({
+      reminders: { useDefault: false, overrides: [] }
+    });
+  });
+
+  it("unconfigured still means 'leave the calendar owner's defaults alone'", () => {
+    expect(buildEventReminders(null)).toEqual({});
+  });
+});

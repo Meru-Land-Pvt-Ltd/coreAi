@@ -16,7 +16,7 @@ export type CalendarAppointmentInput = {
   endAt?: string | Date | null;
   description?: string | null;
   summaryOverride?: string | null;
-  reminderMinutes?: number | null;
+  reminderMinutes?: number | null | "off";
 };
 
 export function buildAppointmentEventContent(input: {
@@ -57,7 +57,11 @@ export type CalendarReminders = {
   reminders?: { useDefault: false; overrides: Array<{ method: "popup" | "email"; minutes: number }> };
 };
 
-export function buildEventReminders(reminderMinutes?: number | null): CalendarReminders {
+export function buildEventReminders(reminderMinutes?: number | null | "off"): CalendarReminders {
+  if (reminderMinutes === "off") {
+    return { reminders: { useDefault: false, overrides: [] } };
+  }
+
   if (typeof reminderMinutes !== "number" || !Number.isFinite(reminderMinutes) || reminderMinutes < 0) {
     return {};
   }
