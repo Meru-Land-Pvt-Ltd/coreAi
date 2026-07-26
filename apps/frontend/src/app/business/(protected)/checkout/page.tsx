@@ -851,6 +851,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
     const [countries, setCountries] = useState<CheckoutCountry[]>(FALLBACK_COUNTRIES);
     const [countriesReady, setCountriesReady] = useState(false);
     const [countryCode, setCountryCode] = useState("US");
+    const countryTouchedRef = useRef(false);
 
     const [touched, setTouched] = useState({
         card: false,
@@ -1102,12 +1103,10 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                 billing.billingPostalCode ?? "",
                 countries
             );
-
-            setCardName((current) => current.trim() || billing.businessName?.trim() || "");
             setAddressLine((current) => current.trim() || saved.address);
             setZip((current) => current.trim() || saved.postalCode);
-            if (saved.countryCode) {
-                setCountryCode((current) => current === "US" ? saved.countryCode! : current);
+            if (saved.countryCode && !countryTouchedRef.current) {
+                setCountryCode(saved.countryCode);
             }
         }
 
@@ -1862,7 +1861,10 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                                 <CountrySelect
                                                     countries={countries}
                                                     value={countryCode}
-                                                    onChange={setCountryCode}
+                                                    onChange={(next) => {
+                                                        countryTouchedRef.current = true;
+                                                        setCountryCode(next);
+                                                    }}
                                                 />
 
                                                 <div className="field-wrap mt-3">
