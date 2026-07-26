@@ -27,9 +27,7 @@ import {
   getListingTags,
   getWorkflowFeatures,
   type ApiListing,
-  type ListingApiResponse,
-  type SimilarListing,
-  type SimilarListingsApiResponse
+  type ListingApiResponse
 } from "@/components/agent-description/shared/agent-listing";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -97,7 +95,6 @@ export default function PublicAgentDescriptionPage() {
   const agentId = params.agentId;
 
   const [listing, setListing] = useState<ApiListing | null>(null);
-  const [similarListings, setSimilarListings] = useState<SimilarListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
 
@@ -150,34 +147,6 @@ export default function PublicAgentDescriptionPage() {
       mounted = false;
     };
   }, [agentId]);
-
-  useEffect(() => {
-    if (!agentId || !listing) return;
-
-    let mounted = true;
-
-    async function loadSimilarListings() {
-      try {
-        const response = await apiGet<SimilarListingsApiResponse>(
-          `/architect/listings/public/${agentId}/similar`
-        );
-
-        if (!mounted) return;
-
-        if (response.success && response.data?.listings) {
-          setSimilarListings(response.data.listings);
-        }
-      } catch {
-        // Similar agents failing silently is acceptable
-      }
-    }
-
-    loadSimilarListings();
-
-    return () => {
-      mounted = false;
-    };
-  }, [agentId, listing]);
 
   const category = useMemo(() => (listing ? getListingCategory(listing) : ""), [listing]);
   const tags = useMemo(() => (listing ? getListingTags(listing) : []), [listing]);
@@ -284,7 +253,10 @@ export default function PublicAgentDescriptionPage() {
       primaryCtaLabel={primaryCtaLabel}
       primaryCtaTestId={primaryCtaTestId}
       howItWorksSteps={howItWorksSteps}
-      similar={similarListings}
+      // "More agents businesses love" is intentionally absent from the public
+      // share page — an empty list hides the section. The logged-in business
+      // page still passes real listings and keeps showing it.
+      similar={[]}
       similarHref={(id) => publicAgentPath(id)}
       showDemo
       demoMode="public"
