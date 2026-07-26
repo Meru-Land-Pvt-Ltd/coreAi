@@ -3,8 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
-import { useState } from "react";
-import { NeedHelpModal } from "@/components/common/need-help-modal";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 const RESOURCES_ROUTE = "#footer" as Route;
@@ -24,8 +22,6 @@ export function CoreHeader({
   onToggleMenu,
   onCloseMenu
 }: CoreHeaderProps) {
-  const [helpOpen, setHelpOpen] = useState(false);
-
   return (
     <header
       id="navbar"
@@ -81,15 +77,6 @@ export function CoreHeader({
           >
             Login
           </Link>
-
-          <button
-            type="button"
-            data-testid="header-need-help-button"
-            onClick={() => setHelpOpen(true)}
-            className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 transition hover:border-amber-400 hover:bg-amber-50"
-          >
-            Need Help
-          </button>
 
           <Link data-testid="header-get-started-free-link"
             href={"/assignment"}
@@ -183,18 +170,6 @@ export function CoreHeader({
                 Login
               </Link>
 
-              <button
-                type="button"
-                data-testid="header-need-help-button-2"
-                onClick={() => {
-                  onCloseMenu();
-                  setHelpOpen(true);
-                }}
-                className="rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-600 transition hover:border-amber-400 hover:bg-amber-50 lg:px-4"
-              >
-                Need Help
-              </button>
-
               <Link data-testid="header-get-started-free-link-2"
                 href={"/assignment"}
                 onClick={onCloseMenu}
@@ -206,8 +181,6 @@ export function CoreHeader({
           </div>
         </div>
       ) : null}
-
-      <NeedHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </header>
   );
 }

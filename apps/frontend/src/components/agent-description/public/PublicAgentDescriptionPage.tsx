@@ -17,6 +17,7 @@ import {
 } from "@/lib/routes";
 import { getHowItWorksSteps } from "@coreai/shared";
 import { AgentDescriptionView } from "@/components/agent-description/shared/AgentDescriptionView";
+import { NeedHelpModal } from "@/components/common/need-help-modal";
 import {
   formatPublicInstallCount,
   getAgentDescription,
@@ -40,6 +41,8 @@ const LOADING_STYLES = `
 `;
 
 function PublicBrandingHeader() {
+  const [helpOpen, setHelpOpen] = useState(false);
+
   return (
     <header
       data-testid="agent-detail-branding-header"
@@ -66,6 +69,15 @@ function PublicBrandingHeader() {
           >
             For Architects
           </Link>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            data-testid="agent-detail-need-help-button"
+            className="rounded-xl border border-gray-200 px-3 py-2 text-[13.5px] font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600 sm:px-3.5"
+          >
+            Need Help?
+          </button>
+
           <Link
             href={BUSINESS_LOGIN_PATH}
             data-testid="agent-detail-login-link"
@@ -82,6 +94,7 @@ function PublicBrandingHeader() {
           </Link>
         </nav>
       </div>
+      <NeedHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </header>
   );
 }
