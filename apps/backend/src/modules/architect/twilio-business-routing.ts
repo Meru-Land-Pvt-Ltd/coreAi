@@ -747,6 +747,16 @@ function formatAppointmentTime(iso: string, timeZone?: string | null): string {
  * TTS mangles abbreviated dates ("Sat, Jul 25" → "July 20 fifth"), so every
  * spoken confirmation uses this fully-spelled ordinal form (#7).
  */
+/** Just the clock time ("9:00 AM") — the [Time] token, with no date attached. */
+function formatAppointmentTimeOfDay(iso: string, timeZone?: string | null): string {
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  try {
+    return new Date(iso).toLocaleString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
 function formatSpokenAppointmentTime(iso: string, timeZone?: string | null): string {
   const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
   let timeLabel = "";
@@ -3023,45 +3033,35 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
     service
   }));
 
-  // Never book in the past (e.g. today + an earlier time). 60s grace for clock skew.
   if (startAt.getTime() < Date.now() - 60_000) return INVALID_DATE_RESULT;
 
   const teamName = ctx.dental?.doctorName || ctx.business?.businessName || "our team";
-  // Voice-facing confirmation uses the fully-spelled spoken date (#7).
   const whenLabel = formatSpokenAppointmentTime(startAt.toISOString(), ctx.timeZone);
-  const confirmation = ctx.dental?.confirmationMessage
-    ? applyBracketTemplate(
-      ctx.dental.confirmationMessage,
-      bracketTemplateValues({
-        service,
-        customerName: patientName,
-        customerPhone: patientPhone,
-        teamName,
-        providerName,
-        date: whenLabel,
-        time: whenLabel
-      })
-    )
-    : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
+  const spokenDateLabel = spokenDateInTimeZone(startAt.toISOString(), ctx.timeZone) || whenLabel;
+  const spokenTimeLabel = formatAppointmentTimeOfDay(startAt.toISOString(), ctx.timeZone);
 
-  const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
-
-  const eventTemplateValues = bracketTemplateValues({
+  const bookingTemplateValues = bracketTemplateValues({
     service,
     customerName: patientName,
     customerPhone: patientPhone || "not provided",
     teamName,
     providerName,
-    date: whenLabel,
-    time: whenLabel
+    date: spokenDateLabel,
+    time: spokenTimeLabel
   });
 
+  const confirmation = ctx.dental?.confirmationMessage
+    ? applyBracketTemplate(ctx.dental.confirmationMessage, bookingTemplateValues)
+    : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
+
+  const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
+
   const eventTitleOverride = ctx.dental?.eventTitleFormat
-    ? applyBracketTemplate(ctx.dental.eventTitleFormat, eventTemplateValues).trim()
+    ? applyBracketTemplate(ctx.dental.eventTitleFormat, bookingTemplateValues).trim()
     : "";
 
   const eventDescription = ctx.dental?.eventDescription
-    ? applyBracketTemplate(ctx.dental.eventDescription, eventTemplateValues)
+    ? applyBracketTemplate(ctx.dental.eventDescription, bookingTemplateValues)
     : [
       ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
       `Customer: ${patientName}`,
