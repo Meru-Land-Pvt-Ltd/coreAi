@@ -1674,7 +1674,7 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
   // Provider first, then its models — same pairing the AI Brain node uses, so
   // a model can never be sent to a provider that cannot run it.
-  const aiAvailability = useLlmAvailability();
+  const { availability: aiAvailability } = useLlmAvailability();
   const aiSelection = resolveLlmSelection(str("provider"), str("model"));
   const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
 

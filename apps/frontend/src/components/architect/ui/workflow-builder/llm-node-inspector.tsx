@@ -26,7 +26,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
   const providerRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
-  const availability = useLlmAvailability();
+  const { availability, refresh: refreshAvailability } = useLlmAvailability();
 
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
 
@@ -35,14 +35,10 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     return typeof value === "string" ? value : fallback;
   };
 
-  // Provider first, then its models. A saved model belonging to a different
-  // provider is dropped by the resolver, so the two selects can never disagree.
   const selection = resolveLlmSelection(str("llmProvider"), str("llmModel"));
   const currentProvider = getLlmProvider(selection.providerId);
   const providerModels = getLlmModelsForProvider(selection.providerId);
   const activeModelId = selection.modelId ?? defaultLlmModelForProvider(selection.providerId) ?? "";
-  // Null for a model id the catalog does not list (older workflows) — the raw
-  // id is shown rather than silently swapping in a different model.
   const currentModel = findLlmModel(activeModelId);
 
   // Close dropdowns on outside click
@@ -120,7 +116,6 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         />
       </Section>
 
-      {/* --- Section 2: LLM then Model (Consistent with node-inspector styling) --- */}
       <Section title="AI Model">
         <Label>LLM provider</Label>
 
@@ -128,7 +123,10 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
           {/* Custom Select Button */}
           <button
             type="button"
-            onClick={() => setProviderOpen(!providerOpen)}
+            onClick={() => {
+              if (!providerOpen) refreshAvailability();
+              setProviderOpen(!providerOpen);
+            }}
             data-testid="llm-provider-select"
             className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none transition hover:border-slate-300 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
           >

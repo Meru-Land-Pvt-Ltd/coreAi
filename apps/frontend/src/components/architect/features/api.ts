@@ -57,6 +57,8 @@ export type ArchitectAiProvider = {
   available?: boolean;
   /** Short reason for a tooltip; null when the provider is usable. */
   unavailableReason?: string | null;
+  /** "blocked" = key present but the account failed; "no_key" = no key set. */
+  unavailableKind?: "blocked" | "no_key" | null;
   envKey: string | null;
 };
 

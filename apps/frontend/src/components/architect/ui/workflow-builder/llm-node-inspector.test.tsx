@@ -24,7 +24,8 @@ function providersResponse(configuredIds: string[]) {
         models: [],
         configured: configuredIds.includes(provider.id),
         available: configuredIds.includes(provider.id),
-        unavailableReason: configuredIds.includes(provider.id) ? null : "no API key"
+        unavailableReason: configuredIds.includes(provider.id) ? null : "no API key",
+        unavailableKind: configuredIds.includes(provider.id) ? null : "no_key"
       }))
     }
   };
@@ -161,8 +162,8 @@ describe("providers the backend cannot run", () => {
       success: true,
       data: {
         providers: [
-          { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY", models: [], configured: true, available: true, unavailableReason: null },
-          { id: "claude", displayName: "Anthropic Claude", envKey: "ANTHROPIC_API_KEY", models: [], configured: true, available: false, unavailableReason: "out of credit" }
+          { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY", models: [], configured: true, available: true, unavailableReason: null, unavailableKind: null },
+          { id: "claude", displayName: "Anthropic Claude", envKey: "ANTHROPIC_API_KEY", models: [], configured: true, available: false, unavailableReason: "out of credit", unavailableKind: "blocked" }
         ]
       }
     });
@@ -177,6 +178,41 @@ describe("providers the backend cannot run", () => {
 
     await user.click(claudeOption);
     expect(onUpdateNodeData).not.toHaveBeenCalled();
+  });
+
+  it("greys out the only provider when its account is out of credit", async () => {
+    // DeepSeek is the only key on the backend and the last run returned 402 —
+    // it must still grey out; "nothing else works" is not a reason to offer it.
+    getProvidersMock.mockResolvedValue({
+      success: true,
+      data: {
+        providers: [
+          { id: "deepseek", displayName: "DeepSeek", envKey: "DEEPSEEK_API_KEY", models: [], configured: true, available: false, unavailableReason: "out of credit", unavailableKind: "blocked" },
+          { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY", models: [], configured: false, available: false, unavailableReason: "no API key", unavailableKind: "no_key" }
+        ]
+      }
+    });
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    await user.click(screen.getByTestId("llm-provider-select"));
+
+    const deepseek = await screen.findByTestId("llm-provider-option-deepseek");
+    expect(deepseek).toHaveProperty("disabled", true);
+    expect(deepseek.getAttribute("title")).toContain("out of credit");
+    // The keyless provider stays selectable — nothing else works either.
+    expect(screen.getByTestId("llm-provider-option-openai")).toHaveProperty("disabled", false);
+  });
+
+  it("refetches availability when the provider list is opened", async () => {
+    getProvidersMock.mockResolvedValue(providersResponse(["openai"]));
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    const callsAfterMount = getProvidersMock.mock.calls.length;
+    await user.click(screen.getByTestId("llm-provider-select"));
+
+    expect(getProvidersMock.mock.calls.length).toBeGreaterThan(callsAfterMount);
   });
 
   it("disables nothing when the backend has no keys at all", async () => {

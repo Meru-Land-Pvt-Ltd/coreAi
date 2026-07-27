@@ -518,12 +518,10 @@ architectRoutes.get("/ai/providers", async (c) => {
         id: adapter.providerId,
         displayName: adapter.displayName,
         models: adapter.models,
-        /** A key is present — never the key itself. */
         configured,
-        /** Key present AND the account is not blocked. What the UI gates on. */
         available: configured && !blockReason,
-        /** Short reason for a tooltip; null when the provider is usable. */
         unavailableReason: configured ? blockReason : "no API key",
+        unavailableKind: configured ? (blockReason ? "blocked" : null) : "no_key",
         envKey: catalogEntry?.envKey ?? null
       };
     })
@@ -537,8 +535,6 @@ architectRoutes.post("/media/upload", async (c) => {
   const file = form?.["file"];
   const kindRaw = typeof form?.["kind"] === "string" ? (form["kind"] as string) : "icon";
 
-  // Icons no longer use object storage — the builder inlines them as a data
-  // URL on the listing. Only screenshots are uploaded.
   if (kindRaw !== "screenshot") {
     return errorResponse(
       c,
