@@ -50,7 +50,7 @@ function PublicBrandingHeader() {
       data-testid="agent-detail-branding-header"
       className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 backdrop-blur"
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-2 gap-y-2 px-4 py-3 sm:flex-nowrap sm:gap-x-3 sm:px-6">
         <a href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Triven home" data-testid="agent-detail-brand-home">
           <Image
             src={TRIVEN_LOGO_SRC}
@@ -67,14 +67,14 @@ function PublicBrandingHeader() {
           <Link
             href={BUSINESS_LOGIN_PATH}
             data-testid="agent-detail-login-link"
-            className="rounded-xl border border-amber-500 px-3.5 py-2 text-[13.5px] font-semibold text-amber-600 transition hover:bg-amber-50 sm:px-4"
+            className="rounded-xl border border-amber-500 px-2.5 py-1.5 text-xs font-semibold text-amber-600 transition hover:bg-amber-50 sm:px-4 sm:py-2 sm:text-[13.5px]"
           >
             Log in
           </Link>
           <Link
             href={ASSIGNMENT_PATH}
             data-testid="agent-detail-get-started-link"
-            className="rounded-xl bg-amber-500 px-3.5 py-2 text-[13.5px] font-semibold text-white transition hover:bg-amber-600 sm:px-4"
+            className="rounded-xl bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 sm:px-4 sm:py-2 sm:text-[13.5px]"
           >
             Get started
           </Link>
@@ -82,7 +82,7 @@ function PublicBrandingHeader() {
             type="button"
             onClick={() => setHelpOpen(true)}
             data-testid="agent-detail-need-help-button"
-            className="hidden text-sm font-semibold text-amber-600 transition-colors hover:text-amber-700 sm:inline-block"
+            className="whitespace-nowrap text-xs font-semibold text-amber-600 transition-colors hover:text-amber-700 sm:text-sm"
           >
             Need help?
           </button>
@@ -221,9 +221,6 @@ export default function PublicAgentDescriptionPage() {
         ? "One-time purchase · Usage charges apply"
         : "Monthly subscription · Usage charges billed separately";
 
-  /* Short line only. Falling back to `description`/`workflow.description` here
-     would print the long copy as the hero line, which is exactly what the
-     "View full description" toggle exists to avoid. */
   const heroDescription = htmlDescriptionToText(
     listing.shortDescription || listing.tagline || ""
   );

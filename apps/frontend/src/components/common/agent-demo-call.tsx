@@ -241,7 +241,7 @@ export function AgentDemoCall({
                 className="mt-4 rounded-2xl border border-amber-200/90 bg-amber-50/70 p-4 sm:p-4.5 transform-gpu [backface-visibility:hidden]"
                 data-testid="agent-demo-call"
             >
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                             <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse transform-gpu" />
@@ -257,7 +257,7 @@ export function AgentDemoCall({
                     </div>
 
                     {state === "live" ? (
-                        <div className="flex items-center gap-3">
+                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
                             <span
                                 className={`rounded-full px-3 py-1 text-xs font-bold ${agentSpeaking ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}
                                 data-testid="agent-demo-call-status"
@@ -269,7 +269,7 @@ export function AgentDemoCall({
                                 type="button"
                                 onClick={endDemo}
                                 data-testid="agent-demo-call-end"
-                                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 transform-gpu [backface-visibility:hidden]"
+                                className="ml-auto rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 sm:ml-0 transform-gpu [backface-visibility:hidden]"
                             >
                                 End demo
                             </button>
@@ -280,7 +280,7 @@ export function AgentDemoCall({
                             onClick={() => setIsModalOpen(true)}
                             disabled={state === "starting"}
                             data-testid="agent-demo-call-start"
-                            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-amber-400 active:bg-amber-600 disabled:opacity-50 transform-gpu [backface-visibility:hidden]"
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-slate-950 sm:w-auto transition hover:bg-amber-400 active:bg-amber-600 disabled:opacity-50 transform-gpu [backface-visibility:hidden]"
                         >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
@@ -306,7 +306,7 @@ export function AgentDemoCall({
             {/* Modal Dialog for Personalizing Voice AI Demo */}
             {isModalOpen ? (
                 <div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm overflow-y-auto"
+                    className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm sm:items-center"
                     data-testid="demo-setup-modal"
                     role="dialog"
                     aria-modal="true"
@@ -314,7 +314,7 @@ export function AgentDemoCall({
                         if (e.target === e.currentTarget) setIsModalOpen(false);
                     }}
                 >
-                    <div className="relative my-auto w-full max-w-xl rounded-2xl border border-slate-100 bg-white p-6 sm:p-7 shadow-2xl transition-all">
+                    <div className="relative my-auto w-full max-w-xl rounded-2xl border border-slate-100 bg-white p-5 shadow-2xl transition-all sm:p-7">
                         {/* Close button */}
                         <button
                             type="button"
@@ -440,7 +440,7 @@ export function AgentDemoCall({
                             </div>
 
                             {/* Actions Footer */}
-                            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-row items-center justify-end gap-3">
+                            <div className="mt-6 flex flex-col-reverse items-stretch gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
                                 <button
                                     type="button"
                                     onClick={() => void startDemo({})}
