@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { deleteUserWorkspace } from "../auth/workspace-deletion";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
   issueEmailVerificationCode,

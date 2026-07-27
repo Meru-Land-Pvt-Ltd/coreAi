@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { deleteUserWorkspace } from "../auth/workspace-deletion";
 import { normalizeTimeZone } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
