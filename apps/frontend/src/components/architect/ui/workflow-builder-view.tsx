@@ -271,7 +271,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }, [agentName, workflow?.name, isVoiceWorkflow]);
 
   const isManualTriggerWorkflow = useMemo(() => {
-    return nodes.some((node) => ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")));
+    return nodes.some(
+      (node) =>
+        ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
+        node.data.nodeKind === "trigger" ||
+        String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
+    );
   }, [nodes]);
 
   // Send Email node present → the Test tab offers a Test Email recipient field.
@@ -428,6 +433,22 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       setNodes(parsedNodes);
       setEdges(parsedEdges);
       setSelectedNodeId(parsedNodes[0]?.id ?? null);
+
+      const triggerNode = parsedNodes.find(
+        (node) =>
+          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
+          node.data.nodeKind === "trigger" ||
+          String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
+      );
+      if (triggerNode) {
+        if (typeof triggerNode.data.input === "string" && triggerNode.data.input) {
+          setTriggerMessage(triggerNode.data.input);
+        }
+        if (Array.isArray(triggerNode.data.attachments) && triggerNode.data.attachments.length > 0) {
+          setTriggerAttachments(triggerNode.data.attachments as AIAttachment[]);
+        }
+      }
+
       setMessage(parsedNodes.length ? "Saved just now" : "Empty canvas");
     }
 
@@ -740,6 +761,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
         if (node.id !== selectedNodeId) return node;
+
+        const isTriggerNode =
+          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
+          node.data.nodeKind === "trigger" ||
+          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+
+        if (isTriggerNode) {
+          if (field === "input") {
+            setTriggerMessage(String(value ?? ""));
+          } else if (field === "attachments") {
+            setTriggerAttachments((value as AIAttachment[]) ?? []);
+          }
+        }
 
         return {
           ...node,
@@ -1059,6 +1093,50 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return result.data.conversation.reply;
   }
 
+  const handleTriggerMessageChange = useCallback((newMsg: string) => {
+    setTriggerMessage(newMsg);
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        const isTriggerNode =
+          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
+          node.data.nodeKind === "trigger" ||
+          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        if (isTriggerNode) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              input: newMsg
+            }
+          };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  const handleTriggerAttachmentsChange = useCallback((newAtts: AIAttachment[]) => {
+    setTriggerAttachments(newAtts);
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        const isTriggerNode =
+          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
+          node.data.nodeKind === "trigger" ||
+          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        if (isTriggerNode) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              attachments: newAtts
+            }
+          };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
   async function runAgent() {
     if (blockIfUnderReview()) return;
 
@@ -1097,9 +1175,22 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
+    const triggerNode = nodes.find(
+      (node) =>
+        ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
+        node.data.nodeKind === "trigger" ||
+        String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
+    );
+    const nodeInput = typeof triggerNode?.data.input === "string" ? triggerNode.data.input.trim() : "";
+    const nodeAttachments = (triggerNode?.data.attachments as AIAttachment[] | undefined) ?? [];
+
     const effectiveTriggerMessage =
       triggerMessage.trim() ||
+      nodeInput ||
       (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
+
+    const effectiveAttachments =
+      triggerAttachments.length > 0 ? triggerAttachments : nodeAttachments.length > 0 ? nodeAttachments : undefined;
 
     const payload = {
       input: {
@@ -1135,7 +1226,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         testEmail: testEmail.trim() || undefined,
         inboundSmsBody: effectiveTriggerMessage,
         latestMessage: effectiveTriggerMessage,
-        attachments: triggerAttachments.length > 0 ? triggerAttachments : undefined
+        attachments: effectiveAttachments
       }
     };
 
@@ -1474,8 +1565,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onUseTestCalendarChange={setUseTestCalendar}
             onDeleteTestEvent={(id) => void deleteTestEvent(id)}
             onTestEmailChange={setTestEmail}
-            onTriggerMessageChange={setTriggerMessage}
-            onTriggerAttachmentsChange={setTriggerAttachments}
+            onTriggerMessageChange={handleTriggerMessageChange}
+            onTriggerAttachmentsChange={handleTriggerAttachmentsChange}
           />
         ) : null}
 

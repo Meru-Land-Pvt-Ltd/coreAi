@@ -1350,7 +1350,11 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const isManual = selectedNode.data.type === "trigger.manual";
+  const isManual =
+    selectedNode.data.type === "trigger.manual" ||
+    selectedNode.data.type === "manual_trigger" ||
+    selectedNode.data.nodeKind === "trigger" ||
+    String(selectedNode.data.kind ?? "").toUpperCase() === "TRIGGER";
 
   if (isManual) {
     const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
