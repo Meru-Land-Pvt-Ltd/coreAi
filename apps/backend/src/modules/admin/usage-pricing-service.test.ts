@@ -229,6 +229,11 @@ describe("buyer-safe pricing projection", () => {
     expect(view.currency).toBe("USD");
     expect(view.voice.billingRatePerMinuteUsd).toBeCloseTo(0.0664, 6);
     expect(view.voice.serviceBreakdown).toHaveLength(6);
+    expect(view.voice.serviceBreakdown[0]).toMatchObject({
+      invoiceLabel: "Inbound call connectivity",
+      billingRateUsd: 0.0085
+    });
+    expect(view.voice.serviceBreakdown[0]).not.toHaveProperty("serviceName");
     expect(view.sms?.billingRateUsd).toBeCloseTo(0.01, 6);
     expect(view.phoneNumber?.billingRateUsd).toBeCloseTo(2.0, 6);
     // phone number billed at $2.00 even though vendor cost is $1.15 — and the

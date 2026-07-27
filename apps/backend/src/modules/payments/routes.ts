@@ -43,8 +43,34 @@ import { OWNED_PAYMENT_STATUSES, resolveActivePayment, hasLegacyActiveSubscripti
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import { restoreBusinessAfterBillingPayment } from "../business/billing-cycle";
 import { createSettlementForPayment } from "../payouts/settlements";
+import { buildListingUsagePricing } from "./listing-usage-pricing";
 
 export const paymentRoutes = new Hono();
+
+/**
+ * Public buyer-safe execution pricing for the marketing pricing page and
+ * unauthenticated marketplace surfaces. Billing rates only — vendor actual
+ * costs are removed by buyerExecutionPricingView.
+ */
+paymentRoutes.get("/execution-pricing", async (c) => {
+  const [buyerPricing, phoneNumberBilling] = await Promise.all([
+    loadActiveUsageServicePricing().then(buyerExecutionPricingView),
+    getPhoneNumberBillingState()
+  ]);
+
+  return successResponse(c, {
+    executionPricing: {
+      billingType: "USAGE_BASED" as const,
+      unit: "PER_MINUTE" as const,
+      ratePerMinuteUsd: buyerPricing.voice.billingRatePerMinuteUsd,
+      currency: buyerPricing.currency,
+      voice: buyerPricing.voice,
+      sms: buyerPricing.sms,
+      phoneNumber: buyerPricing.phoneNumber
+    },
+    phoneNumberBilling
+  });
+});
 
 paymentRoutes.use("*", requireAuth);
 paymentRoutes.use("*", requireRole(["BUSINESS"]));
@@ -432,32 +458,6 @@ paymentRoutes.get("/config", (c) => {
   return successResponse(c, {
     publishableKey: env.STRIPE_PUBLISHABLE_KEY ?? null,
     stripeEnabled: isStripeConfigured()
-  });
-});
-
-/**
- * Buyer-safe execution pricing for every buyer surface (marketplace, agent
- * detail, checkout, dashboards). Billing rates only — vendor actual costs are
- * never exposed. Null rates mean "usage pricing unavailable", never zero, and
- * phone-number billing reports an honest enabled/disabled state.
- */
-paymentRoutes.get("/execution-pricing", async (c) => {
-  const [buyerPricing, phoneNumberBilling] = await Promise.all([
-    loadActiveUsageServicePricing().then(buyerExecutionPricingView),
-    getPhoneNumberBillingState()
-  ]);
-
-  return successResponse(c, {
-    executionPricing: {
-      billingType: "USAGE_BASED" as const,
-      unit: "PER_MINUTE" as const,
-      ratePerMinuteUsd: buyerPricing.voice.billingRatePerMinuteUsd,
-      currency: buyerPricing.currency,
-      voice: buyerPricing.voice,
-      sms: buyerPricing.sms,
-      phoneNumber: buyerPricing.phoneNumber
-    },
-    phoneNumberBilling
   });
 });
 
@@ -1227,7 +1227,8 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
       priceCents: true,
       pricingModel: true,
       freeTrialEnabled: true,
-      trialDays: true
+      trialDays: true,
+      requiredConnectors: true
     }
   });
 
@@ -1259,20 +1260,15 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     isTrialing;
 
   // Canonical pricing service, buyer-safe fields only (billing rates).
-  const usagePricingRecords = await loadActiveUsageServicePricing();
-  const usageServices = usagePricingRecords.map((record) => ({
-    code: record.serviceId,
-    name: record.name,
-    unit: record.unit,
-    updatedCostMicroUsd: record.billingCostMicroUsd
-  }));
-  const perMinuteMicroUsd = usageServices
-    .filter((service) => service.unit === "PER_MINUTE")
-    .reduce((sum, service) => sum + service.updatedCostMicroUsd, 0);
-
   const needsPhone = await listingNeedsPhoneNumber(listing.id);
   const phoneFee = needsPhone ? await getPhoneNumberFee() : null;
   const phoneNumberBilling = await getPhoneNumberBillingState();
+  const usagePricing = buildListingUsagePricing({
+    records: await loadActiveUsageServicePricing(),
+    requiredConnectors: listing.requiredConnectors,
+    needsPhoneNumber: needsPhone,
+    phoneNumberBillingEnabled: phoneNumberBilling.enabled
+  });
 
   return successResponse(c, {
     listingId: listing.id,
@@ -1288,15 +1284,7 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     // instead of displaying a payable rate that is never charged.
     phoneNumberBilling,
     currency: "usd",
-    usagePricing: {
-      perMinuteUsd: perMinuteMicroUsd / 1_000_000,
-      services: usageServices.map((service) => ({
-        code: service.code,
-        name: service.name,
-        unit: service.unit,
-        unitPriceUsd: service.updatedCostMicroUsd / 1_000_000
-      }))
-    },
+    usagePricing,
     canStartTrial: listing.freeTrialEnabled && !anyPayment && !installedAgent,
     hasActiveAccess: Boolean(activePayment) || paymentlessInstall,
     trialUsed: anyPayment,

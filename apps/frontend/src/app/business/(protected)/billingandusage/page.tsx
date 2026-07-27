@@ -829,10 +829,13 @@ export default function BusinessBillingUsagePage() {
         ?? usageAgents.reduce((sum, agent) => sum + agent.billedCostUsd, 0);
     const averageUsageCostUsd = usage?.averageCostUsd
         ?? (selectedUsageExecutions > 0 ? selectedUsageCostUsd / selectedUsageExecutions : 0);
-    const currentMonthCostCents = billing?.spendingAlert?.currentMonthCostCents
-        ?? (currentUsage
-            ? Math.round((currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd) * 100)
-            : billing?.summary.currentMonthExecutionCostCents ?? 0);
+    const currentMonthCostCents = currentUsage
+        ? Math.round(
+            (currentUsage.totalCostUsd ?? currentUsage.totalBilledUsd) * 100
+        )
+        : billing?.spendingAlert?.currentMonthCostCents
+            ?? billing?.summary.currentMonthExecutionCostCents
+            ?? 0;
     const totalAgentFees = formatCurrencyCents(billing?.summary.totalAgentFeesPaidCents);
 
     const paidPurchaseInvoices = invoices.filter((invoice) => purchaseInvoiceTab(invoice) === "paid");

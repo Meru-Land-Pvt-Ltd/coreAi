@@ -6,6 +6,10 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { CoreHeader as TrivenHeader } from "@/components/common/header";
 import { CoreFooter as TrivenFooter } from "@/components/common/footer";
 import {
+  formatUsdRate,
+  useBuyerExecutionPricing
+} from "@/components/business/execution-pricing-summary";
+import {
   ASSIGNMENT_PATH,
   BUSINESS_LOGIN_PATH,
   BUSINESS_MARKETPLACE_PUBLIC_PATH
@@ -35,13 +39,13 @@ const pricingSteps = [
   }
 ] as const;
 
-const executionFees = [
-  { title: "SMS Text Message", price: "$0.15", icon: "message" },
-  { title: "Phone Call", subtitle: "outbound", price: "$0.50", icon: "phone" },
-  { title: "Email Send", price: "$0.10", icon: "mail" },
-  { title: "Appointment Booking", price: "$0.25", icon: "calendar" },
-  { title: "Lead Capture & CRM Update", price: "$0.10", icon: "database" },
-  { title: "AI Conversation", subtitle: "multi-turn", price: "$0.30", icon: "chat" }
+const executionFeeIcons = [
+  "message",
+  "phone",
+  "mail",
+  "calendar",
+  "database",
+  "chat"
 ] as const;
 
 const priceOptions = [49, 100, 149, 249, 499];
@@ -91,6 +95,11 @@ export default function PricingPage() {
   const [executions, setExecutions] = useState(200);
   const [feeCents, setFeeCents] = useState(20);
   const [openFaq, setOpenFaq] = useState<string | null>(null);
+  const {
+    pricing: buyerPricing,
+    loading: executionPricingLoading,
+    error: executionPricingError
+  } = useBuyerExecutionPricing();
 
   useEffect(() => {
     const onScroll = () => setNavScrolled(window.scrollY > 8);
@@ -108,6 +117,8 @@ export default function PricingPage() {
 
   const execPercent = getRangePercent(executions, 50, 1000);
   const feePercent = getRangePercent(feeCents, 10, 50);
+  const executionServices =
+    buyerPricing?.executionPricing.voice.serviceBreakdown?.slice(0, 6) ?? [];
 
   return (
     <div className="min-h-screen bg-white font-sans text-slate-600 antialiased selection:bg-amber-500/20 selection:text-slate-900">
@@ -277,34 +288,51 @@ export default function PricingPage() {
               </p>
             </div>
 
-            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {executionFees.map((item) => (
-                <div
-                  key={item.title}
-                  className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-                      <FeeIcon name={item.icon} />
-                    </span>
+            {executionPricingLoading ? (
+              <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading execution pricing">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="h-[92px] animate-pulse rounded-xl border border-gray-100 bg-white"
+                  />
+                ))}
+              </div>
+            ) : executionPricingError || !executionServices.length ? (
+              <div className="mx-auto mt-12 max-w-xl rounded-xl border border-gray-200 bg-white p-6 text-center text-sm font-medium text-slate-500">
+                Service pricing is currently unavailable.
+              </div>
+            ) : (
+              <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {executionServices.map((service, index) => (
+                  <div
+                    key={service.serviceId}
+                    className="flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                    data-testid="pricing-execution-service"
+                  >
+                    <div className="flex min-w-0 items-center gap-4">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                        <FeeIcon name={executionFeeIcons[index]} />
+                      </span>
+                      <span
+                        className="truncate font-semibold text-slate-900"
+                        data-testid="pricing-execution-service-name"
+                      >
+                        {service.invoiceLabel}
+                      </span>
+                    </div>
 
-                    <span className="font-semibold text-slate-900" data-testid="pricing-title-subtitle-in-subtitle-text">
-                      {item.title}
-                      {"subtitle" in item && item.subtitle ? (
-                        <span className="font-normal text-slate-500" data-testid="pricing-subtitle-text">
-                          {" "}
-                          ({item.subtitle})
-                        </span>
-                      ) : null}
-                    </span>
+                    <div className="shrink-0 text-right">
+                      <span
+                        className="block text-xl font-extrabold tracking-tight text-amber-600"
+                        data-testid="pricing-execution-service-billing-cost"
+                      >
+                        {formatUsdRate(service.billingRateUsd)}
+                      </span>
+                    </div>
                   </div>
-
-                  <span className="text-2xl font-extrabold tracking-tight text-amber-600" data-testid="pricing-price-text">
-                    {item.price}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
             <p
               className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500"

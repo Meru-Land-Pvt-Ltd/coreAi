@@ -29,6 +29,10 @@ import {
     useBuyerExecutionPricing,
     type BuyerExecutionPricingPayload
 } from "@/components/business/execution-pricing-summary";
+import {
+    CheckoutUsageCharges,
+    type CheckoutUsageRate
+} from "@/components/business/checkout-usage-charges";
 
 type CheckoutWorkflowNode = {
     data?: {
@@ -102,8 +106,9 @@ type ListingAccess = {
     freeTrialEnabled?: boolean | null;
     trialDays?: number | null;
     usagePricing?: {
-        perMinuteUsd: number;
-        services: Array<{ code: string; name: string; unit: string; unitPriceUsd: number }>;
+        available: boolean;
+        perMinuteUsd: number | null;
+        services: CheckoutUsageRate[];
     };
 };
 
@@ -2032,6 +2037,11 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                         freeTrialEnabled={listingAccess?.freeTrialEnabled}
                                         trialDays={listingAccess?.trialDays}
                                         usageRatePerMinuteUsd={listingAccess?.usagePricing?.perMinuteUsd ?? null}
+                                        usageServices={
+                                            listingAccess?.usagePricing?.available
+                                                ? listingAccess.usagePricing.services
+                                                : []
+                                        }
                                         executionPricing={executionPricing}
                                         executionPricingLoading={executionPricingLoading}
                                         executionPricingUnavailable={executionPricingError}
@@ -2333,6 +2343,7 @@ function OrderSummary({
     freeTrialEnabled = true,
     trialDays = 7,
     usageRatePerMinuteUsd = null,
+    usageServices = [],
     executionPricing = null,
     executionPricingLoading = false,
     executionPricingUnavailable = false
@@ -2355,6 +2366,7 @@ function OrderSummary({
     trialDays?: number | null;
     /** Configured per-minute execution rate; null = no rate available at display time. */
     usageRatePerMinuteUsd?: number | null;
+    usageServices?: CheckoutUsageRate[];
     executionPricing?: BuyerExecutionPricingPayload | null;
     executionPricingLoading?: boolean;
     executionPricingUnavailable?: boolean;
@@ -2413,6 +2425,8 @@ function OrderSummary({
                         </ul>
                     </div>
                 ) : null}
+
+                {!isUsageMode ? <CheckoutUsageCharges services={usageServices} /> : null}
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">

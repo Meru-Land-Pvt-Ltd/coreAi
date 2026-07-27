@@ -93,6 +93,25 @@ function TrashIcon() {
   );
 }
 
+function ChartLineUpIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4v15a1 1 0 0 0 1 1h15" />
+      <polyline points="7 15 11 11 14 14 20 8" />
+      <polyline points="14 8 20 8 20 14" />
+    </svg>
+  );
+}
+
 const AGENT_FILTERS = ["All", "Live", "Draft", "In Review"] as const;
 type AgentFilter = (typeof AGENT_FILTERS)[number];
 
@@ -162,81 +181,321 @@ function formatRelativeTime(value: string) {
   return formatter.format(elapsedSeconds, "second");
 }
 
+const REVENUE_RANGES = ["7D", "30D", "90D", "6M", "1Y"] as const;
+type RevenueRange = (typeof REVENUE_RANGES)[number];
+const EARNINGS_COLORS = ["#f59e0b", "#fbbf24", "#fcd34d", "#fde68a"];
+
+function revenuePointsForRange(
+  summary: ArchitectPayoutSummary | null,
+  range: RevenueRange
+): ArchitectPayoutSummary["chart"]["points"] {
+  if (!summary) return [];
+
+  const now = new Date();
+  const bucketSales = (
+    buckets: Array<{ label: string; start: Date; end: Date }>
+  ) =>
+    buckets.map((bucket) => {
+      const sales = summary.sales.filter((sale) => {
+        const occurredAt = new Date(sale.date);
+        return occurredAt >= bucket.start && occurredAt < bucket.end;
+      });
+      return {
+        label: bucket.label,
+        confirmedCents: sales
+          .filter((sale) => sale.architectEarningStatus === "APPROVED")
+          .reduce((sum, sale) => sum + sale.earningsCents, 0),
+        pendingCents: sales
+          .filter((sale) => sale.architectEarningStatus === "PENDING")
+          .reduce((sum, sale) => sum + sale.earningsCents, 0)
+      };
+    });
+
+  if (range === "7D") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    return bucketSales(
+      Array.from({ length: 7 }, (_, index) => {
+        const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+        return {
+          label: day.toLocaleDateString("en-US", { weekday: "short" }),
+          start: day,
+          end: new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+        };
+      })
+    );
+  }
+
+  if (range === "30D") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+    return bucketSales(
+      Array.from({ length: 6 }, (_, index) => {
+        const bucketStart = new Date(
+          start.getFullYear(),
+          start.getMonth(),
+          start.getDate() + index * 5
+        );
+        const bucketEnd = new Date(
+          start.getFullYear(),
+          start.getMonth(),
+          start.getDate() + (index + 1) * 5
+        );
+        return {
+          label: bucketStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          start: bucketStart,
+          end: bucketEnd
+        };
+      })
+    );
+  }
+
+  const monthCount = range === "90D" ? 3 : range === "6M" ? 6 : 12;
+  return bucketSales(
+    Array.from({ length: monthCount }, (_, index) => {
+      const offset = monthCount - 1 - index;
+      const month = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      return {
+        label: month.toLocaleDateString("en-US", { month: "short" }),
+        start: month,
+        end: new Date(month.getFullYear(), month.getMonth() + 1, 1)
+      };
+    })
+  );
+}
+
 function RevenueChart({
   points
 }: {
   points: ArchitectPayoutSummary["chart"]["points"];
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const width = 960;
+  const height = 280;
+  const padding = { left: 52, right: 14, top: 18, bottom: 30 };
+  const baseline = height - padding.bottom;
+  const chartHeight = baseline - padding.top;
+  const chartWidth = width - padding.left - padding.right;
   const values = points.map((point) => point.confirmedCents + point.pendingCents);
-  const maxCents = Math.max(...values, 1);
-  const yLabels = [1, 0.75, 0.5, 0.25, 0].map((ratio) => formatChartUsd(maxCents * ratio));
   const hasRevenue = values.some((value) => value > 0);
+  const rawMaximum = Math.max(...values, 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rawMaximum));
+  const normalizedMaximum = rawMaximum / magnitude;
+  const roundedMaximum =
+    normalizedMaximum <= 1
+      ? 1
+      : normalizedMaximum <= 2
+        ? 2
+        : normalizedMaximum <= 2.5
+          ? 2.5
+          : normalizedMaximum <= 5
+            ? 5
+            : 10;
+  const maxCents = Math.max(100, roundedMaximum * magnitude);
+  const coordinates = points.map((point, index) => {
+    const value = point.confirmedCents + point.pendingCents;
+    return {
+      ...point,
+      value,
+      x:
+        points.length <= 1
+          ? padding.left + chartWidth / 2
+          : padding.left + (index / (points.length - 1)) * chartWidth,
+      y: baseline - (value / maxCents) * chartHeight
+    };
+  });
+  const smoothPath = (chartPoints: Array<{ x: number; y: number }>) => {
+    if (!chartPoints.length) return "";
+    if (chartPoints.length === 1) {
+      return `M ${chartPoints[0].x.toFixed(2)} ${chartPoints[0].y.toFixed(2)}`;
+    }
+
+    let path = `M ${chartPoints[0].x.toFixed(2)} ${chartPoints[0].y.toFixed(2)}`;
+    for (let index = 0; index < chartPoints.length - 1; index += 1) {
+      const point0 = chartPoints[index - 1] ?? chartPoints[index];
+      const point1 = chartPoints[index];
+      const point2 = chartPoints[index + 1];
+      const point3 = chartPoints[index + 2] ?? point2;
+      const control1X = point1.x + (point2.x - point0.x) / 6;
+      const control1Y = point1.y + (point2.y - point0.y) / 6;
+      const control2X = point2.x - (point3.x - point1.x) / 6;
+      const control2Y = point2.y - (point3.y - point1.y) / 6;
+      path += ` C ${control1X.toFixed(2)} ${control1Y.toFixed(2)}, ${control2X.toFixed(2)} ${control2Y.toFixed(2)}, ${point2.x.toFixed(2)} ${point2.y.toFixed(2)}`;
+    }
+    return path;
+  };
+  const linePath = smoothPath(coordinates);
+  const areaPath = coordinates.length
+    ? `${linePath} L ${coordinates[coordinates.length - 1].x} ${baseline} L ${coordinates[0].x} ${baseline} Z`
+    : "";
+  const activePoint = activeIndex === null ? null : coordinates[activeIndex];
+  const activeTooltipLeft = activePoint
+    ? Math.min(89, Math.max(11, (activePoint.x / width) * 100))
+    : 50;
+  const activeTooltipAbove = Boolean(activePoint && activePoint.y > 112);
+  const visibleLabelStep = Math.max(1, Math.ceil(points.length / 7));
 
   return (
-    <div data-testid="architect-dashboard-revenue-chart">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" /> Confirmed
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-amber-200" /> Pending
-          </span>
-        </div>
-        <span className="text-xs font-medium text-slate-400">Last 12 months</span>
-      </div>
-      <div className="flex gap-3">
-        <div className="flex h-56 w-12 shrink-0 flex-col justify-between text-right text-[11px] text-slate-400">
-          {yLabels.map((label) => (
-            <span key={label}>{label}</span>
-          ))}
-        </div>
-        <div className="relative h-56 min-w-0 flex-1 border-b border-slate-200">
-          <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full flex-col justify-between">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <span key={index} className="h-px w-full bg-slate-100" />
-            ))}
-          </div>
-          <div className="absolute inset-0 flex items-end justify-around gap-1 px-1 sm:gap-2 sm:px-3">
-            {points.map((point, index) => {
-              const confirmedHeight = (point.confirmedCents / maxCents) * 100;
-              const pendingHeight = (point.pendingCents / maxCents) * 100;
-              return (
-                <div
-                  key={`${point.label}-${index}`}
-                  className="group relative flex h-full min-w-0 flex-1 flex-col justify-end pt-7"
-                  title={`${point.label}: ${formatUsd(point.confirmedCents)} confirmed, ${formatUsd(point.pendingCents)} pending`}
+    <div
+      className="relative h-[280px] w-full"
+      data-testid="architect-dashboard-revenue-chart"
+      onMouseLeave={() => setActiveIndex(null)}
+    >
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="block h-full w-full"
+        role="img"
+        aria-label="Revenue over time"
+      >
+        <defs>
+          <linearGradient id="architect-revenue-area" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.16" />
+            <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.015" />
+          </linearGradient>
+        </defs>
+
+        {[1, 0.75, 0.5, 0.25, 0].map((ratio) => {
+          const y = baseline - ratio * chartHeight;
+          return (
+            <g key={ratio}>
+              <line
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={y}
+                y2={y}
+                stroke="#eef2f7"
+                strokeWidth="1"
+                strokeDasharray="4 5"
+                vectorEffect="non-scaling-stroke"
+              />
+              <text
+                x={padding.left - 12}
+                y={y + 4}
+                textAnchor="end"
+                fill="#8ba0bd"
+                fontSize="11"
+              >
+                {formatChartUsd(maxCents * ratio)}
+              </text>
+            </g>
+          );
+        })}
+
+        {areaPath ? <path d={areaPath} fill="url(#architect-revenue-area)" /> : null}
+        {linePath ? (
+          <path
+            d={linePath}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+
+        {activePoint ? (
+          <g aria-hidden="true">
+            <line
+              x1={activePoint.x}
+              x2={activePoint.x}
+              y1={padding.top}
+              y2={baseline}
+              stroke="#f59e0b"
+              strokeWidth="1"
+              strokeDasharray="4 4"
+              opacity="0.5"
+              vectorEffect="non-scaling-stroke"
+            />
+            <circle
+              cx={activePoint.x}
+              cy={activePoint.y}
+              r="5"
+              fill="#f59e0b"
+              stroke="#ffffff"
+              strokeWidth="3"
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        ) : null}
+
+        {coordinates.map((point, index) => {
+          const previousX = coordinates[index - 1]?.x ?? padding.left;
+          const nextX = coordinates[index + 1]?.x ?? width - padding.right;
+          const left = index === 0 ? padding.left : (previousX + point.x) / 2;
+          const right =
+            index === coordinates.length - 1
+              ? width - padding.right
+              : (point.x + nextX) / 2;
+          const showLabel =
+            index % visibleLabelStep === 0 || index === coordinates.length - 1;
+
+          return (
+            <g key={`${point.label}-${index}`}>
+              {showLabel ? (
+                <text
+                  x={point.x}
+                  y={height - 8}
+                  textAnchor="middle"
+                  fill="#8ba0bd"
+                  fontSize="11"
+                  data-testid="architect-dashboard-revenue-x-axis"
                 >
-                  <div className="absolute left-1/2 top-0 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block">
-                    {formatUsd(point.confirmedCents + point.pendingCents)}
-                  </div>
-                  <div
-                    className="w-full rounded-t bg-amber-200 transition-all group-hover:bg-amber-300"
-                    style={{ height: `${pendingHeight}%`, minHeight: point.pendingCents > 0 ? 2 : 0 }}
-                  />
-                  <div
-                    className="w-full bg-amber-500 transition-all group-hover:bg-amber-600"
-                    style={{ height: `${confirmedHeight}%`, minHeight: point.confirmedCents > 0 ? 2 : 0 }}
-                  />
-                </div>
-              );
-            })}
+                  {point.label}
+                </text>
+              ) : null}
+              <rect
+                x={left}
+                y={padding.top}
+                width={Math.max(1, right - left)}
+                height={chartHeight}
+                fill="transparent"
+                tabIndex={0}
+                role="button"
+                aria-label={`${point.label}: total ${formatUsd(point.value)}, confirmed ${formatUsd(point.confirmedCents)}, pending ${formatUsd(point.pendingCents)}`}
+                onMouseEnter={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
+                onBlur={() => setActiveIndex(null)}
+              />
+            </g>
+          );
+        })}
+      </svg>
+
+      {activePoint ? (
+        <div
+          className="pointer-events-none absolute z-20 min-w-40 rounded-[10px] bg-slate-900 px-3 py-2 text-xs text-white shadow-xl"
+          style={{
+            left: `${activeTooltipLeft}%`,
+            top: `${(activePoint.y / height) * 100}%`,
+            transform: activeTooltipAbove
+              ? "translate(-50%, calc(-100% - 12px))"
+              : "translate(-50%, 12px)"
+          }}
+          role="status"
+        >
+          <p className="mb-1.5 font-semibold">{activePoint.label}</p>
+          <div className="space-y-1 text-slate-300">
+            <p className="flex justify-between gap-5">
+              <span>Total</span>
+              <strong className="font-semibold text-white">{formatUsd(activePoint.value)}</strong>
+            </p>
+            <p className="flex justify-between gap-5">
+              <span>Confirmed</span>
+              <strong className="font-semibold text-white">{formatUsd(activePoint.confirmedCents)}</strong>
+            </p>
+            <p className="flex justify-between gap-5">
+              <span>Pending</span>
+              <strong className="font-semibold text-white">{formatUsd(activePoint.pendingCents)}</strong>
+            </p>
           </div>
-          {!hasRevenue ? (
-            <div className="absolute inset-0 grid place-items-center text-sm font-medium text-slate-400">
-              No revenue recorded yet
-            </div>
-          ) : null}
         </div>
-      </div>
-      <div className="mt-3 flex gap-3">
-        <div className="w-12 shrink-0" />
-        <div className="flex flex-1 justify-around text-[10px] font-medium text-slate-400 sm:text-[11px]" data-testid="architect-dashboard-revenue-x-axis">
-          {points.map((point, index) => (
-            <span key={`${point.label}-${index}`}>{point.label}</span>
-          ))}
+      ) : null}
+
+      {!hasRevenue ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm font-medium text-slate-400">
+          No revenue recorded yet
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -302,12 +561,6 @@ function MetricCard({
   );
 }
 
-function activityTone(type: ArchitectDashboardActivity["type"]) {
-  if (type === "SALE") return "bg-green-50 text-green-600";
-  if (type === "PAYOUT") return "bg-blue-50 text-blue-600";
-  return "bg-amber-50 text-amber-600";
-}
-
 function ActivityFeed({
   activities,
   loading
@@ -317,9 +570,9 @@ function ActivityFeed({
 }) {
   if (loading && !activities.length) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-5 border-l border-gray-100 pl-6">
         {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="h-14 animate-pulse rounded-xl bg-gray-50" />
+          <div key={index} className="h-10 animate-pulse rounded-lg bg-gray-50" />
         ))}
       </div>
     );
@@ -330,46 +583,93 @@ function ActivityFeed({
   }
 
   return (
-    <div className="activity-scrollbar max-h-60 divide-y divide-gray-100 overflow-y-auto pr-2" data-testid="architect-dashboard-activity-feed">
-      {activities.map((activity) => (
-        <div key={activity.id} className="flex h-20 items-start gap-3 py-3 first:pt-0 last:pb-0">
-          <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${activityTone(activity.type)}`}>
-            {activity.type === "SALE" ? (
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-              </svg>
-            ) : activity.type === "PAYOUT" ? (
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
-                <path d="M5 21h14" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="4" y="8" width="16" height="12" rx="2.5" />
-                <path d="M12 8V4.5" />
-              </svg>
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-800">{activity.title}</p>
-                <p className="mt-0.5 truncate text-xs text-slate-500">{activity.description}</p>
-              </div>
-              {typeof activity.amountCents === "number" ? (
-                <span className="shrink-0 text-sm font-semibold text-green-600">
-                  {activity.type === "PAYOUT" ? "" : "+"}{formatUsd(activity.amountCents)}
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-              <span>{formatRelativeTime(activity.occurredAt)}</span>
-              <span aria-hidden="true">&middot;</span>
-              <span>{activity.status}</span>
-            </div>
-          </div>
-        </div>
-      ))}
+    <div className="activity-scrollbar h-[184px] overflow-y-auto pr-2">
+      <ol
+        className="relative min-h-full space-y-5 pl-8 pr-1 before:absolute before:bottom-6 before:left-2 before:top-2 before:w-px before:bg-slate-100"
+        data-testid="architect-dashboard-activity-feed"
+      >
+        {activities.map((activity) => {
+          const dotTone =
+            activity.type === "PAYOUT"
+              ? "bg-green-500 ring-green-100"
+              : activity.type === "SALE"
+                ? "bg-amber-500 ring-amber-100"
+                : "bg-slate-300 ring-slate-100";
+
+          return (
+            <li key={activity.id} className="relative min-h-11">
+              <span
+                className={`absolute -left-7 top-1 h-2.5 w-2.5 rounded-full ring-4 ${dotTone}`}
+                aria-hidden="true"
+              />
+              <p className="text-sm leading-5 text-slate-700">
+                <span className="font-semibold text-slate-900">{activity.title}</span>
+                {activity.description ? ` — ${activity.description}` : ""}
+                {typeof activity.amountCents === "number" ? (
+                  <span className="ml-1 font-semibold text-green-600">
+                    {activity.type === "PAYOUT" ? "" : "+"}{formatUsd(activity.amountCents)}
+                  </span>
+                ) : null}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {formatRelativeTime(activity.occurredAt)} · {activity.status}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function EarningsDonut({
+  totalCents,
+  items
+}: {
+  totalCents: number;
+  items: Array<{ id: string; name: string; cents: number; color: string; percentage: number }>;
+}) {
+  const radius = 60;
+  const strokeWidth = 18;
+  const circumference = 2 * Math.PI * radius;
+  const segmentTotal = items.reduce((sum, item) => sum + item.cents, 0);
+  const segmentGap = items.length > 1 ? circumference * 0.018 : 0;
+  let consumed = 0;
+  const segments = items.map((item) => {
+    const fraction = segmentTotal > 0 ? item.cents / segmentTotal : 0;
+    const length = Math.max(fraction * circumference - segmentGap, 0);
+    const segment = { ...item, length, offset: consumed };
+    consumed += fraction * circumference;
+    return segment;
+  });
+
+  return (
+    <div className="relative h-40 w-40 shrink-0">
+      <svg viewBox="0 0 160 160" className="h-full w-full -rotate-90" role="img" aria-label="This month's earnings by agent">
+        <circle cx="80" cy="80" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={strokeWidth} />
+        {segments.map((segment) => (
+          <circle
+            key={segment.id}
+            cx="80"
+            cy="80"
+            r={radius}
+            fill="none"
+            stroke={segment.color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${segment.length} ${circumference}`}
+            strokeDashoffset={-segment.offset}
+            strokeLinecap="butt"
+          >
+            <title>{segment.name}: {formatUsd(segment.cents)}</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-xs text-slate-400">Earned</span>
+        <span className="text-xl font-black tracking-tight text-slate-900">
+          {formatUsd(totalCents)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -385,6 +685,7 @@ export default function ArchitectDashboardPage() {
   const [financialLoading, setFinancialLoading] = useState(true);
   const [activities, setActivities] = useState<ArchitectDashboardActivity[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [revenueRange, setRevenueRange] = useState<RevenueRange>("6M");
 
   useEffect(() => {
     const user = getAuthUser();
@@ -551,8 +852,69 @@ export default function ArchitectDashboardPage() {
   );
 
   const topAgents = filteredAgents.slice(0, 6);
-  const currentMonthPendingCents =
-    payoutSummary?.chart.points[payoutSummary.chart.points.length - 1]?.pendingCents ?? 0;
+  const revenuePoints = useMemo(
+    () => revenuePointsForRange(payoutSummary, revenueRange),
+    [payoutSummary, revenueRange]
+  );
+  const projectedEarningsCents = useMemo(() => {
+    const earned = payoutSummary?.thisMonthEarningsCents ?? 0;
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return now.getDate() > 0
+      ? Math.round((earned / now.getDate()) * daysInMonth)
+      : earned;
+  }, [payoutSummary?.thisMonthEarningsCents]);
+  const monthlyEarningsBreakdown = useMemo(() => {
+    if (!payoutSummary) return [];
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const byListing = new Map<string, { id: string; name: string; cents: number }>();
+
+    for (const sale of payoutSummary.sales) {
+      const date = new Date(sale.date);
+      if (
+        sale.architectEarningStatus !== "APPROVED" ||
+        date < monthStart ||
+        date >= nextMonth
+      ) {
+        continue;
+      }
+      const current = byListing.get(sale.listingId) ?? {
+        id: sale.listingId,
+        name: sale.listingName,
+        cents: 0
+      };
+      current.cents += sale.earningsCents;
+      byListing.set(sale.listingId, current);
+    }
+
+    const sorted = [...byListing.values()].sort((left, right) => right.cents - left.cents);
+    const visible = sorted.slice(0, 3);
+    const remainingCents = sorted
+      .slice(3)
+      .reduce((sum, item) => sum + item.cents, 0);
+    if (remainingCents > 0) {
+      visible.push({ id: "other-agents", name: "Other agents", cents: remainingCents });
+    }
+    if (visible.length === 0 && payoutSummary.thisMonthEarningsCents > 0) {
+      visible.push({
+        id: "agent-earnings",
+        name: "Agent earnings",
+        cents: payoutSummary.thisMonthEarningsCents
+      });
+    }
+
+    const total = Math.max(
+      payoutSummary.thisMonthEarningsCents,
+      visible.reduce((sum, item) => sum + item.cents, 0)
+    );
+    return visible.map((item, index) => ({
+      ...item,
+      color: EARNINGS_COLORS[index % EARNINGS_COLORS.length],
+      percentage: total > 0 ? Math.round((item.cents / total) * 100) : 0
+    }));
+  }, [payoutSummary]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-slate-900">
@@ -617,13 +979,7 @@ export default function ArchitectDashboardPage() {
               )
             }
             testId="architect-dashboard-total-installs-text"
-            icon={
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-            }
+            icon={<ChartLineUpIcon className="h-5 w-5" />}
           />
           <MetricCard
             label="Active Agents"
@@ -648,24 +1004,46 @@ export default function ArchitectDashboardPage() {
         </section>
 
         <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-8" data-testid="architect-dashboard-revenue-section">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900" data-testid="architect-dashboard-revenue-overview-heading">Revenue Overview</h2>
-              <p className="mt-1 text-sm text-slate-500">Confirmed and pending architect earnings from agent sales.</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Pending</p>
-              <p className="mt-1 text-sm font-bold text-amber-600" data-testid="architect-dashboard-pending-earnings-text">
-                {financialLoading ? "—" : formatUsd(payoutSummary?.pendingCents ?? 0)}
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900" data-testid="architect-dashboard-revenue-overview-heading">Revenue Overview</h2>
+            <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1" aria-label="Revenue range">
+              {REVENUE_RANGES.map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => setRevenueRange(range)}
+                  aria-pressed={revenueRange === range}
+                  className={
+                    revenueRange === range
+                      ? "rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
+                      : "rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+                  }
+                >
+                  {range}
+                </button>
+              ))}
             </div>
           </div>
           <div className="mt-6">
             {financialLoading ? (
               <div className="h-72 animate-pulse rounded-xl bg-gray-50" />
             ) : (
-              <RevenueChart points={payoutSummary?.chart.points ?? []} />
+              <RevenueChart points={revenuePoints} />
             )}
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-1 border-t border-gray-50 pt-4">
+            <p className="text-sm text-slate-600">
+              This month so far:{" "}
+              <span className="font-semibold text-slate-900">
+                {financialLoading ? "—" : formatUsd(payoutSummary?.thisMonthEarningsCents ?? 0)}
+              </span>
+            </p>
+            <p className="text-sm text-slate-600">
+              Projected:{" "}
+              <span className="font-semibold text-amber-600">
+                {financialLoading ? "—" : formatUsd(projectedEarningsCents)}
+              </span>
+            </p>
           </div>
         </section>
 
@@ -745,11 +1123,8 @@ export default function ArchitectDashboardPage() {
                     <div className="hidden items-center gap-8 md:flex">
                       <span className="w-12 text-right font-semibold text-slate-900" data-testid="architect-dashboard-agent-price-text">{formatMoney(agent.priceCents)}</span>
                       <span className="inline-flex items-center gap-1.5 text-sm text-slate-500" data-testid="architect-dashboard-agent-installs-text">
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 17 9 11 13 15 21 7" />
-                          <polyline points="14 7 21 7 21 14" />
-                        </svg>
-                        {agent.installCount ?? 0} Installs
+                        <ChartLineUpIcon />
+                        {agent.installCount ?? 0}
                       </span>
                     </div>
                     <span className={`inline-flex shrink-0 items-center gap-1.5 text-sm font-medium ${status.text}`} data-testid="architect-dashboard-agent-status-text">
@@ -799,12 +1174,7 @@ export default function ArchitectDashboardPage() {
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900">Activity</h2>
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" /> Live
-              </span>
-            </div>
+            <h2 className="text-lg font-bold text-slate-900">Activity</h2>
             <div className="mt-5">
               <ActivityFeed activities={activities} loading={activityLoading} />
             </div>
@@ -813,35 +1183,50 @@ export default function ArchitectDashboardPage() {
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:p-6">
             <h2 className="text-lg font-bold text-slate-900">This Month&apos;s Earnings</h2>
             {financialLoading ? (
-              <div className="mt-5 h-32 animate-pulse rounded-xl bg-gray-50" />
+              <div className="mt-5 h-40 animate-pulse rounded-xl bg-gray-50" />
             ) : (
-              <div className="mt-5" data-testid="architect-dashboard-monthly-earnings">
-                <p className="text-4xl font-black tracking-tight text-slate-900">
-                  {formatUsd(payoutSummary?.thisMonthEarningsCents ?? 0)}
-                </p>
-                <p className="mt-1 text-sm font-medium text-slate-500">
-                  {payoutSummary?.thisMonthLabel ?? "This month"}
-                </p>
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-green-50 p-3">
-                    <p className="text-xs font-medium text-green-700">Approved sales</p>
-                    <p className="mt-1 text-xl font-bold text-green-700">
-                      {payoutSummary?.thisMonthSalesCount ?? 0}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-amber-50 p-3">
-                    <p className="text-xs font-medium text-amber-700">Pending this month</p>
-                    <p className="mt-1 text-xl font-bold text-amber-700">
-                      {formatUsd(currentMonthPendingCents)}
-                    </p>
-                  </div>
+              <div data-testid="architect-dashboard-monthly-earnings">
+                <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-center">
+                  <EarningsDonut
+                    totalCents={payoutSummary?.thisMonthEarningsCents ?? 0}
+                    items={monthlyEarningsBreakdown}
+                  />
+                  <ul className="w-full flex-1 space-y-3">
+                    {monthlyEarningsBreakdown.length ? (
+                      monthlyEarningsBreakdown.map((item) => (
+                        <li key={item.id} className="flex items-center justify-between gap-3">
+                          <span className="flex min-w-0 items-center gap-2.5 text-sm text-slate-600">
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <span className="truncate">{item.name}</span>
+                          </span>
+                          <span className="shrink-0 text-sm font-semibold text-slate-900">
+                            {formatUsd(item.cents)}{" "}
+                            <span className="font-normal text-slate-400">{item.percentage}%</span>
+                          </span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-sm text-slate-400">No earnings recorded this month.</li>
+                    )}
+                  </ul>
                 </div>
-                <Link
-                  href="/architect/payouts"
-                  className="mt-5 inline-flex text-sm font-semibold text-amber-600 hover:text-amber-700"
-                >
-                  View payout details →
-                </Link>
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-gray-50 pt-4">
+                  <p className="text-sm text-slate-600">
+                    Available for withdrawal:{" "}
+                    <span className="font-bold text-slate-900">
+                      {formatUsd(payoutSummary?.availableBalanceCents ?? 0)}
+                    </span>
+                  </p>
+                  <Link
+                    href="/architect/payouts"
+                    className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 hover:shadow-md"
+                  >
+                    Withdraw
+                  </Link>
+                </div>
               </div>
             )}
           </div>
@@ -850,98 +1235,98 @@ export default function ArchitectDashboardPage() {
 
       {menu
         ? (() => {
-            const agent = listings.find((item) => item.id === menu.agentId);
-            if (!agent) return null;
-            const isLive = agent.status === "APPROVED";
-            const isDraft = agent.status === "DRAFT";
-            const itemClass =
-              "flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-gray-50";
-            return (
-              <div
-                data-dash-menu
-                role="menu"
-                aria-label={`Actions for ${agent.name}`}
-                data-testid={`architect-dashboard-actions-menu-${agent.id}`}
-                className="fixed z-50 w-52 rounded-xl border border-gray-100 bg-white py-1.5 shadow-xl"
-                style={{ top: menu.top, left: menu.left }}
-              >
-                {isDraft ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setMenu(null);
-                      router.push(builderHrefFor(agent));
-                    }}
-                    data-testid={`architect-dashboard-menu-edit-${agent.id}`}
-                    className={itemClass}
-                  >
-                    <EditIcon />
-                    <span>Edit Agent</span>
-                  </button>
-                ) : null}
-
+          const agent = listings.find((item) => item.id === menu.agentId);
+          if (!agent) return null;
+          const isLive = agent.status === "APPROVED";
+          const isDraft = agent.status === "DRAFT";
+          const itemClass =
+            "flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-gray-50";
+          return (
+            <div
+              data-dash-menu
+              role="menu"
+              aria-label={`Actions for ${agent.name}`}
+              data-testid={`architect-dashboard-actions-menu-${agent.id}`}
+              className="fixed z-50 w-52 rounded-xl border border-gray-100 bg-white py-1.5 shadow-xl"
+              style={{ top: menu.top, left: menu.left }}
+            >
+              {isDraft ? (
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => void duplicateAgent(agent)}
-                  data-testid={`architect-dashboard-menu-duplicate-${agent.id}`}
+                  onClick={() => {
+                    setMenu(null);
+                    router.push(builderHrefFor(agent));
+                  }}
+                  data-testid={`architect-dashboard-menu-edit-${agent.id}`}
                   className={itemClass}
                 >
-                  <DuplicateIcon />
-                  <span>Duplicate</span>
+                  <EditIcon />
+                  <span>Edit Agent</span>
                 </button>
+              ) : null}
 
-                {isLive ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void duplicateAgent(agent)}
+                data-testid={`architect-dashboard-menu-duplicate-${agent.id}`}
+                className={itemClass}
+              >
+                <DuplicateIcon />
+                <span>Duplicate</span>
+              </button>
+
+              {isLive ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(null);
+                    router.push(architectAnalyticsPath(agent.id));
+                  }}
+                  data-testid={`architect-dashboard-menu-analytics-${agent.id}`}
+                  className={itemClass}
+                >
+                  <AnalyticsIcon />
+                  <span>View analytics</span>
+                </button>
+              ) : null}
+
+              {!isDraft ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(null);
+                    router.push(architectPublishingStatusPath(agent.id));
+                  }}
+                  data-testid={`architect-dashboard-menu-status-${agent.id}`}
+                  className={itemClass}
+                >
+                  <StatusIcon />
+                  <span>View status</span>
+                </button>
+              ) : null}
+
+              {isDraft ? (
+                <>
+                  <div className="my-1 border-t border-gray-100" />
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={() => {
-                      setMenu(null);
-                      router.push(architectAnalyticsPath(agent.id));
-                    }}
-                    data-testid={`architect-dashboard-menu-analytics-${agent.id}`}
-                    className={itemClass}
+                    onClick={() => void deleteDraft(agent)}
+                    data-testid={`architect-dashboard-menu-delete-${agent.id}`}
+                    className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
                   >
-                    <AnalyticsIcon />
-                    <span>View analytics</span>
+                    <TrashIcon />
+                    <span>Delete Agent</span>
                   </button>
-                ) : null}
-
-                {!isDraft ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setMenu(null);
-                      router.push(architectPublishingStatusPath(agent.id));
-                    }}
-                    data-testid={`architect-dashboard-menu-status-${agent.id}`}
-                    className={itemClass}
-                  >
-                    <StatusIcon />
-                    <span>View status</span>
-                  </button>
-                ) : null}
-
-                {isDraft ? (
-                  <>
-                    <div className="my-1 border-t border-gray-100" />
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => void deleteDraft(agent)}
-                      data-testid={`architect-dashboard-menu-delete-${agent.id}`}
-                      className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
-                    >
-                      <TrashIcon />
-                      <span>Delete Agent</span>
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            );
-          })()
+                </>
+              ) : null}
+            </div>
+          );
+        })()
         : null}
 
       {toast ? (

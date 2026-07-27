@@ -21,8 +21,11 @@ import { countStandaloneBillableSms } from "./usage-billing";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import {
   customerFacingUsageLineItems,
+  repriceUsageInvoiceLineItems,
   rollupCustomerUsageLineItems,
   rollupRecordedUsageLineItems,
+  usageInvoiceBillingRateMicroUsd,
+  type UsageInvoiceBillingCostMap,
   type UsageInvoiceLabelMap
 } from "./usage-invoice-line-items";
 
@@ -115,7 +118,7 @@ export async function getBusinessExecutionUsage(c: Context) {
     executionMonths,
     invoiceMonths,
     standaloneSmsCount,
-    usageServiceLabels
+    usageServices
   ] = await Promise.all([
     prisma.agentUsageExecution.findMany({
       where: { businessId: business.id, billingMonth: month },
@@ -173,11 +176,28 @@ export async function getBusinessExecutionUsage(c: Context) {
     // discarded nor falsely attached to a call execution.
     countStandaloneBillableSms(business.id, selectedBounds),
     prisma.platformUsageService.findMany({
-      select: { code: true, role: true }
+      select: {
+        code: true,
+        role: true,
+        unit: true,
+        updatedCostMicroUsd: true,
+        isActive: true
+      }
     })
   ]);
   const invoiceLabels: UsageInvoiceLabelMap = new Map(
-    usageServiceLabels.map((service) => [service.code, service.role])
+    usageServices.map((service) => [service.code, service.role])
+  );
+  const invoiceBillingCosts: UsageInvoiceBillingCostMap = new Map(
+    usageServices
+      .filter((service) => service.isActive)
+      .map((service) => [
+        service.code,
+        {
+          unit: service.unit,
+          billingCostMicroUsd: service.updatedCostMicroUsd
+        }
+      ])
   );
 
   const agentsById = new Map(business.installedAgents.map((agent) => [agent.id, agent]));
@@ -216,7 +236,6 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostMicroUsd: 0,
       displayCostMicroUsd: 0
     };
-    const billedCostUsd = microUsdToUsd(stats.displayCostMicroUsd);
     const recordedLineItemGroups = calls
       .filter(
         (call) =>
@@ -234,21 +253,35 @@ export async function getBusinessExecutionUsage(c: Context) {
       serviceName: service.serviceName,
       unit: service.unit,
       quantity: service.quantity,
-      unitPriceUsd: (service.billingRateMicroUsd ?? 0) / 1_000_000,
+      unitPriceUsd:
+        (usageInvoiceBillingRateMicroUsd(service) ?? 0) / 1_000_000,
       billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
       amountCents: Math.round(
         service.billedCostMicroUsd / MICRO_USD_PER_CENT
       )
     }));
-    const invoiceServiceCosts = rollupCustomerUsageLineItems(
-      recordedLineItemGroups,
+    const repricedInvoiceServices = rollupCustomerUsageLineItems(
+      recordedLineItemGroups.map((items) =>
+        repriceUsageInvoiceLineItems(items, invoiceBillingCosts)
+      ),
       invoiceLabels
-    ).map((service) => ({
+    );
+    const invoiceBilledCostMicroUsd =
+      repricedInvoiceServices.length > 0
+        ? repricedInvoiceServices.reduce(
+            (sum, service) => sum + service.billedCostMicroUsd,
+            0
+          )
+        : stats.displayCostMicroUsd;
+    const billedCostUsd = microUsdToUsd(invoiceBilledCostMicroUsd);
+    const invoiceServiceCosts = repricedInvoiceServices.map((service) => ({
       serviceCode: service.serviceCode,
       serviceName: service.invoiceLabel ?? service.serviceName,
       invoiceLabel: service.invoiceLabel ?? service.serviceName,
       unit: service.unit,
       quantity: service.quantity,
+      unitPriceUsd:
+        (usageInvoiceBillingRateMicroUsd(service) ?? 0) / 1_000_000,
       billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
       amountCents: Math.round(
         service.billedCostMicroUsd / MICRO_USD_PER_CENT
@@ -271,9 +304,11 @@ export async function getBusinessExecutionUsage(c: Context) {
       billableExecutions: stats.billableExecutions,
       freeTrialExecutions: stats.freeTrialExecutions,
       durationMinutes: callDurationByAgent.get(agent.id) ?? 0,
-      billedCostMicroUsd: stats.displayCostMicroUsd,
+      billedCostMicroUsd: invoiceBilledCostMicroUsd,
       billedCostUsd,
-      amountCents: Math.round(stats.displayCostMicroUsd / MICRO_USD_PER_CENT),
+      amountCents: Math.round(
+        invoiceBilledCostMicroUsd / MICRO_USD_PER_CENT
+      ),
       actualCostMicroUsd: stats.actualCostMicroUsd,
       actualCostUsd: microUsdToUsd(stats.actualCostMicroUsd),
       averageCostPerExecutionUsd:
@@ -284,13 +319,14 @@ export async function getBusinessExecutionUsage(c: Context) {
         0,
         agent.trialExecutionLimit - agent.trialExecutionsUsed
       ),
-      serviceCosts: detailedServiceCosts,
+      recordedServiceCosts: detailedServiceCosts,
+      serviceCosts: invoiceServiceCosts,
       invoiceServiceCosts
     };
   });
 
-  const totalMicroUsd = executions.reduce(
-    (sum, row) => sum + row.amountMicroUsd + row.legacyBilledCostMicroUsd,
+  const totalMicroUsd = agentRollup.reduce(
+    (sum, agent) => sum + agent.billedCostMicroUsd,
     0
   );
   const totalActualMicroUsd = executions.reduce(
@@ -342,7 +378,12 @@ export async function getBusinessExecutionUsage(c: Context) {
             chargedCallIds.has(call.callId) &&
             Array.isArray(call.usageLineItemsJson)
         )
-        .map((call) => call.usageLineItemsJson as unknown as UsageLineItem[])
+        .map((call) =>
+          repriceUsageInvoiceLineItems(
+            call.usageLineItemsJson as unknown as UsageLineItem[],
+            invoiceBillingCosts
+          )
+        )
     ).map((service) => ({
       serviceCode: service.serviceCode,
       serviceName: service.serviceName,
@@ -376,16 +417,28 @@ export async function getBusinessExecutionUsage(c: Context) {
     })),
     calls: calls.map((call) => {
       const execution = executionByCallId.get(call.callId);
+      const repricedCallMicroUsd =
+        execution &&
+        chargedCallIds.has(call.callId) &&
+        Array.isArray(call.usageLineItemsJson)
+          ? repriceUsageInvoiceLineItems(
+              call.usageLineItemsJson as unknown as UsageLineItem[],
+              invoiceBillingCosts
+            ).reduce(
+              (sum, item) => sum + item.billedCostMicroUsd,
+              0
+            )
+          : execution?.amountMicroUsd ?? 0;
       return {
         callId: call.callId,
         customerPhone: call.customerPhone,
         installedAgentId: call.installedAgentId,
         durationMinutes: call.durationMinutes,
         durationSeconds: call.durationSeconds,
-        billedCostUsd: execution ? microUsdToUsd(execution.amountMicroUsd) : 0,
-        amountCents: execution
-          ? Math.round(execution.amountMicroUsd / MICRO_USD_PER_CENT)
-          : 0,
+        billedCostUsd: microUsdToUsd(repricedCallMicroUsd),
+        amountCents: Math.round(
+          repricedCallMicroUsd / MICRO_USD_PER_CENT
+        ),
         recordedAt: call.billingRecordedAt?.toISOString() ?? null,
         recordingUrl: call.recordingUrl ?? null
       };
@@ -402,7 +455,8 @@ function legacyAgentBreakdown(
     usageLineItemsJson?: unknown;
   }>,
   agentNames: Map<string, string>,
-  invoiceLabels: UsageInvoiceLabelMap
+  invoiceLabels: UsageInvoiceLabelMap,
+  invoiceBillingCosts: UsageInvoiceBillingCostMap
 ) {
   const rows = new Map<
     string,
@@ -432,14 +486,8 @@ function legacyAgentBreakdown(
     row.totalMicroUsd += call.billedCostMicroUsd ?? 0;
     rows.set(key, row);
   }
-  return [...rows.values()].map((row) => ({
-    ...row,
-    callCount: row.executionCount,
-    billableExecutions: row.executionCount,
-    freeTrialExecutions: 0,
-    billedCostUsd: microUsdToUsd(row.totalMicroUsd),
-    amountCents: Math.round(row.totalMicroUsd / MICRO_USD_PER_CENT),
-    serviceCosts: detailedInvoiceServiceCosts(
+  return [...rows.values()].map((row) => {
+    const serviceCosts = detailedInvoiceServiceCosts(
       calls.map((call, index) => ({
         callId: call.callId ?? `legacy-${index}`,
         installedAgentId: call.installedAgentId,
@@ -447,9 +495,27 @@ function legacyAgentBreakdown(
         billedCostMicroUsd: call.billedCostMicroUsd,
         usageLineItemsJson: call.usageLineItemsJson
       })).filter((call) => call.installedAgentId === row.installedAgentId),
-      invoiceLabels
-    )
-  }));
+      invoiceLabels,
+      invoiceBillingCosts
+    );
+    const billedCostMicroUsd = serviceCosts.reduce(
+      (sum, service) => sum + service.amountMicroUsd,
+      0
+    );
+
+    return {
+      ...row,
+      totalMicroUsd: billedCostMicroUsd,
+      callCount: row.executionCount,
+      billableExecutions: row.executionCount,
+      freeTrialExecutions: 0,
+      billedCostUsd: microUsdToUsd(billedCostMicroUsd),
+      amountCents: Math.round(
+        billedCostMicroUsd / MICRO_USD_PER_CENT
+      ),
+      serviceCosts
+    };
+  });
 }
 
 type InvoiceUsageCall = {
@@ -462,12 +528,18 @@ type InvoiceUsageCall = {
 
 function detailedInvoiceServiceCosts(
   calls: InvoiceUsageCall[],
-  invoiceLabels: UsageInvoiceLabelMap
+  invoiceLabels: UsageInvoiceLabelMap,
+  invoiceBillingCosts: UsageInvoiceBillingCostMap
 ) {
   return rollupCustomerUsageLineItems(
     calls
       .filter((call) => Array.isArray(call.usageLineItemsJson))
-      .map((call) => call.usageLineItemsJson as unknown as UsageLineItem[]),
+      .map((call) =>
+        repriceUsageInvoiceLineItems(
+          call.usageLineItemsJson as unknown as UsageLineItem[],
+          invoiceBillingCosts
+        )
+      ),
     invoiceLabels
   ).map((service) => ({
     serviceCode: service.serviceCode,
@@ -475,6 +547,8 @@ function detailedInvoiceServiceCosts(
     invoiceLabel: service.invoiceLabel ?? service.serviceName,
     unit: service.unit,
     quantity: service.quantity,
+    unitPriceUsd:
+      (usageInvoiceBillingRateMicroUsd(service) ?? 0) / 1_000_000,
     amountMicroUsd: service.billedCostMicroUsd,
     billedCostUsd: microUsdToUsd(service.billedCostMicroUsd),
     amountCents: Math.round(
@@ -488,7 +562,7 @@ export async function getBusinessExecutionInvoices(c: Context) {
   const business = await loadOwnedBusiness(authUser.id);
   if (!business) return successResponse(c, { invoices: [] });
 
-  const [invoices, usageServiceLabels] = await Promise.all([
+  const [invoices, usageServices] = await Promise.all([
     prisma.businessUsageInvoice.findMany({
       where: { businessId: business.id },
       orderBy: [
@@ -531,11 +605,28 @@ export async function getBusinessExecutionInvoices(c: Context) {
       }
     }),
     prisma.platformUsageService.findMany({
-      select: { code: true, role: true }
+      select: {
+        code: true,
+        role: true,
+        unit: true,
+        updatedCostMicroUsd: true,
+        isActive: true
+      }
     })
   ]);
   const invoiceLabels: UsageInvoiceLabelMap = new Map(
-    usageServiceLabels.map((service) => [service.code, service.role])
+    usageServices.map((service) => [service.code, service.role])
+  );
+  const invoiceBillingCosts: UsageInvoiceBillingCostMap = new Map(
+    usageServices
+      .filter((service) => service.isActive)
+      .map((service) => [
+        service.code,
+        {
+          unit: service.unit,
+          billingCostMicroUsd: service.updatedCostMicroUsd
+        }
+      ])
   );
   const invoiceCallIds = [
     ...new Set(
@@ -592,7 +683,12 @@ export async function getBusinessExecutionInvoices(c: Context) {
           invoiceCalls.filter(
             (call) => call.installedAgentId === stats.installedAgentId
           ),
-          invoiceLabels
+          invoiceLabels,
+          invoiceBillingCosts
+        );
+        const billedCostMicroUsd = serviceCosts.reduce(
+          (sum, service) => sum + service.amountMicroUsd,
+          0
         );
         return {
           agentId: stats.installedAgentId,
@@ -611,32 +707,44 @@ export async function getBusinessExecutionInvoices(c: Context) {
               (sum, call) => sum + (call.durationMinutes ?? 0),
               0
             ),
-          billedCostUsd: microUsdToUsd(stats.totalMicroUsd),
-          amountCents: Math.round(stats.totalMicroUsd / MICRO_USD_PER_CENT),
+          billedCostUsd: microUsdToUsd(billedCostMicroUsd),
+          amountCents: Math.round(
+            billedCostMicroUsd / MICRO_USD_PER_CENT
+          ),
           serviceCosts
         };
       });
       const agentBreakdown =
         canonicalBreakdown.length > 0
           ? canonicalBreakdown
-          : legacyAgentBreakdown(invoiceCalls, agentNames, invoiceLabels);
+          : legacyAgentBreakdown(
+              invoiceCalls,
+              agentNames,
+              invoiceLabels,
+              invoiceBillingCosts
+            );
       const executionCount =
         invoice.executions.length > 0
           ? invoice.executions.length
           : invoiceCalls.length;
       const detailedLineItems = detailedInvoiceServiceCosts(
         invoiceCalls,
-        invoiceLabels
+        invoiceLabels,
+        invoiceBillingCosts
       );
       const storedLineItems = customerFacingUsageLineItems(
-        invoice.lineItems.map((item) => ({
-          serviceCode: item.serviceCode,
-          serviceName: item.serviceName,
-          unit: item.unit,
-          quantity: item.quantity,
-          actualCostMicroUsd: 0,
-          billedCostMicroUsd: item.amountMicroUsd
-        })),
+        repriceUsageInvoiceLineItems(
+          invoice.lineItems.map((item) => ({
+            serviceCode: item.serviceCode,
+            serviceName: item.serviceName,
+            unit: item.unit,
+            quantity: item.quantity,
+            billingRateMicroUsd: item.unitPriceMicroUsd,
+            actualCostMicroUsd: 0,
+            billedCostMicroUsd: item.amountMicroUsd
+          })),
+          invoiceBillingCosts
+        ),
         invoiceLabels
       ).map((item) => ({
         serviceCode: item.serviceCode,
@@ -644,12 +752,20 @@ export async function getBusinessExecutionInvoices(c: Context) {
         invoiceLabel: item.invoiceLabel ?? item.serviceName,
         unit: item.unit,
         quantity: item.quantity,
+        unitPriceUsd:
+          (usageInvoiceBillingRateMicroUsd(item) ?? 0) / 1_000_000,
         amountMicroUsd: item.billedCostMicroUsd,
         amountUsd: microUsdToUsd(item.billedCostMicroUsd),
         amountCents: Math.round(
           item.billedCostMicroUsd / MICRO_USD_PER_CENT
         )
       }));
+      const lineItems =
+        detailedLineItems.length > 0 ? detailedLineItems : storedLineItems;
+      const totalMicroUsd = lineItems.reduce(
+        (sum, item) => sum + item.amountMicroUsd,
+        0
+      );
 
       return {
         id: invoice.id,
@@ -669,9 +785,9 @@ export async function getBusinessExecutionInvoices(c: Context) {
         issuedAt: invoice.issuedAt.toISOString(),
         dueAt: invoice.dueAt.toISOString(),
         graceEndsAt: invoice.graceEndsAt?.toISOString() ?? null,
-        totalMicroUsd: invoice.totalMicroUsd,
-        totalUsd: microUsdToUsd(invoice.totalMicroUsd),
-        amountCents: Math.round(invoice.totalMicroUsd / MICRO_USD_PER_CENT),
+        totalMicroUsd,
+        totalUsd: microUsdToUsd(totalMicroUsd),
+        amountCents: Math.round(totalMicroUsd / MICRO_USD_PER_CENT),
         paidAt: invoice.paidAt?.toISOString() ?? null,
         reminderCount: invoice.reminderCount,
         suspendedAt: invoice.suspendedAt?.toISOString() ?? null,
@@ -680,13 +796,13 @@ export async function getBusinessExecutionInvoices(c: Context) {
         isAccruing:
           status === "PENDING" && !invoice.paidAt && !invoice.closedAt,
         agentBreakdown,
-        lineItems:
-          detailedLineItems.length > 0
-            ? detailedLineItems.map((item) => ({
-                ...item,
-                amountUsd: item.billedCostUsd
-              }))
-            : storedLineItems
+        lineItems: lineItems.map((item) => ({
+          ...item,
+          amountUsd:
+            "billedCostUsd" in item
+              ? item.billedCostUsd
+              : item.amountUsd
+        }))
       };
     })
   });
@@ -703,12 +819,22 @@ export async function payBusinessExecutionInvoice(c: Context) {
     typeof body.paymentMethodId === "string"
       ? body.paymentMethodId.trim()
       : "";
-  const invoice = await prisma.businessUsageInvoice.findFirst({
-    where: { id: invoiceId, business: { ownerId: authUser.id } },
-    include: {
-      business: { select: { id: true, stripeCustomerId: true } }
-    }
-  });
+  const [invoice, paymentPricingServices] = await Promise.all([
+    prisma.businessUsageInvoice.findFirst({
+      where: { id: invoiceId, business: { ownerId: authUser.id } },
+      include: {
+        business: { select: { id: true, stripeCustomerId: true } }
+      }
+    }),
+    prisma.platformUsageService.findMany({
+      where: { isActive: true },
+      select: {
+        code: true,
+        unit: true,
+        updatedCostMicroUsd: true
+      }
+    })
+  ]);
   if (!invoice) {
     return errorResponse(c, "Invoice not found", 404, "USAGE_INVOICE_NOT_FOUND");
   }
@@ -727,6 +853,15 @@ export async function payBusinessExecutionInvoice(c: Context) {
   if (invoice.status === "VOID") {
     return errorResponse(c, "Invoice is void", 409, "USAGE_INVOICE_VOID");
   }
+  const paymentBillingCosts: UsageInvoiceBillingCostMap = new Map(
+    paymentPricingServices.map((service) => [
+      service.code,
+      {
+        unit: service.unit,
+        billingCostMicroUsd: service.updatedCostMicroUsd
+      }
+    ])
+  );
 
   const stripe = getStripeClient();
   if (!stripe || !isStripeConfigured()) {
@@ -857,7 +992,7 @@ export async function payBusinessExecutionInvoice(c: Context) {
       }
     }
 
-    const rows = await tx.businessUsageInvoice.findMany({
+    const storedRows = await tx.businessUsageInvoice.findMany({
       where: {
         businessId: fresh.businessId,
         installedAgentId: fresh.installedAgentId,
@@ -866,8 +1001,62 @@ export async function payBusinessExecutionInvoice(c: Context) {
         paidAt: null,
         status: { in: ["PENDING", "OPEN", "OVERDUE"] }
       },
-      orderBy: [{ billingMonth: "asc" }, { sequence: "asc" }]
+      orderBy: [{ billingMonth: "asc" }, { sequence: "asc" }],
+      include: {
+        lineItems: true
+      }
     });
+    const rows = [];
+    for (const row of storedRows) {
+      if (row.lineItems.length === 0) {
+        rows.push(row);
+        continue;
+      }
+
+      let repricedTotalMicroUsd = 0;
+      for (const lineItem of row.lineItems) {
+        const pricing = paymentBillingCosts.get(lineItem.serviceCode);
+        const unitPriceMicroUsd =
+          pricing?.billingCostMicroUsd ?? lineItem.unitPriceMicroUsd;
+        const amountMicroUsd = pricing
+          ? Math.round(unitPriceMicroUsd * Math.max(0, lineItem.quantity))
+          : lineItem.amountMicroUsd;
+        repricedTotalMicroUsd += amountMicroUsd;
+
+        if (
+          unitPriceMicroUsd !== lineItem.unitPriceMicroUsd ||
+          amountMicroUsd !== lineItem.amountMicroUsd ||
+          (pricing && pricing.unit !== lineItem.unit)
+        ) {
+          await tx.businessUsageInvoiceLineItem.update({
+            where: { id: lineItem.id },
+            data: {
+              unit: pricing?.unit ?? lineItem.unit,
+              unitPriceMicroUsd,
+              amountMicroUsd
+            }
+          });
+        }
+      }
+
+      if (
+        repricedTotalMicroUsd !== row.subtotalMicroUsd ||
+        repricedTotalMicroUsd !== row.totalMicroUsd
+      ) {
+        await tx.businessUsageInvoice.update({
+          where: { id: row.id },
+          data: {
+            subtotalMicroUsd: repricedTotalMicroUsd,
+            totalMicroUsd: repricedTotalMicroUsd
+          }
+        });
+      }
+      rows.push({
+        ...row,
+        subtotalMicroUsd: repricedTotalMicroUsd,
+        totalMicroUsd: repricedTotalMicroUsd
+      });
+    }
     const totalMicroUsd = rows.reduce((sum, row) => sum + row.totalMicroUsd, 0);
     if (!usageBalanceIsCollectible(totalMicroUsd)) {
       return {

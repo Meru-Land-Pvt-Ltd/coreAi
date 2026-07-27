@@ -14,6 +14,11 @@ import {
 } from "@/lib/routes";
 import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
+import {
+    calculateUsageInvoiceLineAmountUsd,
+    formatUsageInvoiceAmountUsd,
+    formatUsageInvoiceRate
+} from "@/components/business/usage-invoice-rate";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
@@ -82,6 +87,7 @@ type AgentUsageBreakdown = {
         invoiceLabel?: string;
         unit: string;
         quantity: number;
+        unitPriceUsd?: number;
         billedCostUsd: number;
         amountCents: number;
     }>;
@@ -91,6 +97,7 @@ type AgentUsageBreakdown = {
         invoiceLabel?: string;
         unit: string;
         quantity: number;
+        unitPriceUsd?: number;
         billedCostUsd: number;
         amountCents: number;
     }>;
@@ -114,6 +121,7 @@ type UsageInvoice = {
         invoiceLabel?: string;
         unit: string;
         quantity: number;
+        unitPriceUsd?: number;
         amountUsd?: number;
         amountCents: number;
     }>;
@@ -138,6 +146,10 @@ function formatUsageQuantity(service: {
     unit: string;
     quantity: number;
 }) {
+    if (service.serviceCode === "platform_service" && service.unit === "PER_UNIT") {
+        const units = Math.round(service.quantity);
+        return `${units} ${units === 1 ? "unit" : "units"}`;
+    }
     if (service.unit === "PER_MINUTE") return `${service.quantity.toFixed(2)} min`;
     if (service.unit === "PER_SMS") return `${service.quantity.toFixed(0)} SMS`;
     if (service.unit === "PER_CALL") {
@@ -410,23 +422,34 @@ export default function BusinessInvoiceDetailPage() {
             invoices: usageInvoices,
             currentMonth: usage.month,
             agents: usage.agentRollup
-        }).map(({ id, invoiceNumber, agent, executionCount }) => ({
-            id,
-            installedAgentId: agent.installedAgentId ?? agent.agentId,
-            invoiceNumber,
-            billingMonth: usage.month,
-            status: "PENDING",
-            amountCents: Math.round(agent.billedCostUsd * 100),
-            issuedAt: usage.updatedAt ?? new Date().toISOString(),
-            dueAt: usageDueAt(usage.month),
-            paidAt: null,
-            callCount: executionCount,
-            agentBreakdown: [{
-                ...agent,
-                serviceCosts: agent.invoiceServiceCosts ?? []
-            }],
-            isAccruing: true
-        }))
+        }).map(({ id, invoiceNumber, agent, executionCount }) => {
+            const serviceCosts = agent.invoiceServiceCosts ?? [];
+            const billedCostUsd = serviceCosts.reduce(
+                (sum, service) => sum + service.billedCostUsd,
+                0
+            );
+            const amountCents = Math.round(billedCostUsd * 100);
+
+            return {
+                id,
+                installedAgentId: agent.installedAgentId ?? agent.agentId,
+                invoiceNumber,
+                billingMonth: usage.month,
+                status: "PENDING" as const,
+                amountCents,
+                issuedAt: usage.updatedAt ?? new Date().toISOString(),
+                dueAt: usageDueAt(usage.month),
+                paidAt: null,
+                callCount: executionCount,
+                agentBreakdown: [{
+                    ...agent,
+                    billedCostUsd,
+                    amountCents,
+                    serviceCosts
+                }],
+                isAccruing: true
+            };
+        })
         : [];
     const allUsageInvoices = [...usageInvoices, ...currentUsageStatements];
     const scopedUsageInvoices = agentId
@@ -594,7 +617,16 @@ function UsageInvoiceCard({
     const serviceMap = new Map<string, AgentUsageBreakdown["serviceCosts"][number]>();
     for (const agent of displayedAgents) {
         for (const item of agent.serviceCosts) {
-            const existing = serviceMap.get(item.serviceCode) ?? { ...item, quantity: 0, billedCostUsd: 0, amountCents: 0 };
+            const current = serviceMap.get(item.serviceCode);
+            const existing = current ?? { ...item, quantity: 0, billedCostUsd: 0, amountCents: 0 };
+            if (
+                current &&
+                (typeof current.unitPriceUsd !== "number" ||
+                    typeof item.unitPriceUsd !== "number" ||
+                    current.unitPriceUsd !== item.unitPriceUsd)
+            ) {
+                delete existing.unitPriceUsd;
+            }
             existing.quantity += item.quantity;
             existing.billedCostUsd += item.billedCostUsd;
             existing.amountCents += item.amountCents;
@@ -610,6 +642,10 @@ function UsageInvoiceCard({
                 invoiceLabel: "Usage service",
                 unit: "PER_UNIT",
                 quantity: allocation.executionCount ?? allocation.callCount,
+                unitPriceUsd:
+                    (allocation.executionCount ?? allocation.callCount) > 0
+                        ? amountCents / 100 / (allocation.executionCount ?? allocation.callCount)
+                        : 0,
                 billedCostUsd: amountCents / 100,
                 amountCents
             });
@@ -620,6 +656,7 @@ function UsageInvoiceCard({
                 invoiceLabel: item.invoiceLabel,
                 unit: item.unit,
                 quantity: item.quantity,
+                unitPriceUsd: item.unitPriceUsd,
                 billedCostUsd: item.amountUsd ?? item.amountCents / 100,
                 amountCents: item.amountCents
             })));
@@ -633,12 +670,18 @@ function UsageInvoiceCard({
                     (sum, agent) => sum + (agent.executionCount ?? agent.callCount),
                     0
                 ),
+                unitPriceUsd: 0,
                 billedCostUsd: amountCents / 100,
                 amountCents
             });
         }
     }
     const isPaid = invoice.status === "PAID";
+    const displayedInvoiceTotalUsd = services.reduce(
+        (sum, service) => sum + calculateUsageInvoiceLineAmountUsd(service),
+        0
+    );
+    const displayedInvoiceTotal = formatUsageInvoiceAmountUsd(displayedInvoiceTotalUsd);
     const isSyntheticAccrual = invoice.id.startsWith("accrued-");
     const isPending = invoice.status === "PENDING" || invoice.status === "OPEN";
     const statusLabel = isPaid ? "PAID" : isPending ? "PENDING" : invoice.status;
@@ -682,20 +725,50 @@ function UsageInvoiceCard({
                     </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[520px] text-sm">
-                        <thead><tr className="bg-slate-50 text-slate-600"><th className="px-3 py-2.5 text-left">#</th><th className="px-3 py-2.5 text-left">Invoice item</th><th className="px-3 py-2.5 text-right">Usage</th><th className="px-3 py-2.5 text-right">Amount</th></tr></thead>
+                <div className="overflow-hidden">
+                    <table className="w-full table-fixed text-xs sm:text-sm">
+                        <colgroup>
+                            <col className="w-[5%]" />
+                            <col className="w-[43%]" />
+                            <col className="w-[18%]" />
+                            <col className="w-[4%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[4%]" />
+                            <col className="w-[12%]" />
+                        </colgroup>
+                        <thead>
+                            <tr className="bg-slate-50 text-slate-600">
+                                <th className="px-1.5 py-2.5 text-left">#</th>
+                                <th className="px-1.5 py-2.5 text-left">Invoice item</th>
+                                <th className="px-1 py-2.5 text-center">Rate</th>
+                                <th className="py-2.5" aria-label="Multiplied by" />
+                                <th className="px-1 py-2.5 text-center">Usage</th>
+                                <th className="py-2.5" aria-label="Equals" />
+                                <th className="px-1 py-2.5 text-center">Amount</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             {services.map((service, index) => (
                                 <tr key={service.serviceCode} data-testid="usage-invoice-line-item" className="border-b border-slate-100">
-                                    <td className="px-3 py-3 text-slate-400">{index + 1}</td>
-                                    <td className="px-3 py-3 font-medium text-slate-700">
-                                        {service.invoiceLabel ?? service.serviceName}
+                                    <td className="px-1.5 py-3 text-slate-400">{index + 1}</td>
+                                    <td className="px-1.5 py-3 font-medium text-slate-700">
+                                        <span className="block truncate">{service.invoiceLabel ?? service.serviceName}</span>
                                     </td>
-                                    <td className="px-3 py-3 text-right text-slate-500">
+                                    <td className="whitespace-nowrap px-1 py-3 text-right text-slate-500">
+                                        {formatUsageInvoiceRate(service)}
+                                    </td>
+                                    <td className="py-3 text-slate-400" aria-hidden="true">
+                                        <span className="mx-auto flex h-5 w-5 items-center justify-center font-semibold">×</span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-1 py-3 text-center text-slate-500">
                                         {formatUsageQuantity(service)}
                                     </td>
-                                    <td className="px-3 py-3 text-right font-mono font-semibold">${service.billedCostUsd.toFixed(2)}</td>
+                                    <td className="py-3 text-slate-400" aria-hidden="true">
+                                        <span className="mx-auto flex h-5 w-5 items-center justify-center font-semibold">=</span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-1 py-3 text-right font-mono font-semibold">
+                                        {formatUsageInvoiceAmountUsd(calculateUsageInvoiceLineAmountUsd(service))}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -704,10 +777,10 @@ function UsageInvoiceCard({
 
                 <div className="mt-6 flex justify-end">
                     <div className="w-full space-y-2 text-sm sm:w-72">
-                        <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatCurrencyCents(amountCents)}</span></div>
-                        <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold"><span>Total</span><span>{formatCurrencyCents(amountCents)}</span></div>
-                        <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? formatCurrencyCents(amountCents) : "$0.00"}</span></div>
-                        <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.00" : formatCurrencyCents(amountCents)}</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{displayedInvoiceTotal}</span></div>
+                        <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold"><span>Total</span><span>{displayedInvoiceTotal}</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? displayedInvoiceTotal : "$0.000"}</span></div>
+                        <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.000" : displayedInvoiceTotal}</span></div>
                     </div>
                 </div>
 

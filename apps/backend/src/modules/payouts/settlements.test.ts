@@ -123,7 +123,7 @@ describe("settlement creation", () => {
 });
 
 describe("hold and release", () => {
-  it("does not release held earnings before the hold expires or without admin approval", async () => {
+  it("does not release held earnings without admin approval", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("held", 10_000); // not approved
     await createSettlementForPayment(payment.id);
@@ -133,14 +133,10 @@ describe("hold and release", () => {
     expect(earning?.status).toBe("HELD");
   });
 
-  it("releases approved earnings whose hold has expired", async () => {
+  it("releases approved earnings even when their provisional hold date is still in the future", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("released", 10_000, { approved: true });
     await createSettlementForPayment(payment.id);
-    await prisma.architectEarning.update({
-      where: { paymentId: payment.id },
-      data: { holdUntil: new Date(Date.now() - 1000) }
-    });
 
     const released = await releaseEligibleEarnings(architectId);
     expect(released).toBeGreaterThanOrEqual(1);

@@ -65,8 +65,12 @@ button:disabled {
 }
 
 .activity-scrollbar {
-  scrollbar-color: #a3a3a3 #f1f1f1;
+  scrollbar-color: transparent transparent;
   scrollbar-width: thin;
+}
+
+.activity-scrollbar:hover {
+  scrollbar-color: #d1d5db transparent;
 }
 
 .activity-scrollbar::-webkit-scrollbar {
@@ -74,12 +78,16 @@ button:disabled {
 }
 
 .activity-scrollbar::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 999px;
+  background: transparent;
 }
 
 .activity-scrollbar::-webkit-scrollbar-thumb {
-  background: #a3a3a3;
+  background: transparent;
+  border-radius: 999px;
+}
+
+.activity-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: #d1d5db;
   border-radius: 999px;
 }
 

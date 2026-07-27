@@ -101,16 +101,17 @@ export async function transitionEarning(input: EarningTransitionInput) {
 }
 
 /**
- * Release HELD earnings whose hold has expired AND whose payment passed the
- * existing admin review gate (architectEarningStatus = APPROVED). Atomic
- * claim per row; bounded batch; restart-safe.
+ * Release HELD earnings once the existing admin review gate approves them.
+ * Unreviewed and rejected sales remain unavailable. Admin approval is the
+ * explicit release decision, so an approved earning must not continue showing
+ * as pending/held solely because its provisional hold date is still in the
+ * future. Atomic claim per row; bounded batch; restart-safe.
  */
 export async function releaseEligibleEarnings(architectUserId?: string): Promise<number> {
   const now = new Date();
   const candidates = await prisma.architectEarning.findMany({
     where: {
       status: "HELD",
-      holdUntil: { lte: now },
       livemode: stripeLivemode(),
       ...(architectUserId ? { architectUserId } : {}),
       payment: {

@@ -22,7 +22,12 @@ export type BuyerExecutionPricing = {
   currency: string;
   voice: {
     billingRatePerMinuteUsd: number | null;
-    serviceBreakdown?: Array<{ code: string; label: string; billingRatePerMinuteUsd: number }>;
+    serviceBreakdown?: Array<{
+      serviceId: string;
+      invoiceLabel: string;
+      unit: "PER_MINUTE" | "PER_SMS" | "PER_CALL" | "PER_UNIT";
+      billingRateUsd: number;
+    }>;
   };
   sms: { billingRatePerSmsUsd: number | null } | null;
   phoneNumber: { billingRateUsd: number | null } | null;

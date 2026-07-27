@@ -6,6 +6,74 @@ export const PLATFORM_USAGE_SERVICE_CODES = new Set([
 ]);
 
 export type UsageInvoiceLabelMap = ReadonlyMap<string, string | null>;
+export type UsageInvoiceBillingCostMap = ReadonlyMap<
+  string,
+  {
+    unit: UsageLineItem["unit"];
+    billingCostMicroUsd: number;
+  }
+>;
+
+/**
+ * Reprices buyer-facing invoice rows from the current active Admin Billing
+ * Cost. Recorded vendor/actual cost is never used by this projection.
+ */
+export function repriceUsageInvoiceLineItems(
+  items: UsageLineItem[],
+  billingCosts: UsageInvoiceBillingCostMap
+): UsageLineItem[] {
+  return items.map((item) => {
+    const pricing = billingCosts.get(item.serviceCode);
+    if (!pricing) return { ...item };
+
+    return {
+      ...item,
+      unit: pricing.unit,
+      billingRateMicroUsd: pricing.billingCostMicroUsd,
+      billedCostMicroUsd: Math.round(
+        pricing.billingCostMicroUsd * Math.max(0, item.quantity)
+      )
+    };
+  });
+}
+
+/**
+ * Customer billing rate for an invoice row, in micro-USD per unit.
+ *
+ * Prefer the Admin Billing Cost supplied on the invoice line. Current invoice
+ * projections supply the live active Admin rate; legacy projections can still
+ * supply their recorded snapshot. Aggregated rows without one common rate fall
+ * back to the effective rate so the visible rate reconciles with the amount.
+ */
+export function usageInvoiceBillingRateMicroUsd(
+  item: Pick<UsageLineItem, "quantity" | "billingRateMicroUsd" | "billedCostMicroUsd">
+): number | null {
+  if (
+    typeof item.billingRateMicroUsd === "number" &&
+    Number.isFinite(item.billingRateMicroUsd) &&
+    item.billingRateMicroUsd >= 0
+  ) {
+    return item.billingRateMicroUsd;
+  }
+  if (item.quantity > 0) {
+    return item.billedCostMicroUsd / item.quantity;
+  }
+  return null;
+}
+
+function mergeRateSnapshot(
+  existing: UsageLineItem,
+  item: UsageLineItem,
+  field: "actualRateMicroUsd" | "billingRateMicroUsd"
+) {
+  if (
+    typeof existing[field] !== "number" ||
+    typeof item[field] !== "number" ||
+    existing[field] !== item[field]
+  ) {
+    delete existing[field];
+  }
+}
 
 function customerServiceIdentity(
   item: UsageLineItem,
@@ -39,6 +107,50 @@ function customerServiceIdentity(
   };
 }
 
+function normalizePlatformUnitsForExecution(items: UsageLineItem[]) {
+  const normalized = items.map((item) => {
+    if (
+      !(
+        item.serviceCode === "platform_service" ||
+        PLATFORM_USAGE_SERVICE_CODES.has(item.serviceCode)
+      ) ||
+      item.unit !== "PER_UNIT" ||
+      (item.quantity <= 0 && item.billedCostMicroUsd <= 0)
+    ) {
+      return item;
+    }
+
+    const billingRateMicroUsd = usageInvoiceBillingRateMicroUsd(item);
+    const actualRateMicroUsd =
+      typeof item.actualRateMicroUsd === "number" &&
+      Number.isFinite(item.actualRateMicroUsd) &&
+      item.actualRateMicroUsd >= 0
+        ? item.actualRateMicroUsd
+        : item.quantity > 0
+          ? item.actualCostMicroUsd / item.quantity
+          : null;
+
+    return {
+      ...item,
+      quantity: 1,
+      ...(actualRateMicroUsd === null
+        ? {}
+        : {
+            actualRateMicroUsd,
+            actualCostMicroUsd: Math.round(actualRateMicroUsd)
+          }),
+      ...(billingRateMicroUsd === null
+        ? {}
+        : {
+            billingRateMicroUsd,
+            billedCostMicroUsd: Math.round(billingRateMicroUsd)
+          })
+    };
+  });
+
+  return normalized;
+}
+
 /**
  * Converts internal/vendor usage rows into buyer-safe invoice rows.
  * Admin Pricing's Invoice label is the only non-platform display name, while
@@ -66,8 +178,8 @@ export function customerFacingUsageLineItems(
     existing.actualCostMicroUsd += item.actualCostMicroUsd;
     existing.billedCostMicroUsd += item.billedCostMicroUsd;
     if (existing.unit !== item.unit) existing.unit = "PER_UNIT";
-    delete existing.actualRateMicroUsd;
-    delete existing.billingRateMicroUsd;
+    mergeRateSnapshot(existing, item, "actualRateMicroUsd");
+    mergeRateSnapshot(existing, item, "billingRateMicroUsd");
   }
 
   return [...grouped.values()];
@@ -77,7 +189,26 @@ export function rollupCustomerUsageLineItems(
   itemGroups: UsageLineItem[][],
   invoiceLabels: UsageInvoiceLabelMap
 ) {
-  return customerFacingUsageLineItems(itemGroups.flat(), invoiceLabels);
+  const perExecutionRows = itemGroups.flatMap((items) => {
+    const rows = customerFacingUsageLineItems(
+      normalizePlatformUnitsForExecution(items),
+      invoiceLabels
+    );
+    const platform = rows.find(
+      (item) =>
+        item.serviceCode === "platform_service" && item.unit === "PER_UNIT"
+    );
+
+    if (platform) {
+      platform.quantity = 1;
+      platform.billingRateMicroUsd = platform.billedCostMicroUsd;
+      platform.actualRateMicroUsd = platform.actualCostMicroUsd;
+    }
+
+    return rows;
+  });
+
+  return customerFacingUsageLineItems(perExecutionRows, invoiceLabels);
 }
 
 /**
@@ -100,8 +231,8 @@ export function rollupRecordedUsageLineItems(itemGroups: UsageLineItem[][]) {
     existing.actualCostMicroUsd += item.actualCostMicroUsd;
     existing.billedCostMicroUsd += item.billedCostMicroUsd;
     if (existing.unit !== item.unit) existing.unit = "PER_UNIT";
-    delete existing.actualRateMicroUsd;
-    delete existing.billingRateMicroUsd;
+    mergeRateSnapshot(existing, item, "actualRateMicroUsd");
+    mergeRateSnapshot(existing, item, "billingRateMicroUsd");
   }
 
   return [...grouped.values()];
